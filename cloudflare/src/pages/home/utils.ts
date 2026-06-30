@@ -231,4 +231,9 @@ function normalizeEntryKeywords(entry) {
   if (!entry || entry.key === null || entry.key === undefined || entry.key === '') return [];
   return Array.isArray(entry.key) ? entry.key : String(entry.key).split(',').map(item => item.trim()).filter(Boolean);
 }
+
+function normalizeEntrySecondaryKeywords(entry) {
+  if (!entry || entry.keysecondary === null || entry.keysecondary === undefined || entry.keysecondary === '') return [];
+  return Array.isArray(entry.keysecondary) ? entry.keysecondary : String(entry.keysecondary).split(',').map(item => item.trim()).filter(Boolean);
+}
 `;
