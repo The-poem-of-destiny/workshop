@@ -1,4 +1,5 @@
 import { fetchCreativeWorkshopProjectDetail } from './project-fetch';
+import { getReadableRegexName } from './regex-name';
 
 const CREATIVE_WORKSHOP_DIFF_CACHE_KEY = 'creative_workshop_diff_cache';
 const PROJECT_DIFF_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -64,11 +65,6 @@ function normalizeRemoteEntry(entry: Record<string, any>, projectId: string, ind
     key: JSON.stringify(Array.isArray(entry.key) ? entry.key : []),
     keysecondary: JSON.stringify(Array.isArray(entry.keysecondary) ? entry.keysecondary : []),
   };
-}
-
-function getReadableRegexName(projectName: string, entry: Record<string, any>, index: number) {
-  const name = entry.scriptName || entry.script_name || entry.id || `正则${index + 1}`;
-  return String(name).startsWith('[工坊]') ? String(name) : `[工坊] ${projectName} - ${name}`;
 }
 
 function diffByKey<T extends Record<string, any>>(localItems: T[], remoteItems: T[], keyGetter: (item: T) => string) {

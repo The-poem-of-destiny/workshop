@@ -40,6 +40,18 @@ function getSecondaryLogic(entry: Record<string, any>): WorldbookEntry['strategy
   return (Number(entry.selectiveLogic ?? 0) === 0 ? 'and_any' : 'and_all') as WorldbookEntry['strategy']['keys_secondary']['logic'];
 }
 
+function getProbability(entry: Record<string, any>) {
+  if (entry.useProbability !== undefined) return entry.useProbability ? (entry.probability ?? 100) : 100;
+  if (_.get(entry, 'probability') !== undefined) return _.get(entry, 'probability');
+  return 100;
+}
+
+function getRecursionDelayUntil(entry: Record<string, any>) {
+  if (_.get(entry, 'recursion.delay_until') !== undefined) return _.get(entry, 'recursion.delay_until');
+  if (entry.delayUntilRecursion !== undefined) return entry.delayUntilRecursion ? 1 : null;
+  return null;
+}
+
 export async function installCreativeWorkshopProject(projectId: string) {
   const detail = await fetchCreativeWorkshopProjectDetail(projectId);
   const worldbookName = getCurrentWorldbookName();
@@ -75,16 +87,16 @@ export async function installCreativeWorkshopProject(projectId: string) {
           role: fieldWithDefault(entry, 'position.role', 'role', 'system') as WorldbookEntry['position']['role'],
         },
         recursion: {
-          prevent_incoming: Boolean(entry.excludeRecursion),
-          prevent_outgoing: Boolean(entry.preventRecursion),
-          delay_until: entry.delayUntilRecursion ? 1 : null,
+          prevent_incoming: fieldWithDefault(entry, 'recursion.prevent_incoming', 'excludeRecursion', false),
+          prevent_outgoing: fieldWithDefault(entry, 'recursion.prevent_outgoing', 'preventRecursion', false),
+          delay_until: getRecursionDelayUntil(entry),
         },
         effect: {
           sticky: fieldWithDefault(entry, 'effect.sticky', 'sticky', null),
           cooldown: fieldWithDefault(entry, 'effect.cooldown', 'cooldown', null),
           delay: fieldWithDefault(entry, 'effect.delay', 'delay', null),
         },
-        probability: entry.useProbability ? (entry.probability ?? 100) : 100,
+        probability: getProbability(entry),
         content: entry.content || '',
         comment: entry.comment || name,
         extra: {
