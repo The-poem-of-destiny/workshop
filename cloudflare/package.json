@@ -7,6 +7,7 @@
 		"deploy:staging": "wrangler deploy --config wrangler.staging.jsonc",
 		"dev": "wrangler dev",
 		"dev:staging": "wrangler dev --config wrangler.staging.jsonc",
+		"check:staging": "wrangler deploy --dry-run --config wrangler.staging.jsonc",
 		"start": "wrangler dev",
 		"cf-typegen": "wrangler types",
 		"cf-typegen:staging": "wrangler types --config wrangler.staging.jsonc"
