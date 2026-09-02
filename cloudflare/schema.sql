@@ -46,6 +46,12 @@ CREATE TABLE IF NOT EXISTS projects (
 CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
 CREATE INDEX IF NOT EXISTS idx_projects_author ON projects(author_id);
 CREATE INDEX IF NOT EXISTS idx_projects_created ON projects(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_projects_public_created
+    ON projects(status, is_published, visibility, created_at DESC, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_projects_public_updated
+    ON projects(status, is_published, visibility, updated_at DESC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_projects_public_downloads
+    ON projects(status, is_published, visibility, downloads_count DESC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_users_guilds ON users(guilds);
 
 CREATE TABLE IF NOT EXISTS project_likes (
