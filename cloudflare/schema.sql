@@ -1,7 +1,7 @@
 -- 创意工坊数据库 Schema
--- 创建数据库: wrangler d1 create creative_workshop
+-- 用于新建环境（例如 creative_workshop_staging）的完整基线结构。
+-- 已存在的 production 数据库不要重新执行本文件来代替 migration。
 
--- 用户表
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL,
@@ -14,7 +14,6 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
--- 项目表
 CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -34,10 +33,16 @@ CREATE TABLE IF NOT EXISTS projects (
     reviewed_at TEXT,
     reviewer_id TEXT,
     reject_reason TEXT,
+    root_project_id TEXT,
+    published_project_id TEXT,
+    draft_project_id TEXT,
+    review_target TEXT DEFAULT 'project',
+    visibility INTEGER DEFAULT 1,
+    is_published INTEGER DEFAULT 0,
+    latest_approved_at TEXT,
     FOREIGN KEY (author_id) REFERENCES users(id)
 );
 
--- 创建索引
 CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
 CREATE INDEX IF NOT EXISTS idx_projects_author ON projects(author_id);
 CREATE INDEX IF NOT EXISTS idx_projects_created ON projects(created_at DESC);
@@ -66,7 +71,24 @@ CREATE INDEX IF NOT EXISTS idx_project_likes_user_id ON project_likes(user_id);
 CREATE INDEX IF NOT EXISTS idx_project_subscribes_project_id ON project_subscribes(project_id);
 CREATE INDEX IF NOT EXISTS idx_project_subscribes_user_id ON project_subscribes(user_id);
 
--- 管理员表 (可选，用于更细粒度的权限控制)
+CREATE TABLE IF NOT EXISTS admin_action_logs (
+    id TEXT PRIMARY KEY,
+    action TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id TEXT,
+    actor_id TEXT NOT NULL,
+    actor_name TEXT NOT NULL,
+    detail TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS super_admins (
+    user_id TEXT PRIMARY KEY,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    note TEXT
+);
+
+-- 旧版保留表。当前管理员权限实际使用 users.is_admin / super_admins。
 CREATE TABLE IF NOT EXISTS admins (
     user_id TEXT PRIMARY KEY,
     role TEXT DEFAULT 'moderator',

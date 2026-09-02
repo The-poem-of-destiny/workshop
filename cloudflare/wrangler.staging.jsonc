@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "poemofdestinycreativeworkshop-staging",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-02",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "creative_workshop_staging",
+      "database_id": "c3e74b23-d969-4f76-87a1-df2bf5fd63c2"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "SESSION_KV"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "R2_BUCKET"
+    }
+  ]
+}

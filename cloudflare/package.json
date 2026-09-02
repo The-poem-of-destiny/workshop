@@ -4,9 +4,12 @@
 	"private": true,
 	"scripts": {
 		"deploy": "wrangler deploy",
+		"deploy:staging": "wrangler deploy --config wrangler.staging.jsonc",
 		"dev": "wrangler dev",
+		"dev:staging": "wrangler dev --config wrangler.staging.jsonc",
 		"start": "wrangler dev",
-		"cf-typegen": "wrangler types"
+		"cf-typegen": "wrangler types",
+		"cf-typegen:staging": "wrangler types --config wrangler.staging.jsonc"
 	},
 	"dependencies": {
 		"chanfana": "^2.6.3",
