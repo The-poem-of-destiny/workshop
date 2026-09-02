@@ -6,6 +6,7 @@
 		"deploy": "wrangler deploy",
 		"deploy:staging": "wrangler deploy --config wrangler.staging.jsonc",
 		"deploy:frontend": "wrangler deploy --config wrangler.frontend.jsonc --profile personal",
+		"setup:frontend": "npm run deploy:frontend && npm run db:frontend:schema && npm run db:frontend:seed && npm run cf-typegen:frontend",
 		"dev": "wrangler dev",
 		"dev:staging": "wrangler dev --config wrangler.staging.jsonc",
 		"dev:frontend": "wrangler dev --config wrangler.frontend.jsonc",
