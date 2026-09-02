@@ -231,8 +231,8 @@ function openCreativeWorkshop() {
 
   const $closeButton = host$('<button type="button">退出</button>').css({
     position: 'fixed',
-    top: '12px',
-    right: '12px',
+    top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
+    right: 'calc(env(safe-area-inset-right, 0px) + 12px)',
     zIndex: 1,
     minHeight: '40px',
     padding: '0 14px',
@@ -276,9 +276,10 @@ function openCreativeWorkshop() {
     });
 
     $closeButton.css({
-      left: useFullscreenLayout ? '50%' : '',
-      right: useFullscreenLayout ? 'auto' : '12px',
-      transform: useFullscreenLayout ? 'translateX(-50%)' : 'none',
+      top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
+      left: 'auto',
+      right: 'calc(env(safe-area-inset-right, 0px) + 12px)',
+      transform: 'none',
     });
   };
 
