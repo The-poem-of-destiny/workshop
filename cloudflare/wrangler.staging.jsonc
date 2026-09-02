@@ -2,7 +2,15 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "poemofdestinycreativeworkshop-staging",
   "main": "src/index.ts",
-  "compatibility_date": "2026-09-02",
+  "compatibility_date": "2026-03-12",
+  "dev": {
+    "port": 8790
+  },
+  "vars": {
+    "ALLOWED_GUILD_IDS": "",
+    "ADMIN_ROLE_IDS": "",
+    "SUPER_ADMIN_USER_ID": ""
+  },
   "d1_databases": [
     {
       "binding": "DB",
