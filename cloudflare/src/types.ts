@@ -12,6 +12,7 @@ export const ProjectReviewTarget = z.enum(['project', 'draft']);
 export type ProjectReviewTarget = z.infer<typeof ProjectReviewTarget>;
 
 export const WorldbookEntryPreview = z.object({
+  entryKey: z.string().optional(),
   uid: z.string().optional(),
   comment: z.string().optional(),
   content: z.string().optional(),
@@ -23,6 +24,7 @@ export const WorldbookEntryPreview = z.object({
 });
 
 export const RegexEntryPreview = z.object({
+  entryKey: z.string().optional(),
   id: z.string().optional(),
   scriptName: z.string().optional(),
   findRegex: z.string().optional(),

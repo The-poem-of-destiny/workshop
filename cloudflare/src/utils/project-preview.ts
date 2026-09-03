@@ -1,4 +1,5 @@
 import type { RegexEntryPreviewType, WorldbookEntryPreviewType } from '../types';
+import { extractProjectEntries } from './project-content';
 
 function safeParseJson(text: string): unknown {
   try {
@@ -10,19 +11,10 @@ function safeParseJson(text: string): unknown {
 
 export function parseWorldbookEntriesPreview(projectFileText: string): WorldbookEntryPreviewType[] {
   const raw = safeParseJson(projectFileText);
-  const entries = Array.isArray(raw)
-    ? raw
-    : Array.isArray((raw as { entries?: unknown[] })?.entries)
-      ? (raw as { entries: unknown[] }).entries
-      : (raw as { entries?: Record<string, unknown> })?.entries &&
-          typeof (raw as { entries?: Record<string, unknown> }).entries === 'object'
-        ? Object.values((raw as { entries: Record<string, unknown> }).entries)
-        : [];
-
-  return entries.map((entry, index) => {
-    const item = entry as Record<string, unknown>;
+  return extractProjectEntries(raw, 'worldbook').map(({ entry: item, entryKey }, index) => {
     return {
-      uid: typeof item.uid === 'string' ? item.uid : String(index),
+      entryKey,
+      uid: typeof item.uid === 'string' || typeof item.uid === 'number' ? String(item.uid) : String(index),
       comment: typeof item.comment === 'string' ? item.comment : typeof item.name === 'string' ? item.name : '无标题',
       content: typeof item.content === 'string' ? item.content : typeof item.text === 'string' ? item.text : '',
       key: Array.isArray(item.key)
@@ -65,17 +57,10 @@ export function parseWorldbookEntriesPreview(projectFileText: string): Worldbook
 
 export function parseRegexEntriesPreview(regexFileText: string): RegexEntryPreviewType[] {
   const raw = safeParseJson(regexFileText);
-  const entries = Array.isArray(raw)
-    ? raw
-    : Array.isArray((raw as { entries?: unknown[] })?.entries)
-      ? (raw as { entries: unknown[] }).entries
-      : raw
-        ? [raw]
-        : [];
-  return entries.map((entry, index) => {
-    const item = entry as Record<string, unknown>;
+  return extractProjectEntries(raw, 'regex').map(({ entry: item, entryKey }, index) => {
     return {
-      id: typeof item.id === 'string' ? item.id : String(index),
+      entryKey,
+      id: typeof item.id === 'string' || typeof item.id === 'number' ? String(item.id) : String(index),
       scriptName:
         typeof item.scriptName === 'string'
           ? item.scriptName

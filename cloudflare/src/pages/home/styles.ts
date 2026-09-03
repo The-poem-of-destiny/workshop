@@ -170,6 +170,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helve
 .detail-entry-list { display:flex; flex-direction:column; gap:12px; }
 .entry-item { border:1px solid rgba(255,255,255,0.1); border-radius:12px; overflow:hidden; background:rgba(15,23,42,0.55); }
 .entry-header { background:rgba(0,0,0,0.3); padding:12px 14px; cursor:pointer; display:flex; align-items:center; gap:8px; font-weight:500; }
+.entry-title { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.entry-remove-btn { flex:none; width:36px; height:36px; margin-left:auto; display:inline-flex; align-items:center; justify-content:center; border-radius:9px; border:1px solid rgba(248,113,113,0.38); background:rgba(127,29,29,0.28); color:#FCA5A5; cursor:pointer; }
+.entry-remove-btn:hover { background:rgba(185,28,28,0.48); border-color:rgba(248,113,113,0.72); color:#FFF; }
+.entry-remove-btn i { transform:none !important; font-size:0.82rem; }
 .entry-header i { font-size:0.8rem; transition:transform 0.2s; }
 .entry-header.open i { transform:rotate(90deg); }
 .entry-content { padding:0 14px; max-height:0; overflow:hidden; transition:max-height 0.3s ease, padding 0.3s ease, margin 0.3s ease; }
