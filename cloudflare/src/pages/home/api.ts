@@ -199,9 +199,14 @@ async function fetchProjectEntries(projectOrId) {
   try {
     const projectId = typeof projectOrId === 'string' ? projectOrId : projectOrId?.id;
     const detail = await apiFetch('/api/projects/' + projectId);
-    const project = detail.project || projectOrId;
+
     const entries = Array.isArray(detail.worldbookEntriesPreview) ? detail.worldbookEntriesPreview : [];
     const regexEntries = Array.isArray(detail.regexEntriesPreview) ? detail.regexEntriesPreview : [];
+    const project = {
+      ...(detail.project || (typeof projectOrId === 'object' ? projectOrId : { id: projectId })),
+      worldbookEntriesPreview: entries,
+      regexEntriesPreview: regexEntries,
+    };
     return { project, entries, regexEntries };
   } catch (error) {
     throw normalizeThrownError(error, '加载项目详情失败');
