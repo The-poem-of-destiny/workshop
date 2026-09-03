@@ -9,6 +9,7 @@ function createDefaultTavernState() {
     connected: false,
     status: 'disconnected',
     installedProjects: [],
+    installedProjectsLoaded: false,
     localProjectMap: new Map(),
     updateDiffMap: new Map(),
     pendingProjectActions: new Map(),
@@ -160,6 +161,7 @@ function updateSubscribeState(projectId, payload) {
 function setTavernConnectionStatus(status) {
   state.tavern.status = status || 'disconnected';
   state.tavern.connected = status === 'connected';
+  if (!state.tavern.connected) state.tavern.installedProjectsLoaded = false;
 }
 
 function normalizeInstalledProject(project) {
@@ -189,6 +191,7 @@ function rebuildInstalledProjectState(installedProjectMap) {
 
 function setInstalledProjects(projects, options) {
   const list = Array.isArray(projects) ? projects : [];
+  state.tavern.installedProjectsLoaded = true;
   const mode = options && options.mode === 'merge' ? 'merge' : 'replace';
   const removeProjectId = options && options.removeProjectId ? options.removeProjectId : null;
   const installedProjectMap = mode === 'merge'
