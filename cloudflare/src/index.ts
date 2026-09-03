@@ -17,6 +17,7 @@ import { AuthCallback, AuthLogin, AuthLogout, AuthMe, AuthPoll } from './endpoin
 // 项目端点
 import {
   MyProjects,
+  MySubscriptions,
   ProjectCoverUpload,
   ProjectCreate,
   ProjectDelete,
@@ -145,6 +146,7 @@ openapi.get('/api/projects/:projectId', ProjectFetch);
 
 // ============ 项目接口 (需要登录) ============
 openapi.get('/api/my/projects', MyProjects);
+openapi.get('/api/my/subscriptions', MySubscriptions);
 openapi.post('/api/projects', ProjectCreate);
 openapi.put('/api/projects/:projectId', ProjectUpdate);
 openapi.put('/api/projects/:projectId/visibility', ProjectVisibilityUpdate);

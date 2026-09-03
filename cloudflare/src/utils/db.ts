@@ -705,6 +705,13 @@ export const projectDb = {
     return { liked: !existing, count: Number(counter?.count || 0) };
   },
 
+  getSubscribedProjectIds: async (c: AppContext, userId: string) => {
+    const result = await c.env.DB.prepare(`SELECT project_id FROM project_subscribes WHERE user_id = ?`)
+      .bind(userId)
+      .all<{ project_id: string }>();
+    return (result.results || []).map(row => row.project_id);
+  },
+
   setSubscribe: async (c: AppContext, projectId: string, userId: string, subscribed: boolean) => {
     const db = c.env.DB;
     if (subscribed) {
@@ -868,31 +875,23 @@ async function enrichProjects(
   }
 
   const likedProjectIds = new Set<string>();
-  const subscribedProjectIds = new Set<string>();
+
 
   if (currentUser?.userId) {
     const projectIds = projects.map(project => project.id);
     const projectIdsJson = JSON.stringify(projectIds);
-    const interactions = await c.env.DB.prepare(
+    const likes = await c.env.DB.prepare(
       `
-        SELECT project_id, 'like' AS kind
+        SELECT project_id
         FROM project_likes
-        WHERE user_id = ?2 AND project_id IN (SELECT value FROM json_each(?1))
-        UNION ALL
-        SELECT project_id, 'subscribe' AS kind
-        FROM project_subscribes
         WHERE user_id = ?2 AND project_id IN (SELECT value FROM json_each(?1))
       `,
     )
       .bind(projectIdsJson, currentUser.userId)
-      .all<{ project_id: string; kind: 'like' | 'subscribe' }>();
+      .all<{ project_id: string }>();
 
-    for (const row of interactions.results || []) {
-      if (row.kind === 'like') {
-        likedProjectIds.add(row.project_id);
-      } else if (row.kind === 'subscribe') {
-        subscribedProjectIds.add(row.project_id);
-      }
+    for (const row of likes.results || []) {
+      likedProjectIds.add(row.project_id);
     }
   }
 
@@ -909,7 +908,7 @@ async function enrichProjects(
     // Subscription is an install/update-notification state, not a public popularity metric.
     subscribesCount: 0,
     userLiked: likedProjectIds.has(project.id),
-    userSubscribed: subscribedProjectIds.has(project.id),
+    userSubscribed: false,
   }));
 }
 

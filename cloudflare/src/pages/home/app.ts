@@ -246,12 +246,21 @@ export const homeScript = String.raw`
 
     if (installedToggle) {
       const checkbox = installedToggle.querySelector('input');
-      checkbox.addEventListener('change', event => {
+      checkbox.addEventListener('change', async event => {
         state.showSubscribedAndInstalledProjects = event.target.checked;
         if (state.showSubscribedAndInstalledProjects) {
           state.showOnlyMyProjects = false;
         }
         renderApp();
+
+        if (state.showSubscribedAndInstalledProjects && state.currentUser) {
+          try {
+            await fetchSubscriptions();
+          } catch (error) {
+            showToast('加载订阅项目失败: ' + error.message, 'warning');
+          }
+          renderApp();
+        }
       });
     }
 

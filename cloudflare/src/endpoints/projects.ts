@@ -230,6 +230,36 @@ export class MyProjects extends OpenAPIRoute {
 }
 
 /**
+ * 获取当前用户的项目更新订阅
+ */
+export class MySubscriptions extends OpenAPIRoute {
+  schema = {
+    tags: ['Projects'],
+    summary: 'Get My Project Update Subscriptions',
+    request: {
+      headers: z.object({
+        authorization: z.string().describe('Session ID'),
+      }),
+    },
+    responses: {
+      '200': { description: "Returns user's subscribed project IDs" },
+    },
+  };
+
+  async handle(c: AppContext) {
+    const payload = await getCurrentUserFromRequest(c);
+    if (!payload) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    return {
+      success: true,
+      projectIds: await projectDb.getSubscribedProjectIds(c, payload.userId),
+    };
+  }
+}
+
+/**
  * 创建项目 (需要上传文件)
  */
 export class ProjectCreate extends OpenAPIRoute {

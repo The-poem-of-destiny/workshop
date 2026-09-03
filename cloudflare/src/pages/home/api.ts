@@ -106,6 +106,24 @@ function invalidateAllProjectDetailCaches() {
   projectDetailCacheEpoch += 1;
 }
 
+async function fetchSubscriptions(forceRefresh = false) {
+  if (!state.currentUser) {
+    state.subsMap = new Map();
+    state.subscriptionsLoaded = false;
+    return [];
+  }
+  if (state.subscriptionsLoaded && !forceRefresh) {
+    return Array.from(state.subsMap.entries())
+      .filter(([, value]) => Boolean(value?.subscribed))
+      .map(([projectId]) => projectId);
+  }
+
+  const data = await apiFetch('/api/my/subscriptions');
+  const projectIds = Array.isArray(data.projectIds) ? data.projectIds : [];
+  setSubscribedProjectIds(projectIds);
+  return projectIds;
+}
+
 async function fetchProjects(forceRefresh = false, options = {}) {
   const append = Boolean(options.append);
   const pageSize = Number(options.pageSize || state.projectPagination.pageSize || 50);

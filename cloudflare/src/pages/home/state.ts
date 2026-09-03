@@ -40,6 +40,7 @@ const state = {
   projectRequestToken: 0,
   likesMap: new Map(),
   subsMap: new Map(),
+  subscriptionsLoaded: false,
   projectPagination: createDefaultProjectPagination(),
   tavern: createDefaultTavernState(),
   updateModal: {
@@ -50,7 +51,15 @@ const state = {
 };
 
 function setCurrentUser(user) {
-  state.currentUser = user || null;
+  const previousUserId = state.currentUser?.id || null;
+  const nextUser = user || null;
+  const nextUserId = nextUser?.id || null;
+  state.currentUser = nextUser;
+  if (previousUserId !== nextUserId) {
+    
+    state.subsMap = new Map();
+    state.subscriptionsLoaded = false;
+  }
 }
 
 function setProjects(projects) {
@@ -110,17 +119,27 @@ function getProjectPendingAction(projectId) {
 
 function syncProjectStats(projects) {
   state.likesMap = new Map();
-  state.subsMap = new Map();
+  
   (projects || []).forEach(project => {
     state.likesMap.set(project.id, {
       count: project.likesCount || 0,
       liked: Boolean(project.userLiked),
     });
-    state.subsMap.set(project.id, {
+    if (project.userSubscribed) state.subsMap.set(project.id, {
       count: project.subscribesCount || 0,
       subscribed: Boolean(project.userSubscribed),
     });
   });
+}
+
+function setSubscribedProjectIds(projectIds) {
+  const nextMap = new Map();
+  (projectIds || []).forEach(projectId => {
+    if (!projectId) return;
+    nextMap.set(String(projectId), { count: 0, subscribed: true });
+  });
+  state.subsMap = nextMap;
+  state.subscriptionsLoaded = true;
 }
 
 function updateLikeState(projectId, payload) {
