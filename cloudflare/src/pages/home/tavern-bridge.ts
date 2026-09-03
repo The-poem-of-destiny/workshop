@@ -97,6 +97,11 @@ function handleUpdateResult(payload) {
 
 function syncContextFromBridge(payload) {
   setTavernConnectionStatus(payload?.connected ? 'connected' : 'error');
+  state.tavern.worldbooks = {
+    primary: payload?.worldbooks?.primary || null,
+    additional: Array.isArray(payload?.worldbooks?.additional) ? payload.worldbooks.additional : [],
+    available: Array.isArray(payload?.worldbooks?.available) ? payload.worldbooks.available : [],
+  };
   renderApp();
 }
 

@@ -1,3 +1,4 @@
+import { resolveCreativeWorkshopInstallWorldbook } from './install-registry';
 import { fetchCreativeWorkshopProjectDetail } from './project-fetch';
 import { getCreativeWorkshopRegexId, getReadableRegexName } from './regex-name';
 
@@ -84,7 +85,10 @@ function diffByKey<T extends Record<string, any>>(localItems: T[], remoteItems: 
 export async function getCreativeWorkshopProjectDiff(projectId: string) {
   const detail = await fetchCreativeWorkshopProjectDetail(projectId);
   const charWorldbooks = getCharWorldbookNames('current');
-  const worldbookEntries = charWorldbooks.primary ? await getWorldbook(charWorldbooks.primary) : [];
+  const worldbookName = (await resolveCreativeWorkshopInstallWorldbook(projectId)) || charWorldbooks.primary;
+  const worldbookEntries = worldbookName && getWorldbookNames().includes(worldbookName)
+    ? await getWorldbook(worldbookName)
+    : [];
   const localEntries = worldbookEntries
     .filter(
       entry =>

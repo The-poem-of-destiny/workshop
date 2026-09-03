@@ -407,7 +407,7 @@ export const homeScript = String.raw`
           requestUninstallProject(projectId);
           return;
         }
-        requestInstallProject(projectId);
+        openInstallWorldbookModal(projectId);
       });
     });
 

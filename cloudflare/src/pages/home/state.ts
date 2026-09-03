@@ -12,6 +12,7 @@ function createDefaultTavernState() {
     localProjectMap: new Map(),
     updateDiffMap: new Map(),
     pendingProjectActions: new Map(),
+    worldbooks: { primary: null, additional: [], available: [] },
   };
 }
 
@@ -176,6 +177,7 @@ function normalizeInstalledProject(project) {
     name: project.name || '',
     canUpdate: Boolean(project.canUpdate),
     hasUpdate: Boolean(project.hasUpdate),
+    worldbookName: project.worldbookName || null,
   };
 }
 

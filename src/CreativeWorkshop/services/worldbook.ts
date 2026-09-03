@@ -1,3 +1,8 @@
+import {
+  deleteCreativeWorkshopInstallRecord,
+  resolveCreativeWorkshopInstallWorldbook,
+  setCreativeWorkshopInstallRecord,
+} from './install-registry';
 import { fetchCreativeWorkshopProjectDetail, fetchCreativeWorkshopProjectWorldbookSource } from './project-fetch';
 import {
   getCreativeWorkshopFiniteNumber,
@@ -13,6 +18,30 @@ function getCurrentWorldbookName(): string {
   const charWorldbooks = getCharWorldbookNames('current');
   if (!charWorldbooks.primary) throw new Error('当前角色卡未绑定世界书');
   return charWorldbooks.primary;
+}
+
+async function getInstalledWorldbookName(projectId: string): Promise<string> {
+  return (await resolveCreativeWorkshopInstallWorldbook(projectId)) || getCurrentWorldbookName();
+}
+
+async function ensureTargetWorldbook(worldbookName: string): Promise<string> {
+  const target = worldbookName.trim();
+  if (!target) throw new Error('请选择安装目标世界书');
+
+  const existingNames = getWorldbookNames();
+  if (!existingNames.includes(target)) {
+    await createWorldbook(target, []);
+  }
+
+  const charWorldbooks = getCharWorldbookNames('current');
+  if (target !== charWorldbooks.primary && !(charWorldbooks.additional || []).includes(target)) {
+    await rebindCharWorldbooks('current', {
+      primary: charWorldbooks.primary,
+      additional: [...(charWorldbooks.additional || []), target],
+    });
+  }
+
+  return target;
 }
 
 function renameEntry(entryName: string, tags: string[], projectName: string): string {
@@ -101,9 +130,13 @@ async function prepareCreativeWorkshopProject(projectId: string, selectedEntryKe
   return { detail, prepared };
 }
 
-async function applyPreparedProject(projectId: string, detail: Record<string, any>, prepared: PreparedEntry[]) {
+async function applyPreparedProject(
+  projectId: string,
+  detail: Record<string, any>,
+  prepared: PreparedEntry[],
+  worldbookName: string,
+) {
   if (prepared.length === 0) return;
-  const worldbookName = getCurrentWorldbookName();
 
   await updateWorldbookWith(worldbookName, worldbook => {
     prepared.forEach(({ entry, index, entryKey, positionType, positionRole, strategyType, secondaryLogic, depth, order, probability, scanDepth }) => {
@@ -174,14 +207,8 @@ async function applyPreparedProject(projectId: string, detail: Record<string, an
   });
 }
 
-export async function installCreativeWorkshopProject(projectId: string, selectedEntryKeys?: string[]) {
-  const { detail, prepared } = await prepareCreativeWorkshopProject(projectId, selectedEntryKeys);
-  await applyPreparedProject(projectId, detail, prepared);
-  return detail;
-}
-
-export async function uninstallCreativeWorkshopProject(projectId: string) {
-  const worldbookName = getCurrentWorldbookName();
+async function deleteProjectEntriesFromWorldbook(projectId: string, worldbookName: string) {
+  if (!getWorldbookNames().includes(worldbookName)) return [] as WorldbookEntry[];
   const result = await deleteWorldbookEntries(
     worldbookName,
     entry => _.get(entry, 'extra.cw_project_id') === projectId || _.get(entry, 'extra.fate_project_name') === projectId,
@@ -189,9 +216,32 @@ export async function uninstallCreativeWorkshopProject(projectId: string) {
   return result.deleted_entries;
 }
 
+export async function installCreativeWorkshopProject(
+  projectId: string,
+  selectedEntryKeys?: string[],
+  requestedWorldbookName?: string,
+) {
+  const { detail, prepared } = await prepareCreativeWorkshopProject(projectId, selectedEntryKeys);
+  const worldbookName = requestedWorldbookName
+    ? await ensureTargetWorldbook(requestedWorldbookName)
+    : getCurrentWorldbookName();
+  await applyPreparedProject(projectId, detail, prepared, worldbookName);
+  setCreativeWorkshopInstallRecord(projectId, worldbookName);
+  return detail;
+}
+
+export async function uninstallCreativeWorkshopProject(projectId: string) {
+  const worldbookName = await getInstalledWorldbookName(projectId);
+  const deletedEntries = await deleteProjectEntriesFromWorldbook(projectId, worldbookName);
+  deleteCreativeWorkshopInstallRecord(projectId);
+  return deletedEntries;
+}
+
 export async function updateCreativeWorkshopProject(projectId: string) {
   const { detail, prepared } = await prepareCreativeWorkshopProject(projectId);
-  await uninstallCreativeWorkshopProject(projectId);
-  await applyPreparedProject(projectId, detail, prepared);
+  const worldbookName = await ensureTargetWorldbook(await getInstalledWorldbookName(projectId));
+  await deleteProjectEntriesFromWorldbook(projectId, worldbookName);
+  await applyPreparedProject(projectId, detail, prepared, worldbookName);
+  setCreativeWorkshopInstallRecord(projectId, worldbookName);
   return detail;
 }
