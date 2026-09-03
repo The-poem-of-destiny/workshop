@@ -205,19 +205,18 @@ async function toggleLike(projectId) {
   }
 }
 
-async function toggleSubscribe(projectId) {
+async function setProjectSubscription(projectId, subscribed) {
   if (!state.currentUser) {
-    showToast('请先登录', 'warning');
-    return;
+    return null;
   }
-  try {
-    const data = await apiFetch('/api/projects/' + projectId + '/subscribe', { method: 'POST' });
-    updateSubscribeState(projectId, { subscribed: data.subscribed, count: data.count });
-    invalidateProjectDetailCache(projectId);
-    renderApp();
-  } catch (error) {
-    showToast('操作失败: ' + error.message, 'error');
-  }
+  const data = await apiFetch('/api/projects/' + projectId + '/subscribe', {
+    method: 'PUT',
+    body: JSON.stringify({ subscribed: Boolean(subscribed) }),
+  });
+  updateSubscribeState(projectId, { subscribed: data.subscribed, count: 0 });
+  invalidateProjectDetailCache(projectId);
+  renderApp();
+  return data;
 }
 
 async function fetchProjectEntries(projectOrId, options = {}) {

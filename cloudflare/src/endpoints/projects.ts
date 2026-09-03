@@ -576,7 +576,7 @@ export class ProjectLikeToggle extends OpenAPIRoute {
 export class ProjectSubscribeToggle extends OpenAPIRoute {
   schema = {
     tags: ['Projects'],
-    summary: 'Toggle Project Subscribe',
+    summary: 'Toggle Project Subscribe (Legacy)',
     request: {
       params: z.object({
         projectId: Str({ description: 'Project ID' }),
@@ -604,6 +604,46 @@ export class ProjectSubscribeToggle extends OpenAPIRoute {
 
     const result = await projectDb.toggleSubscribe(c, data.params.projectId, payload.userId);
     return result;
+  }
+}
+
+export class ProjectSubscribeSet extends OpenAPIRoute {
+  schema = {
+    tags: ['Projects'],
+    summary: 'Set Project Update Subscription',
+    request: {
+      params: z.object({
+        projectId: Str({ description: 'Project ID' }),
+      }),
+      headers: z.object({
+        authorization: z.string().describe('Session ID'),
+      }),
+      body: {
+        content: {
+          'application/json': {
+            schema: z.object({ subscribed: z.boolean() }),
+          },
+        },
+      },
+    },
+    responses: {
+      '200': { description: 'Subscription state updated successfully' },
+    },
+  };
+
+  async handle(c: AppContext) {
+    const payload = await getCurrentUserFromRequest(c);
+    if (!payload) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const data = await this.getValidatedData<typeof this.schema>();
+    const project = await projectDb.get(c, data.params.projectId, payload);
+    if (!project) {
+      return c.json({ error: 'Project not found' }, 404);
+    }
+
+    return projectDb.setSubscribe(c, data.params.projectId, payload.userId, data.body.subscribed);
   }
 }
 

@@ -25,6 +25,7 @@ import {
   ProjectLikeToggle,
   ProjectList,
   ProjectRegexUpload,
+  ProjectSubscribeSet,
   ProjectSubscribeToggle,
   ProjectUpdate,
   ProjectUpload,
@@ -151,6 +152,7 @@ openapi.delete('/api/projects/:projectId', ProjectDelete);
 openapi.post('/api/projects/:projectId/entries/remove', ProjectEntryRemove);
 openapi.post('/api/projects/:projectId/like', ProjectLikeToggle);
 openapi.post('/api/projects/:projectId/subscribe', ProjectSubscribeToggle);
+openapi.put('/api/projects/:projectId/subscribe', ProjectSubscribeSet);
 
 // ============ 项目文件上传 ============
 openapi.post('/api/projects/:projectId/upload', ProjectUpload);

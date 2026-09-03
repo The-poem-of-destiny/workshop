@@ -498,32 +498,16 @@ export const projectDb = {
         case 'downloads':
           return 'COALESCE(p.downloads_count, 0) DESC, p.created_at DESC';
         case 'likes':
-          return 'COALESCE(pl.likes_count, 0) DESC, p.created_at DESC';
+          return 'COALESCE(p.likes_count, 0) DESC, p.created_at DESC';
         case 'subscribes':
-          return 'COALESCE(ps.subscribes_count, 0) DESC, p.created_at DESC';
+          // Legacy clients may still request this sort. Subscription is now an install/update-notification state,
+          // not a public popularity metric, so use downloads as the closest cheap fallback.
+          return 'COALESCE(p.downloads_count, 0) DESC, p.created_at DESC';
         case 'published':
         default:
           return 'p.created_at DESC, p.updated_at DESC';
       }
     })();
-    const socialSortJoin = (() => {
-      if (sortMode === 'likes') {
-        return `LEFT JOIN (
-          SELECT project_id, COUNT(*) as likes_count
-          FROM project_likes
-          GROUP BY project_id
-        ) pl ON pl.project_id = p.id`;
-      }
-      if (sortMode === 'subscribes') {
-        return `LEFT JOIN (
-          SELECT project_id, COUNT(*) as subscribes_count
-          FROM project_subscribes
-          GROUP BY project_id
-        ) ps ON ps.project_id = p.id`;
-      }
-      return '';
-    })();
-
     // 获取总数
     const countResult = await db
       .prepare(
@@ -542,7 +526,6 @@ export const projectDb = {
 			SELECT p.*, u.global_name
 			FROM projects p
 			LEFT JOIN users u ON p.author_id = u.id
-			${socialSortJoin}
 			${listWhereClause}
 			ORDER BY ${orderBy}
 			LIMIT ? OFFSET ?
@@ -719,39 +702,38 @@ export const projectDb = {
         .run();
     }
 
-    const count = await db
-      .prepare(`SELECT COUNT(*) as count FROM project_likes WHERE project_id = ?`)
+    const counter = await db
+      .prepare(`SELECT COALESCE(likes_count, 0) as count FROM projects WHERE id = ?`)
       .bind(projectId)
       .first<{ count: number }>();
 
-    return { liked: !existing, count: count?.count || 0 };
+    return { liked: !existing, count: Number(counter?.count || 0) };
   },
 
-  toggleSubscribe: async (c: AppContext, projectId: string, userId: string) => {
+  setSubscribe: async (c: AppContext, projectId: string, userId: string, subscribed: boolean) => {
     const db = c.env.DB;
-    const existing = await db
-      .prepare(`SELECT 1 as subscribed FROM project_subscribes WHERE project_id = ? AND user_id = ?`)
-      .bind(projectId, userId)
-      .first<{ subscribed: number }>();
-
-    if (existing) {
+    if (subscribed) {
+      await db
+        .prepare(`INSERT OR IGNORE INTO project_subscribes (project_id, user_id, created_at) VALUES (?, ?, ?)`)
+        .bind(projectId, userId, now())
+        .run();
+    } else {
       await db
         .prepare(`DELETE FROM project_subscribes WHERE project_id = ? AND user_id = ?`)
         .bind(projectId, userId)
         .run();
-    } else {
-      await db
-        .prepare(`INSERT INTO project_subscribes (project_id, user_id, created_at) VALUES (?, ?, ?)`)
-        .bind(projectId, userId, now())
-        .run();
     }
 
-    const count = await db
-      .prepare(`SELECT COUNT(*) as count FROM project_subscribes WHERE project_id = ?`)
-      .bind(projectId)
-      .first<{ count: number }>();
+    return { subscribed, count: 0 };
+  },
 
-    return { subscribed: !existing, count: count?.count || 0 };
+  toggleSubscribe: async (c: AppContext, projectId: string, userId: string) => {
+    const existing = await c.env.DB
+      .prepare(`SELECT 1 as subscribed FROM project_subscribes WHERE project_id = ? AND user_id = ?`)
+      .bind(projectId, userId)
+      .first<{ subscribed: number }>();
+
+    return projectDb.setSubscribe(c, projectId, userId, !existing);
   },
 
   findDraftByPublishedId: async (c: AppContext, publishedProjectId: string) => {
@@ -890,69 +872,50 @@ async function enrichProjects(
     return projects;
   }
 
-  const projectIds = projects.map(project => project.id);
-  const placeholders = projectIds.map(() => '?').join(', ');
-  type StatsRow = {
-    project_id: string;
-    downloads_count: number;
-    likes_count: number;
-    subscribes_count: number;
-    user_liked: number;
-    user_subscribed: number;
-  };
-  const loadStats = async (includeDownloads: boolean) =>
-    c.env.DB.prepare(
+  const likedProjectIds = new Set<string>();
+  const subscribedProjectIds = new Set<string>();
+
+  if (currentUser?.userId) {
+    const projectIds = projects.map(project => project.id);
+    const placeholders = projectIds.map(() => '?').join(', ');
+    const interactions = await c.env.DB.prepare(
       `
-        SELECT
-          p.id as project_id,
-          ${includeDownloads ? 'COALESCE(p.downloads_count, 0)' : '0'} as downloads_count,
-          (SELECT COUNT(*) FROM project_likes pl WHERE pl.project_id = p.id) as likes_count,
-          (SELECT COUNT(*) FROM project_subscribes ps WHERE ps.project_id = p.id) as subscribes_count,
-          CASE WHEN EXISTS(
-            SELECT 1 FROM project_likes ul WHERE ul.project_id = p.id AND ul.user_id = ?
-          ) THEN 1 ELSE 0 END as user_liked,
-          CASE WHEN EXISTS(
-            SELECT 1 FROM project_subscribes us WHERE us.project_id = p.id AND us.user_id = ?
-          ) THEN 1 ELSE 0 END as user_subscribed
-        FROM projects p
-        WHERE p.id IN (${placeholders})
+        SELECT project_id, 'like' AS kind
+        FROM project_likes
+        WHERE user_id = ? AND project_id IN (${placeholders})
+        UNION ALL
+        SELECT project_id, 'subscribe' AS kind
+        FROM project_subscribes
+        WHERE user_id = ? AND project_id IN (${placeholders})
       `,
     )
-      .bind(currentUser?.userId || '', currentUser?.userId || '', ...projectIds)
-      .all<StatsRow>();
+      .bind(currentUser.userId, ...projectIds, currentUser.userId, ...projectIds)
+      .all<{ project_id: string; kind: 'like' | 'subscribe' }>();
 
-  let statsRows: { results?: StatsRow[] } | undefined;
-  try {
-    statsRows = await loadStats(true);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!message.includes('no such column: p.downloads_count')) {
-      throw error;
+    for (const row of interactions.results || []) {
+      if (row.kind === 'like') {
+        likedProjectIds.add(row.project_id);
+      } else if (row.kind === 'subscribe') {
+        subscribedProjectIds.add(row.project_id);
+      }
     }
-
-    console.warn('downloads_count column missing, fallback stats query activated');
-    statsRows = await loadStats(false);
   }
 
-  const statsMap = new Map((statsRows.results || []).map(row => [row.project_id, row]));
-
-  return projects.map(project => {
-    const stats = statsMap.get(project.id);
-    return {
-      ...project,
-      downloadUrl: project.downloadUrl
-        ? r2Storage.getProxyUrl(c, project.downloadUrl.replace(/^.*\/api\/files\//, ''))
-        : null,
-      coverImage: project.coverImage
-        ? r2Storage.getProxyUrl(c, project.coverImage.replace(/^.*\/api\/files\//, ''))
-        : null,
-      downloadsCount: Number(stats?.downloads_count || project.downloadsCount || 0),
-      likesCount: stats?.likes_count || 0,
-      subscribesCount: stats?.subscribes_count || 0,
-      userLiked: Boolean(stats?.user_liked),
-      userSubscribed: Boolean(stats?.user_subscribed),
-    };
-  });
+  return projects.map(project => ({
+    ...project,
+    downloadUrl: project.downloadUrl
+      ? r2Storage.getProxyUrl(c, project.downloadUrl.replace(/^.*\/api\/files\//, ''))
+      : null,
+    coverImage: project.coverImage
+      ? r2Storage.getProxyUrl(c, project.coverImage.replace(/^.*\/api\/files\//, ''))
+      : null,
+    downloadsCount: Number(project.downloadsCount || 0),
+    likesCount: Number(project.likesCount || 0),
+    // Subscription is an install/update-notification state, not a public popularity metric.
+    subscribesCount: 0,
+    userLiked: likedProjectIds.has(project.id),
+    userSubscribed: subscribedProjectIds.has(project.id),
+  }));
 }
 
 async function enrichProject(

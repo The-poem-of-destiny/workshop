@@ -273,7 +273,6 @@ export const homeScript = String.raw`
             published: '发布时间',
             updated: '更新日期',
             likes: '点赞数',
-            subscribes: '订阅数',
             downloads: '下载量',
           };
           showToast('正在按' + (sortLabelMap[nextSortMode] || '当前方式') + '排序...', 'info');
@@ -375,13 +374,6 @@ export const homeScript = String.raw`
       button.addEventListener('click', event => {
         event.stopPropagation();
         if (button.dataset.id) toggleLike(button.dataset.id);
-      });
-    });
-
-    document.querySelectorAll('.subscribe-btn').forEach(button => {
-      button.addEventListener('click', event => {
-        event.stopPropagation();
-        if (button.dataset.id) toggleSubscribe(button.dataset.id);
       });
     });
 

@@ -5,7 +5,6 @@ export const homeLayoutRenderScript = [
   '    { value: "published", label: "按发布时间" },',
   '    { value: "updated", label: "按更新日期" },',
   '    { value: "likes", label: "按点赞数" },',
-  '    { value: "subscribes", label: "按订阅数" },',
   '    { value: "downloads", label: "按下载量" },',
   '  ];',
   '  const current = options.find(option => option.value === state.sortMode) || options[0];',

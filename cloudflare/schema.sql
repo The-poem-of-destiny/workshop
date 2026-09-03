@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS projects (
     download_url TEXT,
     file_size INTEGER,
     downloads_count INTEGER DEFAULT 0,
+    likes_count INTEGER NOT NULL DEFAULT 0,
     tags TEXT DEFAULT '[]',
     cover_image TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -53,6 +54,8 @@ CREATE INDEX IF NOT EXISTS idx_projects_public_updated
     ON projects(status, is_published, visibility, updated_at DESC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_projects_public_downloads
     ON projects(status, is_published, visibility, downloads_count DESC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_projects_public_likes
+    ON projects(status, is_published, visibility, likes_count DESC, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_users_guilds ON users(guilds);
 
 CREATE TABLE IF NOT EXISTS project_likes (
@@ -77,6 +80,22 @@ CREATE INDEX IF NOT EXISTS idx_project_likes_project_id ON project_likes(project
 CREATE INDEX IF NOT EXISTS idx_project_likes_user_id ON project_likes(user_id);
 CREATE INDEX IF NOT EXISTS idx_project_subscribes_project_id ON project_subscribes(project_id);
 CREATE INDEX IF NOT EXISTS idx_project_subscribes_user_id ON project_subscribes(user_id);
+
+CREATE TRIGGER IF NOT EXISTS trg_project_likes_after_insert
+AFTER INSERT ON project_likes
+BEGIN
+    UPDATE projects
+    SET likes_count = COALESCE(likes_count, 0) + 1
+    WHERE id = NEW.project_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_project_likes_after_delete
+AFTER DELETE ON project_likes
+BEGIN
+    UPDATE projects
+    SET likes_count = MAX(COALESCE(likes_count, 0) - 1, 0)
+    WHERE id = OLD.project_id;
+END;
 
 CREATE TABLE IF NOT EXISTS admin_action_logs (
     id TEXT PRIMARY KEY,

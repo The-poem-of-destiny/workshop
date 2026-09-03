@@ -3,6 +3,7 @@ const TAVERN_BRIDGE_NAMESPACE = 'creative-workshop-bridge';
 const TAVERN_OAUTH_RESULT_EVENT = 'creative-workshop:oauth-result';
 const PROJECT_DIFF_TIMEOUT_MS = 10000;
 const pendingProjectDiffRequests = new Map();
+const installSubscriptionSyncChains = new Map();
 
 function createBridgeRequest(type, payload) {
   return {
@@ -49,9 +50,32 @@ function syncInstalledProjectsFromBridge(payload, options) {
   renderApp();
 }
 
+function syncInstallSubscription(projectId, subscribed) {
+  if (!projectId || !state.currentUser) return Promise.resolve();
+
+  const previous = installSubscriptionSyncChains.get(projectId) || Promise.resolve();
+  const next = previous.catch(() => undefined).then(async () => {
+    try {
+      await setProjectSubscription(projectId, subscribed);
+    } catch (error) {
+      console.warn('[CreativeWorkshop] 同步更新订阅状态失败', { projectId, subscribed, error });
+      showToast('项目操作完成，但更新订阅状态同步失败', 'warning');
+    }
+  });
+
+  installSubscriptionSyncChains.set(projectId, next);
+  void next.finally(() => {
+    if (installSubscriptionSyncChains.get(projectId) === next) {
+      installSubscriptionSyncChains.delete(projectId);
+    }
+  });
+  return next;
+}
+
 function handleInstallResult(payload) {
   syncInstalledProjectsFromBridge(payload, { mode: 'merge' });
-  showToast('项目安装完成');
+  void syncInstallSubscription(payload?.projectId || null, true);
+  showToast(state.currentUser ? '项目安装完成，已自动订阅更新' : '项目安装完成');
 }
 
 function handleUninstallResult(payload) {
@@ -62,7 +86,8 @@ function handleUninstallResult(payload) {
     clearInstalledProject(projectId);
     renderApp();
   }
-  showToast('项目已卸载');
+  void syncInstallSubscription(projectId, false);
+  showToast(state.currentUser ? '项目已卸载，已取消更新订阅' : '项目已卸载');
 }
 
 function handleUpdateResult(payload) {
