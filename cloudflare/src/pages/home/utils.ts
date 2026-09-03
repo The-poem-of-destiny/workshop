@@ -203,11 +203,30 @@ function isRejectedDraft(project) {
   return project?.reviewTarget === 'draft' && project?.status === 'rejected';
 }
 
+function getLinkedDraftReview(project) {
+  if (!project) return null;
+  if (project.reviewTarget === 'draft') return project;
+  if (!project.draftProjectId) return null;
+  return state.myProjects.find(item =>
+    item?.reviewTarget === 'draft' &&
+    (item.id === project.draftProjectId || item.publishedProjectId === project.id)
+  ) || null;
+}
+
 function getProjectReviewBadge(project) {
+  const linkedDraft = getLinkedDraftReview(project);
+  if (linkedDraft?.status === 'pending') return '<span class="badge badge-admin">待审核新版本</span>';
+  if (linkedDraft?.status === 'rejected') return '<span class="badge badge-admin badge-rejected">已退回</span>';
   if (project?.reviewTarget === 'draft' && project?.status === 'pending') return '<span class="badge badge-admin">草稿审核中</span>';
-  if (project?.reviewTarget === 'draft' && project?.status === 'rejected') return '<span class="badge badge-admin badge-rejected">草稿已拒绝</span>';
+  if (project?.reviewTarget === 'draft' && project?.status === 'rejected') return '<span class="badge badge-admin badge-rejected">已退回</span>';
   if (project?.hasPendingDraft) return '<span class="badge badge-admin">待审核新版本</span>';
   return '';
+}
+
+function getProjectRejectReason(project) {
+  const linkedDraft = getLinkedDraftReview(project);
+  if (linkedDraft?.status === 'rejected') return linkedDraft.rejectReason || '';
+  return project?.status === 'rejected' ? (project.rejectReason || '') : '';
 }
 
 function isProjectEditable(project) {
