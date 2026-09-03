@@ -4,6 +4,8 @@
 	"private": true,
 	"scripts": {
 		"deploy": "wrangler deploy",
+		"deploy:staging": "wrangler deploy --config wrangler.staging.jsonc",
+		"check:staging": "wrangler deploy --dry-run --config wrangler.staging.jsonc",
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
 		"cf-typegen": "wrangler types"

@@ -238,8 +238,8 @@ function openCreativeWorkshop() {
 
   const $closeButton = host$('<button type="button">退出</button>').css({
     position: 'absolute',
-    top: '12px',
-    right: '12px',
+    top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
+    right: 'calc(env(safe-area-inset-right, 0px) + 12px)',
     zIndex: 3,
     minHeight: '44px',
     padding: '0 14px',

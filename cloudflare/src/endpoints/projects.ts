@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { AppContext } from '../types';
 import { generateId, projectDb, userDb } from '../utils/db';
 import { getCurrentUserFromRequest } from '../utils/jwt';
+import { removeProjectEntryFromJson, type ProjectEntryKind } from '../utils/project-content';
 import { parseRegexEntriesPreview, parseWorldbookEntriesPreview } from '../utils/project-preview';
 import { r2Storage } from '../utils/r2';
 
@@ -32,6 +33,24 @@ async function readProjectPreview(c: AppContext, project: { downloadUrl?: string
   const worldbookEntriesPreview = projectObject ? parseWorldbookEntriesPreview(await projectObject.text()) : [];
   const regexEntriesPreview = regexObject ? parseRegexEntriesPreview(await regexObject.text()) : [];
   return { worldbookEntriesPreview, regexEntriesPreview };
+}
+
+function getProjectContentKey(projectId: string, kind: ProjectEntryKind): string {
+  const fileName = kind === 'worldbook' ? `project-${projectId}.json` : `regex-${projectId}.json`;
+  return `projects/${projectId}/${fileName}`;
+}
+
+async function readProjectContentForEdit(
+  c: AppContext,
+  project: { id: string; publishedProjectId?: string | null },
+  kind: ProjectEntryKind,
+) {
+  const targetObject = await c.env.R2_BUCKET.get(getProjectContentKey(project.id, kind));
+  if (targetObject) return targetObject;
+  if (project.publishedProjectId) {
+    return c.env.R2_BUCKET.get(getProjectContentKey(project.publishedProjectId, kind));
+  }
+  return null;
 }
 
 /**
@@ -948,6 +967,86 @@ export class ProjectVisibilityUpdate extends OpenAPIRoute {
     return {
       success: true,
       visibility: data.body.visibility,
+    };
+  }
+}
+
+export class ProjectEntryRemove extends OpenAPIRoute {
+  schema = {
+    tags: ['Projects'],
+    summary: 'Remove One Project Entry',
+    request: {
+      params: z.object({ projectId: Str({ description: 'Project ID' }) }),
+      headers: z.object({ authorization: z.string().describe('Session ID') }),
+      body: {
+        content: {
+          'application/json': {
+            schema: z.object({
+              kind: z.enum(['worldbook', 'regex']),
+              entryKey: z.string().min(1),
+            }),
+          },
+        },
+      },
+    },
+    responses: { '200': { description: 'Entry removed' } },
+  };
+
+  async handle(c: AppContext) {
+    const payload = await getCurrentUserFromRequest(c);
+    if (!payload) return c.json({ error: 'Unauthorized' }, 401);
+
+    const data = await this.getValidatedData<typeof this.schema>();
+    const { projectId } = data.params;
+    const { kind, entryKey } = data.body;
+    const project = await projectDb.get(c, projectId, payload);
+    if (!project) return c.json({ error: 'Project not found' }, 404);
+    if (project.authorId !== payload.userId && !payload.isAdmin) {
+      return c.json({ error: 'Permission denied' }, 403);
+    }
+
+    let targetProjectId = project.id;
+    const sourceProject =
+      project.isPublished && project.status === 'approved'
+        ? (await projectDb.findDraftByPublishedId(c, project.id)) || project
+        : project;
+    const sourceObject = await readProjectContentForEdit(c, sourceProject, kind as ProjectEntryKind);
+    if (!sourceObject) return c.json({ error: 'Project content file not found' }, 404);
+    const changed = removeProjectEntryFromJson(await sourceObject.text(), kind as ProjectEntryKind, entryKey);
+
+    if (project.isPublished && project.status === 'approved') {
+      const draftId = await projectDb.createDraftFromPublished(c, project.id, {});
+      if (!draftId) return c.json({ error: 'Draft creation failed' }, 500);
+      targetProjectId = draftId;
+    }
+
+    const result = await r2Storage.uploadProjectFile(
+      c,
+      targetProjectId,
+      await new Response(changed.text).arrayBuffer(),
+      kind === 'worldbook' ? `project-${targetProjectId}.json` : `regex-${targetProjectId}.json`,
+      'application/json',
+    );
+    if (!result) return c.json({ error: 'Upload failed' }, 500);
+
+    if (kind === 'worldbook') {
+      await projectDb.update(c, targetProjectId, { downloadUrl: result.url, fileSize: result.size });
+    }
+
+    if (payload.isAdmin && project.authorId !== payload.userId) {
+      await projectDb.logAdminAction(c, {
+        action: 'project_entry_removed',
+        targetType: project.reviewTarget === 'draft' || project.isPublished ? 'project_draft' : 'project',
+        targetId: targetProjectId,
+        actorId: payload.userId,
+        actorName: payload.globalName || payload.username,
+        detail: { kind, entryKey, projectName: project.name },
+      });
+    }
+
+    return {
+      success: true,
+      projectId: targetProjectId,
     };
   }
 }
