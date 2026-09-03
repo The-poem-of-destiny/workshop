@@ -1,0 +1,26 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "poemofdestinycreativeworkshop",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-12",
+  "keep_vars": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "creative_workshop",
+      "database_id": "d15eff29-c6a2-4bc8-9e5d-c7e3752bbc39"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "SESSION_KV",
+      "id": "e0e8061b7b1d4c36a0c62e7f3b0f5a8c"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "R2_BUCKET",
+      "bucket_name": "creative-workshop-uploads"
+    }
+  ]
+}

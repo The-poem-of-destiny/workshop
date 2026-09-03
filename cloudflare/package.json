@@ -3,8 +3,9 @@
 	"version": "0.0.1",
 	"private": true,
 	"scripts": {
-		"deploy": "wrangler deploy",
+		"deploy": "wrangler deploy --config wrangler.jsonc",
 		"deploy:staging": "wrangler deploy --config wrangler.staging.jsonc",
+		"check:production": "wrangler deploy --dry-run --config wrangler.jsonc",
 		"check:staging": "wrangler deploy --dry-run --config wrangler.staging.jsonc",
 		"check:version-policy": "node tests/version-policy-smoke.mjs",
 		"check:home-js": "node tests/home-js-smoke.mjs",
