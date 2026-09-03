@@ -877,19 +877,19 @@ async function enrichProjects(
 
   if (currentUser?.userId) {
     const projectIds = projects.map(project => project.id);
-    const placeholders = projectIds.map(() => '?').join(', ');
+    const projectIdsJson = JSON.stringify(projectIds);
     const interactions = await c.env.DB.prepare(
       `
         SELECT project_id, 'like' AS kind
         FROM project_likes
-        WHERE user_id = ? AND project_id IN (${placeholders})
+        WHERE user_id = ?2 AND project_id IN (SELECT value FROM json_each(?1))
         UNION ALL
         SELECT project_id, 'subscribe' AS kind
         FROM project_subscribes
-        WHERE user_id = ? AND project_id IN (${placeholders})
+        WHERE user_id = ?2 AND project_id IN (SELECT value FROM json_each(?1))
       `,
     )
-      .bind(currentUser.userId, ...projectIds, currentUser.userId, ...projectIds)
+      .bind(projectIdsJson, currentUser.userId)
       .all<{ project_id: string; kind: 'like' | 'subscribe' }>();
 
     for (const row of interactions.results || []) {
