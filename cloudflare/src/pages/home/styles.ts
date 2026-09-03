@@ -70,15 +70,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helve
   .card-cover { height:160px; background-size:cover; background-position:center; background-color:#0F172A; position:relative; }
   .card-overlay-actions { position:absolute; right:12px; bottom:12px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
   .icon-stat-btn { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.1); color:#E2E8F0; font-size:0.78rem; backdrop-filter:blur(8px); position:relative; transition:transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease; }
-  .like-btn,.subscribe-btn { cursor:pointer; }
-  .like-btn:hover,.subscribe-btn:hover { transform:translateY(-1px); box-shadow:0 10px 24px rgba(15,23,42,0.42); }
-  .like-btn:hover { background:rgba(127,29,29,0.36); border-color:rgba(248,113,113,0.72); color:#FECACA; }
-  .subscribe-btn:hover { background:rgba(120,53,15,0.38); border-color:rgba(251,191,36,0.72); color:#FDE68A; }
+  .like-btn { cursor:pointer; }
+  .like-btn:hover { transform:translateY(-1px); box-shadow:0 10px 24px rgba(15,23,42,0.42); background:rgba(127,29,29,0.36); border-color:rgba(248,113,113,0.72); color:#FECACA; }
   .icon-stat-btn.liked { color:#FCA5A5; border-color:rgba(239,68,68,0.35); }
-  .icon-stat-btn.subscribed { color:#FCD34D; border-color:rgba(245,158,11,0.35); }
   .icon-stat-btn__hint { position:absolute; left:50%; bottom:calc(100% + 10px); transform:translateX(-50%) translateY(4px); pointer-events:none; opacity:0; padding:6px 10px; border-radius:10px; white-space:nowrap; background:rgba(15,23,42,0.96); border:1px solid rgba(255,255,255,0.12); color:#E2E8F0; font-size:0.72rem; line-height:1; box-shadow:0 12px 30px rgba(0,0,0,0.35); transition:opacity 0.18s ease, transform 0.18s ease; }
   .icon-stat-btn__hint::after { content:''; position:absolute; left:50%; top:100%; transform:translateX(-50%); border:6px solid transparent; border-top-color:rgba(15,23,42,0.96); }
-  .like-btn:hover .icon-stat-btn__hint,.subscribe-btn:hover .icon-stat-btn__hint { opacity:1; transform:translateX(-50%) translateY(0); }
+  .like-btn:hover .icon-stat-btn__hint { opacity:1; transform:translateX(-50%) translateY(0); }
   .icon-stat-btn--static { cursor:default; opacity:0.9; }
   .icon-stat-btn.is-disabled { opacity:0.5; cursor:not-allowed; box-shadow:none; transform:none; }
   .icon-stat-btn.is-disabled:hover { background:rgba(15,23,42,0.82); border-color:rgba(255,255,255,0.1); color:#E2E8F0; transform:none; box-shadow:none; }

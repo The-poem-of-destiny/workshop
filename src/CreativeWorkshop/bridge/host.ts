@@ -247,8 +247,15 @@ export function createCreativeWorkshopBridgeHost(option: HostOption) {
           if (!_.isString(_.get(event.data, 'payload.projectId'))) {
             throw new Error('缺少 projectId');
           }
-          await installCreativeWorkshopProject(String(event.data.payload?.projectId));
-          await installCreativeWorkshopRegex(String(event.data.payload?.projectId));
+          await installCreativeWorkshopProject(
+            String(event.data.payload?.projectId),
+            Array.isArray(event.data.payload?.worldbookEntryKeys) ? event.data.payload?.worldbookEntryKeys.map(String) : undefined,
+            _.isString(event.data.payload?.worldbookName) ? String(event.data.payload?.worldbookName) : undefined,
+          );
+          await installCreativeWorkshopRegex(
+            String(event.data.payload?.projectId),
+            Array.isArray(event.data.payload?.regexEntryKeys) ? event.data.payload?.regexEntryKeys.map(String) : undefined,
+          );
           await post(
             'bridge:install-result',
             {
@@ -258,6 +265,7 @@ export function createCreativeWorkshopBridgeHost(option: HostOption) {
             },
             event.data.requestId,
           );
+          await post('bridge:context', getCurrentCreativeWorkshopContext(), event.data.requestId);
           break;
         case 'bridge:uninstall-project':
           if (!_.isString(_.get(event.data, 'payload.projectId'))) {

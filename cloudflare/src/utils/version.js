@@ -1,4 +1,5 @@
 export const PROJECT_VERSION_BUMPS = ['patch', 'minor', 'major'];
+export const LEGACY_PROJECT_VERSION_BASE = '1.0.0';
 
 export function parseProjectVersion(value) {
   const text = String(value ?? '').trim();
@@ -27,9 +28,20 @@ export function bumpProjectVersion(value, bump = 'patch') {
   return `${parsed.major}.${parsed.minor}.${parsed.patch + 1}`;
 }
 
+export function normalizeProjectVersionBase(value) {
+  const parsed = parseProjectVersion(value);
+  if (!parsed) return LEGACY_PROJECT_VERSION_BASE;
+  return `${parsed.major}.${parsed.minor}.${parsed.patch}`;
+}
+
+export function bumpProjectVersionWithLegacyFallback(value, bump = 'patch') {
+  return bumpProjectVersion(normalizeProjectVersionBase(value), bump);
+}
+
 export function classifyProjectVersionTransition(currentVersion, targetVersion) {
+  const normalizedCurrentVersion = normalizeProjectVersionBase(currentVersion);
   for (const bump of PROJECT_VERSION_BUMPS) {
-    if (bumpProjectVersion(currentVersion, bump) === targetVersion) return bump;
+    if (bumpProjectVersion(normalizedCurrentVersion, bump) === targetVersion) return bump;
   }
   return null;
 }

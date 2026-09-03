@@ -5,7 +5,7 @@ import { Hono } from 'hono';
 import type { Env } from './env';
 
 // 工具函数
-import { initDatabase, projectDb } from './utils/db';
+import { projectDb } from './utils/db';
 import { jwt } from './utils/jwt';
 
 // 页面
@@ -17,6 +17,7 @@ import { AuthCallback, AuthLogin, AuthLogout, AuthMe, AuthPoll } from './endpoin
 // 项目端点
 import {
   MyProjects,
+  MySubscriptions,
   ProjectCoverUpload,
   ProjectCreate,
   ProjectDelete,
@@ -25,6 +26,7 @@ import {
   ProjectLikeToggle,
   ProjectList,
   ProjectRegexUpload,
+  ProjectSubscribeSet,
   ProjectSubscribeToggle,
   ProjectUpdate,
   ProjectUpload,
@@ -90,11 +92,13 @@ app.use('*', async (c, next) => {
   if (c.req.method === 'GET') {
     const hasAuthorization = Boolean(c.req.header('authorization'));
     if (c.req.path === '/api/projects') {
+      c.res.headers.append('Vary', 'Authorization');
       c.res.headers.set(
         'Cache-Control',
         hasAuthorization ? 'private, no-store' : 'public, max-age=60, s-maxage=120, stale-while-revalidate=300',
       );
     } else if (/^\/api\/projects\/[^/]+$/.test(c.req.path)) {
+      c.res.headers.append('Vary', 'Authorization');
       c.res.headers.set(
         'Cache-Control',
         hasAuthorization ? 'private, no-store' : 'public, max-age=120, s-maxage=300, stale-while-revalidate=600',
@@ -105,32 +109,7 @@ app.use('*', async (c, next) => {
   }
 });
 
-// ============ 数据库初始化中间件 ============
-// 使用 D1 特有的方式：在第一次请求时初始化数据库
-// 注意：由于数据库已经通过 wrangler d1 execute 初始化，这里主要是容错处理
-let dbInitialized = false;
 
-app.use('*', async (c, next) => {
-  if (!dbInitialized) {
-    try {
-      await initDatabase(c);
-      dbInitialized = true;
-      console.info('数据库初始化完成');
-    } catch (error) {
-      // 如果数据库已经存在或初始化过，也认为成功
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes('already exists') || errorMessage.includes('no such table')) {
-        // 数据库已存在，初始化成功
-        dbInitialized = true;
-        console.info('数据库已存在，跳过初始化');
-      } else {
-        console.warn('数据库初始化遇到问题:', errorMessage);
-        // 继续处理请求，可能是远程数据库已初始化
-      }
-    }
-  }
-  await next();
-});
 
 // Setup OpenAPI registry
 const openapi = fromHono(app, {
@@ -147,90 +126,9 @@ app.get('/assets/home.js', c => {
   });
 });
 
-// 主页 - 需要检查用户登录状态
-app.get('/', async c => {
-  const token = c.req.header('authorization');
-
-  let user = null;
-  let pendingCount = 0;
-
-  // 检查用户是否已登录
-  if (token) {
-    try {
-      const payload = await jwt.extractFromHeader(c, token);
-      if (payload) {
-        const avatarUrl = payload.avatar
-          ? `https://cdn.discordapp.com/avatars/${payload.userId}/${payload.avatar}.webp?size=100`
-          : `https://cdn.discordapp.com/embed/avatars/0.png`;
-
-        user = {
-          id: payload.userId,
-          username: payload.username,
-          avatarUrl,
-          isAdmin: payload.isAdmin || false,
-        };
-
-        // 如果是管理员，获取待审核数量
-        if (user.isAdmin) {
-          try {
-            const result = await c.env.DB.prepare('SELECT COUNT(*) as count FROM projects WHERE status = ?')
-              .bind('pending')
-              .first<{ count: number }>();
-            pendingCount = result?.count || 0;
-          } catch (e) {
-            console.error('获取待审核数量失败:', e);
-          }
-        }
-      }
-    } catch (e) {
-      // Token 无效或过期，视为未登录
-    }
-  }
-
-  // 获取已审核项目列表（公开）
-  let projects = [];
-  try {
-    const results = await c.env.DB.prepare(
-      'SELECT p.*, u.global_name as author_global_name FROM projects p LEFT JOIN users u ON p.author_id = u.id WHERE p.status = ? ORDER BY p.updated_at DESC LIMIT 50',
-    )
-      .bind('approved')
-      .all<{
-        id: string;
-        name: string;
-        description: string | null;
-        version: string;
-        author_id: string;
-        author_name: string;
-        author_global_name: string | null;
-        author_avatar: string | null;
-        status: string;
-        tags: string;
-        created_at: string;
-        updated_at: string;
-      }>();
-
-    projects =
-      results.results?.map(row => ({
-        id: row.id,
-        name: row.name,
-        description: row.description,
-        version: row.version,
-        authorId: row.author_id,
-        authorName: row.author_name,
-        authorGlobalName: row.author_global_name || row.author_name,
-        authorAvatar: row.author_avatar,
-        status: row.status,
-        tags: JSON.parse(row.tags || '[]'),
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      })) || [];
-  } catch (e) {
-    console.error('获取项目列表失败:', e);
-  }
-
-  // 渲染主页
-  const html = homePage();
-  return new Response(html, {
+// 主页只返回静态壳；登录态、项目列表和审核状态由前端 API 按需加载。
+app.get('/', c => {
+  return new Response(homePage(), {
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
   });
 });
@@ -248,6 +146,7 @@ openapi.get('/api/projects/:projectId', ProjectFetch);
 
 // ============ 项目接口 (需要登录) ============
 openapi.get('/api/my/projects', MyProjects);
+openapi.get('/api/my/subscriptions', MySubscriptions);
 openapi.post('/api/projects', ProjectCreate);
 openapi.put('/api/projects/:projectId', ProjectUpdate);
 openapi.put('/api/projects/:projectId/visibility', ProjectVisibilityUpdate);
@@ -255,6 +154,7 @@ openapi.delete('/api/projects/:projectId', ProjectDelete);
 openapi.post('/api/projects/:projectId/entries/remove', ProjectEntryRemove);
 openapi.post('/api/projects/:projectId/like', ProjectLikeToggle);
 openapi.post('/api/projects/:projectId/subscribe', ProjectSubscribeToggle);
+openapi.put('/api/projects/:projectId/subscribe', ProjectSubscribeSet);
 
 // ============ 项目文件上传 ============
 openapi.post('/api/projects/:projectId/upload', ProjectUpload);
@@ -267,6 +167,7 @@ app.get('/api/files/*', async c => {
   const key = c.req.path.replace('/api/files/', '');
 
   try {
+    let isPrivateProjectFile = false;
     const projectMatch = key.match(/^projects\/([^/]+)\//);
     if (projectMatch) {
       const projectId = projectMatch[1];
@@ -278,6 +179,7 @@ app.get('/api/files/*', async c => {
       if (!project) {
         return c.json({ error: 'File not found' }, 404);
       }
+      isPrivateProjectFile = project.status !== 'approved';
 
       const canView =
         project.status === 'approved' || (payload && (payload.isAdmin || payload.userId === project.author_id));
@@ -299,7 +201,10 @@ app.get('/api/files/*', async c => {
     const headers = new Headers();
     object.writeHttpMetadata(headers);
     headers.set('Content-Length', object.size.toString());
-    headers.set('Cache-Control', 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800');
+    headers.set(
+      'Cache-Control',
+      isPrivateProjectFile ? 'private, no-store' : 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800',
+    );
 
     return new Response(object.body, {
       headers,

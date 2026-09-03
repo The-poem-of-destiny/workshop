@@ -1,142 +1,7 @@
 import type { AppContext, ProjectReviewTarget } from '../types';
 import type { JWTPayload } from './jwt';
 import { r2Storage } from './r2';
-
-/**
- * 数据库初始化 - 创建表结构
- */
-export async function initDatabase(c: AppContext): Promise<void> {
-  const db = c.env.DB;
-  const safeExec = async (sql: string) => {
-    try {
-      await db.exec(sql);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (!message.includes('duplicate column name')) {
-        throw error;
-      }
-    }
-  };
-
-  // 创建用户表
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      username TEXT NOT NULL,
-      global_name TEXT,
-      avatar TEXT,
-      discriminator TEXT,
-      guilds TEXT,
-      is_admin INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  // 创建项目表
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT,
-      version TEXT DEFAULT '1.0.0',
-      author_id TEXT NOT NULL,
-      author_name TEXT NOT NULL,
-      author_avatar TEXT,
-      status TEXT DEFAULT 'pending',
-      download_url TEXT,
-      file_size INTEGER,
-      tags TEXT DEFAULT '[]',
-      cover_image TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      reviewed_at TEXT,
-      reviewer_id TEXT,
-      reject_reason TEXT,
-      FOREIGN KEY (author_id) REFERENCES users(id)
-    )
-  `);
-
-  // 创建索引
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)`);
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_projects_author ON projects(author_id)`);
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_projects_created ON projects(created_at DESC)`);
-
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS project_likes (
-      project_id TEXT NOT NULL,
-      user_id TEXT NOT NULL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (project_id, user_id),
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )
-  `);
-
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS project_subscribes (
-      project_id TEXT NOT NULL,
-      user_id TEXT NOT NULL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (project_id, user_id),
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )
-  `);
-
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_project_likes_project_id ON project_likes(project_id)`);
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_project_likes_user_id ON project_likes(user_id)`);
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_project_subscribes_project_id ON project_subscribes(project_id)`);
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_project_subscribes_user_id ON project_subscribes(user_id)`);
-  await db.exec(
-    `CREATE TABLE IF NOT EXISTS admin_action_logs (id TEXT PRIMARY KEY, action TEXT NOT NULL, target_type TEXT NOT NULL, target_id TEXT, actor_id TEXT NOT NULL, actor_name TEXT NOT NULL, detail TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)`,
-  );
-  await safeExec(`ALTER TABLE projects ADD COLUMN root_project_id TEXT`);
-  await safeExec(`ALTER TABLE projects ADD COLUMN published_project_id TEXT`);
-  await safeExec(`ALTER TABLE projects ADD COLUMN draft_project_id TEXT`);
-  await safeExec(`ALTER TABLE projects ADD COLUMN review_target TEXT DEFAULT 'project'`);
-  await safeExec(`ALTER TABLE projects ADD COLUMN visibility INTEGER DEFAULT 1`);
-  await safeExec(`ALTER TABLE projects ADD COLUMN is_published INTEGER DEFAULT 0`);
-  await safeExec(`ALTER TABLE projects ADD COLUMN latest_approved_at TEXT`);
-  await safeExec(`ALTER TABLE projects ADD COLUMN downloads_count INTEGER DEFAULT 0`);
-
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS super_admins (
-      user_id TEXT PRIMARY KEY,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      note TEXT
-    )
-  `);
-
-  const superAdminUserId = c.env.SUPER_ADMIN_USER_ID?.trim();
-  if (superAdminUserId) {
-    await db
-      .prepare(
-        `
-          INSERT INTO super_admins (user_id, note)
-          VALUES (?, ?)
-          ON CONFLICT(user_id) DO NOTHING
-        `,
-      )
-      .bind(superAdminUserId, 'bootstrap super admin')
-      .run();
-
-    await db
-      .prepare(
-        `
-          INSERT INTO users (id, username, global_name, avatar, discriminator, guilds, is_admin, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET
-            is_admin = 1,
-            updated_at = excluded.updated_at
-        `,
-      )
-      .bind(superAdminUserId, `super-admin-${superAdminUserId}`, null, '', '', '[]', now(), now())
-      .run();
-  }
-
-  console.info('Database initialized successfully');
-}
+import { bumpProjectVersionWithLegacyFallback, classifyProjectVersionTransition } from './version.js';
 
 /**
  * 生成 UUID
@@ -357,6 +222,7 @@ export const projectDb = {
       publishedProjectId?: string | null;
       draftProjectId?: string | null;
       reviewTarget?: ProjectReviewTarget;
+      draftRevision?: number;
       visibility?: boolean;
       isPublished?: boolean;
       latestApprovedAt?: string | null;
@@ -369,8 +235,8 @@ export const projectDb = {
 			INSERT INTO projects (
 				id, name, description, version, author_id, author_name, author_avatar,
 				status, download_url, file_size, tags, cover_image, root_project_id, published_project_id,
-				draft_project_id, review_target, visibility, is_published, latest_approved_at, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				draft_project_id, review_target, draft_revision, visibility, is_published, latest_approved_at, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`,
       )
       .bind(
@@ -390,6 +256,7 @@ export const projectDb = {
         project.publishedProjectId || null,
         project.draftProjectId || null,
         project.reviewTarget || 'project',
+        project.draftRevision || 1,
         project.visibility === false ? 0 : 1,
         project.isPublished ? 1 : 0,
         project.latestApprovedAt || null,
@@ -439,6 +306,7 @@ export const projectDb = {
       publishedProjectId?: string | null;
       draftProjectId?: string | null;
       reviewTarget?: ProjectReviewTarget;
+      draftRevision?: number;
       visibility?: boolean;
       isPublished?: boolean;
       latestApprovedAt?: string | null;
@@ -493,6 +361,10 @@ export const projectDb = {
       setClauses.push('review_target = ?');
       values.push(updates.reviewTarget);
     }
+    if (updates.draftRevision !== undefined) {
+      setClauses.push('draft_revision = ?');
+      values.push(updates.draftRevision);
+    }
     if (updates.visibility !== undefined) {
       setClauses.push('visibility = ?');
       values.push(updates.visibility ? 1 : 0);
@@ -515,6 +387,21 @@ export const projectDb = {
 		`,
       )
       .bind(...values)
+      .run();
+  },
+
+  bumpDraftRevision: async (c: AppContext, projectId: string): Promise<void> => {
+    await c.env.DB.prepare(
+      `UPDATE projects
+       SET draft_revision = draft_revision + 1,
+           status = 'pending',
+           reject_reason = NULL,
+           reviewed_at = NULL,
+           reviewer_id = NULL,
+           updated_at = ?
+       WHERE id = ?`,
+    )
+      .bind(now(), projectId)
       .run();
   },
 
@@ -572,92 +459,83 @@ export const projectDb = {
 
     // 默认只显示已审核通过的项目
     if (options.approvedOnly !== false) {
-      conditions.push('status = ?');
+      conditions.push('p.status = ?');
       values.push('approved');
-      conditions.push('is_published = 1');
-      conditions.push('visibility = 1');
+      conditions.push('p.is_published = 1');
+      conditions.push('p.visibility = 1');
     } else if (options.status) {
-      conditions.push('status = ?');
+      conditions.push('p.status = ?');
       values.push(options.status);
     }
 
     if (options.authorId) {
-      conditions.push('author_id = ?');
+      conditions.push('p.author_id = ?');
       values.push(options.authorId);
     }
 
     if (options.tag) {
-      conditions.push('tags LIKE ?');
+      conditions.push('p.tags LIKE ?');
       values.push(`%"${options.tag}"%`);
     }
 
-    if (options.search) {
-      conditions.push('(name LIKE ? OR description LIKE ?)');
-      values.push(`%${options.search}%`, `%${options.search}%`);
+    const searchTerm = options.search?.trim();
+    if (searchTerm) {
+      conditions.push('(p.name LIKE ? OR p.description LIKE ? OR p.tags LIKE ? OR p.author_name LIKE ? OR u.global_name LIKE ?)');
+      const searchPattern = `%${searchTerm}%`;
+      values.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const listWhereClause = whereClause
-      .replaceAll('author_id', 'p.author_id')
-      .replaceAll('status', 'p.status')
-      .replaceAll('tags', 'p.tags')
-      .replaceAll('name', 'p.name')
-      .replaceAll('description', 'p.description');
+    const listWhereClause = whereClause;
+
+
+
+
+
+    const sortMode = options.sort || 'published';
     const orderBy = (() => {
-      switch (options.sort || 'published') {
+      switch (sortMode) {
         case 'updated':
           return 'p.updated_at DESC, p.created_at DESC';
         case 'downloads':
           return 'COALESCE(p.downloads_count, 0) DESC, p.created_at DESC';
         case 'likes':
-          return 'COALESCE(pl.likes_count, 0) DESC, p.created_at DESC';
+          return 'COALESCE(p.likes_count, 0) DESC, p.created_at DESC';
         case 'subscribes':
-          return 'COALESCE(ps.subscribes_count, 0) DESC, p.created_at DESC';
+          // Legacy clients may still request this sort. Subscription is now an install/update-notification state,
+          // not a public popularity metric, so use downloads as the closest cheap fallback.
+          return 'COALESCE(p.downloads_count, 0) DESC, p.created_at DESC';
         case 'published':
         default:
           return 'p.created_at DESC, p.updated_at DESC';
       }
     })();
-
-    // 获取总数
-    const countResult = await db
-      .prepare(
-        `
-			SELECT COUNT(*) as total FROM projects ${whereClause}
-		`,
-      )
-      .bind(...values)
-      .first<{ total: number }>();
-
-    // 获取列表
+    // 获取当前页，并多取 1 条用于判断是否还有下一批；无需额外 COUNT(*)。
     const offset = options.page * options.pageSize;
+    const fetchLimit = options.pageSize + 1;
     const results = await db
       .prepare(
         `
-			SELECT p.*, u.global_name,
-			       COALESCE(pl.likes_count, 0) as likes_count,
-			       COALESCE(ps.subscribes_count, 0) as subscribes_count
+			SELECT p.*, u.global_name
 			FROM projects p
 			LEFT JOIN users u ON p.author_id = u.id
-			LEFT JOIN (
-			  SELECT project_id, COUNT(*) as likes_count FROM project_likes GROUP BY project_id
-			) pl ON pl.project_id = p.id
-			LEFT JOIN (
-			  SELECT project_id, COUNT(*) as subscribes_count FROM project_subscribes GROUP BY project_id
-			) ps ON ps.project_id = p.id
 			${listWhereClause}
 			ORDER BY ${orderBy}
 			LIMIT ? OFFSET ?
 		`,
       )
-      .bind(...values, options.pageSize, offset)
+      .bind(...values, fetchLimit, offset)
       .all<Record<string, unknown>>();
 
+    const rows = results.results || [];
+    const hasMore = rows.length > options.pageSize;
+    const pageRows = hasMore ? rows.slice(0, options.pageSize) : rows;
+
     return {
-      total: countResult?.total || 0,
+      hasMore,
       page: options.page,
       pageSize: options.pageSize,
-      projects: await enrichProjects(c, (results.results || []).map(parseProjectRow), options.currentUser),
+      projects: await enrichProjects(c, pageRows.map(parseProjectRow), options.currentUser),
     };
   },
 
@@ -821,39 +699,45 @@ export const projectDb = {
         .run();
     }
 
-    const count = await db
-      .prepare(`SELECT COUNT(*) as count FROM project_likes WHERE project_id = ?`)
+    const counter = await db
+      .prepare(`SELECT COALESCE(likes_count, 0) as count FROM projects WHERE id = ?`)
       .bind(projectId)
       .first<{ count: number }>();
 
-    return { liked: !existing, count: count?.count || 0 };
+    return { liked: !existing, count: Number(counter?.count || 0) };
   },
 
-  toggleSubscribe: async (c: AppContext, projectId: string, userId: string) => {
-    const db = c.env.DB;
-    const existing = await db
-      .prepare(`SELECT 1 as subscribed FROM project_subscribes WHERE project_id = ? AND user_id = ?`)
-      .bind(projectId, userId)
-      .first<{ subscribed: number }>();
+  getSubscribedProjectIds: async (c: AppContext, userId: string) => {
+    const result = await c.env.DB.prepare(`SELECT project_id FROM project_subscribes WHERE user_id = ?`)
+      .bind(userId)
+      .all<{ project_id: string }>();
+    return (result.results || []).map(row => row.project_id);
+  },
 
-    if (existing) {
+  setSubscribe: async (c: AppContext, projectId: string, userId: string, subscribed: boolean) => {
+    const db = c.env.DB;
+    if (subscribed) {
+      await db
+        .prepare(`INSERT OR IGNORE INTO project_subscribes (project_id, user_id, created_at) VALUES (?, ?, ?)`)
+        .bind(projectId, userId, now())
+        .run();
+    } else {
       await db
         .prepare(`DELETE FROM project_subscribes WHERE project_id = ? AND user_id = ?`)
         .bind(projectId, userId)
         .run();
-    } else {
-      await db
-        .prepare(`INSERT INTO project_subscribes (project_id, user_id, created_at) VALUES (?, ?, ?)`)
-        .bind(projectId, userId, now())
-        .run();
     }
 
-    const count = await db
-      .prepare(`SELECT COUNT(*) as count FROM project_subscribes WHERE project_id = ?`)
-      .bind(projectId)
-      .first<{ count: number }>();
+    return { subscribed, count: 0 };
+  },
 
-    return { subscribed: !existing, count: count?.count || 0 };
+  toggleSubscribe: async (c: AppContext, projectId: string, userId: string) => {
+    const existing = await c.env.DB
+      .prepare(`SELECT 1 as subscribed FROM project_subscribes WHERE project_id = ? AND user_id = ?`)
+      .bind(projectId, userId)
+      .first<{ subscribed: number }>();
+
+    return projectDb.setSubscribe(c, projectId, userId, !existing);
   },
 
   findDraftByPublishedId: async (c: AppContext, publishedProjectId: string) => {
@@ -874,19 +758,19 @@ export const projectDb = {
     if (!published) return null;
     const existingDraft = await projectDb.findDraftByPublishedId(c, publishedProjectId);
     if (existingDraft) {
+      const nextVersion =
+        updates.version ??
+        (classifyProjectVersionTransition(published.version, existingDraft.version)
+          ? existingDraft.version
+          : bumpProjectVersionWithLegacyFallback(published.version, 'patch'));
       await projectDb.update(c, existingDraft.id, {
-        name: updates.name ?? published.name,
-        description: updates.description ?? published.description ?? '',
-        version: updates.version ?? published.version,
-        tags: updates.tags ?? published.tags,
-        coverImage: updates.coverImage ?? published.coverImage ?? undefined,
-        status: 'pending',
+        name: updates.name ?? existingDraft.name,
+        description: updates.description ?? existingDraft.description ?? '',
+        version: nextVersion,
+        tags: updates.tags ?? existingDraft.tags,
+        coverImage: updates.coverImage ?? existingDraft.coverImage ?? undefined,
       });
-      await c.env.DB.prepare(
-        `UPDATE projects SET reject_reason = NULL, reviewed_at = NULL, reviewer_id = NULL, updated_at = ? WHERE id = ?`,
-      )
-        .bind(now(), existingDraft.id)
-        .run();
+      await projectDb.bumpDraftRevision(c, existingDraft.id);
       return existingDraft.id;
     }
 
@@ -895,7 +779,7 @@ export const projectDb = {
       id: draftId,
       name: updates.name ?? published.name,
       description: updates.description ?? published.description ?? undefined,
-      version: updates.version ?? published.version,
+      version: updates.version ?? bumpProjectVersionWithLegacyFallback(published.version, 'patch'),
       authorId: published.authorId,
       authorName: published.authorName,
       authorAvatar: published.authorAvatar || '',
@@ -906,6 +790,7 @@ export const projectDb = {
       rootProjectId: published.rootProjectId || published.id,
       publishedProjectId,
       reviewTarget: 'draft',
+      draftRevision: 1,
       visibility: published.visibility,
       isPublished: false,
       latestApprovedAt: published.latestApprovedAt || published.reviewedAt,
@@ -991,109 +876,42 @@ async function enrichProjects(
     return projects;
   }
 
-  const projectIds = projects.map(project => project.id);
-  const placeholders = projectIds.map(() => '?').join(', ');
-  let statsRows:
-    | {
-      results?: Array<{
-        project_id: string;
-        downloads_count: number;
-        likes_count: number;
-        subscribes_count: number;
-        user_liked: number;
-        user_subscribed: number;
-      }>;
-    }
-    | undefined;
-  try {
-    statsRows = await c.env.DB.prepare(
-      `
-          SELECT
-            p.id as project_id,
-            COALESCE(p.downloads_count, 0) as downloads_count,
-            COALESCE(pl.likes_count, 0) as likes_count,
-            COALESCE(ps.subscribes_count, 0) as subscribes_count,
-            CASE WHEN ul.project_id IS NOT NULL THEN 1 ELSE 0 END as user_liked,
-            CASE WHEN us.project_id IS NOT NULL THEN 1 ELSE 0 END as user_subscribed
-          FROM projects p
-          LEFT JOIN (
-            SELECT project_id, COUNT(*) as likes_count FROM project_likes GROUP BY project_id
-          ) pl ON pl.project_id = p.id
-          LEFT JOIN (
-            SELECT project_id, COUNT(*) as subscribes_count FROM project_subscribes GROUP BY project_id
-          ) ps ON ps.project_id = p.id
-          LEFT JOIN project_likes ul ON ul.project_id = p.id AND ul.user_id = ?
-          LEFT JOIN project_subscribes us ON us.project_id = p.id AND us.user_id = ?
-          WHERE p.id IN (${placeholders})
-        `,
-    )
-      .bind(currentUser?.userId || '', currentUser?.userId || '', ...projectIds)
-      .all<{
-        project_id: string;
-        downloads_count: number;
-        likes_count: number;
-        subscribes_count: number;
-        user_liked: number;
-        user_subscribed: number;
-      }>();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!message.includes('no such column: p.downloads_count')) {
-      throw error;
-    }
+  const likedProjectIds = new Set<string>();
 
-    console.warn('downloads_count column missing, fallback stats query activated');
-    statsRows = await c.env.DB.prepare(
+
+  if (currentUser?.userId) {
+    const projectIds = projects.map(project => project.id);
+    const projectIdsJson = JSON.stringify(projectIds);
+    const likes = await c.env.DB.prepare(
       `
-          SELECT
-            p.id as project_id,
-            0 as downloads_count,
-            COALESCE(pl.likes_count, 0) as likes_count,
-            COALESCE(ps.subscribes_count, 0) as subscribes_count,
-            CASE WHEN ul.project_id IS NOT NULL THEN 1 ELSE 0 END as user_liked,
-            CASE WHEN us.project_id IS NOT NULL THEN 1 ELSE 0 END as user_subscribed
-          FROM projects p
-          LEFT JOIN (
-            SELECT project_id, COUNT(*) as likes_count FROM project_likes GROUP BY project_id
-          ) pl ON pl.project_id = p.id
-          LEFT JOIN (
-            SELECT project_id, COUNT(*) as subscribes_count FROM project_subscribes GROUP BY project_id
-          ) ps ON ps.project_id = p.id
-          LEFT JOIN project_likes ul ON ul.project_id = p.id AND ul.user_id = ?
-          LEFT JOIN project_subscribes us ON us.project_id = p.id AND us.user_id = ?
-          WHERE p.id IN (${placeholders})
-        `,
+        SELECT project_id
+        FROM project_likes
+        WHERE user_id = ?2 AND project_id IN (SELECT value FROM json_each(?1))
+      `,
     )
-      .bind(currentUser?.userId || '', currentUser?.userId || '', ...projectIds)
-      .all<{
-        project_id: string;
-        downloads_count: number;
-        likes_count: number;
-        subscribes_count: number;
-        user_liked: number;
-        user_subscribed: number;
-      }>();
+      .bind(projectIdsJson, currentUser.userId)
+      .all<{ project_id: string }>();
+
+    for (const row of likes.results || []) {
+      likedProjectIds.add(row.project_id);
+    }
   }
 
-  const statsMap = new Map((statsRows.results || []).map(row => [row.project_id, row]));
-
-  return projects.map(project => {
-    const stats = statsMap.get(project.id);
-    return {
-      ...project,
-      downloadUrl: project.downloadUrl
-        ? r2Storage.getProxyUrl(c, project.downloadUrl.replace(/^.*\/api\/files\//, ''))
-        : null,
-      coverImage: project.coverImage
-        ? r2Storage.getProxyUrl(c, project.coverImage.replace(/^.*\/api\/files\//, ''))
-        : null,
-      downloadsCount: Number(stats?.downloads_count || project.downloadsCount || 0),
-      likesCount: stats?.likes_count || 0,
-      subscribesCount: stats?.subscribes_count || 0,
-      userLiked: Boolean(stats?.user_liked),
-      userSubscribed: Boolean(stats?.user_subscribed),
-    };
-  });
+  return projects.map(project => ({
+    ...project,
+    downloadUrl: project.downloadUrl
+      ? r2Storage.getProxyUrl(c, project.downloadUrl.replace(/^.*\/api\/files\//, ''))
+      : null,
+    coverImage: project.coverImage
+      ? r2Storage.getProxyUrl(c, project.coverImage.replace(/^.*\/api\/files\//, ''))
+      : null,
+    downloadsCount: Number(project.downloadsCount || 0),
+    likesCount: Number(project.likesCount || 0),
+    // Subscription is an install/update-notification state, not a public popularity metric.
+    subscribesCount: 0,
+    userLiked: likedProjectIds.has(project.id),
+    userSubscribed: false,
+  }));
 }
 
 async function enrichProject(
@@ -1154,6 +972,7 @@ function parseProjectRow(row: Record<string, unknown>) {
     visibility: Number(row.visibility ?? 1) === 1,
     isPublished: Number(row.is_published ?? 0) === 1,
     hasPendingDraft: Boolean(row.draft_project_id),
+    draftRevision: Math.max(1, Number(row.draft_revision ?? 1)),
     latestApprovedAt: row.latest_approved_at as string | null,
   };
 }

@@ -6,6 +6,7 @@ export function getCurrentCreativeWorkshopContext() {
     worldbooks: {
       primary: charWorldbooks.primary,
       additional: charWorldbooks.additional || [],
+      available: getWorldbookNames(),
     },
     regexEnabled: isCharacterTavernRegexesEnabled(),
     chatId: SillyTavern.getCurrentChatId(),

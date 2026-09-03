@@ -21,9 +21,12 @@ export const homeScript = String.raw`
   ${homeModalsScript}
 
   const isEmbedded = window.parent !== window;
+  let lastCommittedSearchKeyword = String(state.searchKeyword || '').trim();
   function finishLogin(payload) {
+    clearAuthenticatedCoverObjectUrls();
     localStorage.setItem(TOKEN_KEY, payload.token);
     localStorage.setItem(USER_KEY, JSON.stringify(payload.user));
+    invalidateAllProjectDetailCaches();
     setCurrentUser(payload.user);
     renderApp();
     showToast('登录成功');
@@ -190,8 +193,10 @@ export const homeScript = String.raw`
   });
 
   function logout() {
+    clearAuthenticatedCoverObjectUrls();
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    invalidateAllProjectDetailCaches();
     setCurrentUser(null);
     state.showOnlyMyProjects = false;
     renderApp();
@@ -220,13 +225,23 @@ export const homeScript = String.raw`
     if (workshopCloseBtn) workshopCloseBtn.onclick = requestCloseWorkshop;
     if (logoutBtn) logoutBtn.onclick = logout;
     if (uploadBtn) uploadBtn.onclick = openUploadModal;
-    if (myProjectsMenuBtn) myProjectsMenuBtn.onclick = () => {
+    if (myProjectsMenuBtn) myProjectsMenuBtn.onclick = async () => {
       state.showOnlyMyProjects = !state.showOnlyMyProjects;
       if (state.showOnlyMyProjects) {
         state.showSubscribedAndInstalledProjects = false;
       }
       state.userMenuOpen = false;
       renderApp();
+
+      if (state.showOnlyMyProjects && state.currentUser) {
+        try {
+          const myData = await apiFetch('/api/my/projects');
+          setMyProjects(myData.projects || []);
+        } catch (error) {
+          showToast('加载我的项目失败: ' + error.message, 'warning');
+        }
+        renderApp();
+      }
     };
     if (adminPanelBtn) adminPanelBtn.onclick = openAdminPanel;
     if (addAdminBtn) addAdminBtn.onclick = openAddAdminModal;
@@ -234,12 +249,21 @@ export const homeScript = String.raw`
 
     if (installedToggle) {
       const checkbox = installedToggle.querySelector('input');
-      checkbox.addEventListener('change', event => {
+      checkbox.addEventListener('change', async event => {
         state.showSubscribedAndInstalledProjects = event.target.checked;
         if (state.showSubscribedAndInstalledProjects) {
           state.showOnlyMyProjects = false;
         }
         renderApp();
+
+        if (state.showSubscribedAndInstalledProjects && state.currentUser) {
+          try {
+            await fetchSubscriptions();
+          } catch (error) {
+            showToast('加载订阅项目失败: ' + error.message, 'warning');
+          }
+          renderApp();
+        }
       });
     }
 
@@ -271,7 +295,6 @@ export const homeScript = String.raw`
             published: '发布时间',
             updated: '更新日期',
             likes: '点赞数',
-            subscribes: '订阅数',
             downloads: '下载量',
           };
           showToast('正在按' + (sortLabelMap[nextSortMode] || '当前方式') + '排序...', 'info');
@@ -291,15 +314,22 @@ export const homeScript = String.raw`
     }
 
     if (searchInput) {
-      const commitSearch = event => {
-        state.searchKeyword = event.target.value;
-        renderApp();
+      const runSearch = value => {
+        const nextKeyword = String(value || '').trim();
+        state.searchKeyword = nextKeyword;
+        if (nextKeyword === lastCommittedSearchKeyword) return;
+        lastCommittedSearchKeyword = nextKeyword;
+        resetProjectPagination();
+        void fetchProjects(true, { page: 0, pageSize: state.projectPagination.pageSize });
       };
-      searchInput.onchange = commitSearch;
-      searchInput.onblur = commitSearch;
+      searchInput.oninput = event => {
+        state.searchKeyword = event.target.value;
+      };
+      searchInput.onchange = event => runSearch(event.target.value);
       searchInput.onkeydown = event => {
         if (event.key === 'Enter') {
-          commitSearch(event);
+          event.preventDefault();
+          runSearch(event.target.value);
         }
       };
     }
@@ -376,13 +406,6 @@ export const homeScript = String.raw`
       });
     });
 
-    document.querySelectorAll('.subscribe-btn').forEach(button => {
-      button.addEventListener('click', event => {
-        event.stopPropagation();
-        if (button.dataset.id) toggleSubscribe(button.dataset.id);
-      });
-    });
-
     document.querySelectorAll('.install-btn').forEach(button => {
       button.addEventListener('click', event => {
         event.stopPropagation();
@@ -394,7 +417,7 @@ export const homeScript = String.raw`
           requestUninstallProject(projectId);
           return;
         }
-        requestInstallProject(projectId);
+        openInstallWorldbookModal(projectId);
       });
     });
 
@@ -403,8 +426,11 @@ export const homeScript = String.raw`
         event.stopPropagation();
         const project = filteredProjects.find(item => item.id === button.dataset.id);
         if (project) {
-          requestProjectDiff(project.id);
-          openProjectUpdateModal(project);
+          const restore = setButtonLoading(button, '加载差异');
+          requestProjectDiff(project.id)
+            .then(diff => openProjectUpdateModal(project, diff))
+            .catch(error => showToast('加载更新差异失败: ' + error.message, 'error'))
+            .finally(restore);
         }
       });
     });
@@ -494,7 +520,7 @@ export const homeScript = String.raw`
     }
     resetProjectPagination();
     await fetchCurrentUser();
-    await fetchProjects(true, { page: 0, pageSize: state.projectPagination.pageSize });
+    await fetchProjects(false, { page: 0, pageSize: state.projectPagination.pageSize });
   }
 
   init();

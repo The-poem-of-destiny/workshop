@@ -1,9 +1,17 @@
 import { fetchCreativeWorkshopProjectDetail } from './project-fetch';
 import { getCreativeWorkshopRegexId, getReadableRegexName } from './regex-name';
 
-export async function installCreativeWorkshopRegex(projectId: string) {
+export async function installCreativeWorkshopRegex(projectId: string, selectedEntryKeys?: string[]) {
   const detail = await fetchCreativeWorkshopProjectDetail(projectId);
-  const regexEntries = detail.regexEntriesPreview || [];
+  const selected = selectedEntryKeys ? new Set(selectedEntryKeys) : null;
+  const regexEntries = (detail.regexEntriesPreview || [])
+    .map((entry, originalIndex) => ({
+      entry,
+      originalIndex,
+      entryKey: entry.entryKey || (entry.id !== undefined ? `id:${entry.id}` : `index:${originalIndex}`),
+    }))
+    .filter(({ entryKey }) => !selected || selected.has(entryKey));
+
   if (regexEntries.length === 0) {
     return [];
   }
@@ -12,10 +20,10 @@ export async function installCreativeWorkshopRegex(projectId: string) {
     regexes => {
       const filtered = regexes.filter(regex => !getCreativeWorkshopRegexId(regex).startsWith(`creative_workshop:${projectId}:`));
       const appended = regexEntries.map(
-        (entry, index) =>
+        ({ entry, originalIndex, entryKey }) =>
           ({
-            id: `creative_workshop:${projectId}:${entry.id || index}`,
-            script_name: getReadableRegexName(detail.project.name || '未命名项目', entry, index),
+            id: `creative_workshop:${projectId}:${entryKey}`,
+            script_name: getReadableRegexName(detail.project.name || '未命名项目', entry, originalIndex),
             enabled: !entry.disabled,
             scope: 'character' as const,
             find_regex: entry.findRegex || '',

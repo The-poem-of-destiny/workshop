@@ -1,18 +1,53 @@
+import {
+  deleteCreativeWorkshopInstallRecord,
+  resolveCreativeWorkshopInstallWorldbook,
+  setCreativeWorkshopInstallRecord,
+} from './install-registry';
 import { fetchCreativeWorkshopProjectDetail, fetchCreativeWorkshopProjectWorldbookSource } from './project-fetch';
+import {
+  getCreativeWorkshopFiniteNumber,
+  getCreativeWorkshopPositionRole,
+  getCreativeWorkshopPositionType,
+  getCreativeWorkshopSecondaryLogic,
+  getCreativeWorkshopStrategyType,
+  getCreativeWorkshopWorldbookEntryKey,
+  type CreativeWorkshopPositionType,
+} from './worldbook-normalize';
 
 function getCurrentWorldbookName(): string {
   const charWorldbooks = getCharWorldbookNames('current');
-  if (!charWorldbooks.primary) {
-    throw new Error('当前角色卡未绑定世界书');
-  }
+  if (!charWorldbooks.primary) throw new Error('当前角色卡未绑定世界书');
   return charWorldbooks.primary;
+}
+
+async function getInstalledWorldbookName(projectId: string): Promise<string> {
+  return (await resolveCreativeWorkshopInstallWorldbook(projectId)) || getCurrentWorldbookName();
+}
+
+async function ensureTargetWorldbook(worldbookName: string): Promise<string> {
+  const target = worldbookName.trim();
+  if (!target) throw new Error('请选择安装目标世界书');
+
+  const existingNames = getWorldbookNames();
+  if (!existingNames.includes(target)) {
+    await createWorldbook(target, []);
+  }
+
+  const charWorldbooks = getCharWorldbookNames('current');
+  if (target !== charWorldbooks.primary && !(charWorldbooks.additional || []).includes(target)) {
+    await rebindCharWorldbooks('current', {
+      primary: charWorldbooks.primary,
+      additional: [...(charWorldbooks.additional || []), target],
+    });
+  }
+
+  return target;
 }
 
 function renameEntry(entryName: string, tags: string[], projectName: string): string {
   if (tags.includes('系统')) {
     return entryName.startsWith('命定系统-') ? entryName : `命定系统-${entryName}`;
   }
-
   const type = tags.includes('角色') ? '角色' : tags.includes('事件') ? '事件' : '扩展';
   return entryName.startsWith('[DLC]') ? entryName : `[DLC][${type}][${projectName}]${entryName}`;
 }
@@ -28,56 +63,17 @@ function fieldWithDefault<T>(entry: Record<string, any>, rawPath: string, previe
   return (_.get(entry, rawPath) ?? _.get(entry, previewPath) ?? defaultValue) as T;
 }
 
-function getStrategyType(entry: Record<string, any>): WorldbookEntry['strategy']['type'] {
-  const type = _.get(entry, 'strategy.type');
-  if (type === 'constant' || type === 'selective' || type === 'vectorized') return type;
-  return (entry.constant ? 'constant' : entry.selective ? 'selective' : 'vectorized') as WorldbookEntry['strategy']['type'];
-}
-
-function getSecondaryLogic(entry: Record<string, any>): WorldbookEntry['strategy']['keys_secondary']['logic'] {
-  const logic = _.get(entry, 'strategy.keys_secondary.logic');
-  if (logic) return logic as WorldbookEntry['strategy']['keys_secondary']['logic'];
-  return (Number(entry.selectiveLogic ?? 0) === 0 ? 'and_any' : 'and_all') as WorldbookEntry['strategy']['keys_secondary']['logic'];
-}
-
-function getPositionType(entry: Record<string, any>): WorldbookEntry['position']['type'] {
-  const type = _.get(entry, 'position.type') ?? entry.positionType;
-  if (type) return type as WorldbookEntry['position']['type'];
-
-  switch (entry.position) {
-    case 0:
-      return 'before_char' as WorldbookEntry['position']['type'];
-    case 1:
-      return 'after_char' as WorldbookEntry['position']['type'];
-    case 4:
-      return 'at_depth' as WorldbookEntry['position']['type'];
-    default:
-      return 'at_depth' as WorldbookEntry['position']['type'];
-  }
-}
-
-function getPositionRole(entry: Record<string, any>): WorldbookEntry['position']['role'] {
-  const role = _.get(entry, 'position.role') ?? entry.role;
-  switch (role) {
-    case 0:
-      return 'system';
-    case 1:
-      return 'user';
-    case 2:
-      return 'assistant';
-    case 'system':
-    case 'user':
-    case 'assistant':
-      return role;
-    default:
-      return 'system';
-  }
+function getScanDepth(entry: Record<string, any>): WorldbookEntry['strategy']['scan_depth'] {
+  const value = _.get(entry, 'strategy.scan_depth') ?? entry.scanDepth;
+  if (value === undefined || value === null) return 'same_as_global';
+  if (value === 'same_as_global') return value;
+  if (_.isNumber(value) && Number.isFinite(value)) return value;
+  throw new Error(`scanDepth 无效: ${String(value)}`);
 }
 
 function getProbability(entry: Record<string, any>) {
-  if (entry.useProbability !== undefined) return entry.useProbability ? (entry.probability ?? 100) : 100;
-  if (_.get(entry, 'probability') !== undefined) return _.get(entry, 'probability');
-  return 100;
+  if (entry.useProbability === false) return 100;
+  return getCreativeWorkshopFiniteNumber(entry, 'probability', 'probability', 100);
 }
 
 function getRecursionDelayUntil(entry: Record<string, any>) {
@@ -86,39 +82,96 @@ function getRecursionDelayUntil(entry: Record<string, any>) {
   return null;
 }
 
-export async function installCreativeWorkshopProject(projectId: string) {
+type PreparedEntry = {
+  entry: Record<string, any>;
+  index: number;
+  entryKey: string;
+  positionType: CreativeWorkshopPositionType;
+  positionRole: WorldbookEntry['position']['role'];
+  strategyType: WorldbookEntry['strategy']['type'];
+  secondaryLogic: WorldbookEntry['strategy']['keys_secondary']['logic'];
+  depth: number;
+  order: number;
+  probability: number;
+  scanDepth: WorldbookEntry['strategy']['scan_depth'];
+};
+
+async function prepareCreativeWorkshopProject(projectId: string, selectedEntryKeys?: string[]) {
   const detail = await fetchCreativeWorkshopProjectDetail(projectId);
-  const worldbookName = getCurrentWorldbookName();
   const sourceEntries = await fetchCreativeWorkshopProjectWorldbookSource(detail);
   const entries = sourceEntries.length > 0 ? sourceEntries : detail.worldbookEntriesPreview || [];
+  const selected = selectedEntryKeys ? new Set(selectedEntryKeys) : null;
+
+  const prepared = entries
+    .map((entry, index) => ({ entry, index, entryKey: getCreativeWorkshopWorldbookEntryKey(entry, index) }))
+    .filter(item => !selected || selected.has(item.entryKey))
+    .map(({ entry, index, entryKey }): PreparedEntry => {
+      try {
+        const positionType = getCreativeWorkshopPositionType(entry);
+        return {
+          entry,
+          index,
+          entryKey,
+          positionType,
+          positionRole: getCreativeWorkshopPositionRole(entry, positionType),
+          strategyType: getCreativeWorkshopStrategyType(entry),
+          secondaryLogic: getCreativeWorkshopSecondaryLogic(entry),
+          depth: getCreativeWorkshopFiniteNumber(entry, 'position.depth', 'depth', 4),
+          order: getCreativeWorkshopFiniteNumber(entry, 'position.order', 'order', index),
+          probability: getProbability(entry),
+          scanDepth: getScanDepth(entry),
+        };
+      } catch (error) {
+        const title = entry.comment || entry.name || `条目${index + 1}`;
+        throw new Error(`世界书条目「${title}」配置无效：${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
+
+  return { detail, prepared };
+}
+
+async function applyPreparedProject(
+  projectId: string,
+  detail: Record<string, any>,
+  prepared: PreparedEntry[],
+  worldbookName: string,
+) {
+  if (prepared.length === 0) return;
 
   await updateWorldbookWith(worldbookName, worldbook => {
-    entries.forEach((entry, index) => {
+    prepared.forEach(({ entry, index, entryKey, positionType, positionRole, strategyType, secondaryLogic, depth, order, probability, scanDepth }) => {
       const name = renameEntry(
-        entry.comment || `条目${index + 1}`,
+        entry.comment || entry.name || `条目${index + 1}`,
         detail.project.tags || [],
         detail.project.name || '未命名项目',
       );
-      const existingIndex = worldbook.findIndex(
-        item => item.name === name || _.get(item, 'extra.cw_entry_key') === `${projectId}:${index}`,
-      );
+      const stableKey = `${projectId}:${entryKey}`;
+      const legacyKey = `${projectId}:${index}`;
+      const existingIndex = worldbook.findIndex(item => {
+        const itemProjectId = _.get(item, 'extra.cw_project_id') ?? _.get(item, 'extra.fate_project_name');
+        return (
+          _.get(item, 'extra.cw_entry_key') === stableKey ||
+          _.get(item, 'extra.cw_entry_key') === legacyKey ||
+          (itemProjectId === projectId && item.name === name)
+        );
+      });
       const payload = {
         name,
         enabled: _.isBoolean(entry.enabled) ? entry.enabled : !entry.disable,
         strategy: {
-          type: getStrategyType(entry),
+          type: strategyType,
           keys: arrayField(entry, 'strategy.keys', 'key'),
           keys_secondary: {
-            logic: getSecondaryLogic(entry),
+            logic: secondaryLogic,
             keys: arrayField(entry, 'strategy.keys_secondary.keys', 'keysecondary'),
           },
-          scan_depth: fieldWithDefault(entry, 'strategy.scan_depth', 'scanDepth', 'same_as_global'),
+          scan_depth: scanDepth,
         },
         position: {
-          type: getPositionType(entry),
-          depth: fieldWithDefault(entry, 'position.depth', 'depth', 4),
-          order: fieldWithDefault(entry, 'position.order', 'order', index),
-          role: getPositionRole(entry),
+          type: positionType,
+          depth,
+          order,
+          role: positionRole,
         },
         recursion: {
           prevent_incoming: fieldWithDefault(entry, 'recursion.prevent_incoming', 'excludeRecursion', false),
@@ -130,38 +183,32 @@ export async function installCreativeWorkshopProject(projectId: string) {
           cooldown: fieldWithDefault(entry, 'effect.cooldown', 'cooldown', null),
           delay: fieldWithDefault(entry, 'effect.delay', 'delay', null),
         },
-        probability: getProbability(entry),
+        probability,
         content: entry.content || '',
-        comment: entry.comment || name,
+        comment: entry.comment || entry.name || name,
+        outletName: _.isString(entry.outletName) ? entry.outletName : '',
         extra: {
           ..._.get(worldbook[existingIndex], 'extra', {}),
           cw_project_id: projectId,
           cw_project_name_display: detail.project.name || '未命名项目',
           cw_project_version: detail.project.version || null,
           cw_remote_version: detail.project.version || null,
-          cw_entry_key: `${projectId}:${index}`,
+          cw_entry_key: stableKey,
         },
       };
 
       if (existingIndex >= 0) {
-        worldbook[existingIndex] = {
-          ...worldbook[existingIndex],
-          ...payload,
-          uid: worldbook[existingIndex].uid,
-        };
+        worldbook[existingIndex] = { ...worldbook[existingIndex], ...payload, uid: worldbook[existingIndex].uid };
       } else {
         worldbook.push(payload as unknown as WorldbookEntry);
       }
     });
-
     return worldbook;
   });
-
-  return detail;
 }
 
-export async function uninstallCreativeWorkshopProject(projectId: string) {
-  const worldbookName = getCurrentWorldbookName();
+async function deleteProjectEntriesFromWorldbook(projectId: string, worldbookName: string) {
+  if (!getWorldbookNames().includes(worldbookName)) return [] as WorldbookEntry[];
   const result = await deleteWorldbookEntries(
     worldbookName,
     entry => _.get(entry, 'extra.cw_project_id') === projectId || _.get(entry, 'extra.fate_project_name') === projectId,
@@ -169,7 +216,32 @@ export async function uninstallCreativeWorkshopProject(projectId: string) {
   return result.deleted_entries;
 }
 
+export async function installCreativeWorkshopProject(
+  projectId: string,
+  selectedEntryKeys?: string[],
+  requestedWorldbookName?: string,
+) {
+  const { detail, prepared } = await prepareCreativeWorkshopProject(projectId, selectedEntryKeys);
+  const worldbookName = requestedWorldbookName
+    ? await ensureTargetWorldbook(requestedWorldbookName)
+    : getCurrentWorldbookName();
+  await applyPreparedProject(projectId, detail, prepared, worldbookName);
+  setCreativeWorkshopInstallRecord(projectId, worldbookName);
+  return detail;
+}
+
+export async function uninstallCreativeWorkshopProject(projectId: string) {
+  const worldbookName = await getInstalledWorldbookName(projectId);
+  const deletedEntries = await deleteProjectEntriesFromWorldbook(projectId, worldbookName);
+  deleteCreativeWorkshopInstallRecord(projectId);
+  return deletedEntries;
+}
+
 export async function updateCreativeWorkshopProject(projectId: string) {
-  await uninstallCreativeWorkshopProject(projectId);
-  return installCreativeWorkshopProject(projectId);
+  const { detail, prepared } = await prepareCreativeWorkshopProject(projectId);
+  const worldbookName = await ensureTargetWorldbook(await getInstalledWorldbookName(projectId));
+  await deleteProjectEntriesFromWorldbook(projectId, worldbookName);
+  await applyPreparedProject(projectId, detail, prepared, worldbookName);
+  setCreativeWorkshopInstallRecord(projectId, worldbookName);
+  return detail;
 }

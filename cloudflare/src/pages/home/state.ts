@@ -9,9 +9,11 @@ function createDefaultTavernState() {
     connected: false,
     status: 'disconnected',
     installedProjects: [],
+    installedProjectsLoaded: false,
     localProjectMap: new Map(),
     updateDiffMap: new Map(),
     pendingProjectActions: new Map(),
+    worldbooks: { primary: null, additional: [], available: [] },
   };
 }
 
@@ -19,7 +21,7 @@ function createDefaultProjectPagination() {
   return {
     page: 0,
     pageSize: 50,
-    total: 0,
+    hasMore: false,
     loadingMore: false,
   };
 }
@@ -40,6 +42,7 @@ const state = {
   projectRequestToken: 0,
   likesMap: new Map(),
   subsMap: new Map(),
+  subscriptionsLoaded: false,
   projectPagination: createDefaultProjectPagination(),
   tavern: createDefaultTavernState(),
   updateModal: {
@@ -50,7 +53,15 @@ const state = {
 };
 
 function setCurrentUser(user) {
-  state.currentUser = user || null;
+  const previousUserId = state.currentUser?.id || null;
+  const nextUser = user || null;
+  const nextUserId = nextUser?.id || null;
+  state.currentUser = nextUser;
+  if (previousUserId !== nextUserId) {
+    
+    state.subsMap = new Map();
+    state.subscriptionsLoaded = false;
+  }
 }
 
 function setProjects(projects) {
@@ -63,7 +74,7 @@ function setProjectsPage(payload) {
   state.projects = append ? [...state.projects, ...projects] : projects;
   state.projectPagination.page = Number(payload?.page || 0);
   state.projectPagination.pageSize = Number(payload?.pageSize || state.projectPagination.pageSize || 50);
-  state.projectPagination.total = Number(payload?.total || 0);
+  state.projectPagination.hasMore = Boolean(payload?.hasMore);
   state.projectPagination.loadingMore = false;
 }
 
@@ -110,17 +121,27 @@ function getProjectPendingAction(projectId) {
 
 function syncProjectStats(projects) {
   state.likesMap = new Map();
-  state.subsMap = new Map();
+  
   (projects || []).forEach(project => {
     state.likesMap.set(project.id, {
       count: project.likesCount || 0,
       liked: Boolean(project.userLiked),
     });
-    state.subsMap.set(project.id, {
+    if (project.userSubscribed) state.subsMap.set(project.id, {
       count: project.subscribesCount || 0,
       subscribed: Boolean(project.userSubscribed),
     });
   });
+}
+
+function setSubscribedProjectIds(projectIds) {
+  const nextMap = new Map();
+  (projectIds || []).forEach(projectId => {
+    if (!projectId) return;
+    nextMap.set(String(projectId), { count: 0, subscribed: true });
+  });
+  state.subsMap = nextMap;
+  state.subscriptionsLoaded = true;
 }
 
 function updateLikeState(projectId, payload) {
@@ -140,6 +161,7 @@ function updateSubscribeState(projectId, payload) {
 function setTavernConnectionStatus(status) {
   state.tavern.status = status || 'disconnected';
   state.tavern.connected = status === 'connected';
+  if (!state.tavern.connected) state.tavern.installedProjectsLoaded = false;
 }
 
 function normalizeInstalledProject(project) {
@@ -157,6 +179,7 @@ function normalizeInstalledProject(project) {
     name: project.name || '',
     canUpdate: Boolean(project.canUpdate),
     hasUpdate: Boolean(project.hasUpdate),
+    worldbookName: project.worldbookName || null,
   };
 }
 
@@ -168,6 +191,7 @@ function rebuildInstalledProjectState(installedProjectMap) {
 
 function setInstalledProjects(projects, options) {
   const list = Array.isArray(projects) ? projects : [];
+  state.tavern.installedProjectsLoaded = true;
   const mode = options && options.mode === 'merge' ? 'merge' : 'replace';
   const removeProjectId = options && options.removeProjectId ? options.removeProjectId : null;
   const installedProjectMap = mode === 'merge'
@@ -221,7 +245,7 @@ function mergeProjectsForInstalledView(source) {
         id: projectId,
         name: localProject.name || '本地已安装项目',
         description: localProject.description || '该项目当前仅存在于本地安装记录中',
-        version: localProject.remoteVersion || localProject.localVersion || '未知版本',
+        version: localProject.localVersion || '未知版本',
         localVersion: localProject.localVersion || null,
         authorId: localProject.authorId || '',
         authorName: localProject.authorName || '本地项目',
@@ -293,14 +317,6 @@ function shouldShowProjectLoadMore() {
     return false;
   }
 
-  const loadedCount = Array.isArray(state.projects) ? state.projects.length : 0;
-  const total = Number(state.projectPagination.total || 0);
-  return loadedCount > 0 && total > loadedCount;
-}
-
-function getRemainingProjectCount() {
-  const total = Number(state.projectPagination.total || 0);
-  const loadedCount = Array.isArray(state.projects) ? state.projects.length : 0;
-  return Math.max(0, total - loadedCount);
+  return Boolean(state.projectPagination.hasMore);
 }
 `;

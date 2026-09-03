@@ -6,6 +6,27 @@ const BASE_TAG_META = [
   { value: '事件', label: '事件', typeClass: 'event' },
 ];
 const BASE_TAGS = BASE_TAG_META.map(item => item.value);
+const authenticatedCoverObjectUrls = new Map();
+
+function clearAuthenticatedCoverObjectUrls() {
+  authenticatedCoverObjectUrls.forEach(objectUrl => URL.revokeObjectURL(objectUrl));
+  authenticatedCoverObjectUrls.clear();
+}
+
+async function getAuthenticatedCoverObjectUrl(url) {
+  const cached = authenticatedCoverObjectUrls.get(url);
+  if (cached) return cached;
+  const response = await apiFetch(url, { rawResponse: true });
+  const objectUrl = URL.createObjectURL(await response.blob());
+  authenticatedCoverObjectUrls.set(url, objectUrl);
+  if (authenticatedCoverObjectUrls.size > 40) {
+    const oldestKey = authenticatedCoverObjectUrls.keys().next().value;
+    const oldestUrl = authenticatedCoverObjectUrls.get(oldestKey);
+    if (oldestUrl) URL.revokeObjectURL(oldestUrl);
+    authenticatedCoverObjectUrls.delete(oldestKey);
+  }
+  return objectUrl;
+}
 
 function showToast(message, type = 'info') {
   const toast = document.createElement('div');
@@ -110,6 +131,15 @@ function getDirectCoverUrl(project) {
 function getCoverImageSources(project) {
   const placeholder = getFallbackSvgUrl();
   const fallback = getDirectCoverUrl(project);
+  const requiresAuth = Boolean(fallback && project?.status !== 'approved' && String(fallback).includes('/api/files/'));
+  if (requiresAuth) {
+    return {
+      primary: placeholder,
+      fallback: '',
+      placeholder,
+      authenticated: fallback,
+    };
+  }
 
   if (!fallback) {
     return {
@@ -143,6 +173,15 @@ function bindCoverImageFallbacks(root) {
     const primary = element.dataset.coverSrc || '';
     const fallback = element.dataset.coverFallbackSrc || '';
     const placeholder = element.dataset.coverPlaceholderSrc || '';
+    const authenticated = element.dataset.coverAuthSrc || '';
+
+    if (authenticated) {
+      setCoverBackground(element, placeholder);
+      void getAuthenticatedCoverObjectUrl(authenticated)
+        .then(url => setCoverBackground(element, url))
+        .catch(() => setCoverBackground(element, placeholder));
+      return;
+    }
 
     if (!primary || primary === placeholder) {
       setCoverBackground(element, placeholder);
@@ -163,6 +202,22 @@ function bindCoverImageFallbacks(root) {
       directProbe.src = fallback;
     };
     probe.src = primary;
+  });
+
+  scope.querySelectorAll('img[data-cover-img-auth-src]').forEach(element => {
+    if (!(element instanceof HTMLImageElement) || element.dataset.coverBound === '1') return;
+    element.dataset.coverBound = '1';
+    const authenticated = element.dataset.coverImgAuthSrc || '';
+    const placeholder = element.dataset.coverImgPlaceholderSrc || getFallbackSvgUrl();
+    element.src = placeholder;
+    if (!authenticated) return;
+    void getAuthenticatedCoverObjectUrl(authenticated)
+      .then(url => {
+        if (element.isConnected) element.src = url;
+      })
+      .catch(() => {
+        if (element.isConnected) element.src = placeholder;
+      });
   });
 }
 
@@ -241,9 +296,10 @@ function parseTagsInput(value) {
 }
 
 function getEntryStrategy(entry) {
-  if (entry.constant === true) return { symbol: '🔵', className: 'strategy-constant' };
-  if (entry.selective === true) return { symbol: '🟢', className: 'strategy-selective' };
-  return { symbol: '⚪', className: 'strategy-none' };
+  const type = entry?.strategyType || (entry?.constant === true ? 'constant' : entry?.vectorized === true ? 'vectorized' : 'selective');
+  if (type === 'constant') return { symbol: '🔵', label: '常驻', className: 'strategy-constant' };
+  if (type === 'vectorized') return { symbol: '🔗', label: '向量化', className: 'strategy-none' };
+  return { symbol: '🟢', label: '关键词', className: 'strategy-selective' };
 }
 
 function normalizeEntryKeywords(entry) {

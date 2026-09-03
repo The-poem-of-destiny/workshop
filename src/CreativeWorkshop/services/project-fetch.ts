@@ -112,16 +112,34 @@ function setCachedWorldbookSource(
 }
 
 function normalizeWorldbookSourceEntries(raw: unknown): CreativeWorkshopWorldbookSourceEntry[] {
-  const entries = Array.isArray(raw)
-    ? raw
-    : Array.isArray((raw as { entries?: unknown[] })?.entries)
-      ? (raw as { entries: unknown[] }).entries
-      : (raw as { entries?: Record<string, unknown> })?.entries &&
-          typeof (raw as { entries?: Record<string, unknown> }).entries === 'object'
-        ? Object.values((raw as { entries: Record<string, unknown> }).entries)
-        : [];
+  const entryKey = (entry: Record<string, any>, index: number, objectKey?: string) => {
+    if (objectKey !== undefined) return `object:${objectKey}`;
+    const uid = entry.uid ?? _.get(entry, 'extensions.cw_entry_id');
+    return uid !== undefined && uid !== null ? `uid:${String(uid)}` : `index:${index}`;
+  };
 
-  return entries.filter(_.isObject) as CreativeWorkshopWorldbookSourceEntry[];
+  if (Array.isArray(raw)) {
+    return raw
+      .filter(_.isObject)
+      .map((entry, index) => ({ ...(entry as Record<string, any>), __cwEntryKey: entryKey(entry as Record<string, any>, index) }));
+  }
+
+  const container = _.get(raw, 'entries');
+  if (Array.isArray(container)) {
+    return container
+      .filter(_.isObject)
+      .map((entry, index) => ({ ...(entry as Record<string, any>), __cwEntryKey: entryKey(entry as Record<string, any>, index) }));
+  }
+  if (_.isObject(container)) {
+    return Object.entries(container as Record<string, unknown>)
+      .filter(([, entry]) => _.isObject(entry))
+      .map(([objectKey, entry], index) => ({
+        ...(entry as Record<string, any>),
+        __cwEntryKey: entryKey(entry as Record<string, any>, index, objectKey),
+      }));
+  }
+
+  return [];
 }
 
 export async function fetchCreativeWorkshopProjectWorldbookSource(projectDetail: CreativeWorkshopProjectDetail) {

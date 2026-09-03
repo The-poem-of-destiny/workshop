@@ -6,25 +6,10 @@ import { getCurrentUserFromRequest } from '../utils/jwt';
 import { removeProjectEntryFromJson, type ProjectEntryKind } from '../utils/project-content';
 import { parseRegexEntriesPreview, parseWorldbookEntriesPreview } from '../utils/project-preview';
 import { r2Storage } from '../utils/r2';
-import { bumpProjectVersion } from '../utils/version.js';
+import { bumpProjectVersionWithLegacyFallback } from '../utils/version.js';
 
 const projectListSortSchema = z.enum(['published', 'updated', 'likes', 'subscribes', 'downloads']);
 
-function getProjectListOrderBy(sort: z.infer<typeof projectListSortSchema>) {
-  switch (sort) {
-    case 'updated':
-      return 'p.updated_at DESC, p.created_at DESC';
-    case 'downloads':
-      return 'COALESCE(p.downloads_count, 0) DESC, p.created_at DESC';
-    case 'likes':
-      return 'COALESCE(pl.likes_count, 0) DESC, p.created_at DESC';
-    case 'subscribes':
-      return 'COALESCE(ps.subscribes_count, 0) DESC, p.created_at DESC';
-    case 'published':
-    default:
-      return 'p.created_at DESC, p.updated_at DESC';
-  }
-}
 
 async function readProjectPreview(
   c: AppContext,
@@ -32,8 +17,6 @@ async function readProjectPreview(
 ) {
   const projectObject = await readProjectContentForEdit(c, project, 'worldbook');
   const regexObject = await readProjectContentForEdit(c, project, 'regex');
-
-
   const worldbookEntriesPreview = projectObject ? parseWorldbookEntriesPreview(await projectObject.text()) : [];
   const regexEntriesPreview = regexObject ? parseRegexEntriesPreview(await regexObject.text()) : [];
   return { worldbookEntriesPreview, regexEntriesPreview };
@@ -80,7 +63,7 @@ export class ProjectList extends OpenAPIRoute {
           'application/json': {
             schema: z.object({
               success: Bool(),
-              total: z.number(),
+              hasMore: z.boolean(),
               page: z.number(),
               pageSize: z.number(),
               projects: z.array(
@@ -118,110 +101,15 @@ export class ProjectList extends OpenAPIRoute {
     const { page, pageSize, tag, search, sort } = data.query;
     const payload = await getCurrentUserFromRequest(c);
 
-    let result;
-    try {
-      result = await projectDb.list(c, {
-        page,
-        pageSize,
-        approvedOnly: true, // 只返回已审核通过的项目
-        tag,
-        search,
-        sort,
-        currentUser: payload,
-      });
-    } catch (error) {
-      console.warn('ProjectList fallback activated:', error);
-      const offset = page * pageSize;
-      const orderBy = getProjectListOrderBy(sort);
-      const fallbackConditions = ['p.status = ?', 'p.is_published = 1', 'p.visibility = 1'];
-      const fallbackValues: unknown[] = ['approved'];
-
-      if (tag) {
-        fallbackConditions.push('p.tags LIKE ?');
-        fallbackValues.push(`%"${tag}"%`);
-      }
-
-      if (search) {
-        fallbackConditions.push('(p.name LIKE ? OR p.description LIKE ?)');
-        fallbackValues.push(`%${search}%`, `%${search}%`);
-      }
-
-      const fallbackWhereClause = `WHERE ${fallbackConditions.join(' AND ')}`;
-      const rows = await c.env.DB.prepare(
-        `
-          SELECT p.*, u.global_name,
-                 COALESCE(pl.likes_count, 0) as likes_count,
-                 COALESCE(ps.subscribes_count, 0) as subscribes_count
-          FROM projects p
-          LEFT JOIN users u ON p.author_id = u.id
-          LEFT JOIN (
-            SELECT project_id, COUNT(*) as likes_count FROM project_likes GROUP BY project_id
-          ) pl ON pl.project_id = p.id
-          LEFT JOIN (
-            SELECT project_id, COUNT(*) as subscribes_count FROM project_subscribes GROUP BY project_id
-          ) ps ON ps.project_id = p.id
-          ${fallbackWhereClause}
-          ORDER BY ${orderBy}
-          LIMIT ? OFFSET ?
-        `,
-      )
-        .bind(...fallbackValues, pageSize, offset)
-        .all<Record<string, unknown>>();
-
-      const projects = (rows.results || []).map(row => ({
-        id: String(row.id),
-        rootProjectId: row.root_project_id ? String(row.root_project_id) : String(row.id),
-        publishedProjectId: row.published_project_id ? String(row.published_project_id) : undefined,
-        draftProjectId: row.draft_project_id ? String(row.draft_project_id) : undefined,
-        name: String(row.name || ''),
-        description: row.description ? String(row.description) : null,
-        version: String(row.version || '1.0.0'),
-        authorId: String(row.author_id || ''),
-        authorName: String(row.author_name || ''),
-        authorGlobalName: String(row.global_name || row.author_name || ''),
-        authorAvatar: row.author_avatar ? String(row.author_avatar) : null,
-        status: 'approved' as const,
-        downloadUrl: row.download_url ? String(row.download_url) : null,
-        fileSize: typeof row.file_size === 'number' ? row.file_size : null,
-        downloadsCount: Number(row.downloads_count ?? 0),
-        tags: (() => {
-          try {
-            const parsed = typeof row.tags === 'string' && row.tags.trim() ? JSON.parse(row.tags) : [];
-            return Array.isArray(parsed) ? parsed : [];
-          } catch {
-            return [];
-          }
-        })(),
-        coverImage: row.cover_image ? String(row.cover_image) : null,
-        likesCount: Number(row.likes_count ?? 0),
-        subscribesCount: Number(row.subscribes_count ?? 0),
-        userLiked: false,
-        userSubscribed: false,
-        createdAt: String(row.created_at || ''),
-        updatedAt: String(row.updated_at || ''),
-        reviewedAt: row.reviewed_at ? String(row.reviewed_at) : undefined,
-        reviewerId: row.reviewer_id ? String(row.reviewer_id) : undefined,
-        rejectReason: row.reject_reason ? String(row.reject_reason) : undefined,
-        reviewTarget: 'project' as const,
-        visibility: true,
-        isPublished: true,
-        hasPendingDraft: false,
-        latestApprovedAt: row.reviewed_at ? String(row.reviewed_at) : undefined,
-      }));
-
-      result = {
-        total: Number(
-          (
-            await c.env.DB.prepare(
-              `SELECT COUNT(*) as total FROM projects p ${fallbackWhereClause}`,
-            ).bind(...fallbackValues).first<{ total: number }>()
-          )?.total || 0,
-        ),
-        page,
-        pageSize,
-        projects,
-      };
-    }
+    const result = await projectDb.list(c, {
+      page,
+      pageSize,
+      approvedOnly: true, // 只返回已审核通过的项目
+      tag,
+      search,
+      sort,
+      currentUser: payload,
+    });
 
     // 添加作者头像 URL
     const projects = result.projects.map(p => ({
@@ -337,6 +225,36 @@ export class MyProjects extends OpenAPIRoute {
           ? `https://cdn.discordapp.com/avatars/${p.authorId}/${p.authorAvatar}.webp?size=100`
           : null,
       })),
+    };
+  }
+}
+
+/**
+ * 获取当前用户的项目更新订阅
+ */
+export class MySubscriptions extends OpenAPIRoute {
+  schema = {
+    tags: ['Projects'],
+    summary: 'Get My Project Update Subscriptions',
+    request: {
+      headers: z.object({
+        authorization: z.string().describe('Session ID'),
+      }),
+    },
+    responses: {
+      '200': { description: "Returns user's subscribed project IDs" },
+    },
+  };
+
+  async handle(c: AppContext) {
+    const payload = await getCurrentUserFromRequest(c);
+    if (!payload) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    return {
+      success: true,
+      projectIds: await projectDb.getSubscribedProjectIds(c, payload.userId),
     };
   }
 }
@@ -688,7 +606,7 @@ export class ProjectLikeToggle extends OpenAPIRoute {
 export class ProjectSubscribeToggle extends OpenAPIRoute {
   schema = {
     tags: ['Projects'],
-    summary: 'Toggle Project Subscribe',
+    summary: 'Toggle Project Subscribe (Legacy)',
     request: {
       params: z.object({
         projectId: Str({ description: 'Project ID' }),
@@ -716,6 +634,46 @@ export class ProjectSubscribeToggle extends OpenAPIRoute {
 
     const result = await projectDb.toggleSubscribe(c, data.params.projectId, payload.userId);
     return result;
+  }
+}
+
+export class ProjectSubscribeSet extends OpenAPIRoute {
+  schema = {
+    tags: ['Projects'],
+    summary: 'Set Project Update Subscription',
+    request: {
+      params: z.object({
+        projectId: Str({ description: 'Project ID' }),
+      }),
+      headers: z.object({
+        authorization: z.string().describe('Session ID'),
+      }),
+      body: {
+        content: {
+          'application/json': {
+            schema: z.object({ subscribed: z.boolean() }),
+          },
+        },
+      },
+    },
+    responses: {
+      '200': { description: 'Subscription state updated successfully' },
+    },
+  };
+
+  async handle(c: AppContext) {
+    const payload = await getCurrentUserFromRequest(c);
+    if (!payload) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const data = await this.getValidatedData<typeof this.schema>();
+    const project = await projectDb.get(c, data.params.projectId, payload);
+    if (!project) {
+      return c.json({ error: 'Project not found' }, 404);
+    }
+
+    return projectDb.setSubscribe(c, data.params.projectId, payload.userId, data.body.subscribed);
   }
 }
 
@@ -777,7 +735,7 @@ export class ProjectUpdate extends OpenAPIRoute {
     if (project.isPublished && project.status === 'approved') {
       let targetVersion: string;
       try {
-        targetVersion = bumpProjectVersion(project.version, versionBump);
+        targetVersion = bumpProjectVersionWithLegacyFallback(project.version, versionBump);
       } catch (error) {
         return c.json({ error: error instanceof Error ? error.message : 'Invalid project version' }, 409);
       }
@@ -805,7 +763,7 @@ export class ProjectUpdate extends OpenAPIRoute {
 
       let targetVersion: string;
       try {
-        targetVersion = bumpProjectVersion(published.version, versionBump);
+        targetVersion = bumpProjectVersionWithLegacyFallback(published.version, versionBump);
       } catch (error) {
         return c.json({ error: error instanceof Error ? error.message : 'Invalid project version' }, 409);
       }
@@ -1055,7 +1013,7 @@ export class ProjectEntryRemove extends OpenAPIRoute {
     const changed = removeProjectEntryFromJson(await sourceObject.text(), kind as ProjectEntryKind, entryKey);
 
     if (project.isPublished && project.status === 'approved') {
-      const targetVersion = existingDraft?.version || bumpProjectVersion(project.version, 'patch');
+      const targetVersion = existingDraft?.version || bumpProjectVersionWithLegacyFallback(project.version, 'patch');
       const draftId = await projectDb.createDraftFromPublished(c, project.id, { version: targetVersion });
       if (!draftId) return c.json({ error: 'Draft creation failed' }, 500);
       targetProjectId = draftId;
