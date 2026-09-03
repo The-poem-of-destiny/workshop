@@ -100,7 +100,7 @@ app.use('*', async (c, next) => {
         hasAuthorization ? 'private, no-store' : 'public, max-age=120, s-maxage=300, stale-while-revalidate=600',
       );
     } else if (c.req.path === '/assets/home.js') {
-      c.res.headers.set('Cache-Control', 'public, max-age=300, s-maxage=600, stale-while-revalidate=1800');
+      c.res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     }
   }
 });
