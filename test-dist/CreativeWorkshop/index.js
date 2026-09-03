@@ -1119,6 +1119,23 @@ function openCreativeWorkshop() {
         background: '#0F172A',
         boxShadow: '0 24px 80px rgba(0,0,0,0.45)',
     });
+    const $closeButton = host$('<button type="button">退出</button>').css({
+        position: 'absolute',
+        top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
+        right: 'calc(env(safe-area-inset-right, 0px) + 12px)',
+        zIndex: 3,
+        minHeight: '44px',
+        padding: '0 14px',
+        border: '1px solid rgba(248,113,113,0.45)',
+        borderRadius: '999px',
+        background: 'rgba(185,28,28,0.92)',
+        color: '#FEF2F2',
+        fontSize: '14px',
+        fontWeight: '600',
+        cursor: 'pointer',
+        boxShadow: '0 8px 24px rgba(127,29,29,0.35)',
+        backdropFilter: 'blur(8px)',
+    });
     const updateOverlayLayout = () => {
         const useFullscreenLayout = hostWindow.innerWidth < 1000;
         const viewportHeight = hostWindow.visualViewport?.height ?? hostWindow.innerHeight;
@@ -1149,7 +1166,7 @@ function openCreativeWorkshop() {
     host$(hostWindow).on('scroll.creative-workshop-overlay', updateOverlayLayout);
     hostWindow.visualViewport?.addEventListener('resize', updateOverlayLayout);
     hostWindow.visualViewport?.addEventListener('scroll', updateOverlayLayout);
-    $frameShell.append($frame);
+    $frameShell.append($frame, $closeButton);
     $overlay.append($frameShell).appendTo(hostDocument.body);
     console.info('[CreativeWorkshop] openCreativeWorkshop:overlay-mounted', {
         iframeCount: $overlay.find('iframe').length,
@@ -1170,6 +1187,10 @@ function openCreativeWorkshop() {
         $overlay.remove();
         destroy();
     };
+    $closeButton.on('click', event => {
+        event.stopPropagation();
+        close();
+    });
     $overlay.on('click', event => {
         console.info('[CreativeWorkshop] openCreativeWorkshop:overlay-click', {
             targetIsOverlay: event.target === $overlay[0],
