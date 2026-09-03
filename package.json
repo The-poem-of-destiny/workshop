@@ -1,0 +1,16 @@
+{
+  "name": "poem-of-destiny-workshop-scripts",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.24.0",
+  "scripts": {
+    "build": "webpack --config webpack.config.cjs --mode production",
+    "watch": "webpack --config webpack.config.cjs --mode development --watch"
+  },
+  "devDependencies": {
+    "ts-loader": "9.5.2",
+    "typescript": "5.9.2",
+    "webpack": "5.101.3",
+    "webpack-cli": "6.0.1"
+  }
+}

@@ -221,9 +221,16 @@ function openCreativeWorkshop() {
     overscrollBehavior: 'contain',
   });
 
+  const $frameShell = host$('<div>').css({
+    position: 'relative',
+    width: '100%',
+    height: '100%',
+    flex: '0 0 auto',
+  });
+
   const $frame = createScriptIdIframe().css({
-    width: '90vw',
-    height: '90vh',
+    width: '100%',
+    height: '100%',
     borderRadius: '20px',
     background: '#0F172A',
     boxShadow: '0 24px 80px rgba(0,0,0,0.45)',
@@ -231,10 +238,10 @@ function openCreativeWorkshop() {
 
   const $closeButton = host$('<button type="button">退出</button>').css({
     position: 'fixed',
-    top: '12px',
-    right: '12px',
-    zIndex: 1,
-    minHeight: '40px',
+    top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
+    right: 'calc(env(safe-area-inset-right, 0px) + 12px)',
+    zIndex: 2,
+    minHeight: '44px',
     padding: '0 14px',
     border: '1px solid rgba(248,113,113,0.45)',
     borderRadius: '999px',
@@ -267,6 +274,11 @@ function openCreativeWorkshop() {
       paddingLeft: useFullscreenLayout ? '0' : '24px',
     });
 
+    $frameShell.css({
+      width: useFullscreenLayout ? '100vw' : '90vw',
+      height: useFullscreenLayout ? `${viewportHeight}px` : '90vh',
+    });
+
     $frame.css({
       // ponytail: mobile fills viewport; desktop keeps simple 90% sizing with no extra ratio math.
       width: useFullscreenLayout ? '100vw' : '90vw',
@@ -276,9 +288,11 @@ function openCreativeWorkshop() {
     });
 
     $closeButton.css({
-      left: useFullscreenLayout ? '50%' : '',
-      right: useFullscreenLayout ? 'auto' : '12px',
-      transform: useFullscreenLayout ? 'translateX(-50%)' : 'none',
+      position: 'absolute',
+      top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
+      left: 'auto',
+      right: 'calc(env(safe-area-inset-right, 0px) + 12px)',
+      transform: 'none',
     });
   };
 
@@ -288,7 +302,8 @@ function openCreativeWorkshop() {
   hostWindow.visualViewport?.addEventListener('resize', updateOverlayLayout);
   hostWindow.visualViewport?.addEventListener('scroll', updateOverlayLayout);
 
-  $overlay.append($frame, $closeButton).appendTo(hostDocument.body);
+  $frameShell.append($frame, $closeButton);
+  $overlay.append($frameShell).appendTo(hostDocument.body);
 
   console.info('[CreativeWorkshop] openCreativeWorkshop:overlay-mounted', {
     iframeCount: $overlay.find('iframe').length,

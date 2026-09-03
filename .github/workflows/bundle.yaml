@@ -1,0 +1,55 @@
+name: Bundle TavernHelper scripts
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'util/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'webpack.config.cjs'
+      - 'tsconfig.json'
+      - '.github/workflows/bundle.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build dist
+        run: pnpm build
+
+      - name: Commit generated dist
+        shell: bash
+        run: |
+          if [ -z "$(git status --porcelain -- test-dist pnpm-lock.yaml)" ]; then
+            echo "dist is already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add test-dist pnpm-lock.yaml
+          git commit -m "chore: bundle TavernHelper scripts"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
