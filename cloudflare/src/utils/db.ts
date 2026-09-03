@@ -221,6 +221,7 @@ export const projectDb = {
       publishedProjectId?: string | null;
       draftProjectId?: string | null;
       reviewTarget?: ProjectReviewTarget;
+      draftRevision?: number;
       visibility?: boolean;
       isPublished?: boolean;
       latestApprovedAt?: string | null;
@@ -233,8 +234,8 @@ export const projectDb = {
 			INSERT INTO projects (
 				id, name, description, version, author_id, author_name, author_avatar,
 				status, download_url, file_size, tags, cover_image, root_project_id, published_project_id,
-				draft_project_id, review_target, visibility, is_published, latest_approved_at, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				draft_project_id, review_target, draft_revision, visibility, is_published, latest_approved_at, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`,
       )
       .bind(
@@ -254,6 +255,7 @@ export const projectDb = {
         project.publishedProjectId || null,
         project.draftProjectId || null,
         project.reviewTarget || 'project',
+        project.draftRevision || 1,
         project.visibility === false ? 0 : 1,
         project.isPublished ? 1 : 0,
         project.latestApprovedAt || null,
@@ -303,6 +305,7 @@ export const projectDb = {
       publishedProjectId?: string | null;
       draftProjectId?: string | null;
       reviewTarget?: ProjectReviewTarget;
+      draftRevision?: number;
       visibility?: boolean;
       isPublished?: boolean;
       latestApprovedAt?: string | null;
@@ -357,6 +360,10 @@ export const projectDb = {
       setClauses.push('review_target = ?');
       values.push(updates.reviewTarget);
     }
+    if (updates.draftRevision !== undefined) {
+      setClauses.push('draft_revision = ?');
+      values.push(updates.draftRevision);
+    }
     if (updates.visibility !== undefined) {
       setClauses.push('visibility = ?');
       values.push(updates.visibility ? 1 : 0);
@@ -379,6 +386,21 @@ export const projectDb = {
 		`,
       )
       .bind(...values)
+      .run();
+  },
+
+  bumpDraftRevision: async (c: AppContext, projectId: string): Promise<void> => {
+    await c.env.DB.prepare(
+      `UPDATE projects
+       SET draft_revision = draft_revision + 1,
+           status = 'pending',
+           reject_reason = NULL,
+           reviewed_at = NULL,
+           reviewer_id = NULL,
+           updated_at = ?
+       WHERE id = ?`,
+    )
+      .bind(now(), projectId)
       .run();
   },
 
@@ -750,18 +772,13 @@ export const projectDb = {
     const existingDraft = await projectDb.findDraftByPublishedId(c, publishedProjectId);
     if (existingDraft) {
       await projectDb.update(c, existingDraft.id, {
-        name: updates.name ?? published.name,
-        description: updates.description ?? published.description ?? '',
-        version: updates.version ?? published.version,
-        tags: updates.tags ?? published.tags,
-        coverImage: updates.coverImage ?? published.coverImage ?? undefined,
-        status: 'pending',
+        name: updates.name ?? existingDraft.name,
+        description: updates.description ?? existingDraft.description ?? '',
+        version: updates.version ?? existingDraft.version,
+        tags: updates.tags ?? existingDraft.tags,
+        coverImage: updates.coverImage ?? existingDraft.coverImage ?? undefined,
       });
-      await c.env.DB.prepare(
-        `UPDATE projects SET reject_reason = NULL, reviewed_at = NULL, reviewer_id = NULL, updated_at = ? WHERE id = ?`,
-      )
-        .bind(now(), existingDraft.id)
-        .run();
+      await projectDb.bumpDraftRevision(c, existingDraft.id);
       return existingDraft.id;
     }
 
@@ -781,6 +798,7 @@ export const projectDb = {
       rootProjectId: published.rootProjectId || published.id,
       publishedProjectId,
       reviewTarget: 'draft',
+      draftRevision: 1,
       visibility: published.visibility,
       isPublished: false,
       latestApprovedAt: published.latestApprovedAt || published.reviewedAt,
@@ -989,6 +1007,7 @@ function parseProjectRow(row: Record<string, unknown>) {
     visibility: Number(row.visibility ?? 1) === 1,
     isPublished: Number(row.is_published ?? 0) === 1,
     hasPendingDraft: Boolean(row.draft_project_id),
+    draftRevision: Math.max(1, Number(row.draft_revision ?? 1)),
     latestApprovedAt: row.latest_approved_at as string | null,
   };
 }

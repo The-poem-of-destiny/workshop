@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS projects (
     published_project_id TEXT,
     draft_project_id TEXT,
     review_target TEXT DEFAULT 'project',
+    draft_revision INTEGER NOT NULL DEFAULT 1,
     visibility INTEGER DEFAULT 1,
     is_published INTEGER DEFAULT 0,
     latest_approved_at TEXT,

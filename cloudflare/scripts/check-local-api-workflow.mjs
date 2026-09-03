@@ -1,0 +1,245 @@
+import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
+
+const BASE_URL = 'http://127.0.0.1:8791';
+const SIGNING_VALUE = 'cw-local-api-test';
+
+function encodeJson(value) {
+  return Buffer.from(JSON.stringify(value)).toString('base64url');
+}
+
+function createToken({ userId, username, isAdmin }) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = encodeJson({ alg: 'HS256', typ: 'JWT' });
+  const payload = encodeJson({
+    userId,
+    username,
+    globalName: username,
+    avatar: '',
+    isAdmin,
+    isSuperAdmin: isAdmin,
+    iat: now,
+    exp: now + 3600,
+  });
+  const signature = createHmac('sha256', SIGNING_VALUE)
+    .update(`${header}.${payload}`)
+    .digest('base64url');
+  return `${header}.${payload}.${signature}`;
+}
+
+const creatorToken = createToken({ userId: 'cw_local_creator', username: 'Local Creator', isAdmin: false });
+const adminToken = createToken({ userId: 'cw_local_admin', username: 'Local Admin', isAdmin: true });
+
+async function api(path, { method = 'GET', token, body, expected = 200 } = {}) {
+  const headers = {};
+  if (token) headers.authorization = `Bearer ${token}`;
+  let requestBody;
+  if (body !== undefined) {
+    headers['content-type'] = 'application/json';
+    requestBody = typeof body === 'string' ? body : JSON.stringify(body);
+  }
+
+  const response = await fetch(`${BASE_URL}${path}`, { method, headers, body: requestBody });
+  const text = await response.text();
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
+  }
+  assert.equal(
+    response.status,
+    expected,
+    `${method} ${path}: expected HTTP ${expected}, got ${response.status}: ${text}`,
+  );
+  return data;
+}
+
+const worldbook = {
+  entries: [
+    {
+      uid: 101,
+      comment: 'Alpha',
+      content: 'Alpha content',
+      key: ['alpha'],
+      constant: true,
+      position: 0,
+      order: 601,
+    },
+    {
+      uid: 102,
+      comment: 'Depth',
+      content: 'Depth content',
+      key: ['depth'],
+      constant: false,
+      vectorized: false,
+      position: 4,
+      depth: 3,
+      role: 2,
+      order: -20,
+    },
+    {
+      uid: 103,
+      comment: 'Outlet',
+      content: 'Outlet content',
+      key: ['outlet'],
+      constant: false,
+      vectorized: false,
+      position: 7,
+      outletName: 'AfterStatus',
+      order: 7,
+    },
+  ],
+};
+
+const regex = [
+  { id: 'r1', scriptName: 'First', findRegex: 'foo', replaceString: 'bar' },
+  { id: 'r2', scriptName: 'Second', findRegex: 'hello', replaceString: 'world' },
+];
+
+let publishedId = null;
+let draftId = null;
+
+async function cleanupProject(id) {
+  if (!id) return;
+  try {
+    await api(`/api/projects/${id}`, { method: 'DELETE', token: adminToken, expected: 200 });
+  } catch {
+    // Best-effort cleanup for a failed test; the project may already have been deleted by approval.
+  }
+}
+
+try {
+  const created = await api('/api/projects', {
+    method: 'POST',
+    token: creatorToken,
+    body: {
+      name: 'Local API Test Base',
+      description: 'Base description',
+      version: '1.0.0',
+      tags: ['角色'],
+    },
+  });
+  publishedId = created.projectId;
+  assert.ok(publishedId);
+
+  await api(`/api/projects/${publishedId}/upload`, {
+    method: 'POST',
+    token: creatorToken,
+    body: JSON.stringify(worldbook),
+  });
+  await api(`/api/projects/${publishedId}/upload-regex`, {
+    method: 'POST',
+    token: creatorToken,
+    body: JSON.stringify(regex),
+  });
+
+  const pendingDetail = await api(`/api/projects/${publishedId}`, { token: creatorToken });
+  assert.equal(pendingDetail.worldbookEntriesPreview.length, 3);
+  assert.equal(pendingDetail.regexEntriesPreview.length, 2);
+  assert.equal(pendingDetail.worldbookEntriesPreview[0].order, 601);
+  assert.equal(pendingDetail.worldbookEntriesPreview[1].depth, 3);
+  assert.equal(pendingDetail.worldbookEntriesPreview[1].order, -20);
+  assert.equal(pendingDetail.worldbookEntriesPreview[2].position, 7);
+  assert.equal(pendingDetail.worldbookEntriesPreview[2].outletName, 'AfterStatus');
+  const firstReviewRevision = pendingDetail.project.draftRevision;
+  assert.ok(firstReviewRevision >= 3);
+
+  await api(`/api/admin/review/${publishedId}`, {
+    method: 'POST',
+    token: adminToken,
+    body: { action: 'approve', expectedRevision: firstReviewRevision },
+  });
+
+  const approved = await api(`/api/projects/${publishedId}`);
+  assert.equal(approved.project.status, 'approved');
+  assert.equal(approved.project.isPublished, true);
+  assert.equal(approved.worldbookEntriesPreview.length, 3);
+  assert.equal(approved.regexEntriesPreview.length, 2);
+
+  const firstDraftUpdate = await api(`/api/projects/${publishedId}`, {
+    method: 'PUT',
+    token: creatorToken,
+    body: { name: 'Local API Draft Name' },
+  });
+  draftId = firstDraftUpdate.draftProjectId;
+  assert.ok(draftId);
+
+  const draftAfterName = await api(`/api/projects/${draftId}`, { token: creatorToken });
+  const revisionAfterName = draftAfterName.project.draftRevision;
+
+  const secondDraftUpdate = await api(`/api/projects/${publishedId}`, {
+    method: 'PUT',
+    token: creatorToken,
+    body: { description: 'Draft description changed later' },
+  });
+  assert.equal(secondDraftUpdate.draftProjectId, draftId);
+
+  const inheritedDraft = await api(`/api/projects/${draftId}`, { token: creatorToken });
+  assert.equal(inheritedDraft.project.name, 'Local API Draft Name');
+  assert.equal(inheritedDraft.project.description, 'Draft description changed later');
+  assert.ok(inheritedDraft.project.draftRevision > revisionAfterName);
+
+  const staleRevision = inheritedDraft.project.draftRevision;
+  await api(`/api/projects/${draftId}`, {
+    method: 'PUT',
+    token: creatorToken,
+    body: { name: 'Local API Draft Name Fixed' },
+  });
+  const changedDuringReview = await api(`/api/projects/${draftId}`, { token: creatorToken });
+  assert.ok(changedDuringReview.project.draftRevision > staleRevision);
+
+  const staleReview = await api(`/api/admin/review/${draftId}`, {
+    method: 'POST',
+    token: adminToken,
+    body: { action: 'approve', expectedRevision: staleRevision },
+    expected: 409,
+  });
+  assert.match(String(staleReview.error), /Draft changed/i);
+
+  const removedWorldbook = await api(`/api/projects/${publishedId}/entries/remove`, {
+    method: 'POST',
+    token: creatorToken,
+    body: { kind: 'worldbook', entryKey: 'uid:102' },
+  });
+  assert.equal(removedWorldbook.projectId, draftId);
+
+  const afterWorldbookDelete = await api(`/api/projects/${draftId}`, { token: creatorToken });
+  assert.equal(afterWorldbookDelete.worldbookEntriesPreview.length, 2);
+  assert.ok(!afterWorldbookDelete.worldbookEntriesPreview.some(entry => entry.entryKey === 'uid:102'));
+
+  const removedRegex = await api(`/api/projects/${publishedId}/entries/remove`, {
+    method: 'POST',
+    token: creatorToken,
+    body: { kind: 'regex', entryKey: 'id:r2' },
+  });
+  assert.equal(removedRegex.projectId, draftId);
+
+  const readyToApprove = await api(`/api/projects/${draftId}`, { token: creatorToken });
+  assert.equal(readyToApprove.regexEntriesPreview.length, 1);
+  assert.ok(!readyToApprove.regexEntriesPreview.some(entry => entry.entryKey === 'id:r2'));
+
+  await api(`/api/admin/review/${draftId}`, {
+    method: 'POST',
+    token: adminToken,
+    body: { action: 'approve', expectedRevision: readyToApprove.project.draftRevision },
+  });
+  draftId = null;
+
+  const finalPublished = await api(`/api/projects/${publishedId}`);
+  assert.equal(finalPublished.project.name, 'Local API Draft Name Fixed');
+  assert.equal(finalPublished.project.description, 'Draft description changed later');
+  assert.equal(finalPublished.project.status, 'approved');
+  assert.equal(finalPublished.project.isPublished, true);
+  assert.equal(finalPublished.worldbookEntriesPreview.length, 2);
+  assert.equal(finalPublished.regexEntriesPreview.length, 1);
+  assert.ok(!finalPublished.worldbookEntriesPreview.some(entry => entry.entryKey === 'uid:102'));
+  assert.ok(!finalPublished.regexEntriesPreview.some(entry => entry.entryKey === 'id:r2'));
+
+  console.log('local API workflow OK');
+} finally {
+  await cleanupProject(draftId);
+  await cleanupProject(publishedId);
+}
