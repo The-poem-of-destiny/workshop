@@ -154,10 +154,10 @@ function initializeTavernBridge() {
   postBridgeMessage('bridge:list-installed-projects');
 }
 
-function requestInstallProject(projectId) {
+function requestInstallProject(projectId, selection = {}) {
   setProjectPendingAction(projectId, 'install');
   renderApp();
-  postBridgeMessage('bridge:install-project', { projectId });
+  postBridgeMessage('bridge:install-project', { projectId, ...selection });
 }
 
 function requestUninstallProject(projectId) {

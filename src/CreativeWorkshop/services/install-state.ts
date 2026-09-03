@@ -13,11 +13,7 @@ export type CreativeWorkshopInstalledProject = {
 
 export async function listInstalledCreativeWorkshopProjects(): Promise<CreativeWorkshopInstalledProject[]> {
   const charWorldbooks = getCharWorldbookNames('current');
-  if (!charWorldbooks.primary) {
-    return [];
-  }
-
-  const entries = await getWorldbook(charWorldbooks.primary);
+  const entries = charWorldbooks.primary ? await getWorldbook(charWorldbooks.primary) : [];
   const groupedEntries = _.groupBy(
     entries.filter(
       entry => _.isString(_.get(entry, 'extra.cw_project_id')) || _.isString(_.get(entry, 'extra.fate_project_name')),
@@ -31,23 +27,25 @@ export async function listInstalledCreativeWorkshopProjects(): Promise<CreativeW
     regex => getCreativeWorkshopRegexId(regex).split(':')[1] || '',
   );
 
-  return _(groupedEntries)
-    .entries()
-    .map(([projectId, projectEntries]) => {
+  return _.uniq([...Object.keys(groupedEntries), ...Object.keys(groupedRegexes)])
+    .filter(Boolean)
+    .map(projectId => {
+      const projectEntries = groupedEntries[projectId] || [];
       const projectRegexes = groupedRegexes[projectId] || [];
       const firstEntry = projectEntries[0];
-      const localVersion = _.get(firstEntry, 'extra.cw_project_version', null);
-      const remoteVersion = null;
+      const firstRegex = projectRegexes[0];
+      const localVersion = firstEntry ? _.get(firstEntry, 'extra.cw_project_version', null) : null;
       return {
         projectId,
-        name: _.get(firstEntry, 'extra.cw_project_name_display', _.get(firstEntry, 'name', '未命名项目')),
+        name: firstEntry
+          ? _.get(firstEntry, 'extra.cw_project_name_display', _.get(firstEntry, 'name', '未命名项目'))
+          : _.get(firstRegex, 'script_name', '未命名项目'),
         localVersion,
-        remoteVersion,
+        remoteVersion: null,
         entryCount: projectEntries.length,
         regexCount: projectRegexes.length,
         canUpdate: false,
         hasUpdate: false,
       } satisfies CreativeWorkshopInstalledProject;
-    })
-    .value();
+    });
 }

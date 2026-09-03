@@ -246,8 +246,14 @@ export function createCreativeWorkshopBridgeHost(option: HostOption) {
           if (!_.isString(_.get(event.data, 'payload.projectId'))) {
             throw new Error('缺少 projectId');
           }
-          await installCreativeWorkshopProject(String(event.data.payload?.projectId));
-          await installCreativeWorkshopRegex(String(event.data.payload?.projectId));
+          await installCreativeWorkshopProject(
+            String(event.data.payload?.projectId),
+            Array.isArray(event.data.payload?.worldbookEntryKeys) ? event.data.payload?.worldbookEntryKeys.map(String) : undefined,
+          );
+          await installCreativeWorkshopRegex(
+            String(event.data.payload?.projectId),
+            Array.isArray(event.data.payload?.regexEntryKeys) ? event.data.payload?.regexEntryKeys.map(String) : undefined,
+          );
           await post(
             'bridge:install-result',
             {

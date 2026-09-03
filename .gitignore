@@ -1,1 +1,6 @@
 doc/
+.codegraph/
+.git-worktrees/
+node_modules/
+.wrangler/
+worker-configuration.d.ts

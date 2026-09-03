@@ -82,6 +82,7 @@ export class AdminReview extends OpenAPIRoute {
             schema: z.object({
               action: z.enum(['approve', 'reject']),
               rejectReason: Str({ required: false }),
+              expectedRevision: z.number().int().min(1).optional(),
             }),
           },
         },
@@ -105,12 +106,19 @@ export class AdminReview extends OpenAPIRoute {
 
     const data = await this.getValidatedData<typeof this.schema>();
     const { projectId } = data.params;
-    const { action, rejectReason } = data.body;
+    const { action, rejectReason, expectedRevision } = data.body;
 
     // 检查项目是否存在
     const project = await projectDb.get(c, projectId);
     if (!project) {
       return c.json({ error: 'Project not found' }, 404);
+    }
+
+    if (!expectedRevision || expectedRevision !== project.draftRevision) {
+        return c.json(
+          { error: 'Draft changed while under review. Refresh and review the latest revision.' },
+          409,
+        );
     }
 
     // 如果是拒绝操作，必须提供拒绝原因

@@ -97,6 +97,7 @@ export const Project = z.object({
   visibility: z.boolean().default(true).describe('项目是否对其他用户可见'),
   isPublished: z.boolean().default(false).describe('是否为当前发布版本'),
   hasPendingDraft: z.boolean().default(false).describe('是否存在待审核草稿'),
+  draftRevision: z.number().int().min(1).default(1).describe('草稿修订号'),
 
   latestApprovedAt: z.string().optional().describe('最近审核通过时间'),
 });
@@ -136,6 +137,7 @@ export const ProjectUpdateRequest = z.object({
 export const ReviewRequest = z.object({
   action: z.enum(['approve', 'reject']).describe('审核操作'),
   rejectReason: z.string().optional().describe('拒绝原因(仅 reject 时需要)'),
+  expectedRevision: z.number().int().min(1).optional().describe('审核时看到的草稿修订号'),
 
 });
 

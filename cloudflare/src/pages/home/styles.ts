@@ -162,8 +162,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helve
 .detail-entry-list { display:flex; flex-direction:column; gap:12px; }
 .entry-item { border:1px solid rgba(255,255,255,0.1); border-radius:12px; overflow:hidden; background:rgba(15,23,42,0.55); }
 .entry-header { background:rgba(0,0,0,0.3); padding:12px 14px; cursor:pointer; display:flex; align-items:center; gap:8px; font-weight:500; }
-.entry-header i { font-size:0.8rem; transition:transform 0.2s; }
-.entry-header.open i { transform:rotate(90deg); }
+.entry-header > i:first-child { font-size:0.8rem; transition:transform 0.2s; }
+.entry-header.open > i:first-child { transform:rotate(90deg); }
+.entry-header-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.entry-inline-actions { margin-left:auto; display:flex; align-items:center; gap:8px; flex:0 0 auto; }
+.entry-install-toggle { display:inline-flex; align-items:center; gap:5px; font-size:0.75rem; font-weight:600; cursor:pointer; color:rgba(226,232,240,0.85); }
+.entry-remove-btn { width:30px; height:30px; border-radius:8px; border:1px solid rgba(248,113,113,0.35); background:rgba(127,29,29,0.28); color:#FCA5A5; cursor:pointer; }
+.detail-entry-facts { display:flex; flex-wrap:wrap; gap:8px; padding:10px 0; font-size:0.78rem; color:rgba(226,232,240,0.78); }
+.detail-entry-facts span { display:inline-flex; align-items:center; gap:5px; padding:5px 8px; border-radius:8px; background:rgba(255,255,255,0.05); }
 .entry-content { padding:0 14px; max-height:0; overflow:hidden; transition:max-height 0.3s ease, padding 0.3s ease, margin 0.3s ease; }
 .entry-content.open { padding:0 14px 14px; margin-top:2px; max-height:280px; overflow-y:auto; }
 .strategy-badge { display:inline-block; width:24px; text-align:center; font-weight:bold; }

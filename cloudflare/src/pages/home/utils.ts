@@ -222,9 +222,10 @@ function parseTagsInput(value) {
 }
 
 function getEntryStrategy(entry) {
-  if (entry.constant === true) return { symbol: '🔵', className: 'strategy-constant' };
-  if (entry.selective === true) return { symbol: '🟢', className: 'strategy-selective' };
-  return { symbol: '⚪', className: 'strategy-none' };
+  const type = entry?.strategyType || (entry?.constant === true ? 'constant' : entry?.vectorized === true ? 'vectorized' : 'selective');
+  if (type === 'constant') return { symbol: '🔵', label: '常驻', className: 'strategy-constant' };
+  if (type === 'vectorized') return { symbol: '🔗', label: '向量化', className: 'strategy-none' };
+  return { symbol: '🟢', label: '关键词', className: 'strategy-selective' };
 }
 
 function normalizeEntryKeywords(entry) {
