@@ -124,90 +124,9 @@ app.get('/assets/home.js', c => {
   });
 });
 
-// 主页 - 需要检查用户登录状态
-app.get('/', async c => {
-  const token = c.req.header('authorization');
-
-  let user = null;
-  let pendingCount = 0;
-
-  // 检查用户是否已登录
-  if (token) {
-    try {
-      const payload = await jwt.extractFromHeader(c, token);
-      if (payload) {
-        const avatarUrl = payload.avatar
-          ? `https://cdn.discordapp.com/avatars/${payload.userId}/${payload.avatar}.webp?size=100`
-          : `https://cdn.discordapp.com/embed/avatars/0.png`;
-
-        user = {
-          id: payload.userId,
-          username: payload.username,
-          avatarUrl,
-          isAdmin: payload.isAdmin || false,
-        };
-
-        // 如果是管理员，获取待审核数量
-        if (user.isAdmin) {
-          try {
-            const result = await c.env.DB.prepare('SELECT COUNT(*) as count FROM projects WHERE status = ?')
-              .bind('pending')
-              .first<{ count: number }>();
-            pendingCount = result?.count || 0;
-          } catch (e) {
-            console.error('获取待审核数量失败:', e);
-          }
-        }
-      }
-    } catch (e) {
-      // Token 无效或过期，视为未登录
-    }
-  }
-
-  // 获取已审核项目列表（公开）
-  let projects = [];
-  try {
-    const results = await c.env.DB.prepare(
-      'SELECT p.*, u.global_name as author_global_name FROM projects p LEFT JOIN users u ON p.author_id = u.id WHERE p.status = ? ORDER BY p.updated_at DESC LIMIT 50',
-    )
-      .bind('approved')
-      .all<{
-        id: string;
-        name: string;
-        description: string | null;
-        version: string;
-        author_id: string;
-        author_name: string;
-        author_global_name: string | null;
-        author_avatar: string | null;
-        status: string;
-        tags: string;
-        created_at: string;
-        updated_at: string;
-      }>();
-
-    projects =
-      results.results?.map(row => ({
-        id: row.id,
-        name: row.name,
-        description: row.description,
-        version: row.version,
-        authorId: row.author_id,
-        authorName: row.author_name,
-        authorGlobalName: row.author_global_name || row.author_name,
-        authorAvatar: row.author_avatar,
-        status: row.status,
-        tags: JSON.parse(row.tags || '[]'),
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      })) || [];
-  } catch (e) {
-    console.error('获取项目列表失败:', e);
-  }
-
-  // 渲染主页
-  const html = homePage();
-  return new Response(html, {
+// 主页只返回静态壳；登录态、项目列表和审核状态由前端 API 按需加载。
+app.get('/', c => {
+  return new Response(homePage(), {
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
   });
 });
