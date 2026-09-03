@@ -26,11 +26,14 @@ function getProjectListOrderBy(sort: z.infer<typeof projectListSortSchema>) {
   }
 }
 
-async function readProjectPreview(c: AppContext, project: { downloadUrl?: string | null; id: string }) {
-  const fileKey = `projects/${project.id}/project-${project.id}.json`;
-  const regexKey = `projects/${project.id}/regex-${project.id}.json`;
-  const projectObject = await c.env.R2_BUCKET.get(fileKey);
-  const regexObject = await c.env.R2_BUCKET.get(regexKey);
+async function readProjectPreview(
+  c: AppContext,
+  project: { downloadUrl?: string | null; id: string; publishedProjectId?: string | null },
+) {
+  const projectObject = await readProjectContentForEdit(c, project, 'worldbook');
+  const regexObject = await readProjectContentForEdit(c, project, 'regex');
+
+
   const worldbookEntriesPreview = projectObject ? parseWorldbookEntriesPreview(await projectObject.text()) : [];
   const regexEntriesPreview = regexObject ? parseRegexEntriesPreview(await regexObject.text()) : [];
   return { worldbookEntriesPreview, regexEntriesPreview };
@@ -1041,16 +1044,19 @@ export class ProjectEntryRemove extends OpenAPIRoute {
     }
 
     let targetProjectId = project.id;
+    const existingDraft =
+      project.isPublished && project.status === 'approved' ? await projectDb.findDraftByPublishedId(c, project.id) : null;
     const sourceProject =
       project.isPublished && project.status === 'approved'
-        ? (await projectDb.findDraftByPublishedId(c, project.id)) || project
+        ? existingDraft || project
         : project;
     const sourceObject = await readProjectContentForEdit(c, sourceProject, kind as ProjectEntryKind);
     if (!sourceObject) return c.json({ error: 'Project content file not found' }, 404);
     const changed = removeProjectEntryFromJson(await sourceObject.text(), kind as ProjectEntryKind, entryKey);
 
     if (project.isPublished && project.status === 'approved') {
-      const draftId = await projectDb.createDraftFromPublished(c, project.id, {});
+      const targetVersion = existingDraft?.version || bumpProjectVersion(project.version, 'patch');
+      const draftId = await projectDb.createDraftFromPublished(c, project.id, { version: targetVersion });
       if (!draftId) return c.json({ error: 'Draft creation failed' }, 500);
       targetProjectId = draftId;
     }
