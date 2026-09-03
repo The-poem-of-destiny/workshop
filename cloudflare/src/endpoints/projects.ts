@@ -6,7 +6,7 @@ import { getCurrentUserFromRequest } from '../utils/jwt';
 import { removeProjectEntryFromJson, type ProjectEntryKind } from '../utils/project-content';
 import { parseRegexEntriesPreview, parseWorldbookEntriesPreview } from '../utils/project-preview';
 import { r2Storage } from '../utils/r2';
-import { bumpProjectVersion } from '../utils/version.js';
+import { bumpProjectVersionWithLegacyFallback } from '../utils/version.js';
 
 const projectListSortSchema = z.enum(['published', 'updated', 'likes', 'subscribes', 'downloads']);
 
@@ -665,7 +665,7 @@ export class ProjectUpdate extends OpenAPIRoute {
     if (project.isPublished && project.status === 'approved') {
       let targetVersion: string;
       try {
-        targetVersion = bumpProjectVersion(project.version, versionBump);
+        targetVersion = bumpProjectVersionWithLegacyFallback(project.version, versionBump);
       } catch (error) {
         return c.json({ error: error instanceof Error ? error.message : 'Invalid project version' }, 409);
       }
@@ -693,7 +693,7 @@ export class ProjectUpdate extends OpenAPIRoute {
 
       let targetVersion: string;
       try {
-        targetVersion = bumpProjectVersion(published.version, versionBump);
+        targetVersion = bumpProjectVersionWithLegacyFallback(published.version, versionBump);
       } catch (error) {
         return c.json({ error: error instanceof Error ? error.message : 'Invalid project version' }, 409);
       }
@@ -943,7 +943,7 @@ export class ProjectEntryRemove extends OpenAPIRoute {
     const changed = removeProjectEntryFromJson(await sourceObject.text(), kind as ProjectEntryKind, entryKey);
 
     if (project.isPublished && project.status === 'approved') {
-      const targetVersion = existingDraft?.version || bumpProjectVersion(project.version, 'patch');
+      const targetVersion = existingDraft?.version || bumpProjectVersionWithLegacyFallback(project.version, 'patch');
       const draftId = await projectDb.createDraftFromPublished(c, project.id, { version: targetVersion });
       if (!draftId) return c.json({ error: 'Draft creation failed' }, 500);
       targetProjectId = draftId;

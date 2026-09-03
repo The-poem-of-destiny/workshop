@@ -1,6 +1,7 @@
 import type { AppContext, ProjectReviewTarget } from '../types';
 import type { JWTPayload } from './jwt';
 import { r2Storage } from './r2';
+import { bumpProjectVersionWithLegacyFallback, classifyProjectVersionTransition } from './version.js';
 
 /**
  * 生成 UUID
@@ -771,10 +772,15 @@ export const projectDb = {
     if (!published) return null;
     const existingDraft = await projectDb.findDraftByPublishedId(c, publishedProjectId);
     if (existingDraft) {
+      const nextVersion =
+        updates.version ??
+        (classifyProjectVersionTransition(published.version, existingDraft.version)
+          ? existingDraft.version
+          : bumpProjectVersionWithLegacyFallback(published.version, 'patch'));
       await projectDb.update(c, existingDraft.id, {
         name: updates.name ?? existingDraft.name,
         description: updates.description ?? existingDraft.description ?? '',
-        version: updates.version ?? existingDraft.version,
+        version: nextVersion,
         tags: updates.tags ?? existingDraft.tags,
         coverImage: updates.coverImage ?? existingDraft.coverImage ?? undefined,
       });
@@ -787,7 +793,7 @@ export const projectDb = {
       id: draftId,
       name: updates.name ?? published.name,
       description: updates.description ?? published.description ?? undefined,
-      version: updates.version ?? published.version,
+      version: updates.version ?? bumpProjectVersionWithLegacyFallback(published.version, 'patch'),
       authorId: published.authorId,
       authorName: published.authorName,
       authorAvatar: published.authorAvatar || '',
