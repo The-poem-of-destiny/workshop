@@ -222,13 +222,23 @@ export const homeScript = String.raw`
     if (workshopCloseBtn) workshopCloseBtn.onclick = requestCloseWorkshop;
     if (logoutBtn) logoutBtn.onclick = logout;
     if (uploadBtn) uploadBtn.onclick = openUploadModal;
-    if (myProjectsMenuBtn) myProjectsMenuBtn.onclick = () => {
+    if (myProjectsMenuBtn) myProjectsMenuBtn.onclick = async () => {
       state.showOnlyMyProjects = !state.showOnlyMyProjects;
       if (state.showOnlyMyProjects) {
         state.showSubscribedAndInstalledProjects = false;
       }
       state.userMenuOpen = false;
       renderApp();
+
+      if (state.showOnlyMyProjects && state.currentUser) {
+        try {
+          const myData = await apiFetch('/api/my/projects');
+          setMyProjects(myData.projects || []);
+        } catch (error) {
+          showToast('加载我的项目失败: ' + error.message, 'warning');
+        }
+        renderApp();
+      }
     };
     if (adminPanelBtn) adminPanelBtn.onclick = openAdminPanel;
     if (addAdminBtn) addAdminBtn.onclick = openAddAdminModal;

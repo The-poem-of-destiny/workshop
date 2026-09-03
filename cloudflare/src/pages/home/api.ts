@@ -141,7 +141,7 @@ async function fetchProjects(forceRefresh = false, options = {}) {
 
     syncProjectStats(state.projects);
 
-    if (state.currentUser) {
+    if (state.currentUser && state.showOnlyMyProjects) {
       try {
         const myData = await apiFetch('/api/my/projects');
         if (!isLatestProjectRequestToken(requestToken)) {
