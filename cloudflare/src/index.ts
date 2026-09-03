@@ -88,10 +88,17 @@ app.use('*', async (c, next) => {
   applyCorsHeaders(c.res.headers);
 
   if (c.req.method === 'GET') {
+    const hasAuthorization = Boolean(c.req.header('authorization'));
     if (c.req.path === '/api/projects') {
-      c.res.headers.set('Cache-Control', 'public, max-age=60, s-maxage=120, stale-while-revalidate=300');
+      c.res.headers.set(
+        'Cache-Control',
+        hasAuthorization ? 'private, no-store' : 'public, max-age=60, s-maxage=120, stale-while-revalidate=300',
+      );
     } else if (/^\/api\/projects\/[^/]+$/.test(c.req.path)) {
-      c.res.headers.set('Cache-Control', 'public, max-age=120, s-maxage=300, stale-while-revalidate=600');
+      c.res.headers.set(
+        'Cache-Control',
+        hasAuthorization ? 'private, no-store' : 'public, max-age=120, s-maxage=300, stale-while-revalidate=600',
+      );
     } else if (c.req.path === '/assets/home.js') {
       c.res.headers.set('Cache-Control', 'public, max-age=300, s-maxage=600, stale-while-revalidate=1800');
     }

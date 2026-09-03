@@ -195,10 +195,13 @@ async function toggleSubscribe(projectId) {
   }
 }
 
-async function fetchProjectEntries(projectOrId) {
+async function fetchProjectEntries(projectOrId, options = {}) {
   try {
     const projectId = typeof projectOrId === 'string' ? projectOrId : projectOrId?.id;
-    const detail = await apiFetch('/api/projects/' + projectId);
+    const detail = await apiFetch('/api/projects/' + projectId, {
+      method: 'GET',
+      ...(options.forceRefresh ? { cache: 'no-store' } : {}),
+    });
 
     const entries = Array.isArray(detail.worldbookEntriesPreview) ? detail.worldbookEntriesPreview : [];
     const regexEntries = Array.isArray(detail.regexEntriesPreview) ? detail.regexEntriesPreview : [];
