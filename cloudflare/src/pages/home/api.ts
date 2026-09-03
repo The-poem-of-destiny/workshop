@@ -51,6 +51,7 @@ async function apiFetch(endpoint, options = {}) {
   if (response.status === 401) {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    invalidateAllProjectDetailCaches();
     setCurrentUser(null);
     renderApp();
     throw new Error('登录已过期');
@@ -79,8 +80,30 @@ async function fetchCurrentUser() {
 
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  invalidateAllProjectDetailCaches();
   setCurrentUser(null);
   return null;
+}
+
+const PROJECT_DETAIL_CACHE_TTL_MS = 60 * 1000;
+const projectDetailCache = new Map();
+const projectDetailInFlight = new Map();
+const projectDetailGeneration = new Map();
+let projectDetailCacheEpoch = 0;
+
+function getProjectDetailGeneration(projectId) {
+  return projectDetailGeneration.get(projectId) || 0;
+}
+
+function invalidateProjectDetailCache(projectId) {
+  if (!projectId) return;
+  projectDetailCache.delete(projectId);
+  projectDetailGeneration.set(projectId, getProjectDetailGeneration(projectId) + 1);
+}
+
+function invalidateAllProjectDetailCaches() {
+  projectDetailCache.clear();
+  projectDetailCacheEpoch += 1;
 }
 
 async function fetchProjects(forceRefresh = false, options = {}) {
@@ -175,6 +198,7 @@ async function toggleLike(projectId) {
   try {
     const data = await apiFetch('/api/projects/' + projectId + '/like', { method: 'POST' });
     updateLikeState(projectId, { liked: data.liked, count: data.count });
+    invalidateProjectDetailCache(projectId);
     renderApp();
   } catch (error) {
     showToast('操作失败: ' + error.message, 'error');
@@ -189,6 +213,7 @@ async function toggleSubscribe(projectId) {
   try {
     const data = await apiFetch('/api/projects/' + projectId + '/subscribe', { method: 'POST' });
     updateSubscribeState(projectId, { subscribed: data.subscribed, count: data.count });
+    invalidateProjectDetailCache(projectId);
     renderApp();
   } catch (error) {
     showToast('操作失败: ' + error.message, 'error');
@@ -198,19 +223,53 @@ async function toggleSubscribe(projectId) {
 async function fetchProjectEntries(projectOrId, options = {}) {
   try {
     const projectId = typeof projectOrId === 'string' ? projectOrId : projectOrId?.id;
-    const detail = await apiFetch('/api/projects/' + projectId, {
-      method: 'GET',
-      ...(options.forceRefresh ? { cache: 'no-store' } : {}),
-    });
+    if (!projectId) {
+      throw new Error('缺少项目 ID');
+    }
 
-    const entries = Array.isArray(detail.worldbookEntriesPreview) ? detail.worldbookEntriesPreview : [];
-    const regexEntries = Array.isArray(detail.regexEntriesPreview) ? detail.regexEntriesPreview : [];
-    const project = {
-      ...(detail.project || (typeof projectOrId === 'object' ? projectOrId : { id: projectId })),
-      worldbookEntriesPreview: entries,
-      regexEntriesPreview: regexEntries,
-    };
-    return { project, entries, regexEntries };
+    const forceRefresh = Boolean(options.forceRefresh);
+    if (forceRefresh) {
+      invalidateProjectDetailCache(projectId);
+    }
+    const generation = getProjectDetailGeneration(projectId);
+    const cacheEpoch = projectDetailCacheEpoch;
+    const cached = projectDetailCache.get(projectId);
+    if (!forceRefresh && cached && Date.now() - cached.cachedAt <= PROJECT_DETAIL_CACHE_TTL_MS) {
+      return cached.data;
+    }
+
+    const inFlight = projectDetailInFlight.get(projectId);
+    if (!forceRefresh && inFlight?.generation === generation && inFlight.cacheEpoch === cacheEpoch) {
+      return await inFlight.request;
+    }
+    const request = apiFetch('/api/projects/' + projectId, {
+      method: 'GET',
+      ...(forceRefresh ? { cache: 'no-store' } : {}),
+    }).then(detail => {
+      const entries = Array.isArray(detail.worldbookEntriesPreview) ? detail.worldbookEntriesPreview : [];
+      const regexEntries = Array.isArray(detail.regexEntriesPreview) ? detail.regexEntriesPreview : [];
+      const data = {
+        project: {
+          ...(detail.project || (typeof projectOrId === 'object' ? projectOrId : { id: projectId })),
+          worldbookEntriesPreview: entries,
+          regexEntriesPreview: regexEntries,
+        },
+        entries,
+        regexEntries,
+      };
+      if (getProjectDetailGeneration(projectId) === generation && projectDetailCacheEpoch === cacheEpoch) {
+        projectDetailCache.set(projectId, { cachedAt: Date.now(), data });
+      }
+      return data;
+    });
+    projectDetailInFlight.set(projectId, { generation, cacheEpoch, request });
+    try {
+      return await request;
+    } finally {
+      if (projectDetailInFlight.get(projectId)?.request === request) {
+        projectDetailInFlight.delete(projectId);
+      }
+    }
   } catch (error) {
     throw normalizeThrownError(error, '加载项目详情失败');
   }
@@ -224,21 +283,27 @@ async function createProject(payload) {
 }
 
 async function updateProject(projectId, payload) {
-  return apiFetch('/api/projects/' + projectId, {
+  const result = await apiFetch('/api/projects/' + projectId, {
     method: 'PUT',
     body: JSON.stringify(payload),
   });
+  invalidateProjectDetailCache(projectId);
+  return result;
 }
 
 async function updateProjectVisibility(projectId, visibility) {
-  return apiFetch('/api/projects/' + projectId + '/visibility', {
+  const result = await apiFetch('/api/projects/' + projectId + '/visibility', {
     method: 'PUT',
     body: JSON.stringify({ visibility }),
   });
+  invalidateProjectDetailCache(projectId);
+  return result;
 }
 
 async function deleteProject(projectId) {
-  return apiFetch('/api/projects/' + projectId, { method: 'DELETE' });
+  const result = await apiFetch('/api/projects/' + projectId, { method: 'DELETE' });
+  invalidateProjectDetailCache(projectId);
+  return result;
 }
 
 async function uploadProjectFile(projectId, file) {
@@ -255,6 +320,7 @@ async function uploadProjectFile(projectId, file) {
     if (!response.ok) {
       throw new Error(resolveApiErrorMessage(response.status, rawText, data, '上传失败'));
     }
+    invalidateProjectDetailCache(projectId);
     return data || {};
   } catch (error) {
     throw normalizeThrownError(error, '上传失败');
@@ -275,6 +341,7 @@ async function uploadRegexFile(projectId, file) {
     if (!response.ok) {
       throw new Error(resolveApiErrorMessage(response.status, rawText, data, '上传失败'));
     }
+    invalidateProjectDetailCache(projectId);
     return data || {};
   } catch (error) {
     throw normalizeThrownError(error, '上传失败');
@@ -296,6 +363,7 @@ async function uploadCoverFile(projectId, file) {
     if (!response.ok) {
       throw new Error(resolveApiErrorMessage(response.status, rawText, data, '上传失败'));
     }
+    invalidateProjectDetailCache(projectId);
     return data || {};
   } catch (error) {
     throw normalizeThrownError(error, '上传失败');
@@ -307,10 +375,12 @@ async function fetchPendingProjects() {
 }
 
 async function reviewProject(projectId, payload) {
-  return apiFetch('/api/admin/review/' + projectId, {
+  const result = await apiFetch('/api/admin/review/' + projectId, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+  invalidateAllProjectDetailCaches();
+  return result;
 }
 
 async function fetchAdminList() {

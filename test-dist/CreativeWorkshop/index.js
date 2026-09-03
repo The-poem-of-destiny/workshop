@@ -2,7 +2,7 @@
 /******/ 	"use strict";
 
 ;// ./util/iframe_srcdoc.html
-const iframe_srcdoc_namespaceObject = "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n</head>\n<body></body>\n</html>\n";
+const iframe_srcdoc_namespaceObject = "<!doctype html>\r\n<html>\r\n<head>\r\n  <meta charset=\"utf-8\">\r\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\r\n</head>\r\n<body></body>\r\n</html>\r\n";
 ;// ./util/script.ts
 
 function teleportStyle(appendTo = 'head') {
@@ -349,7 +349,7 @@ async function listInstalledCreativeWorkshopProjects() {
         const projectRegexes = groupedRegexes[projectId] || [];
         const firstEntry = projectEntries[0];
         const localVersion = _.get(firstEntry, 'extra.cw_project_version', null);
-        const remoteVersion = _.get(firstEntry, 'extra.cw_remote_version', localVersion);
+        const remoteVersion = null;
         return {
             projectId,
             name: _.get(firstEntry, 'extra.cw_project_name_display', _.get(firstEntry, 'name', '未命名项目')),
@@ -357,8 +357,8 @@ async function listInstalledCreativeWorkshopProjects() {
             remoteVersion,
             entryCount: projectEntries.length,
             regexCount: projectRegexes.length,
-            canUpdate: Boolean(localVersion && remoteVersion && localVersion !== remoteVersion),
-            hasUpdate: Boolean(localVersion && remoteVersion && localVersion !== remoteVersion),
+            canUpdate: false,
+            hasUpdate: false,
         };
     })
         .value();

@@ -5,7 +5,7 @@ import { Hono } from 'hono';
 import type { Env } from './env';
 
 // 工具函数
-import { initDatabase, projectDb } from './utils/db';
+import { projectDb } from './utils/db';
 import { jwt } from './utils/jwt';
 
 // 页面
@@ -90,11 +90,13 @@ app.use('*', async (c, next) => {
   if (c.req.method === 'GET') {
     const hasAuthorization = Boolean(c.req.header('authorization'));
     if (c.req.path === '/api/projects') {
+      c.res.headers.append('Vary', 'Authorization');
       c.res.headers.set(
         'Cache-Control',
         hasAuthorization ? 'private, no-store' : 'public, max-age=60, s-maxage=120, stale-while-revalidate=300',
       );
     } else if (/^\/api\/projects\/[^/]+$/.test(c.req.path)) {
+      c.res.headers.append('Vary', 'Authorization');
       c.res.headers.set(
         'Cache-Control',
         hasAuthorization ? 'private, no-store' : 'public, max-age=120, s-maxage=300, stale-while-revalidate=600',
@@ -105,32 +107,7 @@ app.use('*', async (c, next) => {
   }
 });
 
-// ============ 数据库初始化中间件 ============
-// 使用 D1 特有的方式：在第一次请求时初始化数据库
-// 注意：由于数据库已经通过 wrangler d1 execute 初始化，这里主要是容错处理
-let dbInitialized = false;
 
-app.use('*', async (c, next) => {
-  if (!dbInitialized) {
-    try {
-      await initDatabase(c);
-      dbInitialized = true;
-      console.info('数据库初始化完成');
-    } catch (error) {
-      // 如果数据库已经存在或初始化过，也认为成功
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes('already exists') || errorMessage.includes('no such table')) {
-        // 数据库已存在，初始化成功
-        dbInitialized = true;
-        console.info('数据库已存在，跳过初始化');
-      } else {
-        console.warn('数据库初始化遇到问题:', errorMessage);
-        // 继续处理请求，可能是远程数据库已初始化
-      }
-    }
-  }
-  await next();
-});
 
 // Setup OpenAPI registry
 const openapi = fromHono(app, {

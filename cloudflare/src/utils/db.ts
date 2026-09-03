@@ -3,142 +3,6 @@ import type { JWTPayload } from './jwt';
 import { r2Storage } from './r2';
 
 /**
- * 数据库初始化 - 创建表结构
- */
-export async function initDatabase(c: AppContext): Promise<void> {
-  const db = c.env.DB;
-  const safeExec = async (sql: string) => {
-    try {
-      await db.exec(sql);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (!message.includes('duplicate column name')) {
-        throw error;
-      }
-    }
-  };
-
-  // 创建用户表
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      username TEXT NOT NULL,
-      global_name TEXT,
-      avatar TEXT,
-      discriminator TEXT,
-      guilds TEXT,
-      is_admin INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  // 创建项目表
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      description TEXT,
-      version TEXT DEFAULT '1.0.0',
-      author_id TEXT NOT NULL,
-      author_name TEXT NOT NULL,
-      author_avatar TEXT,
-      status TEXT DEFAULT 'pending',
-      download_url TEXT,
-      file_size INTEGER,
-      tags TEXT DEFAULT '[]',
-      cover_image TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      reviewed_at TEXT,
-      reviewer_id TEXT,
-      reject_reason TEXT,
-      FOREIGN KEY (author_id) REFERENCES users(id)
-    )
-  `);
-
-  // 创建索引
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)`);
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_projects_author ON projects(author_id)`);
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_projects_created ON projects(created_at DESC)`);
-
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS project_likes (
-      project_id TEXT NOT NULL,
-      user_id TEXT NOT NULL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (project_id, user_id),
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )
-  `);
-
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS project_subscribes (
-      project_id TEXT NOT NULL,
-      user_id TEXT NOT NULL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (project_id, user_id),
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    )
-  `);
-
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_project_likes_project_id ON project_likes(project_id)`);
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_project_likes_user_id ON project_likes(user_id)`);
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_project_subscribes_project_id ON project_subscribes(project_id)`);
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_project_subscribes_user_id ON project_subscribes(user_id)`);
-  await db.exec(
-    `CREATE TABLE IF NOT EXISTS admin_action_logs (id TEXT PRIMARY KEY, action TEXT NOT NULL, target_type TEXT NOT NULL, target_id TEXT, actor_id TEXT NOT NULL, actor_name TEXT NOT NULL, detail TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)`,
-  );
-  await safeExec(`ALTER TABLE projects ADD COLUMN root_project_id TEXT`);
-  await safeExec(`ALTER TABLE projects ADD COLUMN published_project_id TEXT`);
-  await safeExec(`ALTER TABLE projects ADD COLUMN draft_project_id TEXT`);
-  await safeExec(`ALTER TABLE projects ADD COLUMN review_target TEXT DEFAULT 'project'`);
-  await safeExec(`ALTER TABLE projects ADD COLUMN visibility INTEGER DEFAULT 1`);
-  await safeExec(`ALTER TABLE projects ADD COLUMN is_published INTEGER DEFAULT 0`);
-  await safeExec(`ALTER TABLE projects ADD COLUMN latest_approved_at TEXT`);
-  await safeExec(`ALTER TABLE projects ADD COLUMN downloads_count INTEGER DEFAULT 0`);
-
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS super_admins (
-      user_id TEXT PRIMARY KEY,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      note TEXT
-    )
-  `);
-
-  const superAdminUserId = c.env.SUPER_ADMIN_USER_ID?.trim();
-  if (superAdminUserId) {
-    await db
-      .prepare(
-        `
-          INSERT INTO super_admins (user_id, note)
-          VALUES (?, ?)
-          ON CONFLICT(user_id) DO NOTHING
-        `,
-      )
-      .bind(superAdminUserId, 'bootstrap super admin')
-      .run();
-
-    await db
-      .prepare(
-        `
-          INSERT INTO users (id, username, global_name, avatar, discriminator, guilds, is_admin, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET
-            is_admin = 1,
-            updated_at = excluded.updated_at
-        `,
-      )
-      .bind(superAdminUserId, `super-admin-${superAdminUserId}`, null, '', '', '[]', now(), now())
-      .run();
-  }
-
-  console.info('Database initialized successfully');
-}
-
-/**
  * 生成 UUID
  */
 export function generateId(): string {
@@ -603,8 +467,9 @@ export const projectDb = {
       .replaceAll('tags', 'p.tags')
       .replaceAll('name', 'p.name')
       .replaceAll('description', 'p.description');
+    const sortMode = options.sort || 'published';
     const orderBy = (() => {
-      switch (options.sort || 'published') {
+      switch (sortMode) {
         case 'updated':
           return 'p.updated_at DESC, p.created_at DESC';
         case 'downloads':
@@ -617,6 +482,23 @@ export const projectDb = {
         default:
           return 'p.created_at DESC, p.updated_at DESC';
       }
+    })();
+    const socialSortJoin = (() => {
+      if (sortMode === 'likes') {
+        return `LEFT JOIN (
+          SELECT project_id, COUNT(*) as likes_count
+          FROM project_likes
+          GROUP BY project_id
+        ) pl ON pl.project_id = p.id`;
+      }
+      if (sortMode === 'subscribes') {
+        return `LEFT JOIN (
+          SELECT project_id, COUNT(*) as subscribes_count
+          FROM project_subscribes
+          GROUP BY project_id
+        ) ps ON ps.project_id = p.id`;
+      }
+      return '';
     })();
 
     // 获取总数
@@ -634,17 +516,10 @@ export const projectDb = {
     const results = await db
       .prepare(
         `
-			SELECT p.*, u.global_name,
-			       COALESCE(pl.likes_count, 0) as likes_count,
-			       COALESCE(ps.subscribes_count, 0) as subscribes_count
+			SELECT p.*, u.global_name
 			FROM projects p
 			LEFT JOIN users u ON p.author_id = u.id
-			LEFT JOIN (
-			  SELECT project_id, COUNT(*) as likes_count FROM project_likes GROUP BY project_id
-			) pl ON pl.project_id = p.id
-			LEFT JOIN (
-			  SELECT project_id, COUNT(*) as subscribes_count FROM project_subscribes GROUP BY project_id
-			) ps ON ps.project_id = p.id
+			${socialSortJoin}
 			${listWhereClause}
 			ORDER BY ${orderBy}
 			LIMIT ? OFFSET ?
@@ -993,49 +868,38 @@ async function enrichProjects(
 
   const projectIds = projects.map(project => project.id);
   const placeholders = projectIds.map(() => '?').join(', ');
-  let statsRows:
-    | {
-      results?: Array<{
-        project_id: string;
-        downloads_count: number;
-        likes_count: number;
-        subscribes_count: number;
-        user_liked: number;
-        user_subscribed: number;
-      }>;
-    }
-    | undefined;
-  try {
-    statsRows = await c.env.DB.prepare(
+  type StatsRow = {
+    project_id: string;
+    downloads_count: number;
+    likes_count: number;
+    subscribes_count: number;
+    user_liked: number;
+    user_subscribed: number;
+  };
+  const loadStats = async (includeDownloads: boolean) =>
+    c.env.DB.prepare(
       `
-          SELECT
-            p.id as project_id,
-            COALESCE(p.downloads_count, 0) as downloads_count,
-            COALESCE(pl.likes_count, 0) as likes_count,
-            COALESCE(ps.subscribes_count, 0) as subscribes_count,
-            CASE WHEN ul.project_id IS NOT NULL THEN 1 ELSE 0 END as user_liked,
-            CASE WHEN us.project_id IS NOT NULL THEN 1 ELSE 0 END as user_subscribed
-          FROM projects p
-          LEFT JOIN (
-            SELECT project_id, COUNT(*) as likes_count FROM project_likes GROUP BY project_id
-          ) pl ON pl.project_id = p.id
-          LEFT JOIN (
-            SELECT project_id, COUNT(*) as subscribes_count FROM project_subscribes GROUP BY project_id
-          ) ps ON ps.project_id = p.id
-          LEFT JOIN project_likes ul ON ul.project_id = p.id AND ul.user_id = ?
-          LEFT JOIN project_subscribes us ON us.project_id = p.id AND us.user_id = ?
-          WHERE p.id IN (${placeholders})
-        `,
+        SELECT
+          p.id as project_id,
+          ${includeDownloads ? 'COALESCE(p.downloads_count, 0)' : '0'} as downloads_count,
+          (SELECT COUNT(*) FROM project_likes pl WHERE pl.project_id = p.id) as likes_count,
+          (SELECT COUNT(*) FROM project_subscribes ps WHERE ps.project_id = p.id) as subscribes_count,
+          CASE WHEN EXISTS(
+            SELECT 1 FROM project_likes ul WHERE ul.project_id = p.id AND ul.user_id = ?
+          ) THEN 1 ELSE 0 END as user_liked,
+          CASE WHEN EXISTS(
+            SELECT 1 FROM project_subscribes us WHERE us.project_id = p.id AND us.user_id = ?
+          ) THEN 1 ELSE 0 END as user_subscribed
+        FROM projects p
+        WHERE p.id IN (${placeholders})
+      `,
     )
       .bind(currentUser?.userId || '', currentUser?.userId || '', ...projectIds)
-      .all<{
-        project_id: string;
-        downloads_count: number;
-        likes_count: number;
-        subscribes_count: number;
-        user_liked: number;
-        user_subscribed: number;
-      }>();
+      .all<StatsRow>();
+
+  let statsRows: { results?: StatsRow[] } | undefined;
+  try {
+    statsRows = await loadStats(true);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (!message.includes('no such column: p.downloads_count')) {
@@ -1043,36 +907,7 @@ async function enrichProjects(
     }
 
     console.warn('downloads_count column missing, fallback stats query activated');
-    statsRows = await c.env.DB.prepare(
-      `
-          SELECT
-            p.id as project_id,
-            0 as downloads_count,
-            COALESCE(pl.likes_count, 0) as likes_count,
-            COALESCE(ps.subscribes_count, 0) as subscribes_count,
-            CASE WHEN ul.project_id IS NOT NULL THEN 1 ELSE 0 END as user_liked,
-            CASE WHEN us.project_id IS NOT NULL THEN 1 ELSE 0 END as user_subscribed
-          FROM projects p
-          LEFT JOIN (
-            SELECT project_id, COUNT(*) as likes_count FROM project_likes GROUP BY project_id
-          ) pl ON pl.project_id = p.id
-          LEFT JOIN (
-            SELECT project_id, COUNT(*) as subscribes_count FROM project_subscribes GROUP BY project_id
-          ) ps ON ps.project_id = p.id
-          LEFT JOIN project_likes ul ON ul.project_id = p.id AND ul.user_id = ?
-          LEFT JOIN project_subscribes us ON us.project_id = p.id AND us.user_id = ?
-          WHERE p.id IN (${placeholders})
-        `,
-    )
-      .bind(currentUser?.userId || '', currentUser?.userId || '', ...projectIds)
-      .all<{
-        project_id: string;
-        downloads_count: number;
-        likes_count: number;
-        subscribes_count: number;
-        user_liked: number;
-        user_subscribed: number;
-      }>();
+    statsRows = await loadStats(false);
   }
 
   const statsMap = new Map((statsRows.results || []).map(row => [row.project_id, row]));

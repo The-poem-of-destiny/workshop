@@ -10,21 +10,6 @@ import { bumpProjectVersion } from '../utils/version.js';
 
 const projectListSortSchema = z.enum(['published', 'updated', 'likes', 'subscribes', 'downloads']);
 
-function getProjectListOrderBy(sort: z.infer<typeof projectListSortSchema>) {
-  switch (sort) {
-    case 'updated':
-      return 'p.updated_at DESC, p.created_at DESC';
-    case 'downloads':
-      return 'COALESCE(p.downloads_count, 0) DESC, p.created_at DESC';
-    case 'likes':
-      return 'COALESCE(pl.likes_count, 0) DESC, p.created_at DESC';
-    case 'subscribes':
-      return 'COALESCE(ps.subscribes_count, 0) DESC, p.created_at DESC';
-    case 'published':
-    default:
-      return 'p.created_at DESC, p.updated_at DESC';
-  }
-}
 
 async function readProjectPreview(
   c: AppContext,
@@ -32,8 +17,6 @@ async function readProjectPreview(
 ) {
   const projectObject = await readProjectContentForEdit(c, project, 'worldbook');
   const regexObject = await readProjectContentForEdit(c, project, 'regex');
-
-
   const worldbookEntriesPreview = projectObject ? parseWorldbookEntriesPreview(await projectObject.text()) : [];
   const regexEntriesPreview = regexObject ? parseRegexEntriesPreview(await regexObject.text()) : [];
   return { worldbookEntriesPreview, regexEntriesPreview };
@@ -118,110 +101,15 @@ export class ProjectList extends OpenAPIRoute {
     const { page, pageSize, tag, search, sort } = data.query;
     const payload = await getCurrentUserFromRequest(c);
 
-    let result;
-    try {
-      result = await projectDb.list(c, {
-        page,
-        pageSize,
-        approvedOnly: true, // 只返回已审核通过的项目
-        tag,
-        search,
-        sort,
-        currentUser: payload,
-      });
-    } catch (error) {
-      console.warn('ProjectList fallback activated:', error);
-      const offset = page * pageSize;
-      const orderBy = getProjectListOrderBy(sort);
-      const fallbackConditions = ['p.status = ?', 'p.is_published = 1', 'p.visibility = 1'];
-      const fallbackValues: unknown[] = ['approved'];
-
-      if (tag) {
-        fallbackConditions.push('p.tags LIKE ?');
-        fallbackValues.push(`%"${tag}"%`);
-      }
-
-      if (search) {
-        fallbackConditions.push('(p.name LIKE ? OR p.description LIKE ?)');
-        fallbackValues.push(`%${search}%`, `%${search}%`);
-      }
-
-      const fallbackWhereClause = `WHERE ${fallbackConditions.join(' AND ')}`;
-      const rows = await c.env.DB.prepare(
-        `
-          SELECT p.*, u.global_name,
-                 COALESCE(pl.likes_count, 0) as likes_count,
-                 COALESCE(ps.subscribes_count, 0) as subscribes_count
-          FROM projects p
-          LEFT JOIN users u ON p.author_id = u.id
-          LEFT JOIN (
-            SELECT project_id, COUNT(*) as likes_count FROM project_likes GROUP BY project_id
-          ) pl ON pl.project_id = p.id
-          LEFT JOIN (
-            SELECT project_id, COUNT(*) as subscribes_count FROM project_subscribes GROUP BY project_id
-          ) ps ON ps.project_id = p.id
-          ${fallbackWhereClause}
-          ORDER BY ${orderBy}
-          LIMIT ? OFFSET ?
-        `,
-      )
-        .bind(...fallbackValues, pageSize, offset)
-        .all<Record<string, unknown>>();
-
-      const projects = (rows.results || []).map(row => ({
-        id: String(row.id),
-        rootProjectId: row.root_project_id ? String(row.root_project_id) : String(row.id),
-        publishedProjectId: row.published_project_id ? String(row.published_project_id) : undefined,
-        draftProjectId: row.draft_project_id ? String(row.draft_project_id) : undefined,
-        name: String(row.name || ''),
-        description: row.description ? String(row.description) : null,
-        version: String(row.version || '1.0.0'),
-        authorId: String(row.author_id || ''),
-        authorName: String(row.author_name || ''),
-        authorGlobalName: String(row.global_name || row.author_name || ''),
-        authorAvatar: row.author_avatar ? String(row.author_avatar) : null,
-        status: 'approved' as const,
-        downloadUrl: row.download_url ? String(row.download_url) : null,
-        fileSize: typeof row.file_size === 'number' ? row.file_size : null,
-        downloadsCount: Number(row.downloads_count ?? 0),
-        tags: (() => {
-          try {
-            const parsed = typeof row.tags === 'string' && row.tags.trim() ? JSON.parse(row.tags) : [];
-            return Array.isArray(parsed) ? parsed : [];
-          } catch {
-            return [];
-          }
-        })(),
-        coverImage: row.cover_image ? String(row.cover_image) : null,
-        likesCount: Number(row.likes_count ?? 0),
-        subscribesCount: Number(row.subscribes_count ?? 0),
-        userLiked: false,
-        userSubscribed: false,
-        createdAt: String(row.created_at || ''),
-        updatedAt: String(row.updated_at || ''),
-        reviewedAt: row.reviewed_at ? String(row.reviewed_at) : undefined,
-        reviewerId: row.reviewer_id ? String(row.reviewer_id) : undefined,
-        rejectReason: row.reject_reason ? String(row.reject_reason) : undefined,
-        reviewTarget: 'project' as const,
-        visibility: true,
-        isPublished: true,
-        hasPendingDraft: false,
-        latestApprovedAt: row.reviewed_at ? String(row.reviewed_at) : undefined,
-      }));
-
-      result = {
-        total: Number(
-          (
-            await c.env.DB.prepare(
-              `SELECT COUNT(*) as total FROM projects p ${fallbackWhereClause}`,
-            ).bind(...fallbackValues).first<{ total: number }>()
-          )?.total || 0,
-        ),
-        page,
-        pageSize,
-        projects,
-      };
-    }
+    const result = await projectDb.list(c, {
+      page,
+      pageSize,
+      approvedOnly: true, // 只返回已审核通过的项目
+      tag,
+      search,
+      sort,
+      currentUser: payload,
+    });
 
     // 添加作者头像 URL
     const projects = result.projects.map(p => ({

@@ -221,7 +221,7 @@ function mergeProjectsForInstalledView(source) {
         id: projectId,
         name: localProject.name || '本地已安装项目',
         description: localProject.description || '该项目当前仅存在于本地安装记录中',
-        version: localProject.remoteVersion || localProject.localVersion || '未知版本',
+        version: localProject.localVersion || '未知版本',
         localVersion: localProject.localVersion || null,
         authorId: localProject.authorId || '',
         authorName: localProject.authorName || '本地项目',

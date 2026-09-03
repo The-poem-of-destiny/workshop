@@ -37,7 +37,7 @@ export async function listInstalledCreativeWorkshopProjects(): Promise<CreativeW
       const projectRegexes = groupedRegexes[projectId] || [];
       const firstEntry = projectEntries[0];
       const localVersion = _.get(firstEntry, 'extra.cw_project_version', null);
-      const remoteVersion = _.get(firstEntry, 'extra.cw_remote_version', localVersion);
+      const remoteVersion = null;
       return {
         projectId,
         name: _.get(firstEntry, 'extra.cw_project_name_display', _.get(firstEntry, 'name', '未命名项目')),
@@ -45,8 +45,8 @@ export async function listInstalledCreativeWorkshopProjects(): Promise<CreativeW
         remoteVersion,
         entryCount: projectEntries.length,
         regexCount: projectRegexes.length,
-        canUpdate: Boolean(localVersion && remoteVersion && localVersion !== remoteVersion),
-        hasUpdate: Boolean(localVersion && remoteVersion && localVersion !== remoteVersion),
+        canUpdate: false,
+        hasUpdate: false,
       } satisfies CreativeWorkshopInstalledProject;
     })
     .value();

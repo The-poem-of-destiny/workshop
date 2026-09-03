@@ -1,6 +1,8 @@
 export const homeTavernBridgeScript = String.raw`
 const TAVERN_BRIDGE_NAMESPACE = 'creative-workshop-bridge';
 const TAVERN_OAUTH_RESULT_EVENT = 'creative-workshop:oauth-result';
+const PROJECT_DIFF_TIMEOUT_MS = 10000;
+const pendingProjectDiffRequests = new Map();
 
 function createBridgeRequest(type, payload) {
   return {
@@ -15,6 +17,20 @@ function postBridgeMessage(type, payload) {
   const message = createBridgeRequest(type, payload);
   window.parent.postMessage(message, '*');
   return message.requestId;
+}
+
+function settleProjectDiffRequest(requestId, error, diff) {
+  if (!requestId) return false;
+  const pending = pendingProjectDiffRequests.get(requestId);
+  if (!pending) return false;
+  clearTimeout(pending.timeoutId);
+  pendingProjectDiffRequests.delete(requestId);
+  if (error) {
+    pending.reject(error);
+    return true;
+  }
+  pending.resolve(diff);
+  return true;
 }
 
 function dispatchOAuthResult(payload) {
@@ -61,7 +77,9 @@ function syncContextFromBridge(payload) {
 
 function syncDiffFromBridge(payload) {
   if (payload?.projectId) {
-    setProjectUpdateDiff(payload.projectId, payload.diff || payload);
+    const diff = payload.diff || payload;
+    setProjectUpdateDiff(payload.projectId, diff);
+    return diff;
   }
 }
 
@@ -99,18 +117,26 @@ function handleBridgeMessage(event) {
       }
       break;
     case 'bridge:project-diff':
-      syncDiffFromBridge(data.payload || {});
+      settleProjectDiffRequest(data.requestId, null, syncDiffFromBridge(data.payload || {}));
       renderApp();
       break;
     case 'bridge:oauth:result':
       dispatchOAuthResult(data.payload || {});
       break;
     case 'bridge:error':
+      const handledProjectDiffError = settleProjectDiffRequest(
+        data.requestId,
+        new Error(data.payload?.message || '更新差异加载失败'),
+        null,
+      );
+      const isProjectDiffError = data.payload?.action === 'bridge:get-project-diff';
       if (projectId) {
         setProjectPendingAction(projectId, null);
         renderApp();
       }
-      showToast(data.payload?.message || '酒馆桥接错误', 'error');
+      if (!handledProjectDiffError && !isProjectDiffError) {
+        showToast(data.payload?.message || '酒馆桥接错误', 'error');
+      }
       break;
   }
 }
@@ -141,7 +167,19 @@ function requestUninstallProject(projectId) {
 }
 
 function requestProjectDiff(projectId) {
-  postBridgeMessage('bridge:get-project-diff', { projectId });
+  const cachedDiff = getProjectUpdateDiff(projectId);
+  if (window.__CW_TAVERN_MOCK__ && cachedDiff) {
+    return Promise.resolve(cachedDiff);
+  }
+  const requestId = postBridgeMessage('bridge:get-project-diff', { projectId });
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      if (!pendingProjectDiffRequests.has(requestId)) return;
+      pendingProjectDiffRequests.delete(requestId);
+      reject(new Error('更新差异加载超时，请重试'));
+    }, PROJECT_DIFF_TIMEOUT_MS);
+    pendingProjectDiffRequests.set(requestId, { projectId, resolve, reject, timeoutId });
+  });
 }
 
 function confirmProjectUpdate(projectId) {

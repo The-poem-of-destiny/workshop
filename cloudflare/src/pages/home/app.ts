@@ -24,6 +24,7 @@ export const homeScript = String.raw`
   function finishLogin(payload) {
     localStorage.setItem(TOKEN_KEY, payload.token);
     localStorage.setItem(USER_KEY, JSON.stringify(payload.user));
+    invalidateAllProjectDetailCaches();
     setCurrentUser(payload.user);
     renderApp();
     showToast('登录成功');
@@ -192,6 +193,7 @@ export const homeScript = String.raw`
   function logout() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    invalidateAllProjectDetailCaches();
     setCurrentUser(null);
     state.showOnlyMyProjects = false;
     renderApp();
@@ -403,8 +405,11 @@ export const homeScript = String.raw`
         event.stopPropagation();
         const project = filteredProjects.find(item => item.id === button.dataset.id);
         if (project) {
-          requestProjectDiff(project.id);
-          openProjectUpdateModal(project);
+          const restore = setButtonLoading(button, '加载差异');
+          requestProjectDiff(project.id)
+            .then(diff => openProjectUpdateModal(project, diff))
+            .catch(error => showToast('加载更新差异失败: ' + error.message, 'error'))
+            .finally(restore);
         }
       });
     });
@@ -494,7 +499,7 @@ export const homeScript = String.raw`
     }
     resetProjectPagination();
     await fetchCurrentUser();
-    await fetchProjects(true, { page: 0, pageSize: state.projectPagination.pageSize });
+    await fetchProjects(false, { page: 0, pageSize: state.projectPagination.pageSize });
   }
 
   init();
