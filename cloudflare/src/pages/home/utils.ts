@@ -6,6 +6,22 @@ const BASE_TAG_META = [
   { value: '事件', label: '事件', typeClass: 'event' },
 ];
 const BASE_TAGS = BASE_TAG_META.map(item => item.value);
+const authenticatedCoverObjectUrls = new Map();
+
+async function getAuthenticatedCoverObjectUrl(url) {
+  const cached = authenticatedCoverObjectUrls.get(url);
+  if (cached) return cached;
+  const response = await apiFetch(url, { rawResponse: true });
+  const objectUrl = URL.createObjectURL(await response.blob());
+  authenticatedCoverObjectUrls.set(url, objectUrl);
+  if (authenticatedCoverObjectUrls.size > 40) {
+    const oldestKey = authenticatedCoverObjectUrls.keys().next().value;
+    const oldestUrl = authenticatedCoverObjectUrls.get(oldestKey);
+    if (oldestUrl) URL.revokeObjectURL(oldestUrl);
+    authenticatedCoverObjectUrls.delete(oldestKey);
+  }
+  return objectUrl;
+}
 
 function showToast(message, type = 'info') {
   const toast = document.createElement('div');
@@ -110,6 +126,15 @@ function getDirectCoverUrl(project) {
 function getCoverImageSources(project) {
   const placeholder = getFallbackSvgUrl();
   const fallback = getDirectCoverUrl(project);
+  const requiresAuth = Boolean(fallback && project?.status !== 'approved' && String(fallback).includes('/api/files/'));
+  if (requiresAuth) {
+    return {
+      primary: placeholder,
+      fallback: '',
+      placeholder,
+      authenticated: fallback,
+    };
+  }
 
   if (!fallback) {
     return {
@@ -143,6 +168,15 @@ function bindCoverImageFallbacks(root) {
     const primary = element.dataset.coverSrc || '';
     const fallback = element.dataset.coverFallbackSrc || '';
     const placeholder = element.dataset.coverPlaceholderSrc || '';
+    const authenticated = element.dataset.coverAuthSrc || '';
+
+    if (authenticated) {
+      setCoverBackground(element, placeholder);
+      void getAuthenticatedCoverObjectUrl(authenticated)
+        .then(url => setCoverBackground(element, url))
+        .catch(() => setCoverBackground(element, placeholder));
+      return;
+    }
 
     if (!primary || primary === placeholder) {
       setCoverBackground(element, placeholder);

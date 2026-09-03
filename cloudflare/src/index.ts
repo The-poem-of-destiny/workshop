@@ -167,6 +167,7 @@ app.get('/api/files/*', async c => {
   const key = c.req.path.replace('/api/files/', '');
 
   try {
+    let isPrivateProjectFile = false;
     const projectMatch = key.match(/^projects\/([^/]+)\//);
     if (projectMatch) {
       const projectId = projectMatch[1];
@@ -178,6 +179,7 @@ app.get('/api/files/*', async c => {
       if (!project) {
         return c.json({ error: 'File not found' }, 404);
       }
+      isPrivateProjectFile = project.status !== 'approved';
 
       const canView =
         project.status === 'approved' || (payload && (payload.isAdmin || payload.userId === project.author_id));
@@ -199,7 +201,10 @@ app.get('/api/files/*', async c => {
     const headers = new Headers();
     object.writeHttpMetadata(headers);
     headers.set('Content-Length', object.size.toString());
-    headers.set('Cache-Control', 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800');
+    headers.set(
+      'Cache-Control',
+      isPrivateProjectFile ? 'private, no-store' : 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800',
+    );
 
     return new Response(object.body, {
       headers,

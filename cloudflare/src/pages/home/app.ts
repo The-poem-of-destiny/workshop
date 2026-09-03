@@ -21,6 +21,7 @@ export const homeScript = String.raw`
   ${homeModalsScript}
 
   const isEmbedded = window.parent !== window;
+  let projectSearchTimer = null;
   function finishLogin(payload) {
     localStorage.setItem(TOKEN_KEY, payload.token);
     localStorage.setItem(USER_KEY, JSON.stringify(payload.user));
@@ -311,15 +312,27 @@ export const homeScript = String.raw`
     }
 
     if (searchInput) {
-      const commitSearch = event => {
-        state.searchKeyword = event.target.value;
+      const runSearch = value => {
+        state.searchKeyword = String(value || '').trim();
+        resetProjectPagination();
+        fetchProjects(true, { page: 0, pageSize: state.projectPagination.pageSize });
         renderApp();
       };
-      searchInput.onchange = commitSearch;
-      searchInput.onblur = commitSearch;
+      searchInput.oninput = event => {
+        state.searchKeyword = event.target.value;
+        if (projectSearchTimer) clearTimeout(projectSearchTimer);
+        projectSearchTimer = setTimeout(() => {
+          projectSearchTimer = null;
+          runSearch(event.target.value);
+        }, 350);
+      };
+
       searchInput.onkeydown = event => {
         if (event.key === 'Enter') {
-          commitSearch(event);
+          event.preventDefault();
+          if (projectSearchTimer) clearTimeout(projectSearchTimer);
+          projectSearchTimer = null;
+          runSearch(event.target.value);
         }
       };
     }

@@ -56,6 +56,9 @@ async function apiFetch(endpoint, options = {}) {
     renderApp();
     throw new Error('登录已过期');
   }
+  if (options.rawResponse && response.ok) {
+    return response;
+  }
 
   const { rawText, data } = await parseResponseBody(response);
 
@@ -137,6 +140,10 @@ async function fetchProjects(forceRefresh = false, options = {}) {
   const baseTag = getActivePublicBaseTag();
   if (baseTag && baseTag !== 'all') {
     params.set('tag', baseTag);
+  }
+  const searchKeyword = String(state.searchKeyword || '').trim();
+  if (searchKeyword) {
+    params.set('search', searchKeyword);
   }
 
   try {

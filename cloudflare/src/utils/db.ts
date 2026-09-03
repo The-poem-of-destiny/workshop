@@ -459,37 +459,38 @@ export const projectDb = {
 
     // 默认只显示已审核通过的项目
     if (options.approvedOnly !== false) {
-      conditions.push('status = ?');
+      conditions.push('p.status = ?');
       values.push('approved');
-      conditions.push('is_published = 1');
-      conditions.push('visibility = 1');
+      conditions.push('p.is_published = 1');
+      conditions.push('p.visibility = 1');
     } else if (options.status) {
-      conditions.push('status = ?');
+      conditions.push('p.status = ?');
       values.push(options.status);
     }
 
     if (options.authorId) {
-      conditions.push('author_id = ?');
+      conditions.push('p.author_id = ?');
       values.push(options.authorId);
     }
 
     if (options.tag) {
-      conditions.push('tags LIKE ?');
+      conditions.push('p.tags LIKE ?');
       values.push(`%"${options.tag}"%`);
     }
 
     if (options.search) {
-      conditions.push('(name LIKE ? OR description LIKE ?)');
-      values.push(`%${options.search}%`, `%${options.search}%`);
+      conditions.push('(p.name LIKE ? OR p.description LIKE ? OR p.tags LIKE ? OR u.global_name LIKE ?)');
+      const searchPattern = `%${options.search.trim()}%`;
+      values.push(searchPattern, searchPattern, searchPattern, searchPattern);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    const listWhereClause = whereClause
-      .replaceAll('author_id', 'p.author_id')
-      .replaceAll('status', 'p.status')
-      .replaceAll('tags', 'p.tags')
-      .replaceAll('name', 'p.name')
-      .replaceAll('description', 'p.description');
+    const listWhereClause = whereClause;
+
+
+
+
+
     const sortMode = options.sort || 'published';
     const orderBy = (() => {
       switch (sortMode) {
