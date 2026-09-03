@@ -21,8 +21,9 @@ export const homeScript = String.raw`
   ${homeModalsScript}
 
   const isEmbedded = window.parent !== window;
-  let projectSearchTimer = null;
+  let lastCommittedSearchKeyword = String(state.searchKeyword || '').trim();
   function finishLogin(payload) {
+    clearAuthenticatedCoverObjectUrls();
     localStorage.setItem(TOKEN_KEY, payload.token);
     localStorage.setItem(USER_KEY, JSON.stringify(payload.user));
     invalidateAllProjectDetailCaches();
@@ -192,6 +193,7 @@ export const homeScript = String.raw`
   });
 
   function logout() {
+    clearAuthenticatedCoverObjectUrls();
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     invalidateAllProjectDetailCaches();
@@ -313,25 +315,20 @@ export const homeScript = String.raw`
 
     if (searchInput) {
       const runSearch = value => {
-        state.searchKeyword = String(value || '').trim();
+        const nextKeyword = String(value || '').trim();
+        state.searchKeyword = nextKeyword;
+        if (nextKeyword === lastCommittedSearchKeyword) return;
+        lastCommittedSearchKeyword = nextKeyword;
         resetProjectPagination();
-        fetchProjects(true, { page: 0, pageSize: state.projectPagination.pageSize });
-        renderApp();
+        void fetchProjects(true, { page: 0, pageSize: state.projectPagination.pageSize });
       };
       searchInput.oninput = event => {
         state.searchKeyword = event.target.value;
-        if (projectSearchTimer) clearTimeout(projectSearchTimer);
-        projectSearchTimer = setTimeout(() => {
-          projectSearchTimer = null;
-          runSearch(event.target.value);
-        }, 350);
       };
-
+      searchInput.onchange = event => runSearch(event.target.value);
       searchInput.onkeydown = event => {
         if (event.key === 'Enter') {
           event.preventDefault();
-          if (projectSearchTimer) clearTimeout(projectSearchTimer);
-          projectSearchTimer = null;
           runSearch(event.target.value);
         }
       };

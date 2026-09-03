@@ -49,6 +49,7 @@ async function apiFetch(endpoint, options = {}) {
     throw normalizeThrownError(error, '请求失败');
   }
   if (response.status === 401) {
+    clearAuthenticatedCoverObjectUrls();
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     invalidateAllProjectDetailCaches();

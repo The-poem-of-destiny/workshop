@@ -237,7 +237,10 @@ export const homeModalsScript = [
   "  const customTags = project ? (project.tags || []).filter(tag => !baseTagOptions.includes(tag)).join(', ') : '';",
   '  const worldbookEntries = Array.isArray(project?.worldbookEntriesPreview) ? project.worldbookEntriesPreview : [];',
   '  const regexEntries = Array.isArray(project?.regexEntriesPreview) ? project.regexEntriesPreview : [];',
-  "  const currentCoverHtml = project?.coverImage ? '<div class=\"edit-current-cover\"><div class=\"detail-section-title\"><span><i class=\"fas fa-image\"></i> 当前预览图</span></div><img src=\"' + escapeHtml(getDirectCoverUrl(project)) + '\" alt=\"当前预览图\"></div>' : '<div class=\"edit-current-cover edit-current-cover--empty\"><div class=\"detail-section-title\"><span><i class=\"fas fa-image\"></i> 当前预览图</span></div><div class=\"empty-state\">未上传预览图</div></div>';",
+  '  const currentCoverSources = project ? getCoverImageSources(project) : null;',
+  '  const currentCoverSrc = currentCoverSources?.authenticated ? currentCoverSources.placeholder : getDirectCoverUrl(project);',
+  '  const currentCoverAuthAttrs = currentCoverSources?.authenticated ? ` data-cover-img-auth-src="${escapeHtml(currentCoverSources.authenticated)}" data-cover-img-placeholder-src="${escapeHtml(currentCoverSources.placeholder)}"` : "";',
+  "  const currentCoverHtml = project?.coverImage ? '<div class=\"edit-current-cover\"><div class=\"detail-section-title\"><span><i class=\"fas fa-image\"></i> 当前预览图</span></div><img src=\"' + escapeHtml(currentCoverSrc) + '\"' + currentCoverAuthAttrs + ' alt=\"当前预览图\"></div>' : '<div class=\"edit-current-cover edit-current-cover--empty\"><div class=\"detail-section-title\"><span><i class=\"fas fa-image\"></i> 当前预览图</span></div><div class=\"empty-state\">未上传预览图</div></div>';",
   '  const currentContentHtml = isEdit ? `<div class="edit-current-content">${currentCoverHtml}${renderDetailSection("世界书条目", "fa-scroll", worldbookEntries, renderDetailEntry, "无条目内容", project, true, false)}${renderDetailSection("正则列表", "fa-code", regexEntries, renderRegexEntry, "无正则内容", project, true, false)}</div>` : "";',
 
 

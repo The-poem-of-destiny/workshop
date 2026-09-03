@@ -8,6 +8,11 @@ const BASE_TAG_META = [
 const BASE_TAGS = BASE_TAG_META.map(item => item.value);
 const authenticatedCoverObjectUrls = new Map();
 
+function clearAuthenticatedCoverObjectUrls() {
+  authenticatedCoverObjectUrls.forEach(objectUrl => URL.revokeObjectURL(objectUrl));
+  authenticatedCoverObjectUrls.clear();
+}
+
 async function getAuthenticatedCoverObjectUrl(url) {
   const cached = authenticatedCoverObjectUrls.get(url);
   if (cached) return cached;
@@ -197,6 +202,22 @@ function bindCoverImageFallbacks(root) {
       directProbe.src = fallback;
     };
     probe.src = primary;
+  });
+
+  scope.querySelectorAll('img[data-cover-img-auth-src]').forEach(element => {
+    if (!(element instanceof HTMLImageElement) || element.dataset.coverBound === '1') return;
+    element.dataset.coverBound = '1';
+    const authenticated = element.dataset.coverImgAuthSrc || '';
+    const placeholder = element.dataset.coverImgPlaceholderSrc || getFallbackSvgUrl();
+    element.src = placeholder;
+    if (!authenticated) return;
+    void getAuthenticatedCoverObjectUrl(authenticated)
+      .then(url => {
+        if (element.isConnected) element.src = url;
+      })
+      .catch(() => {
+        if (element.isConnected) element.src = placeholder;
+      });
   });
 }
 

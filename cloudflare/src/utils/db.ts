@@ -478,10 +478,11 @@ export const projectDb = {
       values.push(`%"${options.tag}"%`);
     }
 
-    if (options.search) {
-      conditions.push('(p.name LIKE ? OR p.description LIKE ? OR p.tags LIKE ? OR u.global_name LIKE ?)');
-      const searchPattern = `%${options.search.trim()}%`;
-      values.push(searchPattern, searchPattern, searchPattern, searchPattern);
+    const searchTerm = options.search?.trim();
+    if (searchTerm) {
+      conditions.push('(p.name LIKE ? OR p.description LIKE ? OR p.tags LIKE ? OR p.author_name LIKE ? OR u.global_name LIKE ?)');
+      const searchPattern = `%${searchTerm}%`;
+      values.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
