@@ -124,15 +124,32 @@ function setCachedWorldbookSource(projectId, downloadUrl, data) {
     writeCreativeWorkshopCacheStore(cache);
 }
 function normalizeWorldbookSourceEntries(raw) {
-    const entries = Array.isArray(raw)
-        ? raw
-        : Array.isArray(raw?.entries)
-            ? raw.entries
-            : raw?.entries &&
-                typeof raw.entries === 'object'
-                ? Object.values(raw.entries)
-                : [];
-    return entries.filter(_.isObject);
+    const entryKey = (entry, index, objectKey) => {
+        if (objectKey !== undefined)
+            return `object:${objectKey}`;
+        const uid = entry.uid ?? _.get(entry, 'extensions.cw_entry_id');
+        return uid !== undefined && uid !== null ? `uid:${String(uid)}` : `index:${index}`;
+    };
+    if (Array.isArray(raw)) {
+        return raw
+            .filter(_.isObject)
+            .map((entry, index) => ({ ...entry, __cwEntryKey: entryKey(entry, index) }));
+    }
+    const container = _.get(raw, 'entries');
+    if (Array.isArray(container)) {
+        return container
+            .filter(_.isObject)
+            .map((entry, index) => ({ ...entry, __cwEntryKey: entryKey(entry, index) }));
+    }
+    if (_.isObject(container)) {
+        return Object.entries(container)
+            .filter(([, entry]) => _.isObject(entry))
+            .map(([objectKey, entry], index) => ({
+            ...entry,
+            __cwEntryKey: entryKey(entry, index, objectKey),
+        }));
+    }
+    return [];
 }
 async function fetchCreativeWorkshopProjectWorldbookSource(projectDetail) {
     const projectId = _.get(projectDetail, 'project.id');
@@ -336,48 +353,54 @@ async function getCreativeWorkshopProjectDiff(projectId) {
 
 async function listInstalledCreativeWorkshopProjects() {
     const charWorldbooks = getCharWorldbookNames('current');
-    if (!charWorldbooks.primary) {
-        return [];
-    }
-    const entries = await getWorldbook(charWorldbooks.primary);
+    const entries = charWorldbooks.primary ? await getWorldbook(charWorldbooks.primary) : [];
     const groupedEntries = _.groupBy(entries.filter(entry => _.isString(_.get(entry, 'extra.cw_project_id')) || _.isString(_.get(entry, 'extra.fate_project_name'))), entry => String(_.get(entry, 'extra.cw_project_id') || _.get(entry, 'extra.fate_project_name')));
     const regexes = getTavernRegexes({ scope: 'character', enable_state: 'all' });
     const groupedRegexes = _.groupBy(regexes.filter(regex => getCreativeWorkshopRegexId(regex).startsWith('creative_workshop:')), regex => getCreativeWorkshopRegexId(regex).split(':')[1] || '');
-    return _(groupedEntries)
-        .entries()
-        .map(([projectId, projectEntries]) => {
+    return _.uniq([...Object.keys(groupedEntries), ...Object.keys(groupedRegexes)])
+        .filter(Boolean)
+        .map(projectId => {
+        const projectEntries = groupedEntries[projectId] || [];
         const projectRegexes = groupedRegexes[projectId] || [];
         const firstEntry = projectEntries[0];
-        const localVersion = _.get(firstEntry, 'extra.cw_project_version', null);
-        const remoteVersion = null;
+        const firstRegex = projectRegexes[0];
+        const localVersion = firstEntry ? _.get(firstEntry, 'extra.cw_project_version', null) : null;
         return {
             projectId,
-            name: _.get(firstEntry, 'extra.cw_project_name_display', _.get(firstEntry, 'name', '未命名项目')),
+            name: firstEntry
+                ? _.get(firstEntry, 'extra.cw_project_name_display', _.get(firstEntry, 'name', '未命名项目'))
+                : _.get(firstRegex, 'script_name', '未命名项目'),
             localVersion,
-            remoteVersion,
+            remoteVersion: null,
             entryCount: projectEntries.length,
             regexCount: projectRegexes.length,
             canUpdate: false,
             hasUpdate: false,
         };
-    })
-        .value();
+    });
 }
 
 ;// ./src/CreativeWorkshop/services/regex.ts
 
 
-async function installCreativeWorkshopRegex(projectId) {
+async function installCreativeWorkshopRegex(projectId, selectedEntryKeys) {
     const detail = await fetchCreativeWorkshopProjectDetail(projectId);
-    const regexEntries = detail.regexEntriesPreview || [];
+    const selected = selectedEntryKeys ? new Set(selectedEntryKeys) : null;
+    const regexEntries = (detail.regexEntriesPreview || [])
+        .map((entry, originalIndex) => ({
+        entry,
+        originalIndex,
+        entryKey: entry.entryKey || (entry.id !== undefined ? `id:${entry.id}` : `index:${originalIndex}`),
+    }))
+        .filter(({ entryKey }) => !selected || selected.has(entryKey));
     if (regexEntries.length === 0) {
         return [];
     }
     return updateTavernRegexesWith(regexes => {
         const filtered = regexes.filter(regex => !getCreativeWorkshopRegexId(regex).startsWith(`creative_workshop:${projectId}:`));
-        const appended = regexEntries.map((entry, index) => ({
-            id: `creative_workshop:${projectId}:${entry.id || index}`,
-            script_name: getReadableRegexName(detail.project.name || '未命名项目', entry, index),
+        const appended = regexEntries.map(({ entry, originalIndex, entryKey }) => ({
+            id: `creative_workshop:${projectId}:${entryKey}`,
+            script_name: getReadableRegexName(detail.project.name || '未命名项目', entry, originalIndex),
             enabled: !entry.disabled,
             scope: 'character',
             find_regex: entry.findRegex || '',
@@ -410,13 +433,134 @@ async function updateCreativeWorkshopRegex(projectId) {
     return installCreativeWorkshopRegex(projectId);
 }
 
+;// ./src/CreativeWorkshop/services/worldbook-normalize.ts
+function getCreativeWorkshopWorldbookEntryKey(entry, index) {
+    if (_.isString(entry.entryKey) && entry.entryKey)
+        return entry.entryKey;
+    if (_.isString(entry.__cwEntryKey) && entry.__cwEntryKey)
+        return entry.__cwEntryKey;
+    const uid = entry.uid ?? _.get(entry, 'extensions.cw_entry_id');
+    return uid !== undefined && uid !== null ? `uid:${String(uid)}` : `index:${index}`;
+}
+function getCreativeWorkshopStrategyType(entry) {
+    const type = _.get(entry, 'strategy.type') ?? entry.strategyType;
+    if (type !== undefined && type !== null) {
+        if (type === 'constant' || type === 'selective' || type === 'vectorized')
+            return type;
+        throw new Error(`不支持的触发策略: ${String(type)}`);
+    }
+    if (entry.constant === true)
+        return 'constant';
+    if (entry.vectorized === true)
+        return 'vectorized';
+    return 'selective';
+}
+function getCreativeWorkshopSecondaryLogic(entry) {
+    const logic = _.get(entry, 'strategy.keys_secondary.logic') ?? entry.secondaryLogic;
+    if (logic !== undefined && logic !== null) {
+        if (logic === 'and_any' || logic === 'not_all' || logic === 'not_any' || logic === 'and_all')
+            return logic;
+        throw new Error(`不支持的次要关键词逻辑: ${String(logic)}`);
+    }
+    const raw = entry.selectiveLogic ?? entry.selective_logic ?? 0;
+    if (!Number.isInteger(raw))
+        throw new Error(`selectiveLogic 必须是整数: ${String(raw)}`);
+    switch (raw) {
+        case 0:
+            return 'and_any';
+        case 1:
+            return 'not_all';
+        case 2:
+            return 'not_any';
+        case 3:
+            return 'and_all';
+        default:
+            throw new Error(`不支持的 selectiveLogic: ${String(raw)}`);
+    }
+}
+function getCreativeWorkshopPositionType(entry) {
+    const type = _.get(entry, 'position.type') ?? entry.positionType;
+    if (type !== undefined && type !== null) {
+        switch (type) {
+            case 'before_character_definition':
+            case 'after_character_definition':
+            case 'before_example_messages':
+            case 'after_example_messages':
+            case 'before_author_note':
+            case 'after_author_note':
+            case 'at_depth':
+            case 'outlet':
+                return type;
+            case 'before_char':
+                return 'before_character_definition';
+            case 'after_char':
+                return 'after_character_definition';
+            default:
+                throw new Error(`不支持的插入位置: ${String(type)}`);
+        }
+    }
+    const raw = entry.position ?? 0;
+    if (!Number.isInteger(raw))
+        throw new Error(`插入位置必须是整数: ${String(raw)}`);
+    switch (raw) {
+        case 0:
+            return 'before_character_definition';
+        case 1:
+            return 'after_character_definition';
+        case 2:
+            return 'before_author_note';
+        case 3:
+            return 'after_author_note';
+        case 4:
+            return 'at_depth';
+        case 5:
+            return 'before_example_messages';
+        case 6:
+            return 'after_example_messages';
+        case 7:
+            return 'outlet';
+        default:
+            throw new Error(`不支持的 SillyTavern 插入位置: ${String(raw)}`);
+    }
+}
+function getCreativeWorkshopPositionRole(entry, positionType) {
+    const role = _.get(entry, 'position.role') ?? entry.role;
+    switch (role) {
+        case 0:
+        case 'system':
+            return 'system';
+        case 1:
+        case 'user':
+            return 'user';
+        case 2:
+        case 'assistant':
+            return 'assistant';
+        case undefined:
+        case null:
+            return 'system';
+        default:
+            if (positionType !== 'at_depth')
+                return 'system';
+            throw new Error(`不支持的 @D role: ${String(role)}`);
+    }
+}
+function getCreativeWorkshopFiniteNumber(entry, rawPath, previewPath, defaultValue) {
+    const value = _.get(entry, rawPath) ?? _.get(entry, previewPath);
+    if (value === undefined || value === null)
+        return defaultValue;
+    if (!_.isNumber(value) || !Number.isFinite(value)) {
+        throw new Error(`${previewPath} 必须是有限数字: ${String(value)}`);
+    }
+    return value;
+}
+
 ;// ./src/CreativeWorkshop/services/worldbook.ts
+
 
 function getCurrentWorldbookName() {
     const charWorldbooks = getCharWorldbookNames('current');
-    if (!charWorldbooks.primary) {
+    if (!charWorldbooks.primary)
         throw new Error('当前角色卡未绑定世界书');
-    }
     return charWorldbooks.primary;
 }
 function renameEntry(entryName, tags, projectName) {
@@ -436,56 +580,20 @@ function arrayField(entry, rawPath, previewPath) {
 function fieldWithDefault(entry, rawPath, previewPath, defaultValue) {
     return (_.get(entry, rawPath) ?? _.get(entry, previewPath) ?? defaultValue);
 }
-function getStrategyType(entry) {
-    const type = _.get(entry, 'strategy.type');
-    if (type === 'constant' || type === 'selective' || type === 'vectorized')
-        return type;
-    return (entry.constant ? 'constant' : entry.selective ? 'selective' : 'vectorized');
-}
-function getSecondaryLogic(entry) {
-    const logic = _.get(entry, 'strategy.keys_secondary.logic');
-    if (logic)
-        return logic;
-    return (Number(entry.selectiveLogic ?? 0) === 0 ? 'and_any' : 'and_all');
-}
-function getPositionType(entry) {
-    const type = _.get(entry, 'position.type') ?? entry.positionType;
-    if (type)
-        return type;
-    switch (entry.position) {
-        case 0:
-            return 'before_char';
-        case 1:
-            return 'after_char';
-        case 4:
-            return 'at_depth';
-        default:
-            return 'at_depth';
-    }
-}
-function getPositionRole(entry) {
-    const role = _.get(entry, 'position.role') ?? entry.role;
-    switch (role) {
-        case 0:
-            return 'system';
-        case 1:
-            return 'user';
-        case 2:
-            return 'assistant';
-        case 'system':
-        case 'user':
-        case 'assistant':
-            return role;
-        default:
-            return 'system';
-    }
+function getScanDepth(entry) {
+    const value = _.get(entry, 'strategy.scan_depth') ?? entry.scanDepth;
+    if (value === undefined || value === null)
+        return 'same_as_global';
+    if (value === 'same_as_global')
+        return value;
+    if (_.isNumber(value) && Number.isFinite(value))
+        return value;
+    throw new Error(`scanDepth 无效: ${String(value)}`);
 }
 function getProbability(entry) {
-    if (entry.useProbability !== undefined)
-        return entry.useProbability ? (entry.probability ?? 100) : 100;
-    if (_.get(entry, 'probability') !== undefined)
-        return _.get(entry, 'probability');
-    return 100;
+    if (entry.useProbability === false)
+        return 100;
+    return getCreativeWorkshopFiniteNumber(entry, 'probability', 'probability', 100);
 }
 function getRecursionDelayUntil(entry) {
     if (_.get(entry, 'recursion.delay_until') !== undefined)
@@ -494,32 +602,70 @@ function getRecursionDelayUntil(entry) {
         return entry.delayUntilRecursion ? 1 : null;
     return null;
 }
-async function installCreativeWorkshopProject(projectId) {
+async function prepareCreativeWorkshopProject(projectId, selectedEntryKeys) {
     const detail = await fetchCreativeWorkshopProjectDetail(projectId);
-    const worldbookName = getCurrentWorldbookName();
     const sourceEntries = await fetchCreativeWorkshopProjectWorldbookSource(detail);
     const entries = sourceEntries.length > 0 ? sourceEntries : detail.worldbookEntriesPreview || [];
+    const selected = selectedEntryKeys ? new Set(selectedEntryKeys) : null;
+    const prepared = entries
+        .map((entry, index) => ({ entry, index, entryKey: getCreativeWorkshopWorldbookEntryKey(entry, index) }))
+        .filter(item => !selected || selected.has(item.entryKey))
+        .map(({ entry, index, entryKey }) => {
+        try {
+            const positionType = getCreativeWorkshopPositionType(entry);
+            return {
+                entry,
+                index,
+                entryKey,
+                positionType,
+                positionRole: getCreativeWorkshopPositionRole(entry, positionType),
+                strategyType: getCreativeWorkshopStrategyType(entry),
+                secondaryLogic: getCreativeWorkshopSecondaryLogic(entry),
+                depth: getCreativeWorkshopFiniteNumber(entry, 'position.depth', 'depth', 4),
+                order: getCreativeWorkshopFiniteNumber(entry, 'position.order', 'order', index),
+                probability: getProbability(entry),
+                scanDepth: getScanDepth(entry),
+            };
+        }
+        catch (error) {
+            const title = entry.comment || entry.name || `条目${index + 1}`;
+            throw new Error(`世界书条目「${title}」配置无效：${error instanceof Error ? error.message : String(error)}`);
+        }
+    });
+    return { detail, prepared };
+}
+async function applyPreparedProject(projectId, detail, prepared) {
+    if (prepared.length === 0)
+        return;
+    const worldbookName = getCurrentWorldbookName();
     await updateWorldbookWith(worldbookName, worldbook => {
-        entries.forEach((entry, index) => {
-            const name = renameEntry(entry.comment || `条目${index + 1}`, detail.project.tags || [], detail.project.name || '未命名项目');
-            const existingIndex = worldbook.findIndex(item => item.name === name || _.get(item, 'extra.cw_entry_key') === `${projectId}:${index}`);
+        prepared.forEach(({ entry, index, entryKey, positionType, positionRole, strategyType, secondaryLogic, depth, order, probability, scanDepth }) => {
+            const name = renameEntry(entry.comment || entry.name || `条目${index + 1}`, detail.project.tags || [], detail.project.name || '未命名项目');
+            const stableKey = `${projectId}:${entryKey}`;
+            const legacyKey = `${projectId}:${index}`;
+            const existingIndex = worldbook.findIndex(item => {
+                const itemProjectId = _.get(item, 'extra.cw_project_id') ?? _.get(item, 'extra.fate_project_name');
+                return (_.get(item, 'extra.cw_entry_key') === stableKey ||
+                    _.get(item, 'extra.cw_entry_key') === legacyKey ||
+                    (itemProjectId === projectId && item.name === name));
+            });
             const payload = {
                 name,
                 enabled: _.isBoolean(entry.enabled) ? entry.enabled : !entry.disable,
                 strategy: {
-                    type: getStrategyType(entry),
+                    type: strategyType,
                     keys: arrayField(entry, 'strategy.keys', 'key'),
                     keys_secondary: {
-                        logic: getSecondaryLogic(entry),
+                        logic: secondaryLogic,
                         keys: arrayField(entry, 'strategy.keys_secondary.keys', 'keysecondary'),
                     },
-                    scan_depth: fieldWithDefault(entry, 'strategy.scan_depth', 'scanDepth', 'same_as_global'),
+                    scan_depth: scanDepth,
                 },
                 position: {
-                    type: getPositionType(entry),
-                    depth: fieldWithDefault(entry, 'position.depth', 'depth', 4),
-                    order: fieldWithDefault(entry, 'position.order', 'order', index),
-                    role: getPositionRole(entry),
+                    type: positionType,
+                    depth,
+                    order,
+                    role: positionRole,
                 },
                 recursion: {
                     prevent_incoming: fieldWithDefault(entry, 'recursion.prevent_incoming', 'excludeRecursion', false),
@@ -531,24 +677,21 @@ async function installCreativeWorkshopProject(projectId) {
                     cooldown: fieldWithDefault(entry, 'effect.cooldown', 'cooldown', null),
                     delay: fieldWithDefault(entry, 'effect.delay', 'delay', null),
                 },
-                probability: getProbability(entry),
+                probability,
                 content: entry.content || '',
-                comment: entry.comment || name,
+                comment: entry.comment || entry.name || name,
+                outletName: _.isString(entry.outletName) ? entry.outletName : '',
                 extra: {
                     ..._.get(worldbook[existingIndex], 'extra', {}),
                     cw_project_id: projectId,
                     cw_project_name_display: detail.project.name || '未命名项目',
                     cw_project_version: detail.project.version || null,
                     cw_remote_version: detail.project.version || null,
-                    cw_entry_key: `${projectId}:${index}`,
+                    cw_entry_key: stableKey,
                 },
             };
             if (existingIndex >= 0) {
-                worldbook[existingIndex] = {
-                    ...worldbook[existingIndex],
-                    ...payload,
-                    uid: worldbook[existingIndex].uid,
-                };
+                worldbook[existingIndex] = { ...worldbook[existingIndex], ...payload, uid: worldbook[existingIndex].uid };
             }
             else {
                 worldbook.push(payload);
@@ -556,6 +699,10 @@ async function installCreativeWorkshopProject(projectId) {
         });
         return worldbook;
     });
+}
+async function installCreativeWorkshopProject(projectId, selectedEntryKeys) {
+    const { detail, prepared } = await prepareCreativeWorkshopProject(projectId, selectedEntryKeys);
+    await applyPreparedProject(projectId, detail, prepared);
     return detail;
 }
 async function uninstallCreativeWorkshopProject(projectId) {
@@ -564,8 +711,10 @@ async function uninstallCreativeWorkshopProject(projectId) {
     return result.deleted_entries;
 }
 async function updateCreativeWorkshopProject(projectId) {
+    const { detail, prepared } = await prepareCreativeWorkshopProject(projectId);
     await uninstallCreativeWorkshopProject(projectId);
-    return installCreativeWorkshopProject(projectId);
+    await applyPreparedProject(projectId, detail, prepared);
+    return detail;
 }
 
 ;// ./src/CreativeWorkshop/bridge/protocol.ts
@@ -777,8 +926,8 @@ function createCreativeWorkshopBridgeHost(option) {
                     if (!_.isString(_.get(event.data, 'payload.projectId'))) {
                         throw new Error('缺少 projectId');
                     }
-                    await installCreativeWorkshopProject(String(event.data.payload?.projectId));
-                    await installCreativeWorkshopRegex(String(event.data.payload?.projectId));
+                    await installCreativeWorkshopProject(String(event.data.payload?.projectId), Array.isArray(event.data.payload?.worldbookEntryKeys) ? event.data.payload?.worldbookEntryKeys.map(String) : undefined);
+                    await installCreativeWorkshopRegex(String(event.data.payload?.projectId), Array.isArray(event.data.payload?.regexEntryKeys) ? event.data.payload?.regexEntryKeys.map(String) : undefined);
                     await post('bridge:install-result', {
                         success: true,
                         projectId: String(event.data.payload?.projectId),
