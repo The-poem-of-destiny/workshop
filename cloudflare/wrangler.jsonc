@@ -14,13 +14,13 @@
   "kv_namespaces": [
     {
       "binding": "SESSION_KV",
-      "id": "e0e8061b7b1d4c36a0c62e7f3b0f5a8c"
+      "id": "ff7b3bce7ce04cf08f0c77dbd0367031"
     }
   ],
   "r2_buckets": [
     {
       "binding": "R2_BUCKET",
-      "bucket_name": "creative-workshop-uploads"
+      "bucket_name": "creative-workshop-projects"
     }
   ]
 }
