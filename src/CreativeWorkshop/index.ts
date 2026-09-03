@@ -236,29 +236,6 @@ function openCreativeWorkshop() {
     boxShadow: '0 24px 80px rgba(0,0,0,0.45)',
   });
 
-  const $closeButton = host$('<button type="button">退出</button>').css({
-    position: 'fixed',
-    top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
-    right: 'calc(env(safe-area-inset-right, 0px) + 12px)',
-    zIndex: 2,
-    minHeight: '44px',
-    padding: '0 14px',
-    border: '1px solid rgba(248,113,113,0.45)',
-    borderRadius: '999px',
-    background: 'rgba(185,28,28,0.92)',
-    color: '#FEF2F2',
-    fontSize: '14px',
-    fontWeight: '600',
-    cursor: 'pointer',
-    boxShadow: '0 8px 24px rgba(127,29,29,0.35)',
-    backdropFilter: 'blur(8px)',
-  });
-
-  $closeButton.on('click', event => {
-    event.stopPropagation();
-    close();
-  });
-
   const updateOverlayLayout = () => {
     const useFullscreenLayout = hostWindow.innerWidth < 1000;
     const viewportHeight = hostWindow.visualViewport?.height ?? hostWindow.innerHeight;
@@ -287,13 +264,6 @@ function openCreativeWorkshop() {
       boxShadow: useFullscreenLayout ? 'none' : '0 24px 80px rgba(0,0,0,0.45)',
     });
 
-    $closeButton.css({
-      position: 'absolute',
-      top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
-      left: 'auto',
-      right: 'calc(env(safe-area-inset-right, 0px) + 12px)',
-      transform: 'none',
-    });
   };
 
   updateOverlayLayout();
@@ -302,7 +272,7 @@ function openCreativeWorkshop() {
   hostWindow.visualViewport?.addEventListener('resize', updateOverlayLayout);
   hostWindow.visualViewport?.addEventListener('scroll', updateOverlayLayout);
 
-  $frameShell.append($frame, $closeButton);
+  $frameShell.append($frame);
   $overlay.append($frameShell).appendTo(hostDocument.body);
 
   console.info('[CreativeWorkshop] openCreativeWorkshop:overlay-mounted', {
@@ -359,6 +329,7 @@ function openCreativeWorkshop() {
       bridge = createCreativeWorkshopBridgeHost({
         iframe,
         targetOrigin: getCreativeWorkshopOrigin(),
+        onClose: close,
       });
       console.info('[CreativeWorkshop] openCreativeWorkshop:bridge-created', {
         targetOrigin: getCreativeWorkshopOrigin(),

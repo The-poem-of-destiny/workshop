@@ -201,6 +201,7 @@ export const homeScript = String.raw`
   function bindStaticActions(filteredProjects) {
     const loginBtn = document.getElementById('loginBtn');
     const logoutBtn = document.getElementById('logoutBtn');
+    const workshopCloseBtn = document.getElementById('workshopCloseBtn');
     const uploadBtn = document.getElementById('uploadBtn');
     const myProjectsMenuBtn = document.getElementById('myProjectsMenuBtn');
     const adminPanelBtn = document.getElementById('adminPanelBtn');
@@ -216,6 +217,7 @@ export const homeScript = String.raw`
     const projectLoadMoreBtn = document.getElementById('projectLoadMoreBtn');
 
     if (loginBtn) loginBtn.onclick = openLoginPopup;
+    if (workshopCloseBtn) workshopCloseBtn.onclick = requestCloseWorkshop;
     if (logoutBtn) logoutBtn.onclick = logout;
     if (uploadBtn) uploadBtn.onclick = openUploadModal;
     if (myProjectsMenuBtn) myProjectsMenuBtn.onclick = () => {
@@ -408,11 +410,23 @@ export const homeScript = String.raw`
     });
 
     document.querySelectorAll('.edit-btn').forEach(button => {
-      button.addEventListener('click', event => {
+      button.addEventListener('click', async event => {
         event.stopPropagation();
         if (button.disabled) return;
         const project = filteredProjects.find(item => item.id === button.dataset.id);
-        if (project) openEditProjectModal(project);
+        if (!project) return;
+
+        const restore = setButtonLoading(button, '加载内容');
+        try {
+          const editableProjectId = project.draftProjectId || project.id;
+          const editableDetail = await fetchProjectEntries(editableProjectId, { forceRefresh: true });
+          const editableProject = editableDetail?.project || project;
+          openEditProjectModal(editableProject);
+        } catch (error) {
+          showToast('加载可编辑版本失败: ' + error.message, 'error');
+        } finally {
+          restore();
+        }
       });
     });
 

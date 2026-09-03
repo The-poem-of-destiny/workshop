@@ -8,7 +8,8 @@ export type CreativeWorkshopBridgeRequestType =
   | 'bridge:uninstall-project'
   | 'bridge:get-project-diff'
   | 'bridge:confirm-project-update'
-  | 'bridge:oauth:start';
+  | 'bridge:oauth:start'
+  | 'bridge:close-workshop';
 
 export type CreativeWorkshopBridgeResponseType =
   | 'bridge:handshake:ok'

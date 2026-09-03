@@ -18,6 +18,7 @@ type HostOption = {
   iframe: HTMLIFrameElement;
   targetOrigin: string;
   hostWindow?: Window;
+  onClose?: () => void;
 };
 
 const OAUTH_CALLBACK_SOURCE = 'creative-workshop-auth-callback';
@@ -51,7 +52,7 @@ function isOAuthCallbackMessage(value: unknown): value is OAuthCallbackMessage {
 }
 
 export function createCreativeWorkshopBridgeHost(option: HostOption) {
-  const { iframe, targetOrigin, hostWindow = window.parent !== window ? window.parent : window } = option;
+  const { iframe, targetOrigin, hostWindow = window.parent !== window ? window.parent : window, onClose } = option;
   const oauthOrigin = getCreativeWorkshopOrigin();
   let oauthPopup: Window | null = null;
   let pendingOauthRequestId: string | undefined;
@@ -297,6 +298,9 @@ export function createCreativeWorkshopBridgeHost(option: HostOption) {
             },
             event.data.requestId,
           );
+          break;
+        case 'bridge:close-workshop':
+          onClose?.();
           break;
         case 'bridge:oauth:start': {
           const authUrl = _.get(event.data, 'payload.authUrl');

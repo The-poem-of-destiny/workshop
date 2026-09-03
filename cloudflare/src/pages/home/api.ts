@@ -319,4 +319,16 @@ async function setAdmin(userId, isAdmin) {
     body: JSON.stringify({ userId, isAdmin }),
   });
 }
+async function removeProjectEntry(projectId, kind, entryKey) {
+  const result = await apiFetch('/api/projects/' + projectId + '/entries/remove', {
+    method: 'POST',
+    body: JSON.stringify({ kind, entryKey }),
+  });
+  invalidateProjectDetailCache(projectId);
+  if (result.projectId && result.projectId !== projectId) invalidateProjectDetailCache(result.projectId);
+  return result;
+}
 `;
+
+
+

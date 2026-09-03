@@ -153,4 +153,9 @@ function confirmProjectUpdate(projectId) {
 function requestOAuthLogin(authUrl, state) {
   return postBridgeMessage('bridge:oauth:start', { authUrl, state });
 }
+
+function requestCloseWorkshop() {
+  if (window.parent === window) return;
+  postBridgeMessage('bridge:close-workshop');
+}
 `;
