@@ -6,6 +6,7 @@ import { getCurrentUserFromRequest } from '../utils/jwt';
 import { removeProjectEntryFromJson, type ProjectEntryKind } from '../utils/project-content';
 import { parseRegexEntriesPreview, parseWorldbookEntriesPreview } from '../utils/project-preview';
 import { r2Storage } from '../utils/r2';
+import { bumpProjectVersion } from '../utils/version.js';
 
 const projectListSortSchema = z.enum(['published', 'updated', 'likes', 'subscribes', 'downloads']);
 
@@ -354,7 +355,6 @@ export class ProjectCreate extends OpenAPIRoute {
             schema: z.object({
               name: Str({ description: 'Project name' }),
               description: Str({ required: false }).describe('Project description'),
-              version: Str({ description: 'Project version' }).default('1.0.0'),
               tags: z.array(z.string()).default([]),
               coverImage: Str({ required: false }),
             }),
@@ -388,7 +388,6 @@ export class ProjectCreate extends OpenAPIRoute {
 
       const name = typeof rawBody.name === 'string' ? rawBody.name.trim() : '';
       const description = typeof rawBody.description === 'string' ? rawBody.description : undefined;
-      const version = typeof rawBody.version === 'string' && rawBody.version.trim() ? rawBody.version : '1.0.0';
       const tags = Array.isArray(rawBody.tags) ? rawBody.tags.filter(tag => typeof tag === 'string') : [];
       const coverImage = typeof rawBody.coverImage === 'string' ? rawBody.coverImage : undefined;
 
@@ -416,7 +415,7 @@ export class ProjectCreate extends OpenAPIRoute {
         id: projectId,
         name,
         description,
-        version,
+        version: '1.0.0',
         authorId: payload.userId,
         authorName: payload.username,
         authorAvatar: payload.avatar || '',
@@ -737,7 +736,7 @@ export class ProjectUpdate extends OpenAPIRoute {
             schema: z.object({
               name: Str({ required: false }),
               description: Str({ required: false }),
-              version: Str({ required: false }),
+              versionBump: z.enum(['patch', 'minor', 'major']).optional().default('patch'),
               tags: z.array(z.string()).optional(),
               coverImage: Str({ required: false }),
             }),
@@ -760,7 +759,7 @@ export class ProjectUpdate extends OpenAPIRoute {
 
     const data = await this.getValidatedData<typeof this.schema>();
     const { projectId } = data.params;
-    const updates = data.body;
+    const { versionBump = 'patch', ...updates } = data.body;
 
     // 检查项目是否存在且属于当前用户
     const project = await projectDb.get(c, projectId);
@@ -773,7 +772,14 @@ export class ProjectUpdate extends OpenAPIRoute {
     }
 
     if (project.isPublished && project.status === 'approved') {
-      const draftId = await projectDb.createDraftFromPublished(c, projectId, updates);
+      let targetVersion: string;
+      try {
+        targetVersion = bumpProjectVersion(project.version, versionBump);
+      } catch (error) {
+        return c.json({ error: error instanceof Error ? error.message : 'Invalid project version' }, 409);
+      }
+
+      const draftId = await projectDb.createDraftFromPublished(c, projectId, { ...updates, version: targetVersion });
       if (!draftId) {
         return c.json({ error: 'Draft creation failed' }, 500);
       }
@@ -782,14 +788,43 @@ export class ProjectUpdate extends OpenAPIRoute {
         success: true,
         projectId: draftId,
         draftProjectId: draftId,
+        targetVersion,
+        versionBump,
         message: '修改后的新版本已进入审核区，主界面仍显示旧版本。',
       };
     }
 
-    await projectDb.update(c, projectId, { ...updates, status: 'pending' });
+    if (project.reviewTarget === 'draft' && project.publishedProjectId) {
+      const published = await projectDb.get(c, project.publishedProjectId);
+      if (!published) {
+        return c.json({ error: 'Published project not found for draft' }, 409);
+      }
+
+      let targetVersion: string;
+      try {
+        targetVersion = bumpProjectVersion(published.version, versionBump);
+      } catch (error) {
+        return c.json({ error: error instanceof Error ? error.message : 'Invalid project version' }, 409);
+      }
+
+      await projectDb.update(c, projectId, { ...updates, version: targetVersion, status: 'pending' });
+      return {
+        success: true,
+        projectId,
+        draftProjectId: projectId,
+        targetVersion,
+        versionBump,
+        message: 'Draft updated and resubmitted for review',
+      };
+    }
+
+    await projectDb.update(c, projectId, { ...updates, version: '1.0.0', status: 'pending' });
 
     return {
       success: true,
+      projectId,
+      targetVersion: '1.0.0',
+      versionBump: 'patch',
       message: 'Project updated successfully',
     };
   }

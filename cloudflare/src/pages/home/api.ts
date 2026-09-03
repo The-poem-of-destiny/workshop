@@ -324,8 +324,6 @@ async function removeProjectEntry(projectId, kind, entryKey) {
     method: 'POST',
     body: JSON.stringify({ kind, entryKey }),
   });
-  invalidateProjectDetailCache(projectId);
-  if (result.projectId && result.projectId !== projectId) invalidateProjectDetailCache(result.projectId);
   return result;
 }
 `;

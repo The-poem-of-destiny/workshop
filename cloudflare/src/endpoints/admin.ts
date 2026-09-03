@@ -4,6 +4,7 @@ import type { AppContext } from '../types';
 import { projectDb, userDb } from '../utils/db';
 import { getCurrentUserFromRequest } from '../utils/jwt';
 import { r2Storage } from '../utils/r2';
+import { classifyProjectVersionTransition } from '../utils/version.js';
 
 /**
  * 获取待审核项目列表 (仅管理员)
@@ -118,6 +119,22 @@ export class AdminReview extends OpenAPIRoute {
       return c.json({ error: 'Reject reason required' }, 400);
     }
 
+    let approvedVersionBump: string | null = null;
+    if (action === 'approve' && project.reviewTarget === 'draft' && project.publishedProjectId) {
+      const published = await projectDb.get(c, project.publishedProjectId);
+      if (!published) {
+        return c.json({ error: 'Published project not found for draft' }, 409);
+      }
+      try {
+        approvedVersionBump = classifyProjectVersionTransition(published.version, project.version);
+      } catch (error) {
+        return c.json({ error: error instanceof Error ? error.message : 'Invalid project version transition' }, 409);
+      }
+      if (!approvedVersionBump) {
+        return c.json({ error: `Invalid version transition: ${published.version} -> ${project.version}` }, 409);
+      }
+    }
+
     // 执行审核
     await projectDb.review(c, projectId, payload.userId, action, rejectReason);
 
@@ -158,7 +175,12 @@ export class AdminReview extends OpenAPIRoute {
       targetId: projectId,
       actorId: payload.userId,
       actorName: payload.globalName || payload.username,
-      detail: { rejectReason: rejectReason || null, projectName: project.name },
+      detail: {
+        rejectReason: rejectReason || null,
+        projectName: project.name,
+        version: project.version,
+        versionBump: approvedVersionBump,
+      },
     });
 
     return {

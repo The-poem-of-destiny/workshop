@@ -6,6 +6,9 @@
 		"deploy": "wrangler deploy",
 		"deploy:staging": "wrangler deploy --config wrangler.staging.jsonc",
 		"check:staging": "wrangler deploy --dry-run --config wrangler.staging.jsonc",
+		"check:version-policy": "node tests/version-policy-smoke.mjs",
+		"check:home-js": "node tests/home-js-smoke.mjs",
+		"check:types": "tsc -p tsconfig.json",
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
 		"cf-typegen": "wrangler types"

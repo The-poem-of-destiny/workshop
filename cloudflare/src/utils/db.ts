@@ -717,9 +717,10 @@ export const projectDb = {
     const results = await db
       .prepare(
         `
-			SELECT p.*, u.global_name
+			SELECT p.*, u.global_name, published.version AS published_version
 			FROM projects p
 			LEFT JOIN users u ON p.author_id = u.id
+			LEFT JOIN projects published ON p.published_project_id = published.id
 			WHERE p.status = 'pending'
 			ORDER BY p.created_at ASC
 			LIMIT ? OFFSET ?
@@ -765,13 +766,18 @@ export const projectDb = {
     });
 
     const pickPreferredProject = (projects: (typeof enrichedProjects)[number][]) => {
+      const publishedProject = projects.find(project => project.isPublished);
+      const withPublishedVersion = (project: (typeof enrichedProjects)[number] | undefined) =>
+        project && project.reviewTarget === 'draft' && publishedProject
+          ? { ...project, publishedVersion: publishedProject.version }
+          : project;
+
       const pendingDraft = projects.find(project => project.reviewTarget === 'draft' && project.status === 'pending');
-      if (pendingDraft) return pendingDraft;
+      if (pendingDraft) return withPublishedVersion(pendingDraft);
 
       const rejectedDraft = projects.find(project => project.reviewTarget === 'draft' && project.status === 'rejected');
-      if (rejectedDraft) return rejectedDraft;
+      if (rejectedDraft) return withPublishedVersion(rejectedDraft);
 
-      const publishedProject = projects.find(project => project.isPublished);
       if (publishedProject) return publishedProject;
 
       return (
@@ -1122,6 +1128,7 @@ function parseProjectRow(row: Record<string, unknown>) {
     name: row.name as string,
     description: row.description as string | null,
     version: row.version as string,
+    publishedVersion: row.published_version as string | null,
     authorId: row.author_id as string,
     authorName: row.author_name as string,
     authorGlobalName: ((row.global_name as string | null) || (row.author_name as string)) as string,

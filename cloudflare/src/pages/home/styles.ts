@@ -136,6 +136,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helve
 .form-group { margin-bottom:16px; }
 .form-group label { display:block; margin-bottom:6px; font-weight:500; opacity:0.8; }
 .form-group input,.form-group textarea,.form-group select { width:100%; padding:10px 12px; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.1); border-radius:8px; color:inherit; }
+.version-policy-row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.version-current { display:inline-flex; align-items:center; min-height:42px; padding:8px 12px; border-radius:10px; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.08); }
+.version-bump-select { width:auto !important; min-width:190px; flex:1; }
 .file-drop { border:2px dashed rgba(255,255,255,0.2); border-radius:12px; padding:30px; text-align:center; cursor:pointer; transition:0.2s; }
 .file-drop:hover { border-color:#6366F1; background:rgba(99,102,241,0.1); }
 .edit-current-content { margin:18px 0 20px; display:flex; flex-direction:column; gap:12px; }

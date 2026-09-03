@@ -420,7 +420,13 @@ export const homeScript = String.raw`
         try {
           const editableProjectId = project.draftProjectId || project.id;
           const editableDetail = await fetchProjectEntries(editableProjectId, { forceRefresh: true });
-          const editableProject = editableDetail?.project || project;
+          const editableProject = {
+            ...(editableDetail?.project || project),
+            publishedVersion:
+              editableDetail?.project?.publishedVersion ||
+              project.publishedVersion ||
+              (project.draftProjectId ? project.version : undefined),
+          };
           openEditProjectModal(editableProject);
         } catch (error) {
           showToast('加载可编辑版本失败: ' + error.message, 'error');
