@@ -80,6 +80,8 @@ CREATE INDEX IF NOT EXISTS idx_project_likes_project_id ON project_likes(project
 CREATE INDEX IF NOT EXISTS idx_project_likes_user_id ON project_likes(user_id);
 CREATE INDEX IF NOT EXISTS idx_project_subscribes_project_id ON project_subscribes(project_id);
 CREATE INDEX IF NOT EXISTS idx_project_subscribes_user_id ON project_subscribes(user_id);
+CREATE INDEX IF NOT EXISTS idx_project_likes_user_project ON project_likes(user_id, project_id);
+CREATE INDEX IF NOT EXISTS idx_project_subscribes_user_project ON project_subscribes(user_id, project_id);
 
 CREATE TRIGGER IF NOT EXISTS trg_project_likes_after_insert
 AFTER INSERT ON project_likes
