@@ -135,7 +135,7 @@ async function fetchProjects(forceRefresh = false, options = {}) {
       projects: projectList,
       page: data.page,
       pageSize: data.pageSize || pageSize,
-      total: data.total,
+      hasMore: data.hasMore,
       append,
     });
 

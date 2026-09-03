@@ -19,7 +19,7 @@ function createDefaultProjectPagination() {
   return {
     page: 0,
     pageSize: 50,
-    total: 0,
+    hasMore: false,
     loadingMore: false,
   };
 }
@@ -63,7 +63,7 @@ function setProjectsPage(payload) {
   state.projects = append ? [...state.projects, ...projects] : projects;
   state.projectPagination.page = Number(payload?.page || 0);
   state.projectPagination.pageSize = Number(payload?.pageSize || state.projectPagination.pageSize || 50);
-  state.projectPagination.total = Number(payload?.total || 0);
+  state.projectPagination.hasMore = Boolean(payload?.hasMore);
   state.projectPagination.loadingMore = false;
 }
 
@@ -293,14 +293,6 @@ function shouldShowProjectLoadMore() {
     return false;
   }
 
-  const loadedCount = Array.isArray(state.projects) ? state.projects.length : 0;
-  const total = Number(state.projectPagination.total || 0);
-  return loadedCount > 0 && total > loadedCount;
-}
-
-function getRemainingProjectCount() {
-  const total = Number(state.projectPagination.total || 0);
-  const loadedCount = Array.isArray(state.projects) ? state.projects.length : 0;
-  return Math.max(0, total - loadedCount);
+  return Boolean(state.projectPagination.hasMore);
 }
 `;

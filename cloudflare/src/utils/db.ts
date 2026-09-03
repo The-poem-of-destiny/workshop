@@ -508,18 +508,9 @@ export const projectDb = {
           return 'p.created_at DESC, p.updated_at DESC';
       }
     })();
-    // 获取总数
-    const countResult = await db
-      .prepare(
-        `
-			SELECT COUNT(*) as total FROM projects ${whereClause}
-		`,
-      )
-      .bind(...values)
-      .first<{ total: number }>();
-
-    // 获取列表
+    // 获取当前页，并多取 1 条用于判断是否还有下一批；无需额外 COUNT(*)。
     const offset = options.page * options.pageSize;
+    const fetchLimit = options.pageSize + 1;
     const results = await db
       .prepare(
         `
@@ -531,14 +522,18 @@ export const projectDb = {
 			LIMIT ? OFFSET ?
 		`,
       )
-      .bind(...values, options.pageSize, offset)
+      .bind(...values, fetchLimit, offset)
       .all<Record<string, unknown>>();
 
+    const rows = results.results || [];
+    const hasMore = rows.length > options.pageSize;
+    const pageRows = hasMore ? rows.slice(0, options.pageSize) : rows;
+
     return {
-      total: countResult?.total || 0,
+      hasMore,
       page: options.page,
       pageSize: options.pageSize,
-      projects: await enrichProjects(c, (results.results || []).map(parseProjectRow), options.currentUser),
+      projects: await enrichProjects(c, pageRows.map(parseProjectRow), options.currentUser),
     };
   },
 

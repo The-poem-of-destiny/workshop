@@ -63,7 +63,7 @@ export class ProjectList extends OpenAPIRoute {
           'application/json': {
             schema: z.object({
               success: Bool(),
-              total: z.number(),
+              hasMore: z.boolean(),
               page: z.number(),
               pageSize: z.number(),
               projects: z.array(
