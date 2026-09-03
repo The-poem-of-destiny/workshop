@@ -5,6 +5,7 @@
 	"scripts": {
 		"deploy": "wrangler deploy --config wrangler.jsonc",
 		"deploy:staging": "wrangler deploy --config wrangler.staging.jsonc",
+		"deploy:master-staging": "wrangler deploy --config wrangler.master-staging.jsonc",
 		"check:production": "wrangler deploy --dry-run --config wrangler.jsonc",
 		"check:staging": "wrangler deploy --dry-run --config wrangler.staging.jsonc",
 		"check:version-policy": "node tests/version-policy-smoke.mjs",
