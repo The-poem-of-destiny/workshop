@@ -1436,8 +1436,12 @@ function openCreativeWorkshop() {
         });
         $closeButton.css({
             top: useFullscreenLayout
-                ? 'calc(env(safe-area-inset-top, 0px) + 28px)'
+                ? '50%'
                 : 'calc(env(safe-area-inset-top, 0px) + 12px)',
+            right: useFullscreenLayout ? 'auto' : 'calc(env(safe-area-inset-right, 0px) + 12px)',
+            left: useFullscreenLayout ? 'calc(env(safe-area-inset-left, 0px) + 6px)' : 'auto',
+            transform: useFullscreenLayout ? 'translateY(-50%)' : 'none',
+            padding: useFullscreenLayout ? '0 10px' : '0 14px',
         });
     };
     updateOverlayLayout();
