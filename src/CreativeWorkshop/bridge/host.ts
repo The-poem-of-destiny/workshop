@@ -41,12 +41,20 @@ type OAuthCallbackErrorMessage = {
   message?: string;
 };
 
-type OAuthCallbackMessage = OAuthCallbackSuccessMessage | OAuthCallbackErrorMessage;
+type OAuthCallbackReadyMessage = {
+  type: 'oauth-ready';
+  source: typeof OAUTH_CALLBACK_SOURCE;
+  state?: string;
+};
+
+type OAuthCallbackMessage = OAuthCallbackSuccessMessage | OAuthCallbackErrorMessage | OAuthCallbackReadyMessage;
 
 function isOAuthCallbackMessage(value: unknown): value is OAuthCallbackMessage {
   return (
     _.isObject(value) &&
-    (_.get(value, 'type') === 'oauth-success' || _.get(value, 'type') === 'oauth-error') &&
+    (_.get(value, 'type') === 'oauth-success' ||
+      _.get(value, 'type') === 'oauth-error' ||
+      _.get(value, 'type') === 'oauth-ready') &&
     _.get(value, 'source') === OAUTH_CALLBACK_SOURCE
   );
 }
@@ -172,6 +180,14 @@ export function createCreativeWorkshopBridgeHost(option: HostOption) {
 
     if (pendingOauthState && event.data.state !== pendingOauthState) {
       await failPendingOAuth('授权状态校验失败');
+      return;
+    }
+
+    if (event.data.type === 'oauth-ready') {
+      clearOAuthTimers();
+      cleanupOAuthPopupReference();
+      pendingOauthRequestId = undefined;
+      pendingOauthState = undefined;
       return;
     }
 

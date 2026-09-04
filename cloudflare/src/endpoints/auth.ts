@@ -56,22 +56,25 @@ const successHtml = (token: string, userData: object, allowedOrigin: string, sta
         }
 
         try {
-          const payload = { type: 'oauth-success', source, state, token, user: userData };
+          const readyPayload = { type: 'oauth-ready', source, state };
 
           if (allowedOrigin) {
+            const payload = { type: 'oauth-success', source, state, token, user: userData };
             window.opener.postMessage(payload, allowedOrigin);
           }
 
           // 嵌入 SillyTavern 时 opener 是酒馆宿主窗口，
           // 其 origin 与 allowedOrigin（工坊站点 origin）并不一致。
-          // 此处补发一次 '*'，由宿主继续根据 event.origin / source / state 做严格校验。
-          window.opener.postMessage(payload, '*');
+          // 不向 '*' 发送 token/user，只通知宿主 OAuth 已完成；嵌入页继续通过 poll 接口领取结果。
+          window.opener.postMessage(readyPayload, '*');
           return true;
         } catch (e) {
           console.error('postMessage 发送失败:', e);
           return false;
         }
       }
+
+      notifyOpener();
 
       setTimeout(() => {
         window.close();

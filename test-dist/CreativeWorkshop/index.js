@@ -871,7 +871,9 @@ const OAUTH_TIMEOUT_MS = 180000;
 const OAUTH_POPUP_CLOSE_GUARD_MS = 8000;
 function isOAuthCallbackMessage(value) {
     return (_.isObject(value) &&
-        (_.get(value, 'type') === 'oauth-success' || _.get(value, 'type') === 'oauth-error') &&
+        (_.get(value, 'type') === 'oauth-success' ||
+            _.get(value, 'type') === 'oauth-error' ||
+            _.get(value, 'type') === 'oauth-ready') &&
         _.get(value, 'source') === OAUTH_CALLBACK_SOURCE);
 }
 function createCreativeWorkshopBridgeHost(option) {
@@ -987,6 +989,13 @@ function createCreativeWorkshopBridgeHost(option) {
             return;
         if (pendingOauthState && event.data.state !== pendingOauthState) {
             await failPendingOAuth('授权状态校验失败');
+            return;
+        }
+        if (event.data.type === 'oauth-ready') {
+            clearOAuthTimers();
+            cleanupOAuthPopupReference();
+            pendingOauthRequestId = undefined;
+            pendingOauthState = undefined;
             return;
         }
         if (event.data.type === 'oauth-success') {
