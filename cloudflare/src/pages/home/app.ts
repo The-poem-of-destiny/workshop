@@ -223,14 +223,7 @@ export const homeScript = String.raw`
     const releaseNoticeBtn = document.getElementById('releaseNoticeBtn');
 
     if (loginBtn) loginBtn.onclick = openLoginPopup;
-    if (releaseNoticeBtn) releaseNoticeBtn.onclick = async () => {
-      try {
-        await navigator.clipboard.writeText(WORKSHOP_RELEASE_IMPORT);
-        showToast('最新版 v' + WORKSHOP_RELEASE_VERSION + ' 导入代码已复制');
-      } catch (error) {
-        window.prompt('复制最新版 Creative Workshop 导入代码', WORKSHOP_RELEASE_IMPORT);
-      }
-    };
+    if (releaseNoticeBtn) releaseNoticeBtn.onclick = openReleaseNoticeModal;
     if (workshopCloseBtn) workshopCloseBtn.onclick = requestCloseWorkshop;
     if (logoutBtn) logoutBtn.onclick = logout;
     if (uploadBtn) uploadBtn.onclick = openUploadModal;

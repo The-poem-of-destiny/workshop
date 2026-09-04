@@ -13,6 +13,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helve
 .release-notice:hover { background:rgba(180,83,9,0.3); border-color:rgba(251,191,36,0.7); transform:translateY(-1px); }
 .release-notice i { color:#FBBF24; }
 .release-notice strong { color:#FEF3C7; font-weight:700; }
+.release-update-guide { display:flex; flex-direction:column; gap:16px; }
+.release-update-lead { color:rgba(226,232,240,0.9); }
+.release-update-steps { margin-left:22px; display:flex; flex-direction:column; gap:9px; }
+.release-update-steps code { color:#C7D2FE; }
+.release-update-code { display:block; padding:12px 14px; border-radius:12px; background:rgba(15,23,42,0.9); border:1px solid rgba(99,102,241,0.34); color:#C7D2FE; white-space:pre-wrap; word-break:break-all; user-select:all; }
+.release-update-copy-btn { width:100%; justify-content:center; }
 .user-info { display:flex; align-items:flex-start; justify-content:flex-end; gap:16px; flex-wrap:wrap; margin-left:auto; max-width:100%; }
 .header-search { display:flex; align-items:center; gap:10px; width:100%; min-width:0; max-width:none; flex:1; padding:10px 14px; border-radius:999px; background:rgba(15,23,42,0.72); border:1px solid rgba(255,255,255,0.08); }
 .tag-filter { display:flex; align-items:center; justify-content:flex-start; gap:8px; flex-wrap:wrap; width:100%; }
