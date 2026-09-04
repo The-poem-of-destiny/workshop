@@ -56,6 +56,34 @@ function formatDate(value) {
   return date.toLocaleDateString('zh-CN');
 }
 
+function parseWorkshopVersion(value) {
+  if (typeof value !== 'string') return null;
+  const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(value.trim());
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+function compareWorkshopVersions(a, b) {
+  const left = parseWorkshopVersion(a);
+  const right = parseWorkshopVersion(b);
+  if (!left || !right) return null;
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] < right[index]) return -1;
+    if (left[index] > right[index]) return 1;
+  }
+  return 0;
+}
+
+function shouldShowWorkshopReleaseNotice(releaseVersion) {
+  if (!state.tavern.clientVersionResolved) return false;
+  if (!parseWorkshopVersion(releaseVersion)) {
+    console.warn('[CreativeWorkshop] invalid advertised release version', releaseVersion);
+    return false;
+  }
+  if (!parseWorkshopVersion(state.tavern.clientVersion)) return true;
+  return compareWorkshopVersions(state.tavern.clientVersion, releaseVersion) < 0;
+}
+
 function getProjectPublishedAt(project) {
   return project?.latestApprovedAt || project?.createdAt || '';
 }

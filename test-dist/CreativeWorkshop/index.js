@@ -62,6 +62,9 @@ function getCurrentCreativeWorkshopContext() {
     };
 }
 
+;// ./src/CreativeWorkshop/version.ts
+const CREATIVE_WORKSHOP_CLIENT_VERSION = '2.0.13';
+
 ;// ./src/CreativeWorkshop/services/install-registry.ts
 const CREATIVE_WORKSHOP_INSTALL_REGISTRY_KEY = 'creative_workshop_install_registry';
 function getRegistryScopeKey() {
@@ -865,6 +868,7 @@ function createBridgeMessage(type, payload, requestId) {
 
 
 
+
 const OAUTH_CALLBACK_SOURCE = 'creative-workshop-auth-callback';
 const OAUTH_POPUP_NAME = 'creative-workshop-oauth';
 const OAUTH_TIMEOUT_MS = 180000;
@@ -1045,7 +1049,7 @@ function createCreativeWorkshopBridgeHost(option) {
         try {
             switch (event.data.type) {
                 case 'bridge:handshake':
-                    await post('bridge:handshake:ok', { connected: true }, event.data.requestId);
+                    await post('bridge:handshake:ok', { connected: true, clientVersion: CREATIVE_WORKSHOP_CLIENT_VERSION }, event.data.requestId);
                     await post('bridge:context', getCurrentCreativeWorkshopContext(), event.data.requestId);
                     await post('bridge:installed-projects', { projects: await listInstalledCreativeWorkshopProjects() }, event.data.requestId);
                     break;

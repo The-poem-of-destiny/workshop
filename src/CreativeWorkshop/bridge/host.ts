@@ -1,5 +1,6 @@
 import { getCreativeWorkshopOrigin } from '../services/config';
 import { getCurrentCreativeWorkshopContext } from '../services/context';
+import { CREATIVE_WORKSHOP_CLIENT_VERSION } from '../version';
 import { getCreativeWorkshopProjectDiff } from '../services/diff';
 import { listInstalledCreativeWorkshopProjects } from '../services/install-state';
 import {
@@ -241,7 +242,11 @@ export function createCreativeWorkshopBridgeHost(option: HostOption) {
     try {
       switch (event.data.type) {
         case 'bridge:handshake':
-          await post('bridge:handshake:ok', { connected: true }, event.data.requestId);
+          await post(
+            'bridge:handshake:ok',
+            { connected: true, clientVersion: CREATIVE_WORKSHOP_CLIENT_VERSION },
+            event.data.requestId,
+          );
           await post('bridge:context', getCurrentCreativeWorkshopContext(), event.data.requestId);
           await post(
             'bridge:installed-projects',

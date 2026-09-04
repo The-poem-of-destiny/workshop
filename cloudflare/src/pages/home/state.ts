@@ -8,6 +8,8 @@ function createDefaultTavernState() {
   return {
     connected: false,
     status: 'disconnected',
+    clientVersion: null,
+    clientVersionResolved: false,
     installedProjects: [],
     installedProjectsLoaded: false,
     localProjectMap: new Map(),
@@ -162,6 +164,11 @@ function setTavernConnectionStatus(status) {
   state.tavern.status = status || 'disconnected';
   state.tavern.connected = status === 'connected';
   if (!state.tavern.connected) state.tavern.installedProjectsLoaded = false;
+}
+
+function setTavernClientVersion(version) {
+  state.tavern.clientVersionResolved = true;
+  state.tavern.clientVersion = typeof version === 'string' && version.trim() ? version.trim() : null;
 }
 
 function normalizeInstalledProject(project) {
