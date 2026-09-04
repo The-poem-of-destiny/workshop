@@ -2,7 +2,7 @@
 /******/ 	"use strict";
 
 ;// ./util/iframe_srcdoc.html
-const iframe_srcdoc_namespaceObject = "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n</head>\n<body></body>\n</html>\n";
+const iframe_srcdoc_namespaceObject = "<!doctype html>\r\n<html>\r\n<head>\r\n  <meta charset=\"utf-8\">\r\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\r\n</head>\r\n<body></body>\r\n</html>\r\n";
 ;// ./util/script.ts
 
 function teleportStyle(appendTo = 'head') {
@@ -1433,6 +1433,11 @@ function openCreativeWorkshop() {
             height: useFullscreenLayout ? `${viewportHeight}px` : '90vh',
             borderRadius: useFullscreenLayout ? '0' : '20px',
             boxShadow: useFullscreenLayout ? 'none' : '0 24px 80px rgba(0,0,0,0.45)',
+        });
+        $closeButton.css({
+            top: useFullscreenLayout
+                ? 'calc(env(safe-area-inset-top, 0px) + 28px)'
+                : 'calc(env(safe-area-inset-top, 0px) + 12px)',
         });
     };
     updateOverlayLayout();

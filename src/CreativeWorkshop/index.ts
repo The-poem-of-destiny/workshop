@@ -282,6 +282,12 @@ function openCreativeWorkshop() {
       boxShadow: useFullscreenLayout ? 'none' : '0 24px 80px rgba(0,0,0,0.45)',
     });
 
+    $closeButton.css({
+      top: useFullscreenLayout
+        ? 'calc(env(safe-area-inset-top, 0px) + 28px)'
+        : 'calc(env(safe-area-inset-top, 0px) + 12px)',
+    });
+
   };
 
   updateOverlayLayout();
