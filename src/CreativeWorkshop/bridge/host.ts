@@ -1,5 +1,6 @@
 import { getCreativeWorkshopOrigin } from '../services/config';
 import { getCurrentCreativeWorkshopContext } from '../services/context';
+import { CREATIVE_WORKSHOP_CLIENT_VERSION } from '../version';
 import { getCreativeWorkshopProjectDiff } from '../services/diff';
 import { listInstalledCreativeWorkshopProjects } from '../services/install-state';
 import {
@@ -41,12 +42,20 @@ type OAuthCallbackErrorMessage = {
   message?: string;
 };
 
-type OAuthCallbackMessage = OAuthCallbackSuccessMessage | OAuthCallbackErrorMessage;
+type OAuthCallbackReadyMessage = {
+  type: 'oauth-ready';
+  source: typeof OAUTH_CALLBACK_SOURCE;
+  state?: string;
+};
+
+type OAuthCallbackMessage = OAuthCallbackSuccessMessage | OAuthCallbackErrorMessage | OAuthCallbackReadyMessage;
 
 function isOAuthCallbackMessage(value: unknown): value is OAuthCallbackMessage {
   return (
     _.isObject(value) &&
-    (_.get(value, 'type') === 'oauth-success' || _.get(value, 'type') === 'oauth-error') &&
+    (_.get(value, 'type') === 'oauth-success' ||
+      _.get(value, 'type') === 'oauth-error' ||
+      _.get(value, 'type') === 'oauth-ready') &&
     _.get(value, 'source') === OAUTH_CALLBACK_SOURCE
   );
 }
@@ -175,6 +184,14 @@ export function createCreativeWorkshopBridgeHost(option: HostOption) {
       return;
     }
 
+    if (event.data.type === 'oauth-ready') {
+      clearOAuthTimers();
+      cleanupOAuthPopupReference();
+      pendingOauthRequestId = undefined;
+      pendingOauthState = undefined;
+      return;
+    }
+
     if (event.data.type === 'oauth-success') {
       if (!_.isString(event.data.token) || !_.isObject(event.data.user)) {
         await failPendingOAuth('授权回调缺少有效登录信息');
@@ -225,7 +242,11 @@ export function createCreativeWorkshopBridgeHost(option: HostOption) {
     try {
       switch (event.data.type) {
         case 'bridge:handshake':
-          await post('bridge:handshake:ok', { connected: true }, event.data.requestId);
+          await post(
+            'bridge:handshake:ok',
+            { connected: true, clientVersion: CREATIVE_WORKSHOP_CLIENT_VERSION },
+            event.data.requestId,
+          );
           await post('bridge:context', getCurrentCreativeWorkshopContext(), event.data.requestId);
           await post(
             'bridge:installed-projects',

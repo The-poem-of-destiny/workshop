@@ -124,6 +124,7 @@ function handleBridgeMessage(event) {
   switch (data.type) {
     case 'bridge:handshake:ok':
       setTavernConnectionStatus('connected');
+      setTavernClientVersion(data.payload?.clientVersion);
       renderApp();
       break;
     case 'bridge:context':

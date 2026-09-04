@@ -1,0 +1,1 @@
+export const CREATIVE_WORKSHOP_CLIENT_VERSION = '2.0.13';

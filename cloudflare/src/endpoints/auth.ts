@@ -56,22 +56,25 @@ const successHtml = (token: string, userData: object, allowedOrigin: string, sta
         }
 
         try {
-          const payload = { type: 'oauth-success', source, state, token, user: userData };
+          const readyPayload = { type: 'oauth-ready', source, state };
 
           if (allowedOrigin) {
+            const payload = { type: 'oauth-success', source, state, token, user: userData };
             window.opener.postMessage(payload, allowedOrigin);
           }
 
           // 嵌入 SillyTavern 时 opener 是酒馆宿主窗口，
           // 其 origin 与 allowedOrigin（工坊站点 origin）并不一致。
-          // 此处补发一次 '*'，由宿主继续根据 event.origin / source / state 做严格校验。
-          window.opener.postMessage(payload, '*');
+          // 不向 '*' 发送 token/user，只通知宿主 OAuth 已完成；嵌入页继续通过 poll 接口领取结果。
+          window.opener.postMessage(readyPayload, '*');
           return true;
         } catch (e) {
           console.error('postMessage 发送失败:', e);
           return false;
         }
       }
+
+      notifyOpener();
 
       setTimeout(() => {
         window.close();
@@ -357,6 +360,19 @@ export class AuthMe extends OpenAPIRoute {
       return { user: null };
     }
 
+    const rejectedResult = await c.env.DB.prepare(
+      `SELECT id, name, reviewed_at, updated_at, reject_reason FROM projects WHERE author_id = ? AND status = 'rejected' ORDER BY reviewed_at DESC, updated_at DESC LIMIT 50`,
+    )
+      .bind(payload.userId)
+      .all<{ id: string; name: string; reviewed_at: string | null; updated_at: string | null; reject_reason: string | null }>();
+    const rejectedProjects = (rejectedResult.results || []).map(project => ({
+      id: project.id,
+      name: project.name,
+      reviewedAt: project.reviewed_at,
+      updatedAt: project.updated_at,
+      rejectReason: project.reject_reason,
+    }));
+
     const avatarUrl = payload.avatar
       ? `https://cdn.discordapp.com/avatars/${payload.userId}/${payload.avatar}.webp?size=100`
       : `https://cdn.discordapp.com/embed/avatars/0.png`;
@@ -371,6 +387,7 @@ export class AuthMe extends OpenAPIRoute {
         isAdmin: payload.isAdmin,
         isSuperAdmin: payload.isSuperAdmin || false,
       },
+      rejectedProjects,
     };
   }
 }

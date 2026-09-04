@@ -39,6 +39,37 @@ assert.equal(versionUi.previewVersionBump('1.4.7', 'minor'), '1.5.0');
 assert.equal(versionUi.previewVersionBump('1.4.7', 'major'), '2.0.0');
 assert.equal(versionUi.inferVersionBump('1.4.7', '1.5.0'), 'minor');
 
+const versionState = { tavern: { clientVersion: null, clientVersionResolved: false } };
+const workshopVersionUi = Function(
+  'state',
+  `${fragments.homeUtilsScript}; return { parseWorkshopVersion, compareWorkshopVersions, shouldShowWorkshopReleaseNotice };`,
+)(versionState);
+assert.deepEqual(workshopVersionUi.parseWorkshopVersion('2.0.13'), [2, 0, 13]);
+assert.deepEqual(workshopVersionUi.parseWorkshopVersion('v2.0.13'), [2, 0, 13]);
+assert.equal(workshopVersionUi.parseWorkshopVersion('2.0'), null);
+assert.equal(workshopVersionUi.parseWorkshopVersion('latest'), null);
+assert.equal(workshopVersionUi.compareWorkshopVersions('2.0.12', '2.0.13'), -1);
+assert.equal(workshopVersionUi.compareWorkshopVersions('2.0.13', '2.0.13'), 0);
+assert.equal(workshopVersionUi.compareWorkshopVersions('2.0.14', '2.0.13'), 1);
+assert.equal(workshopVersionUi.compareWorkshopVersions('2.0.9', '2.0.12'), -1);
+assert.equal(workshopVersionUi.shouldShowWorkshopReleaseNotice('2.0.13'), false);
+versionState.tavern.clientVersionResolved = true;
+assert.equal(workshopVersionUi.shouldShowWorkshopReleaseNotice('2.0.13'), true);
+versionState.tavern.clientVersion = '2.0.12';
+assert.equal(workshopVersionUi.shouldShowWorkshopReleaseNotice('2.0.13'), true);
+versionState.tavern.clientVersion = '2.0.13';
+assert.equal(workshopVersionUi.shouldShowWorkshopReleaseNotice('2.0.13'), false);
+versionState.tavern.clientVersion = '2.0.14';
+assert.equal(workshopVersionUi.shouldShowWorkshopReleaseNotice('2.0.13'), false);
+versionState.tavern.clientVersion = 'not-a-version';
+assert.equal(workshopVersionUi.shouldShowWorkshopReleaseNotice('2.0.13'), true);
+assert.equal(workshopVersionUi.shouldShowWorkshopReleaseNotice('broken-release'), false);
+
+const dateUi = Function(`${fragments.homeUtilsScript}; return { getProjectPublishedAt };`)();
+assert.equal(dateUi.getProjectPublishedAt({ latestApprovedAt: '2026-09-04', reviewedAt: '2026-09-03', createdAt: '2026-09-02' }), '2026-09-04');
+assert.equal(dateUi.getProjectPublishedAt({ reviewedAt: '2026-09-03', createdAt: '2026-09-02' }), '2026-09-02');
+assert.equal(dateUi.getProjectPublishedAt({ createdAt: '2026-09-02' }), '2026-09-02');
+
 const appSource = await readFile(resolve('src/pages/home/app.ts'), 'utf8');
 const withoutImports = appSource.replace(/^import .*;\r?\n/gm, '');
 const marker = 'export const homeScript = ';
@@ -50,5 +81,7 @@ const fragmentNames = Object.keys(fragments);
 const homeScript = Function(...fragmentNames, `return (${appExpression});`)(...Object.values(fragments));
 assert.equal(typeof homeScript, 'string');
 new Function(homeScript);
+assert.match(homeScript, /reviewProject\(projectId, \{ action, expectedRevision: project\?\.draftRevision \}\)/);
+assert.match(homeScript, /reviewProject\(projectId, \{ action, rejectReason: reason, expectedRevision: project\?\.draftRevision \}\)/);
 
 console.log('assembled /assets/home.js syntax smoke: ok');
