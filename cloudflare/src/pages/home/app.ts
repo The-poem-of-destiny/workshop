@@ -436,21 +436,16 @@ export const homeScript = String.raw`
 
     if (projectLoadMoreBtn) projectLoadMoreBtn.onclick = () => loadMoreProjects();
 
-    document.querySelectorAll('.detail-btn').forEach(button => {
-      button.addEventListener('click', event => {
-        event.stopPropagation();
-        const project = filteredProjects.find(item => item.id === button.dataset.id);
-        if (project) {
-          const originalHtml = button.innerHTML;
-          button.disabled = true;
-          button.classList.add('is-loading');
-          button.innerHTML = '<span class="inline-loading-spinner"></span><span>加载中</span>';
-          Promise.resolve(showProjectDetail(project)).finally(() => {
-            button.disabled = false;
-            button.classList.remove('is-loading');
-            button.innerHTML = originalHtml;
-          });
-        }
+    document.querySelectorAll('.project-card').forEach(card => {
+      const openDetail = () => {
+        const project = filteredProjects.find(item => item.id === card.dataset.id);
+        if (project) showProjectDetail(project);
+      };
+      card.addEventListener('click', openDetail);
+      card.addEventListener('keydown', event => {
+        if (event.target !== card || (event.key !== 'Enter' && event.key !== ' ')) return;
+        event.preventDefault();
+        openDetail();
       });
     });
 
@@ -539,6 +534,25 @@ export const homeScript = String.raw`
           showToast(isReviewDraft ? '更新草稿已撤回，已发布版本保持不变' : '项目已删除');
         } catch (error) {
           showToast((isReviewDraft ? '撤回失败: ' : '删除失败: ') + error.message, 'error');
+        } finally {
+          restore();
+        }
+      });
+    });
+
+    document.querySelectorAll('.delete-project-btn').forEach(button => {
+      button.addEventListener('click', async event => {
+        event.stopPropagation();
+        const publishedProjectId = button.dataset.id;
+        if (!publishedProjectId) return;
+        if (!confirm('确定删除整个项目吗？已发布版本和当前审核/退回草稿都会一起删除。')) return;
+        const restore = setButtonLoading(button, '删除中');
+        try {
+          await deleteProject(publishedProjectId);
+          await fetchProjects();
+          showToast('整个项目已删除');
+        } catch (error) {
+          showToast('删除项目失败: ' + error.message, 'error');
         } finally {
           restore();
         }

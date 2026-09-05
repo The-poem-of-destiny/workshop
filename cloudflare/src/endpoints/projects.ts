@@ -139,6 +139,9 @@ export class ProjectFetch extends OpenAPIRoute {
       params: z.object({
         projectId: Str({ description: 'Project ID' }),
       }),
+      query: z.object({
+        v: Str({ required: false }).describe('Expected project version cache key'),
+      }),
     },
     responses: {
       '200': {

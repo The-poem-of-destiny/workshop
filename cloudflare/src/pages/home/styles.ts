@@ -75,8 +75,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helve
 .project-load-more { margin-top:28px; display:flex; flex-direction:column; align-items:center; gap:10px; }
 .project-load-more-btn { min-width:220px; justify-content:center; }
 .project-load-more-meta { font-size:0.82rem; color:rgba(226,232,240,0.68); }
-.project-card { background:linear-gradient(145deg, #1E293B, #0F172A); border:1px solid rgba(255,255,255,0.08); border-radius:20px; overflow:hidden; transition:all 0.25s; display:flex; flex-direction:column; }
+.project-card { background:linear-gradient(145deg, #1E293B, #0F172A); border:1px solid rgba(255,255,255,0.08); border-radius:20px; overflow:hidden; transition:all 0.25s; display:flex; flex-direction:column; cursor:pointer; }
   .project-card:hover { transform:translateY(-6px); border-color:rgba(99,102,241,0.5); box-shadow:0 20px 25px -5px rgba(0,0,0,0.5), 0 0 0 1px rgba(99,102,241,0.3); }
+  .project-card:focus-visible { outline:2px solid #818CF8; outline-offset:3px; }
   .card-cover { height:160px; background-size:cover; background-position:center; background-color:#0F172A; position:relative; }
   .card-overlay-actions { position:absolute; right:12px; bottom:12px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
   .icon-stat-btn { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:rgba(15,23,42,0.82); border:1px solid rgba(255,255,255,0.1); color:#E2E8F0; font-size:0.78rem; backdrop-filter:blur(8px); position:relative; transition:transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease; }
@@ -112,9 +113,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helve
   .version-diff__to { color:#FDE68A; font-weight:600; }
   .inline-update-btn { padding:4px 10px; font-size:0.72rem; border-radius:999px; }
   .card-actions,.admin-actions,.admin-card-actions { display:flex; gap:8px; justify-content:space-between; }
+  .admin-actions--draft { flex-wrap:wrap; }
+  .admin-actions--draft > * { flex:1 1 calc(50% - 4px); }
   .card-actions--primary > * { flex:1; }
-  .detail-btn,.install-btn { flex:1; }
-  .edit-btn,.delete-btn { flex:1; }
+  .install-btn { flex:1; }
+  .edit-btn,.delete-btn,.delete-project-btn { flex:1; }
   .action-btn { background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:6px 12px; color:inherit; cursor:pointer; transition:0.2s; font-size:0.8rem; display:inline-flex; align-items:center; justify-content:center; gap:6px; white-space:nowrap; }
   .action-btn.is-disabled,.btn.is-disabled { opacity:0.45; cursor:not-allowed; pointer-events:none; }
 

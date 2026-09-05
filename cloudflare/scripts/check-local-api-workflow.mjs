@@ -159,6 +159,8 @@ try {
   });
 
   const pendingDetail = await api(`/api/projects/${publishedId}`, { token: creatorToken });
+  const versionedPendingDetail = await api(`/api/projects/${publishedId}?v=1.0.0`, { token: creatorToken });
+  assert.equal(versionedPendingDetail.project.id, publishedId);
   assert.equal(pendingDetail.worldbookEntriesPreview.length, 3);
   assert.equal(pendingDetail.regexEntriesPreview.length, 2);
   assert.equal(pendingDetail.worldbookEntriesPreview[0].order, 601);
