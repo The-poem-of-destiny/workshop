@@ -157,6 +157,48 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helve
 .edit-current-cover--empty .empty-state { padding:18px 12px; }
 .form-submit-btn { width:100%; padding:12px; justify-content:center; }
 .toast { position:fixed; bottom:20px; right:20px; background:#1E293B; color:white; padding:12px 24px; border-radius:30px; box-shadow:0 8px 20px black; z-index:10000; border-left:4px solid #6366F1; }
+.admin-review-modal,.admin-review-detail-modal { max-width:1040px; }
+.admin-review-queue { display:flex; flex-direction:column; gap:14px; }
+.admin-review-queue-summary { display:flex; justify-content:space-between; gap:12px; align-items:center; padding:12px 14px; border:1px solid rgba(99,102,241,0.22); background:rgba(30,41,59,0.52); border-radius:14px; color:rgba(226,232,240,0.78); font-size:0.86rem; }
+.admin-review-queue-summary strong { color:#E0E7FF; font-size:1.05rem; }
+.admin-review-list { display:flex; flex-direction:column; gap:12px; }
+.admin-review-card { background:linear-gradient(145deg,rgba(30,41,59,0.92),rgba(15,23,42,0.88)); border:1px solid rgba(148,163,184,0.16); border-radius:16px; padding:16px; box-shadow:0 10px 26px rgba(0,0,0,0.14); transition:transform .18s ease,border-color .18s ease,background .18s ease; }
+.admin-review-card:hover { border-color:rgba(129,140,248,0.35); }
+.admin-review-card.is-skipped { animation:adminReviewSkip .45s ease; }
+@keyframes adminReviewSkip { 0% { transform:translateX(0); opacity:1; } 45% { transform:translateX(18px); opacity:.55; } 100% { transform:translateX(0); opacity:1; } }
+.admin-review-card-head { display:flex; align-items:flex-start; gap:12px; }
+.admin-review-position { flex:none; min-width:46px; padding:5px 8px; border-radius:999px; text-align:center; font-size:.72rem; font-weight:700; color:#C7D2FE; background:rgba(99,102,241,.13); border:1px solid rgba(99,102,241,.25); }
+.admin-review-card-heading { min-width:0; flex:1; }
+.admin-review-title { font-size:1.08rem; font-weight:750; line-height:1.35; word-break:break-word; }
+.admin-review-author { margin-top:4px; font-size:.8rem; color:rgba(226,232,240,.68); display:flex; align-items:center; gap:6px; }
+.admin-review-state { flex:none; padding:5px 9px; border-radius:999px; font-size:.72rem; color:#FDE68A; background:rgba(245,158,11,.1); border:1px solid rgba(245,158,11,.22); }
+.admin-review-meta { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.admin-review-meta-item { display:inline-flex; align-items:center; gap:6px; max-width:100%; padding:5px 9px; border-radius:999px; background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.07); color:rgba(226,232,240,.7); font-size:.75rem; }
+.admin-review-desc-preview { margin:12px 0 14px; color:rgba(226,232,240,.82); line-height:1.55; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; white-space:pre-wrap; word-break:break-word; }
+.admin-review-card-actions { display:flex; justify-content:flex-end; gap:8px; }
+.admin-review-card-actions .btn { min-width:118px; justify-content:center; }
+.admin-review-detail-shell { display:flex; flex-direction:column; gap:16px; min-height:0; }
+.admin-review-summary { display:flex; flex-direction:column; gap:14px; padding:18px; border-radius:18px; border:1px solid rgba(148,163,184,.16); background:linear-gradient(145deg,rgba(30,41,59,.92),rgba(15,23,42,.88)); }
+.admin-review-summary-head { display:flex; align-items:flex-start; gap:12px; }
+.admin-review-summary-heading { min-width:0; flex:1; }
+.admin-review-summary-heading h3 { margin:0 0 5px; font-size:1.25rem; line-height:1.35; }
+.admin-review-summary-heading > div { color:rgba(226,232,240,.68); font-size:.82rem; }
+.admin-review-signals { display:flex; flex-wrap:wrap; gap:8px; }
+.admin-review-signal { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; font-size:.76rem; color:#CBD5E1; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.08); }
+.admin-review-signal--info { color:#C7D2FE; border-color:rgba(99,102,241,.34); background:rgba(99,102,241,.1); }
+.admin-review-signal--good { color:#BBF7D0; border-color:rgba(34,197,94,.3); background:rgba(34,197,94,.1); }
+.admin-review-signal--warning { color:#FDE68A; border-color:rgba(245,158,11,.34); background:rgba(245,158,11,.1); }
+.admin-review-description { border:1px solid rgba(255,255,255,.08); border-radius:14px; background:rgba(15,23,42,.58); overflow:hidden; }
+.admin-review-description summary { display:flex; justify-content:space-between; gap:12px; align-items:center; padding:11px 13px; cursor:pointer; font-weight:650; color:#E2E8F0; }
+.admin-review-description summary::-webkit-details-marker { display:none; }
+.admin-review-description-hint { font-size:.72rem; font-weight:500; color:rgba(226,232,240,.5); }
+.admin-review-description-body { max-height:260px; overflow:auto; padding:0 13px 13px; white-space:pre-wrap; word-break:break-word; color:rgba(226,232,240,.8); line-height:1.55; }
+.admin-review-sticky-actions { position:sticky; bottom:0; z-index:4; display:flex; justify-content:flex-end; gap:8px; padding:12px; border-radius:14px; border:1px solid rgba(148,163,184,.16); background:rgba(15,23,42,.92); backdrop-filter:blur(12px); box-shadow:0 -12px 28px rgba(0,0,0,.22); }
+.admin-review-sticky-actions .btn { min-width:108px; justify-content:center; }
+.admin-review-approve-btn { color:#DCFCE7; border:1px solid rgba(34,197,94,.38); background:rgba(22,163,74,.24); }
+.admin-review-approve-btn:hover { background:rgba(22,163,74,.4); }
+.admin-review-reject-btn { color:#FECACA; border:1px solid rgba(248,113,113,.36); background:rgba(185,28,28,.22); }
+.admin-review-reject-btn:hover { background:rgba(185,28,28,.4); }
 .admin-list-item,.admin-card { background:rgba(30,41,59,0.8); border-radius:12px; padding:12px; margin-bottom:12px; }
 .admin-list-item { display:flex; justify-content:space-between; align-items:center; gap:12px; }
 .admin-card-title { font-weight:bold; margin-bottom:4px; }
@@ -205,5 +247,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helve
   @media (max-width: 640px) { .header-discover { width:100%; min-width:0; } .header-search { max-width:none; } .tag-filter { width:100%; } .modal-overlay { padding:calc(12px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left)); } .modal-content { max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); border-radius:18px; } .modal-header { padding:12px 12px 8px 18px; } .modal-header h2 { font-size:1.2rem; min-width:0; } .modal-body { padding:14px 18px calc(18px + env(safe-area-inset-bottom)); } .detail-cover { height:180px; } .detail-summary { padding:16px; } .detail-summary--split { grid-template-columns:1fr; } .detail-card-row { align-items:flex-start; } }
   @media (max-width: 960px) { .header-left { flex-wrap:wrap; } }
   @media (max-width: 640px) { .release-notice { max-width:100%; white-space:normal; text-align:left; } }
+  @media (max-width: 640px) { .admin-review-queue-summary { align-items:flex-start; flex-direction:column; } .admin-review-card-head { flex-wrap:wrap; } .admin-review-state { margin-left:58px; } .admin-review-meta-item { border-radius:10px; } .admin-review-card-actions { display:grid; grid-template-columns:1fr 1fr; } .admin-review-card-actions .btn { min-width:0; } .admin-review-summary-head { flex-wrap:wrap; } .admin-review-description-hint { display:none; } .admin-review-sticky-actions { display:grid; grid-template-columns:1fr 1fr; padding:10px; } .admin-review-sticky-actions .btn { min-width:0; } }
 
 `;
