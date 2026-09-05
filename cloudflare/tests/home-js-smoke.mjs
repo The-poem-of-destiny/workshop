@@ -65,6 +65,48 @@ assert.equal(
   cardViewModelUi.buildProjectCardViewModel({ id: 'labeled', version: '1.2.3', versionLabel: '夏季版' }).versionHtml,
   '<span>夏季版</span>',
 );
+const cardRenderUi = Function(
+  'getLikeState',
+  'getLocalProjectMeta',
+  'getProjectPendingAction',
+  'state',
+  'escapeHtml',
+  'getCoverImageSources',
+  'getTypeClass',
+  'getBaseTag',
+  'getAuthorName',
+  'getAuthorAvatar',
+  'isProjectEditable',
+  'isProjectPending',
+  'isRejectedDraft',
+  'getProjectReviewBadge',
+  'getProjectRejectReason',
+  'formatDate',
+  'getProjectPublishedAt',
+  `${fragments.homeCardsRenderScript}; return { renderProjectCard };`,
+)(
+  () => ({ liked: false, count: 0 }),
+  () => null,
+  () => null,
+  { tavern: { connected: false, installedProjectsLoaded: false }, currentUser: null },
+  value => String(value),
+  () => ({ primary: 'cover', fallback: 'fallback', placeholder: 'placeholder', authenticated: '' }),
+  () => 'extension',
+  () => '扩展',
+  () => 'Author',
+  () => 'avatar',
+  () => false,
+  () => false,
+  () => false,
+  () => '',
+  () => '',
+  value => String(value),
+  () => '2026/9/6',
+);
+const legacyCardHtml = cardRenderUi.renderProjectCard({ id: 'legacy', name: 'Legacy', version: '1.2.3', versionLabel: null, tags: [], downloadsCount: 0 });
+assert.match(legacyCardHtml, /card-meta card-meta--version"><span>1\.2\.3<\/span> <span>2026\/9\/6<\/span>/);
+const labeledCardHtml = cardRenderUi.renderProjectCard({ id: 'labeled', name: 'Labeled', version: '1.2.3', versionLabel: '夏季版', tags: [], downloadsCount: 0 });
+assert.match(labeledCardHtml, /card-meta card-meta--version"><span>夏季版<\/span> <span>2026\/9\/6<\/span>/);
 
 const projectFormUi = Function(
   `${fragments.homeUtilsScript}\n${fragments.homeModalsScript}; return { buildProjectFormHtml };`,
