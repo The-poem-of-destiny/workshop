@@ -110,6 +110,7 @@ export const r2Storage = {
     c: AppContext,
     sourceProjectId: string,
     targetProjectId: string,
+    selectedCoverKey?: string,
   ): Promise<{
     downloadUrl?: string;
     fileSize?: number;
@@ -117,6 +118,7 @@ export const r2Storage = {
   }> => {
     const bucket = c.env.R2_BUCKET;
     const sourcePrefix = `projects/${sourceProjectId}/`;
+    const normalizedSelectedCoverKey = selectedCoverKey?.replace(/^.*\/api\/files\//, '');
     const listed = await bucket.list({ prefix: sourcePrefix });
     const copied: {
       downloadUrl?: string;
@@ -127,6 +129,10 @@ export const r2Storage = {
     for (const item of listed.objects) {
       const fileName = item.key.slice(sourcePrefix.length);
       if (!fileName) {
+        continue;
+      }
+
+      if (fileName.startsWith('cover.') && item.key !== normalizedSelectedCoverKey) {
         continue;
       }
 
@@ -152,6 +158,17 @@ export const r2Storage = {
         copied.fileSize = sourceObject.size;
       } else if (targetFileName.startsWith('cover.')) {
         copied.coverImage = targetKey;
+      }
+    }
+
+    if (copied.coverImage) {
+      const targetCoverPrefix = `projects/${targetProjectId}/cover.`;
+      const targetCovers = await bucket.list({ prefix: targetCoverPrefix });
+      const staleCoverKeys = targetCovers.objects
+        .map(item => item.key)
+        .filter(key => key !== copied.coverImage);
+      if (staleCoverKeys.length > 0) {
+        await bucket.delete(staleCoverKeys);
       }
     }
 

@@ -142,7 +142,12 @@ export class AdminReview extends OpenAPIRoute {
     const reviewedAt = await projectDb.review(c, projectId, payload.userId, action, rejectReason);
 
     if (action === 'approve' && project.reviewTarget === 'draft' && project.publishedProjectId) {
-      const publishedAssets = await r2Storage.copyProjectFilesToPublished(c, projectId, project.publishedProjectId);
+      const publishedAssets = await r2Storage.copyProjectFilesToPublished(
+        c,
+        projectId,
+        project.publishedProjectId,
+        project.coverImage || undefined,
+      );
 
       await projectDb.update(c, project.publishedProjectId, {
         name: project.name,

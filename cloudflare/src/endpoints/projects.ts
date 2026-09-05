@@ -553,32 +553,48 @@ export class ProjectCoverUpload extends OpenAPIRoute {
       return c.json({ error: 'Only jpg/png/webp images are allowed' }, 400);
     }
 
-    const key = `projects/${projectId}/cover.${extension}`;
-    const uploadResult = await r2Storage.upload(c, key, await cover.arrayBuffer(), contentType);
-
-    if (!uploadResult) {
-      return c.json({ error: 'Upload failed' }, 500);
-    }
+    let targetProjectId = projectId;
+    let newlyCreatedDraftId: string | null = null;
+    let reusedDraft = false;
 
     if (project.isPublished && project.status === 'approved') {
-      const draftId = await projectDb.createDraftFromPublished(c, projectId, { coverImage: key });
+      const existingDraft = await projectDb.findDraftByPublishedId(c, projectId);
+      const draftId = existingDraft?.id || (await projectDb.createDraftFromPublished(c, projectId, {}));
       if (!draftId) {
         return c.json({ error: 'Draft creation failed' }, 500);
       }
+      targetProjectId = draftId;
+      reusedDraft = Boolean(existingDraft);
+      if (!existingDraft) {
+        newlyCreatedDraftId = draftId;
+      }
+    }
 
-      await projectDb.setCoverImage(c, draftId, key);
+    const key = `projects/${targetProjectId}/cover.${extension}`;
+    const uploadResult = await r2Storage.upload(c, key, await cover.arrayBuffer(), contentType);
 
+    if (!uploadResult) {
+      if (newlyCreatedDraftId) {
+        await projectDb.delete(c, newlyCreatedDraftId);
+      }
+      return c.json({ error: 'Upload failed' }, 500);
+    }
+
+    await projectDb.setCoverImage(c, targetProjectId, key);
+    if (reusedDraft) {
+      await projectDb.bumpDraftRevision(c, targetProjectId);
+    }
+
+    if (targetProjectId !== projectId) {
       return {
         success: true,
         coverImage: uploadResult.url,
-        projectId: draftId,
+        projectId: targetProjectId,
         message: '封面修改已进入审核区，主页仍显示旧版本。',
       };
     }
 
-    await projectDb.setCoverImage(c, projectId, key);
     await projectDb.bumpDraftRevision(c, projectId);
-
     return {
       success: true,
       coverImage: uploadResult.url,
