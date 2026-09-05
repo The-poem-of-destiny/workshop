@@ -270,7 +270,16 @@ export const homeScript = String.raw`
     if (releaseNoticeBtn) releaseNoticeBtn.onclick = openReleaseNoticeModal;
     if (workshopCloseBtn) workshopCloseBtn.onclick = requestCloseWorkshop;
     if (logoutBtn) logoutBtn.onclick = logout;
-    if (uploadBtn) uploadBtn.onclick = openUploadModal;
+    if (uploadBtn) uploadBtn.onclick = event => {
+      event.stopPropagation();
+      state.userMenuOpen = false;
+      try {
+        openUploadModal();
+      } catch (error) {
+        console.error('[CreativeWorkshop] failed to open upload modal', error);
+        showToast('无法打开上传窗口: ' + (error?.message || String(error)), 'error');
+      }
+    };
     if (myProjectsMenuBtn) myProjectsMenuBtn.onclick = async () => {
       state.showOnlyMyProjects = !state.showOnlyMyProjects;
       if (state.showOnlyMyProjects) {
