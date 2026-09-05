@@ -1,4 +1,13 @@
 export const homeApiScript = String.raw`
+const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
+const UPLOAD_SIZE_ERROR = '文件过大，最大 10MB';
+
+function assertUploadSize(file) {
+  if (file && Number(file.size) > MAX_UPLOAD_SIZE) {
+    throw new Error(UPLOAD_SIZE_ERROR);
+  }
+}
+
 function resolveApiErrorMessage(status, rawText, data, fallbackMessage) {
   const text = String(rawText || '').trim();
   if (/\b1027\b/.test(text)) return '服务额度用尽，请稍后再试';
@@ -345,6 +354,7 @@ async function deleteProject(projectId) {
 }
 
 async function uploadProjectFile(projectId, file) {
+  assertUploadSize(file);
   try {
     const response = await fetch('/api/projects/' + projectId + '/upload', {
       method: 'POST',
@@ -366,6 +376,7 @@ async function uploadProjectFile(projectId, file) {
 }
 
 async function uploadRegexFile(projectId, file) {
+  assertUploadSize(file);
   try {
     const response = await fetch('/api/projects/' + projectId + '/upload-regex', {
       method: 'POST',
@@ -387,6 +398,7 @@ async function uploadRegexFile(projectId, file) {
 }
 
 async function uploadCoverFile(projectId, file) {
+  assertUploadSize(file);
   const formData = new FormData();
   formData.append('cover', file);
   try {

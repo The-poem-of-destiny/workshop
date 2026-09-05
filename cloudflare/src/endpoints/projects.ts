@@ -13,6 +13,9 @@ import { r2Storage } from '../utils/r2';
 import { bumpProjectVersionWithLegacyFallback } from '../utils/version.js';
 
 const projectListSortSchema = z.enum(['published', 'updated', 'likes', 'subscribes', 'downloads']);
+const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
+const MAX_COVER_REQUEST_SIZE = MAX_UPLOAD_SIZE + 1024 * 1024;
+const UPLOAD_SIZE_ERROR = '文件过大，最大 10MB';
 
 
 async function readProjectPreview(
@@ -422,20 +425,19 @@ export class ProjectUpload extends OpenAPIRoute {
       return c.json({ error: 'Permission denied' }, 403);
     }
 
-    const maxUploadSize = 10 * 1024 * 1024;
     const contentLengthHeader = c.req.header('content-length');
     const contentLength = contentLengthHeader ? Number(contentLengthHeader) : Number.NaN;
 
-    if (Number.isFinite(contentLength) && contentLength > maxUploadSize) {
-      return c.json({ error: 'File too large. Maximum size is 10MB' }, 413);
+    if (Number.isFinite(contentLength) && contentLength > MAX_UPLOAD_SIZE) {
+      return c.json({ error: UPLOAD_SIZE_ERROR }, 413);
     }
 
     // 获取文件内容
     const arrayBuffer = await c.req.arrayBuffer();
     const contentType = c.req.header('content-type') || 'application/json';
 
-    if (arrayBuffer.byteLength > maxUploadSize) {
-      return c.json({ error: 'File too large. Maximum size is 10MB' }, 413);
+    if (arrayBuffer.byteLength > MAX_UPLOAD_SIZE) {
+      return c.json({ error: UPLOAD_SIZE_ERROR }, 413);
     }
 
     // 验证文件类型
@@ -541,11 +543,21 @@ export class ProjectCoverUpload extends OpenAPIRoute {
       return c.json({ error: 'Permission denied' }, 403);
     }
 
+    const contentLengthHeader = c.req.header('content-length');
+    const contentLength = contentLengthHeader ? Number(contentLengthHeader) : Number.NaN;
+    if (Number.isFinite(contentLength) && contentLength > MAX_COVER_REQUEST_SIZE) {
+      return c.json({ error: UPLOAD_SIZE_ERROR }, 413);
+    }
+
     const formData = await c.req.formData();
     const cover = formData.get('cover');
 
     if (!(cover instanceof File)) {
       return c.json({ error: 'Cover file is required' }, 400);
+    }
+
+    if (cover.size > MAX_UPLOAD_SIZE) {
+      return c.json({ error: UPLOAD_SIZE_ERROR }, 413);
     }
 
     const contentType = cover.type || 'application/octet-stream';
@@ -935,9 +947,19 @@ export class ProjectRegexUpload extends OpenAPIRoute {
       return c.json({ error: 'Permission denied' }, 403);
     }
 
+    const contentLengthHeader = c.req.header('content-length');
+    const contentLength = contentLengthHeader ? Number(contentLengthHeader) : Number.NaN;
+    if (Number.isFinite(contentLength) && contentLength > MAX_UPLOAD_SIZE) {
+      return c.json({ error: UPLOAD_SIZE_ERROR }, 413);
+    }
+
     // 获取文件内容
     const arrayBuffer = await c.req.arrayBuffer();
     const contentType = c.req.header('content-type') || 'application/json';
+
+    if (arrayBuffer.byteLength > MAX_UPLOAD_SIZE) {
+      return c.json({ error: UPLOAD_SIZE_ERROR }, 413);
+    }
 
     // 验证文件类型
     if (!contentType.includes('application/json')) {

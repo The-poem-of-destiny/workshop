@@ -88,10 +88,43 @@ const regex = JSON.stringify([
   { id: 'regex-only', scriptName: 'Regex only', findRegex: 'foo', replaceString: 'bar' },
 ]);
 
+const oversizedUpload = 'x'.repeat(10 * 1024 * 1024 + 1);
+
+async function expectOversizedCover(projectId) {
+  const formData = new FormData();
+  formData.set(
+    'cover',
+    new Blob([new Uint8Array(10 * 1024 * 1024 + 1)], { type: 'image/png' }),
+    'oversized.png',
+  );
+  const response = await fetch(`${BASE_URL}/api/projects/${projectId}/upload-cover`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${creatorToken}` },
+    body: formData,
+  });
+  const text = await response.text();
+  assert.equal(response.status, 413, `oversized cover: expected 413, got ${response.status}: ${text}`);
+  assert.match(text, /10MB/);
+}
+
 const cleanupIds = new Set();
 try {
   const empty = await createProject('Validation Empty');
   cleanupIds.add(empty.projectId);
+
+  await api(`/api/projects/${empty.projectId}/upload`, {
+    method: 'POST',
+    token: creatorToken,
+    body: oversizedUpload,
+    expected: 413,
+  });
+  await api(`/api/projects/${empty.projectId}/upload-regex`, {
+    method: 'POST',
+    token: creatorToken,
+    body: oversizedUpload,
+    expected: 413,
+  });
+  await expectOversizedCover(empty.projectId);
   const emptyDetail = await api(`/api/projects/${empty.projectId}`, { token: creatorToken });
   await api(`/api/admin/review/${empty.projectId}`, {
     method: 'POST',
