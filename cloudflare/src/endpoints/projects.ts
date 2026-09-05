@@ -331,6 +331,7 @@ export class ProjectCreate extends OpenAPIRoute {
       }
 
       const projectId = generateId();
+      const existingUser = await userDb.get(c, payload.userId);
 
       await userDb.upsert(c, {
         id: payload.userId,
@@ -338,7 +339,7 @@ export class ProjectCreate extends OpenAPIRoute {
         global_name: payload.globalName,
         avatar: payload.avatar || '',
         discriminator: '0000',
-        guilds: [],
+        guilds: existingUser?.guilds || [],
         isAdmin: payload.isAdmin,
       });
 

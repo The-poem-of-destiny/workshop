@@ -252,7 +252,7 @@ export class AuthCallback extends OpenAPIRoute {
         global_name: result.user.global_name || undefined,
         avatar: result.user.avatar,
         discriminator: result.user.discriminator || '0000',
-        guilds: [],
+        guilds: result.guilds,
         isAdmin,
       });
 
