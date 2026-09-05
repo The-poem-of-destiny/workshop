@@ -1,5 +1,23 @@
 import type { AppContext } from '../types';
 
+function normalizeR2Key(value?: string): string | undefined {
+  if (!value) return undefined;
+
+  const withoutFragment = value.split('#', 1)[0];
+  const withoutQuery = withoutFragment.split('?', 1)[0];
+  const proxyMarker = '/api/files/';
+  const proxyIndex = withoutQuery.lastIndexOf(proxyMarker);
+  if (proxyIndex >= 0) {
+    return withoutQuery.slice(proxyIndex + proxyMarker.length);
+  }
+
+  try {
+    return new URL(withoutQuery).pathname.replace(/^\/+/, '');
+  } catch {
+    return withoutQuery.replace(/^\/+/, '');
+  }
+}
+
 /**
  * R2 存储操作工具
  */
@@ -118,7 +136,7 @@ export const r2Storage = {
   }> => {
     const bucket = c.env.R2_BUCKET;
     const sourcePrefix = `projects/${sourceProjectId}/`;
-    const normalizedSelectedCoverKey = selectedCoverKey?.replace(/^.*\/api\/files\//, '');
+    const normalizedSelectedCoverKey = normalizeR2Key(selectedCoverKey);
     const listed = await bucket.list({ prefix: sourcePrefix });
     const copied: {
       downloadUrl?: string;
