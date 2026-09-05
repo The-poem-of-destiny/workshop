@@ -43,6 +43,29 @@ assert.match(fragments.homeCardsRenderScript, /role=\"button\" tabindex=\"0\"/);
 assert.doesNotMatch(fragments.homeCardsRenderScript, /detail-btn/);
 assert.doesNotMatch(fragments.homeCardsRenderScript, /审核中的项目暂不可删除/);
 
+const cardViewModelUi = Function(
+  'getLikeState',
+  'getLocalProjectMeta',
+  'getProjectPendingAction',
+  'state',
+  'escapeHtml',
+  `${fragments.homeCardsRenderScript}; return { buildProjectCardViewModel };`,
+)(
+  () => ({ liked: false, count: 0 }),
+  () => null,
+  () => null,
+  { tavern: { connected: false, installedProjectsLoaded: false } },
+  value => String(value),
+);
+assert.equal(
+  cardViewModelUi.buildProjectCardViewModel({ id: 'legacy', version: '1.2.3', versionLabel: null }).versionHtml,
+  '<span>1.2.3</span>',
+);
+assert.equal(
+  cardViewModelUi.buildProjectCardViewModel({ id: 'labeled', version: '1.2.3', versionLabel: '夏季版' }).versionHtml,
+  '<span>夏季版</span>',
+);
+
 const projectFormUi = Function(
   `${fragments.homeUtilsScript}\n${fragments.homeModalsScript}; return { buildProjectFormHtml };`,
 )();

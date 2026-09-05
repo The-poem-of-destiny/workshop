@@ -8,7 +8,7 @@ export const homeCardsRenderScript = [
   '  const isInstallStateLoading = Boolean(state.tavern.connected && !state.tavern.installedProjectsLoaded);',
   '  const localVersion = localMeta?.localVersion || project.localVersion || null;',
   '  const remoteVersion = project.version || null;',
-  '  const displayVersionLabel = project.versionLabel ? String(project.versionLabel) : "";',
+  '  const displayVersionLabel = project.versionLabel ? String(project.versionLabel) : project.version ? String(project.version) : "";',
   '  const hasVersionDiff = Boolean(localMeta && localVersion && remoteVersion && localVersion !== remoteVersion);',
   '  const canUpdate = Boolean(state.tavern.connected && localMeta && hasVersionDiff);',
   '  return {',
