@@ -37,11 +37,3 @@ export function normalizeProjectVersionBase(value) {
 export function bumpProjectVersionWithLegacyFallback(value, bump = 'patch') {
   return bumpProjectVersion(normalizeProjectVersionBase(value), bump);
 }
-
-export function classifyProjectVersionTransition(currentVersion, targetVersion) {
-  const normalizedCurrentVersion = normalizeProjectVersionBase(currentVersion);
-  for (const bump of PROJECT_VERSION_BUMPS) {
-    if (bumpProjectVersion(normalizedCurrentVersion, bump) === targetVersion) return bump;
-  }
-  return null;
-}

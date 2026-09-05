@@ -463,7 +463,7 @@ export const homeScript = String.raw`
           requestUninstallProject(projectId);
           return;
         }
-        openInstallWorldbookModal(projectId);
+        openInstallWorldbookModal(projectId, project.version);
       });
     });
 
@@ -473,7 +473,7 @@ export const homeScript = String.raw`
         const project = filteredProjects.find(item => item.id === button.dataset.id);
         if (project) {
           const restore = setButtonLoading(button, '加载差异');
-          requestProjectDiff(project.id)
+          requestProjectDiff(project.id, project.version)
             .then(diff => openProjectUpdateModal(project, diff))
             .catch(error => showToast('加载更新差异失败: ' + error.message, 'error'))
             .finally(restore);

@@ -71,8 +71,9 @@ export const Project = z.object({
   draftProjectId: z.string().optional().describe('草稿项目 ID'),
   name: z.string().describe('项目名称'),
   description: z.string().optional().describe('项目描述'),
-  version: z.string().default('1.0.0').describe('项目版本'),
-  publishedVersion: z.string().optional().describe('关联正式版本号，仅用于 draft 展示/版本计算提示'),
+  version: z.string().default('1.0.0').describe('工坊内部机器版本'),
+  versionLabel: z.string().nullable().optional().describe('作者自定义显示版本，仅展示'),
+  publishedVersion: z.string().optional().describe('关联正式内部版本号，仅用于 draft 状态'),
   authorId: z.string().describe('作者 Discord ID'),
   authorName: z.string().describe('作者用户名'),
   authorGlobalName: z.string().describe('作者优先展示名'),
@@ -120,6 +121,7 @@ export const ProjectListQuery = z.object({
 export const ProjectCreateRequest = z.object({
   name: z.string().describe('项目名称'),
   description: z.string().optional().describe('项目描述'),
+  versionLabel: z.string().max(80).nullable().optional().describe('作者自定义显示版本'),
   tags: z.array(z.string()).default([]).describe('项目标签'),
   coverImage: z.string().optional().describe('封面图片 URL'),
 });
@@ -128,7 +130,7 @@ export const ProjectCreateRequest = z.object({
 export const ProjectUpdateRequest = z.object({
   name: z.string().optional().describe('项目名称'),
   description: z.string().optional().describe('项目描述'),
-  versionBump: z.enum(['patch', 'minor', 'major']).default('patch').describe('发布版本级别'),
+  versionLabel: z.string().max(80).nullable().optional().describe('作者自定义显示版本'),
   tags: z.array(z.string()).optional().describe('项目标签'),
   coverImage: z.string().optional().describe('封面图片 URL'),
 });

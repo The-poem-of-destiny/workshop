@@ -82,8 +82,8 @@ function diffByKey<T extends Record<string, any>>(localItems: T[], remoteItems: 
   return { added, removed, modified };
 }
 
-export async function getCreativeWorkshopProjectDiff(projectId: string) {
-  const detail = await fetchCreativeWorkshopProjectDetail(projectId);
+export async function getCreativeWorkshopProjectDiff(projectId: string, expectedVersion?: string) {
+  const detail = await fetchCreativeWorkshopProjectDetail(projectId, expectedVersion);
   const charWorldbooks = getCharWorldbookNames('current');
   const worldbookName = (await resolveCreativeWorkshopInstallWorldbook(projectId)) || charWorldbooks.primary;
   const worldbookEntries = worldbookName && getWorldbookNames().includes(worldbookName)

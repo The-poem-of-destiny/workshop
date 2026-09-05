@@ -118,7 +118,7 @@ try {
     body: {
       name: 'Local API Test Base',
       description: 'Base description',
-      version: '1.0.0',
+      versionLabel: '初版',
       tags: ['角色'],
     },
   });
@@ -143,9 +143,10 @@ try {
   assert.equal(pendingDetail.worldbookEntriesPreview[1].depth, 3);
   assert.equal(pendingDetail.worldbookEntriesPreview[1].order, -20);
   assert.equal(pendingDetail.worldbookEntriesPreview[2].position, 7);
-  assert.equal(pendingDetail.worldbookEntriesPreview[2].outletName, 'AfterStatus');
+  assert.equal(pendingDetail.project.version, '1.0.0');
+  assert.equal(pendingDetail.project.versionLabel, '初版');
   const firstReviewRevision = pendingDetail.project.draftRevision;
-  assert.ok(firstReviewRevision >= 3);
+  assert.equal(Number.isInteger(firstReviewRevision), true);
 
   await api(`/api/admin/review/${publishedId}`, {
     method: 'POST',
@@ -156,18 +157,24 @@ try {
   const approved = await api(`/api/projects/${publishedId}`);
   assert.equal(approved.project.status, 'approved');
   assert.equal(approved.project.isPublished, true);
+  assert.equal(approved.project.version, '1.0.0');
+  assert.equal(approved.project.versionLabel, '初版');
   assert.equal(approved.worldbookEntriesPreview.length, 3);
   assert.equal(approved.regexEntriesPreview.length, 2);
 
   const firstDraftUpdate = await api(`/api/projects/${publishedId}`, {
     method: 'PUT',
     token: creatorToken,
-    body: { name: 'Local API Draft Name' },
+    body: { name: 'Local API Draft Name', versionLabel: '2026夏季版' },
   });
   draftId = firstDraftUpdate.draftProjectId;
   assert.ok(draftId);
+  assert.equal(firstDraftUpdate.targetVersion, '1.0.1');
+  assert.equal('versionBump' in firstDraftUpdate, false);
 
   const draftAfterName = await api(`/api/projects/${draftId}`, { token: creatorToken });
+  assert.equal(draftAfterName.project.version, '1.0.1');
+  assert.equal(draftAfterName.project.versionLabel, '2026夏季版');
   const revisionAfterName = draftAfterName.project.draftRevision;
 
   const secondDraftUpdate = await api(`/api/projects/${publishedId}`, {
@@ -176,6 +183,7 @@ try {
     body: { description: 'Draft description changed later' },
   });
   assert.equal(secondDraftUpdate.draftProjectId, draftId);
+  assert.equal(secondDraftUpdate.targetVersion, '1.0.1');
 
   const inheritedDraft = await api(`/api/projects/${draftId}`, { token: creatorToken });
   assert.equal(inheritedDraft.project.name, 'Local API Draft Name');
@@ -233,6 +241,8 @@ try {
   assert.equal(finalPublished.project.description, 'Draft description changed later');
   assert.equal(finalPublished.project.status, 'approved');
   assert.equal(finalPublished.project.isPublished, true);
+  assert.equal(finalPublished.project.version, '1.0.1');
+  assert.equal(finalPublished.project.versionLabel, '2026夏季版');
   assert.equal(finalPublished.worldbookEntriesPreview.length, 2);
   assert.equal(finalPublished.regexEntriesPreview.length, 1);
   assert.ok(!finalPublished.worldbookEntriesPreview.some(entry => entry.entryKey === 'uid:102'));

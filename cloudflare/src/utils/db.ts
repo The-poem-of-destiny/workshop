@@ -1,7 +1,7 @@
 import type { AppContext, ProjectReviewTarget } from '../types';
 import type { JWTPayload } from './jwt';
 import { r2Storage } from './r2';
-import { bumpProjectVersionWithLegacyFallback, classifyProjectVersionTransition } from './version.js';
+import { bumpProjectVersionWithLegacyFallback, normalizeProjectVersionBase, parseProjectVersion } from './version.js';
 
 /**
  * 生成 UUID
@@ -211,6 +211,7 @@ export const projectDb = {
       name: string;
       description?: string;
       version: string;
+      versionLabel?: string | null;
       authorId: string;
       authorName: string;
       authorAvatar: string;
@@ -233,10 +234,10 @@ export const projectDb = {
       .prepare(
         `
 			INSERT INTO projects (
-				id, name, description, version, author_id, author_name, author_avatar,
+				id, name, description, version, version_label, author_id, author_name, author_avatar,
 				status, download_url, file_size, tags, cover_image, root_project_id, published_project_id,
 				draft_project_id, review_target, draft_revision, visibility, is_published, latest_approved_at, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`,
       )
       .bind(
@@ -244,6 +245,7 @@ export const projectDb = {
         project.name,
         project.description || null,
         project.version,
+        project.versionLabel || null,
         project.authorId,
         project.authorName,
         project.authorAvatar,
@@ -298,6 +300,7 @@ export const projectDb = {
       name?: string;
       description?: string;
       version?: string;
+      versionLabel?: string | null;
       tags?: string[];
       coverImage?: string;
       downloadUrl?: string;
@@ -327,6 +330,10 @@ export const projectDb = {
     if (updates.version !== undefined) {
       setClauses.push('version = ?');
       values.push(updates.version);
+    }
+    if (updates.versionLabel !== undefined) {
+      setClauses.push('version_label = ?');
+      values.push(updates.versionLabel);
     }
     if (updates.tags !== undefined) {
       setClauses.push('tags = ?');
@@ -754,21 +761,18 @@ export const projectDb = {
   createDraftFromPublished: async (
     c: AppContext,
     publishedProjectId: string,
-    updates: { name?: string; description?: string; version?: string; tags?: string[]; coverImage?: string },
+    updates: { name?: string; description?: string; version?: string; versionLabel?: string | null; tags?: string[]; coverImage?: string },
   ) => {
     const published = await projectDb.get(c, publishedProjectId);
     if (!published) return null;
     const existingDraft = await projectDb.findDraftByPublishedId(c, publishedProjectId);
     if (existingDraft) {
-      const nextVersion =
-        updates.version ??
-        (classifyProjectVersionTransition(published.version, existingDraft.version)
-          ? existingDraft.version
-          : bumpProjectVersionWithLegacyFallback(published.version, 'patch'));
+      const nextVersion = updates.version ?? bumpProjectVersionWithLegacyFallback(published.version, 'patch');
       await projectDb.update(c, existingDraft.id, {
         name: updates.name ?? existingDraft.name,
         description: updates.description ?? existingDraft.description ?? '',
         version: nextVersion,
+        versionLabel: updates.versionLabel !== undefined ? updates.versionLabel : existingDraft.versionLabel,
         tags: updates.tags ?? existingDraft.tags,
         coverImage: updates.coverImage ?? existingDraft.coverImage ?? undefined,
       });
@@ -782,6 +786,7 @@ export const projectDb = {
       name: updates.name ?? published.name,
       description: updates.description ?? published.description ?? undefined,
       version: updates.version ?? bumpProjectVersionWithLegacyFallback(published.version, 'patch'),
+      versionLabel: updates.versionLabel !== undefined ? updates.versionLabel : published.versionLabel,
       authorId: published.authorId,
       authorName: published.authorName,
       authorAvatar: published.authorAvatar || '',
@@ -869,6 +874,12 @@ export const projectDb = {
   },
 };
 
+function withProjectReleaseCacheIdentity(url: string, version: string): string {
+  const result = new URL(url);
+  result.searchParams.set('v', normalizeProjectVersionBase(version));
+  return result.toString();
+}
+
 async function enrichProjects(
   c: AppContext,
   projects: ReturnType<typeof parseProjectRow>[],
@@ -902,10 +913,16 @@ async function enrichProjects(
   return projects.map(project => ({
     ...project,
     downloadUrl: project.downloadUrl
-      ? r2Storage.getProxyUrl(c, project.downloadUrl.replace(/^.*\/api\/files\//, ''))
+      ? withProjectReleaseCacheIdentity(
+          r2Storage.getProxyUrl(c, project.downloadUrl.replace(/^.*\/api\/files\//, '')),
+          project.version,
+        )
       : null,
     coverImage: project.coverImage
-      ? r2Storage.getProxyUrl(c, project.coverImage.replace(/^.*\/api\/files\//, ''))
+      ? withProjectReleaseCacheIdentity(
+          r2Storage.getProxyUrl(c, project.coverImage.replace(/^.*\/api\/files\//, '')),
+          project.version,
+        )
       : null,
     downloadsCount: Number(project.downloadsCount || 0),
     likesCount: Number(project.likesCount || 0),
@@ -940,6 +957,12 @@ function parseProjectRow(row: Record<string, unknown>) {
     parsedTags = [];
   }
 
+  const rawVersion = String(row.version ?? '').trim();
+  const version = normalizeProjectVersionBase(rawVersion);
+  const explicitVersionLabel = typeof row.version_label === 'string' ? row.version_label.trim() : '';
+  const versionLabel = explicitVersionLabel || (!parseProjectVersion(rawVersion) && rawVersion ? rawVersion : null);
+  const rawPublishedVersion = typeof row.published_version === 'string' ? row.published_version.trim() : '';
+
   return {
     id: row.id as string,
     rootProjectId: ((row.root_project_id as string | null) || (row.id as string)) as string,
@@ -947,8 +970,9 @@ function parseProjectRow(row: Record<string, unknown>) {
     draftProjectId: row.draft_project_id as string | null,
     name: row.name as string,
     description: row.description as string | null,
-    version: row.version as string,
-    publishedVersion: row.published_version as string | null,
+    version,
+    versionLabel,
+    publishedVersion: rawPublishedVersion ? normalizeProjectVersionBase(rawPublishedVersion) : null,
     authorId: row.author_id as string,
     authorName: row.author_name as string,
     authorGlobalName: ((row.global_name as string | null) || (row.author_name as string)) as string,

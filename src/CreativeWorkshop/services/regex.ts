@@ -1,8 +1,12 @@
 import { fetchCreativeWorkshopProjectDetail } from './project-fetch';
 import { getCreativeWorkshopRegexId, getReadableRegexName } from './regex-name';
 
-export async function installCreativeWorkshopRegex(projectId: string, selectedEntryKeys?: string[]) {
-  const detail = await fetchCreativeWorkshopProjectDetail(projectId);
+export async function installCreativeWorkshopRegex(
+  projectId: string,
+  selectedEntryKeys?: string[],
+  expectedVersion?: string,
+) {
+  const detail = await fetchCreativeWorkshopProjectDetail(projectId, expectedVersion);
   const selected = selectedEntryKeys ? new Set(selectedEntryKeys) : null;
   const regexEntries = (detail.regexEntriesPreview || [])
     .map((entry, originalIndex) => ({
@@ -59,7 +63,7 @@ export async function uninstallCreativeWorkshopRegex(projectId: string) {
   );
 }
 
-export async function updateCreativeWorkshopRegex(projectId: string) {
+export async function updateCreativeWorkshopRegex(projectId: string, expectedVersion?: string) {
   await uninstallCreativeWorkshopRegex(projectId);
-  return installCreativeWorkshopRegex(projectId);
+  return installCreativeWorkshopRegex(projectId, undefined, expectedVersion);
 }

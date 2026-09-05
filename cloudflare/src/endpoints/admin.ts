@@ -4,7 +4,7 @@ import type { AppContext } from '../types';
 import { projectDb, userDb } from '../utils/db';
 import { getCurrentUserFromRequest } from '../utils/jwt';
 import { r2Storage } from '../utils/r2';
-import { classifyProjectVersionTransition } from '../utils/version.js';
+import { bumpProjectVersionWithLegacyFallback } from '../utils/version.js';
 
 /**
  * 获取待审核项目列表 (仅管理员)
@@ -127,20 +127,15 @@ export class AdminReview extends OpenAPIRoute {
       return c.json({ error: 'Reject reason required' }, 400);
     }
 
-    let approvedVersionBump: string | null = null;
+    let approvedVersion: string | null = null;
+    let publishedVersionBeforeApproval: string | null = null;
     if (action === 'approve' && project.reviewTarget === 'draft' && project.publishedProjectId) {
       const published = await projectDb.get(c, project.publishedProjectId);
       if (!published) {
         return c.json({ error: 'Published project not found for draft' }, 409);
       }
-      try {
-        approvedVersionBump = classifyProjectVersionTransition(published.version, project.version);
-      } catch (error) {
-        return c.json({ error: error instanceof Error ? error.message : 'Invalid project version transition' }, 409);
-      }
-      if (!approvedVersionBump) {
-        return c.json({ error: `Invalid version transition: ${published.version} -> ${project.version}` }, 409);
-      }
+      publishedVersionBeforeApproval = published.version;
+      approvedVersion = bumpProjectVersionWithLegacyFallback(published.version, 'patch');
     }
 
     // 执行审核
@@ -152,7 +147,8 @@ export class AdminReview extends OpenAPIRoute {
       await projectDb.update(c, project.publishedProjectId, {
         name: project.name,
         description: project.description || '',
-        version: project.version,
+        version: approvedVersion || project.version,
+        versionLabel: project.versionLabel ?? null,
         tags: project.tags,
         coverImage: publishedAssets.coverImage || project.coverImage || undefined,
         downloadUrl: publishedAssets.downloadUrl || project.downloadUrl || undefined,
@@ -171,6 +167,8 @@ export class AdminReview extends OpenAPIRoute {
       });
     } else if (action === 'approve') {
       await projectDb.update(c, projectId, {
+        version: project.version,
+        versionLabel: project.versionLabel ?? null,
         isPublished: true,
         visibility: project.visibility,
         latestApprovedAt: reviewedAt,
@@ -186,8 +184,9 @@ export class AdminReview extends OpenAPIRoute {
       detail: {
         rejectReason: rejectReason || null,
         projectName: project.name,
-        version: project.version,
-        versionBump: approvedVersionBump,
+        version: approvedVersion || project.version,
+        previousVersion: publishedVersionBeforeApproval,
+        versionLabel: project.versionLabel ?? null,
       },
     });
 

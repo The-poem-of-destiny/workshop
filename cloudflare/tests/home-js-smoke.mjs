@@ -33,11 +33,9 @@ for (const [name, script] of Object.entries(fragments)) {
   new Function(script);
 }
 
-const versionUi = Function(`${fragments.homeModalsScript}; return { previewVersionBump, inferVersionBump };`)();
-assert.equal(versionUi.previewVersionBump('1.4.7', 'patch'), '1.4.8');
-assert.equal(versionUi.previewVersionBump('1.4.7', 'minor'), '1.5.0');
-assert.equal(versionUi.previewVersionBump('1.4.7', 'major'), '2.0.0');
-assert.equal(versionUi.inferVersionBump('1.4.7', '1.5.0'), 'minor');
+assert.match(fragments.homeModalsScript, /id=\"versionLabel\"/);
+assert.match(fragments.homeModalsScript, /版本名称（可选）/);
+assert.doesNotMatch(fragments.homeModalsScript, /versionBump|Patch|Minor|Major/);
 
 const versionState = { tavern: { clientVersion: null, clientVersionResolved: false } };
 const workshopVersionUi = Function(

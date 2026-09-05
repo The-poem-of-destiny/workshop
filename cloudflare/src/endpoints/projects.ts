@@ -277,6 +277,7 @@ export class ProjectCreate extends OpenAPIRoute {
             schema: z.object({
               name: Str({ description: 'Project name' }),
               description: Str({ required: false }).describe('Project description'),
+              versionLabel: z.string().max(80).nullable().optional(),
               tags: z.array(z.string()).default([]),
               coverImage: Str({ required: false }),
             }),
@@ -310,6 +311,11 @@ export class ProjectCreate extends OpenAPIRoute {
 
       const name = typeof rawBody.name === 'string' ? rawBody.name.trim() : '';
       const description = typeof rawBody.description === 'string' ? rawBody.description : undefined;
+      const rawVersionLabel = rawBody.versionLabel;
+      if (rawVersionLabel !== undefined && rawVersionLabel !== null && typeof rawVersionLabel !== 'string') {
+        return c.json({ error: 'Version label must be text' }, 400);
+      }
+      const versionLabel = typeof rawVersionLabel === 'string' ? rawVersionLabel.trim() || null : rawVersionLabel;
       const tags = Array.isArray(rawBody.tags) ? rawBody.tags.filter(tag => typeof tag === 'string') : [];
       const coverImage = typeof rawBody.coverImage === 'string' ? rawBody.coverImage : undefined;
 
@@ -319,6 +325,9 @@ export class ProjectCreate extends OpenAPIRoute {
 
       if (name.length > 100) {
         return c.json({ error: 'Project name must be 100 characters or fewer' }, 400);
+      }
+      if (typeof versionLabel === 'string' && versionLabel.length > 80) {
+        return c.json({ error: 'Version label must be 80 characters or fewer' }, 400);
       }
 
       const projectId = generateId();
@@ -338,6 +347,7 @@ export class ProjectCreate extends OpenAPIRoute {
         name,
         description,
         version: '1.0.0',
+        versionLabel,
         authorId: payload.userId,
         authorName: payload.username,
         authorAvatar: payload.avatar || '',
@@ -470,6 +480,7 @@ export class ProjectUpload extends OpenAPIRoute {
     };
 
     await projectDb.update(c, projectId, updateData);
+    await projectDb.bumpDraftRevision(c, projectId);
 
     return {
       success: true,
@@ -562,6 +573,7 @@ export class ProjectCoverUpload extends OpenAPIRoute {
     }
 
     await projectDb.setCoverImage(c, projectId, key);
+    await projectDb.bumpDraftRevision(c, projectId);
 
     return {
       success: true,
@@ -698,7 +710,7 @@ export class ProjectUpdate extends OpenAPIRoute {
             schema: z.object({
               name: Str({ required: false }),
               description: Str({ required: false }),
-              versionBump: z.enum(['patch', 'minor', 'major']).optional().default('patch'),
+              versionLabel: z.string().max(80).nullable().optional(),
               tags: z.array(z.string()).optional(),
               coverImage: Str({ required: false }),
             }),
@@ -721,7 +733,12 @@ export class ProjectUpdate extends OpenAPIRoute {
 
     const data = await this.getValidatedData<typeof this.schema>();
     const { projectId } = data.params;
-    const { versionBump = 'patch', ...updates } = data.body;
+    const updates = {
+      ...data.body,
+      ...(data.body.versionLabel !== undefined
+        ? { versionLabel: typeof data.body.versionLabel === 'string' ? data.body.versionLabel.trim() || null : null }
+        : {}),
+    };
 
     // 检查项目是否存在且属于当前用户
     const project = await projectDb.get(c, projectId);
@@ -734,13 +751,7 @@ export class ProjectUpdate extends OpenAPIRoute {
     }
 
     if (project.isPublished && project.status === 'approved') {
-      let targetVersion: string;
-      try {
-        targetVersion = bumpProjectVersionWithLegacyFallback(project.version, versionBump);
-      } catch (error) {
-        return c.json({ error: error instanceof Error ? error.message : 'Invalid project version' }, 409);
-      }
-
+      const targetVersion = bumpProjectVersionWithLegacyFallback(project.version, 'patch');
       const draftId = await projectDb.createDraftFromPublished(c, projectId, { ...updates, version: targetVersion });
       if (!draftId) {
         return c.json({ error: 'Draft creation failed' }, 500);
@@ -751,7 +762,6 @@ export class ProjectUpdate extends OpenAPIRoute {
         projectId: draftId,
         draftProjectId: draftId,
         targetVersion,
-        versionBump,
         message: '修改后的新版本已进入审核区，主界面仍显示旧版本。',
       };
     }
@@ -762,31 +772,25 @@ export class ProjectUpdate extends OpenAPIRoute {
         return c.json({ error: 'Published project not found for draft' }, 409);
       }
 
-      let targetVersion: string;
-      try {
-        targetVersion = bumpProjectVersionWithLegacyFallback(published.version, versionBump);
-      } catch (error) {
-        return c.json({ error: error instanceof Error ? error.message : 'Invalid project version' }, 409);
-      }
-
+      const targetVersion = bumpProjectVersionWithLegacyFallback(published.version, 'patch');
       await projectDb.update(c, projectId, { ...updates, version: targetVersion, status: 'pending' });
+      await projectDb.bumpDraftRevision(c, projectId);
       return {
         success: true,
         projectId,
         draftProjectId: projectId,
         targetVersion,
-        versionBump,
         message: 'Draft updated and resubmitted for review',
       };
     }
 
     await projectDb.update(c, projectId, { ...updates, version: '1.0.0', status: 'pending' });
+    await projectDb.bumpDraftRevision(c, projectId);
 
     return {
       success: true,
       projectId,
       targetVersion: '1.0.0',
-      versionBump: 'patch',
       message: 'Project updated successfully',
     };
   }
@@ -910,6 +914,9 @@ export class ProjectRegexUpload extends OpenAPIRoute {
     if (!result) {
       return c.json({ error: 'Upload failed' }, 500);
     }
+    if (!(project.isPublished && project.status === 'approved')) {
+      await projectDb.bumpDraftRevision(c, targetProjectId);
+    }
 
     return {
       success: true,
@@ -1031,6 +1038,9 @@ export class ProjectEntryRemove extends OpenAPIRoute {
 
     if (kind === 'worldbook') {
       await projectDb.update(c, targetProjectId, { downloadUrl: result.url, fileSize: result.size });
+    }
+    if (!(project.isPublished && project.status === 'approved')) {
+      await projectDb.bumpDraftRevision(c, targetProjectId);
     }
 
     if (payload.isAdmin && project.authorId !== payload.userId) {

@@ -272,10 +272,12 @@ export function createCreativeWorkshopBridgeHost(option: HostOption) {
             String(event.data.payload?.projectId),
             Array.isArray(event.data.payload?.worldbookEntryKeys) ? event.data.payload?.worldbookEntryKeys.map(String) : undefined,
             _.isString(event.data.payload?.worldbookName) ? String(event.data.payload?.worldbookName) : undefined,
+            _.isString(event.data.payload?.projectVersion) ? String(event.data.payload?.projectVersion) : undefined,
           );
           await installCreativeWorkshopRegex(
             String(event.data.payload?.projectId),
             Array.isArray(event.data.payload?.regexEntryKeys) ? event.data.payload?.regexEntryKeys.map(String) : undefined,
+            _.isString(event.data.payload?.projectVersion) ? String(event.data.payload?.projectVersion) : undefined,
           );
           await post(
             'bridge:install-result',
@@ -308,7 +310,10 @@ export function createCreativeWorkshopBridgeHost(option: HostOption) {
           if (!_.isString(_.get(event.data, 'payload.projectId'))) {
             throw new Error('缺少 projectId');
           }
-          const diffResult = await getCreativeWorkshopProjectDiff(String(event.data.payload?.projectId));
+          const diffResult = await getCreativeWorkshopProjectDiff(
+            String(event.data.payload?.projectId),
+            _.isString(event.data.payload?.projectVersion) ? String(event.data.payload?.projectVersion) : undefined,
+          );
           await post('bridge:project-diff', diffResult, event.data.requestId);
           break;
         }
@@ -316,8 +321,11 @@ export function createCreativeWorkshopBridgeHost(option: HostOption) {
           if (!_.isString(_.get(event.data, 'payload.projectId'))) {
             throw new Error('缺少 projectId');
           }
-          await updateCreativeWorkshopProject(String(event.data.payload?.projectId));
-          await updateCreativeWorkshopRegex(String(event.data.payload?.projectId));
+          const expectedVersion = _.isString(event.data.payload?.projectVersion)
+            ? String(event.data.payload?.projectVersion)
+            : undefined;
+          await updateCreativeWorkshopProject(String(event.data.payload?.projectId), expectedVersion);
+          await updateCreativeWorkshopRegex(String(event.data.payload?.projectId), expectedVersion);
           await post(
             'bridge:update-result',
             {
