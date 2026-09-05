@@ -3,7 +3,11 @@ import { z } from 'zod';
 import type { AppContext } from '../types';
 import { generateId, projectDb, userDb } from '../utils/db';
 import { getCurrentUserFromRequest } from '../utils/jwt';
-import { removeProjectEntryFromJson, type ProjectEntryKind } from '../utils/project-content';
+import {
+  removeProjectEntryFromJson,
+  validateProjectContentText,
+  type ProjectEntryKind,
+} from '../utils/project-content';
 import { parseRegexEntriesPreview, parseWorldbookEntriesPreview } from '../utils/project-preview';
 import { r2Storage } from '../utils/r2';
 import { bumpProjectVersionWithLegacyFallback } from '../utils/version.js';
@@ -437,6 +441,11 @@ export class ProjectUpload extends OpenAPIRoute {
     // 验证文件类型
     if (!contentType.includes('application/json')) {
       return c.json({ error: 'Only JSON files are allowed' }, 400);
+    }
+
+    const validation = validateProjectContentText(new TextDecoder().decode(arrayBuffer), 'worldbook');
+    if (validation.valid === false) {
+      return c.json({ error: validation.error }, 400);
     }
 
     if (project.isPublished && project.status === 'approved') {
@@ -935,10 +944,19 @@ export class ProjectRegexUpload extends OpenAPIRoute {
       return c.json({ error: 'Only JSON files are allowed' }, 400);
     }
 
-    const targetProjectId =
-      project.isPublished && project.status === 'approved'
-        ? (await projectDb.createDraftFromPublished(c, projectId, {})) || projectId
-        : projectId;
+    const validation = validateProjectContentText(new TextDecoder().decode(arrayBuffer), 'regex');
+    if (validation.valid === false) {
+      return c.json({ error: validation.error }, 400);
+    }
+
+    let targetProjectId = projectId;
+    if (project.isPublished && project.status === 'approved') {
+      const draftId = await projectDb.createDraftFromPublished(c, projectId, {});
+      if (!draftId) {
+        return c.json({ error: 'Draft creation failed' }, 500);
+      }
+      targetProjectId = draftId;
+    }
 
     const fileName = `regex-${targetProjectId}.json`;
 

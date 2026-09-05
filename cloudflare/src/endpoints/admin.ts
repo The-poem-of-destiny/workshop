@@ -3,8 +3,52 @@ import { z } from 'zod';
 import type { AppContext } from '../types';
 import { projectDb, userDb } from '../utils/db';
 import { getCurrentUserFromRequest } from '../utils/jwt';
+import { validateProjectContentText, type ProjectEntryKind } from '../utils/project-content';
 import { r2Storage } from '../utils/r2';
 import { bumpProjectVersionWithLegacyFallback } from '../utils/version.js';
+
+function getReviewContentKey(projectId: string, kind: ProjectEntryKind): string {
+  const fileName = kind === 'worldbook' ? `project-${projectId}.json` : `regex-${projectId}.json`;
+  return `projects/${projectId}/${fileName}`;
+}
+
+async function readReviewContent(
+  c: AppContext,
+  projectId: string,
+  publishedProjectId: string | null | undefined,
+  kind: ProjectEntryKind,
+) {
+  const ownObject = await c.env.R2_BUCKET.get(getReviewContentKey(projectId, kind));
+  if (ownObject) return ownObject;
+  if (publishedProjectId) {
+    return c.env.R2_BUCKET.get(getReviewContentKey(publishedProjectId, kind));
+  }
+  return null;
+}
+
+async function validateReviewPayloads(
+  c: AppContext,
+  project: { id: string; publishedProjectId?: string | null },
+): Promise<{ valid: true } | { valid: false; error: string }> {
+  let validPayloadCount = 0;
+
+  for (const kind of ['worldbook', 'regex'] as const) {
+    const object = await readReviewContent(c, project.id, project.publishedProjectId, kind);
+    if (!object) continue;
+
+    const validation = validateProjectContentText(await object.text(), kind);
+    if (validation.valid === false) {
+      return { valid: false, error: validation.error };
+    }
+    validPayloadCount += 1;
+  }
+
+  if (validPayloadCount === 0) {
+    return { valid: false, error: 'Cannot approve project without a valid worldbook or regex payload' };
+  }
+
+  return { valid: true };
+}
 
 /**
  * 获取待审核项目列表 (仅管理员)
@@ -125,6 +169,13 @@ export class AdminReview extends OpenAPIRoute {
     // 如果是拒绝操作，必须提供拒绝原因
     if (action === 'reject' && !rejectReason) {
       return c.json({ error: 'Reject reason required' }, 400);
+    }
+
+    if (action === 'approve') {
+      const contentValidation = await validateReviewPayloads(c, project);
+      if (contentValidation.valid === false) {
+        return c.json({ error: contentValidation.error }, 409);
+      }
     }
 
     let approvedVersion: string | null = null;

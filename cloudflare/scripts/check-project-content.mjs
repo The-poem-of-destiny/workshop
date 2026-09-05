@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   extractProjectEntries,
   removeProjectEntryFromJson,
+  validateProjectContentText,
 } from '../src/utils/project-content.ts';
 
 const arrayBook = JSON.stringify({ entries: [
@@ -30,4 +31,14 @@ const regexRemoved = JSON.parse(removeProjectEntryFromJson(singleRegex, 'regex',
 assert.deepEqual(regexRemoved, []);
 
 assert.throws(() => removeProjectEntryFromJson(arrayBook, 'worldbook', 'uid:999'), /条目不存在/);
-console.log('project content entry removal OK');
+
+assert.equal(validateProjectContentText(arrayBook, 'worldbook').valid, true);
+assert.equal(validateProjectContentText(objectBook, 'worldbook').valid, true);
+assert.equal(validateProjectContentText('[{"id":"cleanup","findRegex":"foo"}]', 'regex').valid, true);
+assert.equal(validateProjectContentText(singleRegex, 'regex').valid, true);
+assert.equal(validateProjectContentText('{"hello":"world"}', 'worldbook').valid, false);
+assert.equal(validateProjectContentText('{"hello":"world"}', 'regex').valid, false);
+assert.equal(validateProjectContentText('{"entries":[]}', 'worldbook').valid, false);
+assert.equal(validateProjectContentText('not-json', 'worldbook').valid, false);
+
+console.log('project content validation and entry removal OK');
