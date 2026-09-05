@@ -11,6 +11,13 @@ export type ProjectStatus = z.infer<typeof ProjectStatus>;
 export const ProjectReviewTarget = z.enum(['project', 'draft']);
 export type ProjectReviewTarget = z.infer<typeof ProjectReviewTarget>;
 
+const ProjectEntryInspection = z.object({
+  hasEjs: z.boolean().default(false).describe('系统检测到条目包含 EJS'),
+  hasCharacterArtwork: z.boolean().default(false).describe('系统检测到完整角色立绘模板'),
+  characterArtworkBlockCount: z.number().int().min(0).default(0).describe('完整角色立绘模板块数量'),
+  inspectionWarnings: z.array(z.string()).default([]).describe('内容静态检查警告'),
+});
+
 export const WorldbookEntryPreview = z.object({
   entryKey: z.string().optional(),
   uid: z.string().optional(),
@@ -33,6 +40,7 @@ export const WorldbookEntryPreview = z.object({
   enabled: z.boolean().optional(),
   disable: z.boolean().optional(),
   scanDepth: z.number().nullable().optional(),
+  ...ProjectEntryInspection.shape,
 });
 
 export const RegexEntryPreview = z.object({
@@ -44,6 +52,7 @@ export const RegexEntryPreview = z.object({
   disabled: z.boolean().optional(),
   markdownOnly: z.boolean().optional(),
   promptOnly: z.boolean().optional(),
+  ...ProjectEntryInspection.shape,
 });
 
 // ============ 用户相关类型 ============
