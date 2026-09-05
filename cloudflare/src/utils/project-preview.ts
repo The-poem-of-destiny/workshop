@@ -13,7 +13,7 @@ function safeParseJson(text: string): unknown {
 export function parseWorldbookEntriesPreview(projectFileText: string): WorldbookEntryPreviewType[] {
   const raw = safeParseJson(projectFileText);
   return extractProjectEntries(raw, 'worldbook').map(({ entry: item, entryKey }, index) => {
-    const inspection = inspectProjectEntry(item);
+    const inspection = inspectProjectEntry(item, 'worldbook');
     return {
       entryKey,
       uid: typeof item.uid === 'string' || typeof item.uid === 'number' ? String(item.uid) : String(index),
@@ -61,7 +61,7 @@ export function parseWorldbookEntriesPreview(projectFileText: string): Worldbook
 export function parseRegexEntriesPreview(regexFileText: string): RegexEntryPreviewType[] {
   const raw = safeParseJson(regexFileText);
   return extractProjectEntries(raw, 'regex').map(({ entry: item, entryKey }, index) => {
-    const inspection = inspectProjectEntry(item);
+    const inspection = inspectProjectEntry(item, 'regex');
     return {
       entryKey,
       id: typeof item.id === 'string' || typeof item.id === 'number' ? String(item.id) : String(index),
