@@ -36,6 +36,8 @@ for (const [name, script] of Object.entries(fragments)) {
 assert.match(fragments.homeModalsScript, /id=\"versionLabel\"/);
 assert.match(fragments.homeModalsScript, /版本名称（可选）/);
 assert.doesNotMatch(fragments.homeModalsScript, /versionBump|Patch|Minor|Major/);
+assert.match(fragments.homeCardsRenderScript, /撤回更新/);
+assert.doesNotMatch(fragments.homeCardsRenderScript, /审核中的项目暂不可删除/);
 
 const projectFormUi = Function(
   `${fragments.homeUtilsScript}\n${fragments.homeModalsScript}; return { buildProjectFormHtml };`,
@@ -89,5 +91,7 @@ assert.equal(typeof homeScript, 'string');
 new Function(homeScript);
 assert.match(homeScript, /reviewProject\(projectId, \{ action, expectedRevision: project\?\.draftRevision \}\)/);
 assert.match(homeScript, /reviewProject\(projectId, \{ action, rejectReason: reason, expectedRevision: project\?\.draftRevision \}\)/);
+assert.match(homeScript, /确定撤回这次更新吗/);
+assert.match(homeScript, /正在审核\/被退回的更新草稿也会一并删除/);
 
 console.log('assembled /assets/home.js syntax smoke: ok');

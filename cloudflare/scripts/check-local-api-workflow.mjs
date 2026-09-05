@@ -101,6 +101,7 @@ const regex = [
 
 let publishedId = null;
 let draftId = null;
+let pendingDeleteId = null;
 
 async function cleanupProject(id) {
   if (!id) return;
@@ -112,6 +113,27 @@ async function cleanupProject(id) {
 }
 
 try {
+  const removablePending = await api('/api/projects', {
+    method: 'POST',
+    token: creatorToken,
+    body: {
+      name: 'Local API Pending Delete',
+      description: 'Pending project should be deletable by its creator',
+      versionLabel: '待删除',
+      tags: ['系统'],
+    },
+  });
+  pendingDeleteId = removablePending.projectId;
+  assert.ok(pendingDeleteId);
+  await api(`/api/projects/${pendingDeleteId}/upload`, {
+    method: 'POST',
+    token: creatorToken,
+    body: JSON.stringify(worldbook),
+  });
+  await api(`/api/projects/${pendingDeleteId}`, { method: 'DELETE', token: creatorToken });
+  await api(`/api/projects/${pendingDeleteId}`, { token: creatorToken, expected: 404 });
+  pendingDeleteId = null;
+
   const created = await api('/api/projects', {
     method: 'POST',
     token: creatorToken,
@@ -161,6 +183,20 @@ try {
   assert.equal(approved.project.versionLabel, '初版');
   assert.equal(approved.worldbookEntriesPreview.length, 3);
   assert.equal(approved.regexEntriesPreview.length, 2);
+
+  const withdrawDraftUpdate = await api(`/api/projects/${publishedId}`, {
+    method: 'PUT',
+    token: creatorToken,
+    body: { description: 'Temporary draft that should be withdrawn' },
+  });
+  const withdrawnDraftId = withdrawDraftUpdate.draftProjectId;
+  assert.ok(withdrawnDraftId);
+  await api(`/api/projects/${withdrawnDraftId}`, { method: 'DELETE', token: creatorToken });
+  await api(`/api/projects/${withdrawnDraftId}`, { token: creatorToken, expected: 404 });
+  const publishedAfterWithdraw = await api(`/api/projects/${publishedId}`, { token: creatorToken });
+  assert.equal(publishedAfterWithdraw.project.status, 'approved');
+  assert.equal(publishedAfterWithdraw.project.description, 'Base description');
+  assert.equal(publishedAfterWithdraw.project.draftProjectId, null);
 
   const firstDraftUpdate = await api(`/api/projects/${publishedId}`, {
     method: 'PUT',
@@ -248,8 +284,23 @@ try {
   assert.ok(!finalPublished.worldbookEntriesPreview.some(entry => entry.entryKey === 'uid:102'));
   assert.ok(!finalPublished.regexEntriesPreview.some(entry => entry.entryKey === 'id:r2'));
 
+  const cascadeDraftUpdate = await api(`/api/projects/${publishedId}`, {
+    method: 'PUT',
+    token: creatorToken,
+    body: { description: 'Draft that should be deleted with the published project' },
+  });
+  draftId = cascadeDraftUpdate.draftProjectId;
+  assert.ok(draftId);
+  await api(`/api/projects/${draftId}`, { token: creatorToken });
+  await api(`/api/projects/${publishedId}`, { method: 'DELETE', token: creatorToken });
+  await api(`/api/projects/${publishedId}`, { token: creatorToken, expected: 404 });
+  await api(`/api/projects/${draftId}`, { token: creatorToken, expected: 404 });
+  draftId = null;
+  publishedId = null;
+
   console.log('local API workflow OK');
 } finally {
+  await cleanupProject(pendingDeleteId);
   await cleanupProject(draftId);
   await cleanupProject(publishedId);
 }

@@ -839,7 +839,19 @@ export class ProjectDelete extends OpenAPIRoute {
       return c.json({ error: 'Permission denied' }, 403);
     }
 
-    // 删除 R2 中的文件
+    // 删除正式项目时，把关联的审核草稿一起清掉，避免留下 orphan draft。
+    // 删除 draft 本身则只撤回该 draft；projectDb.delete() 会解除 published 上的关联。
+    let linkedDraftId: string | null = null;
+    if (project.isPublished) {
+      const linkedDraft = await projectDb.findDraftByPublishedId(c, project.id);
+      if (linkedDraft) {
+        linkedDraftId = linkedDraft.id;
+        await r2Storage.deleteProjectFiles(c, linkedDraft.id);
+        await projectDb.delete(c, linkedDraft.id);
+      }
+    }
+
+    // 删除目标项目自己的 R2 文件
     await r2Storage.deleteProjectFiles(c, projectId);
 
     // 删除数据库记录
@@ -847,6 +859,7 @@ export class ProjectDelete extends OpenAPIRoute {
 
     return {
       success: true,
+      deletedDraftProjectId: linkedDraftId,
       message: 'Project deleted successfully',
     };
   }
