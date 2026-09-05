@@ -3,8 +3,52 @@ import { z } from 'zod';
 import type { AppContext } from '../types';
 import { projectDb, userDb } from '../utils/db';
 import { getCurrentUserFromRequest } from '../utils/jwt';
+import { validateProjectContentText, type ProjectEntryKind } from '../utils/project-content';
 import { r2Storage } from '../utils/r2';
-import { classifyProjectVersionTransition } from '../utils/version.js';
+import { bumpProjectVersionWithLegacyFallback } from '../utils/version.js';
+
+function getReviewContentKey(projectId: string, kind: ProjectEntryKind): string {
+  const fileName = kind === 'worldbook' ? `project-${projectId}.json` : `regex-${projectId}.json`;
+  return `projects/${projectId}/${fileName}`;
+}
+
+async function readReviewContent(
+  c: AppContext,
+  projectId: string,
+  publishedProjectId: string | null | undefined,
+  kind: ProjectEntryKind,
+) {
+  const ownObject = await c.env.R2_BUCKET.get(getReviewContentKey(projectId, kind));
+  if (ownObject) return ownObject;
+  if (publishedProjectId) {
+    return c.env.R2_BUCKET.get(getReviewContentKey(publishedProjectId, kind));
+  }
+  return null;
+}
+
+async function validateReviewPayloads(
+  c: AppContext,
+  project: { id: string; publishedProjectId?: string | null },
+): Promise<{ valid: true } | { valid: false; error: string }> {
+  let validPayloadCount = 0;
+
+  for (const kind of ['worldbook', 'regex'] as const) {
+    const object = await readReviewContent(c, project.id, project.publishedProjectId, kind);
+    if (!object) continue;
+
+    const validation = validateProjectContentText(await object.text(), kind);
+    if (validation.valid === false) {
+      return { valid: false, error: validation.error };
+    }
+    validPayloadCount += 1;
+  }
+
+  if (validPayloadCount === 0) {
+    return { valid: false, error: 'Cannot approve project without a valid worldbook or regex payload' };
+  }
+
+  return { valid: true };
+}
 
 /**
  * 获取待审核项目列表 (仅管理员)
@@ -127,32 +171,40 @@ export class AdminReview extends OpenAPIRoute {
       return c.json({ error: 'Reject reason required' }, 400);
     }
 
-    let approvedVersionBump: string | null = null;
+    if (action === 'approve') {
+      const contentValidation = await validateReviewPayloads(c, project);
+      if (contentValidation.valid === false) {
+        return c.json({ error: contentValidation.error }, 409);
+      }
+    }
+
+    let approvedVersion: string | null = null;
+    let publishedVersionBeforeApproval: string | null = null;
     if (action === 'approve' && project.reviewTarget === 'draft' && project.publishedProjectId) {
       const published = await projectDb.get(c, project.publishedProjectId);
       if (!published) {
         return c.json({ error: 'Published project not found for draft' }, 409);
       }
-      try {
-        approvedVersionBump = classifyProjectVersionTransition(published.version, project.version);
-      } catch (error) {
-        return c.json({ error: error instanceof Error ? error.message : 'Invalid project version transition' }, 409);
-      }
-      if (!approvedVersionBump) {
-        return c.json({ error: `Invalid version transition: ${published.version} -> ${project.version}` }, 409);
-      }
+      publishedVersionBeforeApproval = published.version;
+      approvedVersion = bumpProjectVersionWithLegacyFallback(published.version, 'patch');
     }
 
     // 执行审核
     const reviewedAt = await projectDb.review(c, projectId, payload.userId, action, rejectReason);
 
     if (action === 'approve' && project.reviewTarget === 'draft' && project.publishedProjectId) {
-      const publishedAssets = await r2Storage.copyProjectFilesToPublished(c, projectId, project.publishedProjectId);
+      const publishedAssets = await r2Storage.copyProjectFilesToPublished(
+        c,
+        projectId,
+        project.publishedProjectId,
+        project.coverImage || undefined,
+      );
 
       await projectDb.update(c, project.publishedProjectId, {
         name: project.name,
         description: project.description || '',
-        version: project.version,
+        version: approvedVersion || project.version,
+        versionLabel: project.versionLabel ?? null,
         tags: project.tags,
         coverImage: publishedAssets.coverImage || project.coverImage || undefined,
         downloadUrl: publishedAssets.downloadUrl || project.downloadUrl || undefined,
@@ -171,6 +223,8 @@ export class AdminReview extends OpenAPIRoute {
       });
     } else if (action === 'approve') {
       await projectDb.update(c, projectId, {
+        version: project.version,
+        versionLabel: project.versionLabel ?? null,
         isPublished: true,
         visibility: project.visibility,
         latestApprovedAt: reviewedAt,
@@ -186,8 +240,9 @@ export class AdminReview extends OpenAPIRoute {
       detail: {
         rejectReason: rejectReason || null,
         projectName: project.name,
-        version: project.version,
-        versionBump: approvedVersionBump,
+        version: approvedVersion || project.version,
+        previousVersion: publishedVersionBeforeApproval,
+        versionLabel: project.versionLabel ?? null,
       },
     });
 

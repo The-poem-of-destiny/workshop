@@ -1,4 +1,13 @@
 export const homeApiScript = String.raw`
+const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
+const UPLOAD_SIZE_ERROR = '文件过大，最大 10MB';
+
+function assertUploadSize(file) {
+  if (file && Number(file.size) > MAX_UPLOAD_SIZE) {
+    throw new Error(UPLOAD_SIZE_ERROR);
+  }
+}
+
 function resolveApiErrorMessage(status, rawText, data, fallbackMessage) {
   const text = String(rawText || '').trim();
   if (/\b1027\b/.test(text)) return '服务额度用尽，请稍后再试';
@@ -253,21 +262,34 @@ async function fetchProjectEntries(projectOrId, options = {}) {
     }
 
     const forceRefresh = Boolean(options.forceRefresh);
+    const expectedVersion =
+      typeof projectOrId === 'object' && projectOrId?.version ? String(projectOrId.version) : null;
     if (forceRefresh) {
       invalidateProjectDetailCache(projectId);
     }
     const generation = getProjectDetailGeneration(projectId);
     const cacheEpoch = projectDetailCacheEpoch;
     const cached = projectDetailCache.get(projectId);
-    if (!forceRefresh && cached && Date.now() - cached.cachedAt <= PROJECT_DETAIL_CACHE_TTL_MS) {
+    if (
+      !forceRefresh &&
+      cached &&
+      Date.now() - cached.cachedAt <= PROJECT_DETAIL_CACHE_TTL_MS &&
+      (!expectedVersion || cached.data?.project?.version === expectedVersion)
+    ) {
       return cached.data;
     }
 
     const inFlight = projectDetailInFlight.get(projectId);
-    if (!forceRefresh && inFlight?.generation === generation && inFlight.cacheEpoch === cacheEpoch) {
+    if (
+      !forceRefresh &&
+      inFlight?.generation === generation &&
+      inFlight.cacheEpoch === cacheEpoch &&
+      inFlight.expectedVersion === expectedVersion
+    ) {
       return await inFlight.request;
     }
-    const request = apiFetch('/api/projects/' + projectId, {
+    const versionQuery = expectedVersion ? '?v=' + encodeURIComponent(expectedVersion) : '';
+    const request = apiFetch('/api/projects/' + projectId + versionQuery, {
       method: 'GET',
       ...(forceRefresh ? { cache: 'no-store' } : {}),
     }).then(detail => {
@@ -287,7 +309,7 @@ async function fetchProjectEntries(projectOrId, options = {}) {
       }
       return data;
     });
-    projectDetailInFlight.set(projectId, { generation, cacheEpoch, request });
+    projectDetailInFlight.set(projectId, { generation, cacheEpoch, expectedVersion, request });
     try {
       return await request;
     } finally {
@@ -332,6 +354,7 @@ async function deleteProject(projectId) {
 }
 
 async function uploadProjectFile(projectId, file) {
+  assertUploadSize(file);
   try {
     const response = await fetch('/api/projects/' + projectId + '/upload', {
       method: 'POST',
@@ -353,6 +376,7 @@ async function uploadProjectFile(projectId, file) {
 }
 
 async function uploadRegexFile(projectId, file) {
+  assertUploadSize(file);
   try {
     const response = await fetch('/api/projects/' + projectId + '/upload-regex', {
       method: 'POST',
@@ -374,6 +398,7 @@ async function uploadRegexFile(projectId, file) {
 }
 
 async function uploadCoverFile(projectId, file) {
+  assertUploadSize(file);
   const formData = new FormData();
   formData.append('cover', file);
   try {

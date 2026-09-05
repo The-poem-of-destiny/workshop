@@ -197,12 +197,12 @@ function requestUninstallProject(projectId) {
   postBridgeMessage('bridge:uninstall-project', { projectId });
 }
 
-function requestProjectDiff(projectId) {
+function requestProjectDiff(projectId, projectVersion = null) {
   const cachedDiff = getProjectUpdateDiff(projectId);
   if (window.__CW_TAVERN_MOCK__ && cachedDiff) {
     return Promise.resolve(cachedDiff);
   }
-  const requestId = postBridgeMessage('bridge:get-project-diff', { projectId });
+  const requestId = postBridgeMessage('bridge:get-project-diff', { projectId, ...(projectVersion ? { projectVersion } : {}) });
   return new Promise((resolve, reject) => {
     const timeoutId = setTimeout(() => {
       if (!pendingProjectDiffRequests.has(requestId)) return;
@@ -213,10 +213,10 @@ function requestProjectDiff(projectId) {
   });
 }
 
-function confirmProjectUpdate(projectId) {
+function confirmProjectUpdate(projectId, projectVersion = null) {
   setProjectPendingAction(projectId, 'update');
   renderApp();
-  postBridgeMessage('bridge:confirm-project-update', { projectId });
+  postBridgeMessage('bridge:confirm-project-update', { projectId, ...(projectVersion ? { projectVersion } : {}) });
 }
 
 function requestOAuthLogin(authUrl, state) {

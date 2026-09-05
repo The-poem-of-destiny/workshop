@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS projects (
     name TEXT NOT NULL,
     description TEXT,
     version TEXT DEFAULT '1.0.0',
+    version_label TEXT,
     author_id TEXT NOT NULL,
     author_name TEXT NOT NULL,
     author_avatar TEXT,

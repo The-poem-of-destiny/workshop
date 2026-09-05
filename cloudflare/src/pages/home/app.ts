@@ -270,7 +270,16 @@ export const homeScript = String.raw`
     if (releaseNoticeBtn) releaseNoticeBtn.onclick = openReleaseNoticeModal;
     if (workshopCloseBtn) workshopCloseBtn.onclick = requestCloseWorkshop;
     if (logoutBtn) logoutBtn.onclick = logout;
-    if (uploadBtn) uploadBtn.onclick = openUploadModal;
+    if (uploadBtn) uploadBtn.onclick = event => {
+      event.stopPropagation();
+      state.userMenuOpen = false;
+      try {
+        openUploadModal();
+      } catch (error) {
+        console.error('[CreativeWorkshop] failed to open upload modal', error);
+        showToast('无法打开上传窗口: ' + (error?.message || String(error)), 'error');
+      }
+    };
     if (myProjectsMenuBtn) myProjectsMenuBtn.onclick = async () => {
       state.showOnlyMyProjects = !state.showOnlyMyProjects;
       if (state.showOnlyMyProjects) {
@@ -427,21 +436,16 @@ export const homeScript = String.raw`
 
     if (projectLoadMoreBtn) projectLoadMoreBtn.onclick = () => loadMoreProjects();
 
-    document.querySelectorAll('.detail-btn').forEach(button => {
-      button.addEventListener('click', event => {
-        event.stopPropagation();
-        const project = filteredProjects.find(item => item.id === button.dataset.id);
-        if (project) {
-          const originalHtml = button.innerHTML;
-          button.disabled = true;
-          button.classList.add('is-loading');
-          button.innerHTML = '<span class="inline-loading-spinner"></span><span>加载中</span>';
-          Promise.resolve(showProjectDetail(project)).finally(() => {
-            button.disabled = false;
-            button.classList.remove('is-loading');
-            button.innerHTML = originalHtml;
-          });
-        }
+    document.querySelectorAll('.project-card').forEach(card => {
+      const openDetail = () => {
+        const project = filteredProjects.find(item => item.id === card.dataset.id);
+        if (project) showProjectDetail(project);
+      };
+      card.addEventListener('click', openDetail);
+      card.addEventListener('keydown', event => {
+        if (event.target !== card || (event.key !== 'Enter' && event.key !== ' ')) return;
+        event.preventDefault();
+        openDetail();
       });
     });
 
@@ -463,7 +467,7 @@ export const homeScript = String.raw`
           requestUninstallProject(projectId);
           return;
         }
-        openInstallWorldbookModal(projectId);
+        openInstallWorldbookModal(projectId, project.version);
       });
     });
 
@@ -473,7 +477,7 @@ export const homeScript = String.raw`
         const project = filteredProjects.find(item => item.id === button.dataset.id);
         if (project) {
           const restore = setButtonLoading(button, '加载差异');
-          requestProjectDiff(project.id)
+          requestProjectDiff(project.id, project.version)
             .then(diff => openProjectUpdateModal(project, diff))
             .catch(error => showToast('加载更新差异失败: ' + error.message, 'error'))
             .finally(restore);
@@ -513,14 +517,42 @@ export const homeScript = String.raw`
         event.stopPropagation();
         if (button.disabled) return;
         const projectId = button.dataset.id;
-        if (!projectId || !confirm('确定要删除该项目吗？')) return;
-        const restore = setButtonLoading(button, '删除中');
+        const project = filteredProjects.find(item => item.id === projectId);
+        if (!projectId || !project) return;
+        const isReviewDraft = Boolean(project.reviewTarget === 'draft' && project.publishedProjectId);
+        const isPublishedWithDraft = Boolean(project.isPublished && (project.hasPendingDraft || project.draftProjectId));
+        const confirmText = isReviewDraft
+          ? '确定撤回这次更新吗？已发布版本会继续保留。'
+          : isPublishedWithDraft
+            ? '确定删除这个正式项目吗？正在审核/被退回的更新草稿也会一并删除。'
+            : '确定要删除该项目吗？';
+        if (!confirm(confirmText)) return;
+        const restore = setButtonLoading(button, isReviewDraft ? '撤回中' : '删除中');
         try {
           await deleteProject(projectId);
           await fetchProjects();
-          showToast('项目已删除');
+          showToast(isReviewDraft ? '更新草稿已撤回，已发布版本保持不变' : '项目已删除');
         } catch (error) {
-          showToast('删除失败: ' + error.message, 'error');
+          showToast((isReviewDraft ? '撤回失败: ' : '删除失败: ') + error.message, 'error');
+        } finally {
+          restore();
+        }
+      });
+    });
+
+    document.querySelectorAll('.delete-project-btn').forEach(button => {
+      button.addEventListener('click', async event => {
+        event.stopPropagation();
+        const publishedProjectId = button.dataset.id;
+        if (!publishedProjectId) return;
+        if (!confirm('确定删除整个项目吗？已发布版本和当前审核/退回草稿都会一起删除。')) return;
+        const restore = setButtonLoading(button, '删除中');
+        try {
+          await deleteProject(publishedProjectId);
+          await fetchProjects();
+          showToast('整个项目已删除');
+        } catch (error) {
+          showToast('删除项目失败: ' + error.message, 'error');
         } finally {
           restore();
         }

@@ -96,6 +96,63 @@ export function parseProjectJson(text: string): unknown {
   }
 }
 
+export type ProjectContentValidation =
+  | { valid: true; entryCount: number }
+  | { valid: false; entryCount: 0; error: string };
+
+function hasSupportedContainerShape(raw: unknown, kind: ProjectEntryKind): boolean {
+  if (Array.isArray(raw)) return true;
+
+  const record = asRecord(raw);
+  if (!record) return false;
+  if (Array.isArray(record.entries) || asRecord(record.entries)) return true;
+
+  if (kind === 'regex') {
+    return (
+      typeof record.findRegex === 'string' ||
+      typeof record.find_regex === 'string' ||
+      typeof record.replaceString === 'string' ||
+      typeof record.replace_string === 'string' ||
+      typeof record.scriptName === 'string' ||
+      typeof record.script_name === 'string'
+    );
+  }
+
+  return false;
+}
+
+export function validateProjectContentText(text: string, kind: ProjectEntryKind): ProjectContentValidation {
+  let raw: unknown;
+  try {
+    raw = parseProjectJson(text);
+  } catch (error) {
+    return {
+      valid: false,
+      entryCount: 0,
+      error: error instanceof Error ? error.message : '项目 JSON 无法解析',
+    };
+  }
+
+  if (!hasSupportedContainerShape(raw, kind)) {
+    return {
+      valid: false,
+      entryCount: 0,
+      error: kind === 'worldbook' ? '不支持的世界书 JSON 结构' : '不支持的正则 JSON 结构',
+    };
+  }
+
+  const entries = extractProjectEntries(raw, kind);
+  if (entries.length === 0) {
+    return {
+      valid: false,
+      entryCount: 0,
+      error: kind === 'worldbook' ? '世界书没有可识别的条目' : '正则文件没有可识别的条目',
+    };
+  }
+
+  return { valid: true, entryCount: entries.length };
+}
+
 export function removeProjectEntryFromJson(
   text: string,
   kind: ProjectEntryKind,

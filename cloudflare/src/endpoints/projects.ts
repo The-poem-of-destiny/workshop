@@ -3,12 +3,19 @@ import { z } from 'zod';
 import type { AppContext } from '../types';
 import { generateId, projectDb, userDb } from '../utils/db';
 import { getCurrentUserFromRequest } from '../utils/jwt';
-import { removeProjectEntryFromJson, type ProjectEntryKind } from '../utils/project-content';
+import {
+  removeProjectEntryFromJson,
+  validateProjectContentText,
+  type ProjectEntryKind,
+} from '../utils/project-content';
 import { parseRegexEntriesPreview, parseWorldbookEntriesPreview } from '../utils/project-preview';
 import { r2Storage } from '../utils/r2';
 import { bumpProjectVersionWithLegacyFallback } from '../utils/version.js';
 
 const projectListSortSchema = z.enum(['published', 'updated', 'likes', 'subscribes', 'downloads']);
+const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
+const MAX_COVER_REQUEST_SIZE = MAX_UPLOAD_SIZE + 1024 * 1024;
+const UPLOAD_SIZE_ERROR = '文件过大，最大 10MB';
 
 
 async function readProjectPreview(
@@ -138,6 +145,9 @@ export class ProjectFetch extends OpenAPIRoute {
     request: {
       params: z.object({
         projectId: Str({ description: 'Project ID' }),
+      }),
+      query: z.object({
+        v: Str({ required: false }).describe('Expected project version cache key'),
       }),
     },
     responses: {
@@ -277,6 +287,7 @@ export class ProjectCreate extends OpenAPIRoute {
             schema: z.object({
               name: Str({ description: 'Project name' }),
               description: Str({ required: false }).describe('Project description'),
+              versionLabel: z.string().max(80).nullable().optional(),
               tags: z.array(z.string()).default([]),
               coverImage: Str({ required: false }),
             }),
@@ -310,6 +321,11 @@ export class ProjectCreate extends OpenAPIRoute {
 
       const name = typeof rawBody.name === 'string' ? rawBody.name.trim() : '';
       const description = typeof rawBody.description === 'string' ? rawBody.description : undefined;
+      const rawVersionLabel = rawBody.versionLabel;
+      if (rawVersionLabel !== undefined && rawVersionLabel !== null && typeof rawVersionLabel !== 'string') {
+        return c.json({ error: 'Version label must be text' }, 400);
+      }
+      const versionLabel = typeof rawVersionLabel === 'string' ? rawVersionLabel.trim() || null : rawVersionLabel;
       const tags = Array.isArray(rawBody.tags) ? rawBody.tags.filter(tag => typeof tag === 'string') : [];
       const coverImage = typeof rawBody.coverImage === 'string' ? rawBody.coverImage : undefined;
 
@@ -320,8 +336,12 @@ export class ProjectCreate extends OpenAPIRoute {
       if (name.length > 100) {
         return c.json({ error: 'Project name must be 100 characters or fewer' }, 400);
       }
+      if (typeof versionLabel === 'string' && versionLabel.length > 80) {
+        return c.json({ error: 'Version label must be 80 characters or fewer' }, 400);
+      }
 
       const projectId = generateId();
+      const existingUser = await userDb.get(c, payload.userId);
 
       await userDb.upsert(c, {
         id: payload.userId,
@@ -329,7 +349,7 @@ export class ProjectCreate extends OpenAPIRoute {
         global_name: payload.globalName,
         avatar: payload.avatar || '',
         discriminator: '0000',
-        guilds: [],
+        guilds: existingUser?.guilds || [],
         isAdmin: payload.isAdmin,
       });
 
@@ -338,6 +358,7 @@ export class ProjectCreate extends OpenAPIRoute {
         name,
         description,
         version: '1.0.0',
+        versionLabel,
         authorId: payload.userId,
         authorName: payload.username,
         authorAvatar: payload.avatar || '',
@@ -404,25 +425,29 @@ export class ProjectUpload extends OpenAPIRoute {
       return c.json({ error: 'Permission denied' }, 403);
     }
 
-    const maxUploadSize = 10 * 1024 * 1024;
     const contentLengthHeader = c.req.header('content-length');
     const contentLength = contentLengthHeader ? Number(contentLengthHeader) : Number.NaN;
 
-    if (Number.isFinite(contentLength) && contentLength > maxUploadSize) {
-      return c.json({ error: 'File too large. Maximum size is 10MB' }, 413);
+    if (Number.isFinite(contentLength) && contentLength > MAX_UPLOAD_SIZE) {
+      return c.json({ error: UPLOAD_SIZE_ERROR }, 413);
     }
 
     // 获取文件内容
     const arrayBuffer = await c.req.arrayBuffer();
     const contentType = c.req.header('content-type') || 'application/json';
 
-    if (arrayBuffer.byteLength > maxUploadSize) {
-      return c.json({ error: 'File too large. Maximum size is 10MB' }, 413);
+    if (arrayBuffer.byteLength > MAX_UPLOAD_SIZE) {
+      return c.json({ error: UPLOAD_SIZE_ERROR }, 413);
     }
 
     // 验证文件类型
     if (!contentType.includes('application/json')) {
       return c.json({ error: 'Only JSON files are allowed' }, 400);
+    }
+
+    const validation = validateProjectContentText(new TextDecoder().decode(arrayBuffer), 'worldbook');
+    if (validation.valid === false) {
+      return c.json({ error: validation.error }, 400);
     }
 
     if (project.isPublished && project.status === 'approved') {
@@ -470,6 +495,7 @@ export class ProjectUpload extends OpenAPIRoute {
     };
 
     await projectDb.update(c, projectId, updateData);
+    await projectDb.bumpDraftRevision(c, projectId);
 
     return {
       success: true,
@@ -517,11 +543,21 @@ export class ProjectCoverUpload extends OpenAPIRoute {
       return c.json({ error: 'Permission denied' }, 403);
     }
 
+    const contentLengthHeader = c.req.header('content-length');
+    const contentLength = contentLengthHeader ? Number(contentLengthHeader) : Number.NaN;
+    if (Number.isFinite(contentLength) && contentLength > MAX_COVER_REQUEST_SIZE) {
+      return c.json({ error: UPLOAD_SIZE_ERROR }, 413);
+    }
+
     const formData = await c.req.formData();
     const cover = formData.get('cover');
 
     if (!(cover instanceof File)) {
       return c.json({ error: 'Cover file is required' }, 400);
+    }
+
+    if (cover.size > MAX_UPLOAD_SIZE) {
+      return c.json({ error: UPLOAD_SIZE_ERROR }, 413);
     }
 
     const contentType = cover.type || 'application/octet-stream';
@@ -538,31 +574,48 @@ export class ProjectCoverUpload extends OpenAPIRoute {
       return c.json({ error: 'Only jpg/png/webp images are allowed' }, 400);
     }
 
-    const key = `projects/${projectId}/cover.${extension}`;
-    const uploadResult = await r2Storage.upload(c, key, await cover.arrayBuffer(), contentType);
-
-    if (!uploadResult) {
-      return c.json({ error: 'Upload failed' }, 500);
-    }
+    let targetProjectId = projectId;
+    let newlyCreatedDraftId: string | null = null;
+    let reusedDraft = false;
 
     if (project.isPublished && project.status === 'approved') {
-      const draftId = await projectDb.createDraftFromPublished(c, projectId, { coverImage: key });
+      const existingDraft = await projectDb.findDraftByPublishedId(c, projectId);
+      const draftId = existingDraft?.id || (await projectDb.createDraftFromPublished(c, projectId, {}));
       if (!draftId) {
         return c.json({ error: 'Draft creation failed' }, 500);
       }
+      targetProjectId = draftId;
+      reusedDraft = Boolean(existingDraft);
+      if (!existingDraft) {
+        newlyCreatedDraftId = draftId;
+      }
+    }
 
-      await projectDb.setCoverImage(c, draftId, key);
+    const key = `projects/${targetProjectId}/cover.${extension}`;
+    const uploadResult = await r2Storage.upload(c, key, await cover.arrayBuffer(), contentType);
 
+    if (!uploadResult) {
+      if (newlyCreatedDraftId) {
+        await projectDb.delete(c, newlyCreatedDraftId);
+      }
+      return c.json({ error: 'Upload failed' }, 500);
+    }
+
+    await projectDb.setCoverImage(c, targetProjectId, key);
+    if (reusedDraft) {
+      await projectDb.bumpDraftRevision(c, targetProjectId);
+    }
+
+    if (targetProjectId !== projectId) {
       return {
         success: true,
         coverImage: uploadResult.url,
-        projectId: draftId,
+        projectId: targetProjectId,
         message: '封面修改已进入审核区，主页仍显示旧版本。',
       };
     }
 
-    await projectDb.setCoverImage(c, projectId, key);
-
+    await projectDb.bumpDraftRevision(c, projectId);
     return {
       success: true,
       coverImage: uploadResult.url,
@@ -698,7 +751,7 @@ export class ProjectUpdate extends OpenAPIRoute {
             schema: z.object({
               name: Str({ required: false }),
               description: Str({ required: false }),
-              versionBump: z.enum(['patch', 'minor', 'major']).optional().default('patch'),
+              versionLabel: z.string().max(80).nullable().optional(),
               tags: z.array(z.string()).optional(),
               coverImage: Str({ required: false }),
             }),
@@ -721,7 +774,12 @@ export class ProjectUpdate extends OpenAPIRoute {
 
     const data = await this.getValidatedData<typeof this.schema>();
     const { projectId } = data.params;
-    const { versionBump = 'patch', ...updates } = data.body;
+    const updates = {
+      ...data.body,
+      ...(data.body.versionLabel !== undefined
+        ? { versionLabel: typeof data.body.versionLabel === 'string' ? data.body.versionLabel.trim() || null : null }
+        : {}),
+    };
 
     // 检查项目是否存在且属于当前用户
     const project = await projectDb.get(c, projectId);
@@ -734,13 +792,7 @@ export class ProjectUpdate extends OpenAPIRoute {
     }
 
     if (project.isPublished && project.status === 'approved') {
-      let targetVersion: string;
-      try {
-        targetVersion = bumpProjectVersionWithLegacyFallback(project.version, versionBump);
-      } catch (error) {
-        return c.json({ error: error instanceof Error ? error.message : 'Invalid project version' }, 409);
-      }
-
+      const targetVersion = bumpProjectVersionWithLegacyFallback(project.version, 'patch');
       const draftId = await projectDb.createDraftFromPublished(c, projectId, { ...updates, version: targetVersion });
       if (!draftId) {
         return c.json({ error: 'Draft creation failed' }, 500);
@@ -751,7 +803,6 @@ export class ProjectUpdate extends OpenAPIRoute {
         projectId: draftId,
         draftProjectId: draftId,
         targetVersion,
-        versionBump,
         message: '修改后的新版本已进入审核区，主界面仍显示旧版本。',
       };
     }
@@ -762,31 +813,25 @@ export class ProjectUpdate extends OpenAPIRoute {
         return c.json({ error: 'Published project not found for draft' }, 409);
       }
 
-      let targetVersion: string;
-      try {
-        targetVersion = bumpProjectVersionWithLegacyFallback(published.version, versionBump);
-      } catch (error) {
-        return c.json({ error: error instanceof Error ? error.message : 'Invalid project version' }, 409);
-      }
-
+      const targetVersion = bumpProjectVersionWithLegacyFallback(published.version, 'patch');
       await projectDb.update(c, projectId, { ...updates, version: targetVersion, status: 'pending' });
+      await projectDb.bumpDraftRevision(c, projectId);
       return {
         success: true,
         projectId,
         draftProjectId: projectId,
         targetVersion,
-        versionBump,
         message: 'Draft updated and resubmitted for review',
       };
     }
 
     await projectDb.update(c, projectId, { ...updates, version: '1.0.0', status: 'pending' });
+    await projectDb.bumpDraftRevision(c, projectId);
 
     return {
       success: true,
       projectId,
       targetVersion: '1.0.0',
-      versionBump: 'patch',
       message: 'Project updated successfully',
     };
   }
@@ -834,7 +879,19 @@ export class ProjectDelete extends OpenAPIRoute {
       return c.json({ error: 'Permission denied' }, 403);
     }
 
-    // 删除 R2 中的文件
+    // 删除正式项目时，把关联的审核草稿一起清掉，避免留下 orphan draft。
+    // 删除 draft 本身则只撤回该 draft；projectDb.delete() 会解除 published 上的关联。
+    let linkedDraftId: string | null = null;
+    if (project.isPublished) {
+      const linkedDraft = await projectDb.findDraftByPublishedId(c, project.id);
+      if (linkedDraft) {
+        linkedDraftId = linkedDraft.id;
+        await r2Storage.deleteProjectFiles(c, linkedDraft.id);
+        await projectDb.delete(c, linkedDraft.id);
+      }
+    }
+
+    // 删除目标项目自己的 R2 文件
     await r2Storage.deleteProjectFiles(c, projectId);
 
     // 删除数据库记录
@@ -842,6 +899,7 @@ export class ProjectDelete extends OpenAPIRoute {
 
     return {
       success: true,
+      deletedDraftProjectId: linkedDraftId,
       message: 'Project deleted successfully',
     };
   }
@@ -889,19 +947,38 @@ export class ProjectRegexUpload extends OpenAPIRoute {
       return c.json({ error: 'Permission denied' }, 403);
     }
 
+    const contentLengthHeader = c.req.header('content-length');
+    const contentLength = contentLengthHeader ? Number(contentLengthHeader) : Number.NaN;
+    if (Number.isFinite(contentLength) && contentLength > MAX_UPLOAD_SIZE) {
+      return c.json({ error: UPLOAD_SIZE_ERROR }, 413);
+    }
+
     // 获取文件内容
     const arrayBuffer = await c.req.arrayBuffer();
     const contentType = c.req.header('content-type') || 'application/json';
+
+    if (arrayBuffer.byteLength > MAX_UPLOAD_SIZE) {
+      return c.json({ error: UPLOAD_SIZE_ERROR }, 413);
+    }
 
     // 验证文件类型
     if (!contentType.includes('application/json')) {
       return c.json({ error: 'Only JSON files are allowed' }, 400);
     }
 
-    const targetProjectId =
-      project.isPublished && project.status === 'approved'
-        ? (await projectDb.createDraftFromPublished(c, projectId, {})) || projectId
-        : projectId;
+    const validation = validateProjectContentText(new TextDecoder().decode(arrayBuffer), 'regex');
+    if (validation.valid === false) {
+      return c.json({ error: validation.error }, 400);
+    }
+
+    let targetProjectId = projectId;
+    if (project.isPublished && project.status === 'approved') {
+      const draftId = await projectDb.createDraftFromPublished(c, projectId, {});
+      if (!draftId) {
+        return c.json({ error: 'Draft creation failed' }, 500);
+      }
+      targetProjectId = draftId;
+    }
 
     const fileName = `regex-${targetProjectId}.json`;
 
@@ -909,6 +986,9 @@ export class ProjectRegexUpload extends OpenAPIRoute {
     const result = await r2Storage.uploadProjectFile(c, targetProjectId, arrayBuffer, fileName, contentType);
     if (!result) {
       return c.json({ error: 'Upload failed' }, 500);
+    }
+    if (!(project.isPublished && project.status === 'approved')) {
+      await projectDb.bumpDraftRevision(c, targetProjectId);
     }
 
     return {
@@ -1031,6 +1111,9 @@ export class ProjectEntryRemove extends OpenAPIRoute {
 
     if (kind === 'worldbook') {
       await projectDb.update(c, targetProjectId, { downloadUrl: result.url, fileSize: result.size });
+    }
+    if (!(project.isPublished && project.status === 'approved')) {
+      await projectDb.bumpDraftRevision(c, targetProjectId);
     }
 
     if (payload.isAdmin && project.authorId !== payload.userId) {

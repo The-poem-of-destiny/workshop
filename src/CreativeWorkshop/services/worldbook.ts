@@ -96,8 +96,8 @@ type PreparedEntry = {
   scanDepth: WorldbookEntry['strategy']['scan_depth'];
 };
 
-async function prepareCreativeWorkshopProject(projectId: string, selectedEntryKeys?: string[]) {
-  const detail = await fetchCreativeWorkshopProjectDetail(projectId);
+async function prepareCreativeWorkshopProject(projectId: string, selectedEntryKeys?: string[], expectedVersion?: string) {
+  const detail = await fetchCreativeWorkshopProjectDetail(projectId, expectedVersion);
   const sourceEntries = await fetchCreativeWorkshopProjectWorldbookSource(detail);
   const entries = sourceEntries.length > 0 ? sourceEntries : detail.worldbookEntriesPreview || [];
   const selected = selectedEntryKeys ? new Set(selectedEntryKeys) : null;
@@ -220,8 +220,9 @@ export async function installCreativeWorkshopProject(
   projectId: string,
   selectedEntryKeys?: string[],
   requestedWorldbookName?: string,
+  expectedVersion?: string,
 ) {
-  const { detail, prepared } = await prepareCreativeWorkshopProject(projectId, selectedEntryKeys);
+  const { detail, prepared } = await prepareCreativeWorkshopProject(projectId, selectedEntryKeys, expectedVersion);
   const worldbookName = requestedWorldbookName
     ? await ensureTargetWorldbook(requestedWorldbookName)
     : getCurrentWorldbookName();
@@ -237,8 +238,8 @@ export async function uninstallCreativeWorkshopProject(projectId: string) {
   return deletedEntries;
 }
 
-export async function updateCreativeWorkshopProject(projectId: string) {
-  const { detail, prepared } = await prepareCreativeWorkshopProject(projectId);
+export async function updateCreativeWorkshopProject(projectId: string, expectedVersion?: string) {
+  const { detail, prepared } = await prepareCreativeWorkshopProject(projectId, undefined, expectedVersion);
   const worldbookName = await ensureTargetWorldbook(await getInstalledWorldbookName(projectId));
   await deleteProjectEntriesFromWorldbook(projectId, worldbookName);
   await applyPreparedProject(projectId, detail, prepared, worldbookName);

@@ -59,10 +59,14 @@ function pruneCreativeWorkshopCacheStore(cache: CreativeWorkshopCacheStore): Cre
   return cache;
 }
 
-function getCachedProjectDetail(projectId: string): CreativeWorkshopProjectDetail | null {
+function getCachedProjectDetail(projectId: string, expectedVersion?: string): CreativeWorkshopProjectDetail | null {
   const cache = getCreativeWorkshopCacheStore();
   const entry = cache.projectDetails?.[projectId];
-  if (!entry || Date.now() - entry.cachedAt > PROJECT_DETAIL_CACHE_TTL_MS) {
+  if (
+    !entry ||
+    Date.now() - entry.cachedAt > PROJECT_DETAIL_CACHE_TTL_MS ||
+    (expectedVersion && _.get(entry.data, 'project.version') !== expectedVersion)
+  ) {
     return null;
   }
   return entry.data;
@@ -90,10 +94,13 @@ function getCachedWorldbookSource(
   return entry.data;
 }
 
-function getAnyCachedWorldbookSource(projectId: string): CreativeWorkshopWorldbookSourceEntry[] | null {
+function getAnyCachedWorldbookSource(
+  projectId: string,
+  downloadUrl: string,
+): CreativeWorkshopWorldbookSourceEntry[] | null {
   const cache = getCreativeWorkshopCacheStore();
   const entry = cache.worldbookSources?.[projectId];
-  return entry ? entry.data : null;
+  return entry?.downloadUrl === downloadUrl ? entry.data : null;
 }
 
 function setCachedWorldbookSource(
@@ -172,7 +179,7 @@ export async function fetchCreativeWorkshopProjectWorldbookSource(projectDetail:
     return normalized;
   } catch (error) {
     if (_.isString(projectId) && projectId) {
-      const fallback = getAnyCachedWorldbookSource(projectId);
+      const fallback = getAnyCachedWorldbookSource(projectId, downloadUrl);
       if (fallback) {
         console.warn('[CreativeWorkshop] 使用缓存的世界书源文件', { projectId, error });
         return fallback;
@@ -182,15 +189,19 @@ export async function fetchCreativeWorkshopProjectWorldbookSource(projectDetail:
   }
 }
 
-export async function fetchCreativeWorkshopProjectDetail(projectId: string): Promise<CreativeWorkshopProjectDetail> {
-  const cached = getCachedProjectDetail(projectId);
+export async function fetchCreativeWorkshopProjectDetail(
+  projectId: string,
+  expectedVersion?: string,
+): Promise<CreativeWorkshopProjectDetail> {
+  const cached = getCachedProjectDetail(projectId, expectedVersion);
   if (cached) {
     return cached;
   }
 
   try {
-    const response = await fetch(`${getCreativeWorkshopUrl()}/api/projects/${projectId}`, {
-      cache: 'force-cache',
+    const versionQuery = expectedVersion ? `?v=${encodeURIComponent(expectedVersion)}` : '';
+    const response = await fetch(`${getCreativeWorkshopUrl()}/api/projects/${projectId}${versionQuery}`, {
+      cache: expectedVersion ? 'force-cache' : 'no-cache',
     });
     if (!response.ok) {
       throw new Error(`获取云端项目详情失败: ${response.status}`);
@@ -211,8 +222,8 @@ export async function fetchCreativeWorkshopProjectDetail(projectId: string): Pro
     return normalized;
   } catch (error) {
     const fallback = getCreativeWorkshopCacheStore().projectDetails?.[projectId]?.data;
-    if (fallback) {
-      console.warn('[CreativeWorkshop] 使用缓存的项目详情', { projectId, error });
+    if (fallback && (!expectedVersion || _.get(fallback, 'project.version') === expectedVersion)) {
+      console.warn('[CreativeWorkshop] 使用缓存的项目详情', { projectId, expectedVersion, error });
       return fallback;
     }
     throw error;
