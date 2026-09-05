@@ -1,6 +1,6 @@
 import type { RegexEntryPreviewType, WorldbookEntryPreviewType } from '../types';
-import { extractProjectEntries } from './project-content';
-import { inspectProjectEntry } from './project-inspection';
+import { extractProjectEntries } from './project-content.ts';
+import { inspectProjectEntry } from './project-inspection.ts';
 
 function safeParseJson(text: string): unknown {
   try {
