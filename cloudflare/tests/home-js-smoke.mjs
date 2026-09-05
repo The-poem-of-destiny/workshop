@@ -38,6 +38,7 @@ assert.match(fragments.homeModalsScript, /版本名称（可选）/);
 assert.doesNotMatch(fragments.homeModalsScript, /versionBump|Patch|Minor|Major/);
 assert.match(fragments.homeCardsRenderScript, /撤回更新/);
 assert.match(fragments.homeCardsRenderScript, /delete-project-btn/);
+assert.match(fragments.homeCardsRenderScript, /editButtonHtml = isReviewDraftProject && isPendingProject/);
 assert.match(fragments.homeCardsRenderScript, /role=\"button\" tabindex=\"0\"/);
 assert.doesNotMatch(fragments.homeCardsRenderScript, /detail-btn/);
 assert.doesNotMatch(fragments.homeCardsRenderScript, /审核中的项目暂不可删除/);
