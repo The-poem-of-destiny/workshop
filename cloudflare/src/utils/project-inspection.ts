@@ -1,3 +1,5 @@
+import type { ProjectEntryKind } from './project-content';
+
 export type ProjectEntryInspection = {
   hasEjs: boolean;
   hasCharacterArtwork: boolean;
@@ -11,21 +13,19 @@ export const CHARACTER_ARTWORK_INCOMPLETE_WARNING = 'character_artwork_marker_in
 
 const EJS_TAG_PATTERN = /<%[\s\S]*?%>/;
 
-function collectStringValues(value: unknown, output: string[], depth = 0): void {
-  if (depth > 16 || value === null || value === undefined) return;
-  if (typeof value === 'string') {
-    output.push(value);
-    return;
+function getInspectableStrings(entry: Record<string, unknown>, kind: ProjectEntryKind): string[] {
+  if (kind === 'worldbook') {
+    const content = typeof entry.content === 'string' ? entry.content : typeof entry.text === 'string' ? entry.text : '';
+    return content ? [content] : [];
   }
-  if (Array.isArray(value)) {
-    for (const item of value) collectStringValues(item, output, depth + 1);
-    return;
-  }
-  if (typeof value === 'object') {
-    for (const item of Object.values(value as Record<string, unknown>)) {
-      collectStringValues(item, output, depth + 1);
-    }
-  }
+
+  const replacement =
+    typeof entry.replaceString === 'string'
+      ? entry.replaceString
+      : typeof entry.replace_string === 'string'
+        ? entry.replace_string
+        : '';
+  return replacement ? [replacement] : [];
 }
 
 function countOccurrences(text: string, needle: string): number {
@@ -53,9 +53,8 @@ function countCompleteCharacterArtworkBlocks(text: string): number {
   }
 }
 
-export function inspectProjectEntry(entry: Record<string, unknown>): ProjectEntryInspection {
-  const strings: string[] = [];
-  collectStringValues(entry, strings);
+export function inspectProjectEntry(entry: Record<string, unknown>, kind: ProjectEntryKind): ProjectEntryInspection {
+  const strings = getInspectableStrings(entry, kind);
 
   let hasEjs = false;
   let startCount = 0;
@@ -64,6 +63,7 @@ export function inspectProjectEntry(entry: Record<string, unknown>): ProjectEntr
 
   for (const text of strings) {
     if (!hasEjs && EJS_TAG_PATTERN.test(text)) hasEjs = true;
+    if (kind !== 'worldbook') continue;
     startCount += countOccurrences(text, CHARACTER_ARTWORK_START);
     endCount += countOccurrences(text, CHARACTER_ARTWORK_END);
     completeBlockCount += countCompleteCharacterArtworkBlocks(text);
