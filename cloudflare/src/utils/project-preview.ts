@@ -1,5 +1,6 @@
 import type { RegexEntryPreviewType, WorldbookEntryPreviewType } from '../types';
 import { extractProjectEntries } from './project-content';
+import { inspectProjectEntry } from './project-inspection';
 
 function safeParseJson(text: string): unknown {
   try {
@@ -12,6 +13,7 @@ function safeParseJson(text: string): unknown {
 export function parseWorldbookEntriesPreview(projectFileText: string): WorldbookEntryPreviewType[] {
   const raw = safeParseJson(projectFileText);
   return extractProjectEntries(raw, 'worldbook').map(({ entry: item, entryKey }, index) => {
+    const inspection = inspectProjectEntry(item);
     return {
       entryKey,
       uid: typeof item.uid === 'string' || typeof item.uid === 'number' ? String(item.uid) : String(index),
@@ -51,6 +53,7 @@ export function parseWorldbookEntriesPreview(projectFileText: string): Worldbook
       preventRecursion: Boolean(item.preventRecursion),
       delayUntilRecursion: Boolean(item.delayUntilRecursion),
       extra: typeof item.extensions === 'object' && item.extensions ? item.extensions : {},
+      ...inspection,
     };
   });
 }
@@ -58,6 +61,7 @@ export function parseWorldbookEntriesPreview(projectFileText: string): Worldbook
 export function parseRegexEntriesPreview(regexFileText: string): RegexEntryPreviewType[] {
   const raw = safeParseJson(regexFileText);
   return extractProjectEntries(raw, 'regex').map(({ entry: item, entryKey }, index) => {
+    const inspection = inspectProjectEntry(item);
     return {
       entryKey,
       id: typeof item.id === 'string' || typeof item.id === 'number' ? String(item.id) : String(index),
@@ -99,6 +103,7 @@ export function parseRegexEntriesPreview(regexFileText: string): RegexEntryPrevi
       maxDepth:
         typeof item.maxDepth === 'number' ? item.maxDepth : typeof item.max_depth === 'number' ? item.max_depth : null,
       placement: Array.isArray(item.placement) ? item.placement.filter(value => typeof value === 'number') : [],
+      ...inspection,
     };
   });
 }
