@@ -314,6 +314,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helve
   .install-target-option.active { background:rgba(99,102,241,.2); color:#C7D2FE; box-shadow:inset 0 0 0 1px rgba(129,140,248,.28); }
   .install-target-option:disabled { cursor:not-allowed; opacity:.4; }
   .install-additional-panel { display:flex; flex-direction:column; gap:10px; }
+  .install-additional-panel[hidden] { display:none !important; }
   .install-worldbook-search-wrap { position:relative; }
   .install-worldbook-search-wrap > i { position:absolute; left:13px; top:50%; transform:translateY(-50%); color:rgba(148,163,184,.65); pointer-events:none; }
   .install-worldbook-search-wrap input { width:100%; padding-left:38px; }
