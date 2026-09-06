@@ -2,7 +2,7 @@
 /******/ 	"use strict";
 
 ;// ./util/iframe_srcdoc.html
-const iframe_srcdoc_namespaceObject = "<!doctype html>\n<html>\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n</head>\n<body></body>\n</html>\n";
+const iframe_srcdoc_namespaceObject = "<!doctype html>\r\n<html>\r\n<head>\r\n  <meta charset=\"utf-8\">\r\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\r\n</head>\r\n<body></body>\r\n</html>\r\n";
 ;// ./util/script.ts
 
 function teleportStyle(appendTo = 'head') {
@@ -87,13 +87,33 @@ function getCreativeWorkshopInstallRecords() {
 function getCreativeWorkshopInstallRecord(projectId) {
     return getCreativeWorkshopInstallRecords()[projectId] || null;
 }
+function getCreativeWorkshopRelevantWorldbookNames(projectId, legacyProjectName) {
+    const charWorldbooks = getCharWorldbookNames('current');
+    const registry = getCreativeWorkshopInstallRecords();
+    const registryNames = projectId
+        ? [registry[projectId]?.worldbookName, legacyProjectName ? registry[legacyProjectName]?.worldbookName : null]
+        : Object.values(registry).map(record => record.worldbookName);
+    let chatWorldbook = null;
+    try {
+        chatWorldbook = getChatWorldbookName('current');
+    }
+    catch {
+        chatWorldbook = null;
+    }
+    return _.uniq([
+        ...registryNames,
+        charWorldbooks.primary,
+        ...(charWorldbooks.additional || []),
+        ...getGlobalWorldbookNames(),
+        chatWorldbook,
+    ]).filter((name) => _.isString(name) && Boolean(name));
+}
 async function resolveCreativeWorkshopInstallWorldbook(projectId, legacyProjectName) {
     const recorded = getCreativeWorkshopInstallRecord(projectId) ||
         (legacyProjectName ? getCreativeWorkshopInstallRecord(legacyProjectName) : null);
     if (recorded?.worldbookName)
         return recorded.worldbookName;
-    const charWorldbooks = getCharWorldbookNames('current');
-    const candidates = _.uniq([charWorldbooks.primary, ...(charWorldbooks.additional || [])]).filter((name) => _.isString(name) && Boolean(name));
+    const candidates = getCreativeWorkshopRelevantWorldbookNames(projectId, legacyProjectName);
     const existingNames = new Set(getWorldbookNames());
     for (const worldbookName of candidates) {
         if (!existingNames.has(worldbookName))
@@ -445,13 +465,8 @@ async function readWorldbookEntries(worldbookName) {
     }
 }
 async function listInstalledCreativeWorkshopProjects() {
-    const charWorldbooks = getCharWorldbookNames('current');
     const registry = getCreativeWorkshopInstallRecords();
-    const worldbookNames = _.uniq([
-        charWorldbooks.primary,
-        ...(charWorldbooks.additional || []),
-        ...Object.values(registry).map(record => record.worldbookName),
-    ]).filter((name) => _.isString(name) && Boolean(name));
+    const worldbookNames = getCreativeWorkshopRelevantWorldbookNames();
     const worldbooks = await Promise.all(worldbookNames.map(async (worldbookName) => ({
         worldbookName,
         entries: await readWorldbookEntries(worldbookName),
@@ -840,24 +855,40 @@ async function applyPreparedProject(projectId, detail, prepared, worldbookName) 
         return worldbook;
     });
 }
+function isCreativeWorkshopProjectEntry(entry, projectId, legacyProjectName) {
+    return (_.get(entry, 'extra.cw_project_id') === projectId ||
+        _.get(entry, 'extra.fate_project_name') === projectId ||
+        Boolean(legacyProjectName && _.get(entry, 'extra.fate_project_name') === legacyProjectName));
+}
 async function deleteProjectEntriesFromWorldbook(projectId, worldbookName, legacyProjectName) {
     if (!getWorldbookNames().includes(worldbookName))
         return [];
-    const result = await deleteWorldbookEntries(worldbookName, entry => _.get(entry, 'extra.cw_project_id') === projectId ||
-        _.get(entry, 'extra.fate_project_name') === projectId ||
-        Boolean(legacyProjectName && _.get(entry, 'extra.fate_project_name') === legacyProjectName));
+    const before = await getWorldbook(worldbookName);
+    if (!before.some(entry => isCreativeWorkshopProjectEntry(entry, projectId, legacyProjectName))) {
+        return [];
+    }
+    const result = await deleteWorldbookEntries(worldbookName, entry => isCreativeWorkshopProjectEntry(entry, projectId, legacyProjectName), { render: 'immediate' });
+    if (result.deleted_entries.length === 0 ||
+        result.worldbook.some(entry => isCreativeWorkshopProjectEntry(entry, projectId, legacyProjectName))) {
+        throw new Error(`世界书「${worldbookName}」中的工坊条目未成功删除`);
+    }
     return result.deleted_entries;
 }
+async function assertNoProjectEntriesInRelevantWorldbooks(projectId, legacyProjectName) {
+    const existingNames = new Set(getWorldbookNames());
+    for (const worldbookName of getCreativeWorkshopRelevantWorldbookNames(projectId, legacyProjectName)) {
+        if (!existingNames.has(worldbookName))
+            continue;
+        const entries = await getWorldbook(worldbookName);
+        if (entries.some(entry => isCreativeWorkshopProjectEntry(entry, projectId, legacyProjectName))) {
+            throw new Error(`卸载未完全完成：世界书「${worldbookName}」仍有工坊条目`);
+        }
+    }
+}
 async function deleteProjectEntriesFromInstalledWorldbooks(projectId, preferredWorldbookName, legacyProjectName) {
-    const charWorldbooks = getCharWorldbookNames('current');
-    const projectRecord = getCreativeWorkshopInstallRecord(projectId);
-    const legacyRecord = legacyProjectName ? getCreativeWorkshopInstallRecord(legacyProjectName) : null;
     const candidates = _.uniq([
         preferredWorldbookName,
-        projectRecord?.worldbookName,
-        legacyRecord?.worldbookName,
-        charWorldbooks.primary,
-        ...(charWorldbooks.additional || []),
+        ...getCreativeWorkshopRelevantWorldbookNames(projectId, legacyProjectName),
     ]).filter((name) => _.isString(name) && Boolean(name));
     const deletedEntries = [];
     for (const worldbookName of candidates) {
@@ -877,16 +908,14 @@ async function installCreativeWorkshopProject(projectId, selectedEntryKeys, requ
 async function uninstallCreativeWorkshopProject(projectId, legacyProjectName) {
     const worldbookName = await getInstalledWorldbookName(projectId, legacyProjectName);
     const deletedEntries = await deleteProjectEntriesFromInstalledWorldbooks(projectId, worldbookName, legacyProjectName);
-    deleteCreativeWorkshopInstallRecord(projectId);
-    if (legacyProjectName && legacyProjectName !== projectId) {
-        deleteCreativeWorkshopInstallRecord(legacyProjectName);
-    }
+    await assertNoProjectEntriesInRelevantWorldbooks(projectId, legacyProjectName);
     return deletedEntries;
 }
 async function updateCreativeWorkshopProject(projectId, expectedVersion, legacyProjectName) {
     const { detail, prepared } = await prepareCreativeWorkshopProject(projectId, undefined, expectedVersion);
     const worldbookName = await ensureTargetWorldbook(await getInstalledWorldbookName(projectId, legacyProjectName));
     await deleteProjectEntriesFromInstalledWorldbooks(projectId, worldbookName, legacyProjectName);
+    await assertNoProjectEntriesInRelevantWorldbooks(projectId, legacyProjectName);
     await applyPreparedProject(projectId, detail, prepared, worldbookName);
     if (legacyProjectName && legacyProjectName !== projectId) {
         deleteCreativeWorkshopInstallRecord(legacyProjectName);
@@ -912,6 +941,7 @@ function createBridgeMessage(type, payload, requestId) {
 }
 
 ;// ./src/CreativeWorkshop/bridge/host.ts
+
 
 
 
@@ -1137,6 +1167,10 @@ function createCreativeWorkshopBridgeHost(option) {
                         Boolean(actionLegacyProjectName && (project.projectId === actionLegacyProjectName || project.legacyProjectName === actionLegacyProjectName)));
                     if (stillInstalled) {
                         throw new Error('卸载未完全完成：仍检测到旧工坊安装条目，请重试或手动检查世界书/正则');
+                    }
+                    deleteCreativeWorkshopInstallRecord(String(event.data.payload?.projectId));
+                    if (actionLegacyProjectName && actionLegacyProjectName !== String(event.data.payload?.projectId)) {
+                        deleteCreativeWorkshopInstallRecord(actionLegacyProjectName);
                     }
                     await post('bridge:uninstall-result', {
                         success: true,
