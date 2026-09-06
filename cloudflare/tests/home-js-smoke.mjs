@@ -164,6 +164,41 @@ assert.equal(
   1,
 );
 
+const installedRemoteUi = Function(
+  `${fragments.homeStateScript}; return { state, setProjectsPage, setInstalledProjects, mergeInstalledRemoteProjects, mergeProjectsForInstalledView };`,
+)();
+const installedRemoteProjectId = '328361a6-7479-400d-8e5b-a1a8dc73cea5';
+installedRemoteUi.setProjectsPage({
+  projects: [{ id: canonicalProjectId, name: '其他项目' }],
+  append: false,
+  page: 0,
+  pageSize: 50,
+  hasMore: true,
+});
+installedRemoteUi.setInstalledProjects([{
+  projectId: installedRemoteProjectId,
+  name: '灰风',
+  localVersion: '1.0.0',
+  entryCount: 1,
+  regexCount: 0,
+}]);
+installedRemoteUi.mergeInstalledRemoteProjects([{
+  id: installedRemoteProjectId,
+  name: '灰风',
+  version: '1.0.0',
+  authorName: '莱卡',
+  coverImage: 'remote-cover.png',
+  tags: ['角色'],
+}]);
+installedRemoteUi.state.tavern.connected = true;
+installedRemoteUi.state.showSubscribedAndInstalledProjects = true;
+const installedRemoteProjects = installedRemoteUi.mergeProjectsForInstalledView(installedRemoteUi.state.projects);
+const hydratedInstalledRemoteProject = installedRemoteProjects.find(project => project.id === installedRemoteProjectId);
+assert.ok(hydratedInstalledRemoteProject);
+assert.equal(hydratedInstalledRemoteProject.authorName, '莱卡');
+assert.equal(hydratedInstalledRemoteProject.coverImage, 'remote-cover.png');
+assert.notEqual(hydratedInstalledRemoteProject.source, 'local-only');
+
 const migratedCardUi = Function(
   'getLikeState',
   'getLocalProjectMeta',
