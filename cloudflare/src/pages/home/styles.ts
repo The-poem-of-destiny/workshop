@@ -199,6 +199,54 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helve
 .admin-review-approve-btn:hover { background:rgba(22,163,74,.4); }
 .admin-review-reject-btn { color:#FECACA; border:1px solid rgba(248,113,113,.36); background:rgba(185,28,28,.22); }
 .admin-review-reject-btn:hover { background:rgba(185,28,28,.4); }
+.admin-review-diff-summary { padding:16px; border-radius:16px; border:1px solid rgba(99,102,241,.28); background:linear-gradient(145deg,rgba(49,46,129,.18),rgba(15,23,42,.78)); display:flex; flex-direction:column; gap:12px; }
+.admin-review-diff-summary-head { display:flex; justify-content:space-between; gap:12px; align-items:center; color:#CBD5E1; }
+.admin-review-diff-summary-head strong { font-size:1.35rem; color:#E0E7FF; }
+.admin-review-diff-summary-head span { font-size:.8rem; color:rgba(226,232,240,.58); }
+.admin-review-diff-counts { display:flex; flex-wrap:wrap; gap:8px; }
+.admin-review-diff-counts span,.admin-review-diff-status { display:inline-flex; align-items:center; gap:5px; padding:5px 9px; border-radius:999px; font-size:.75rem; font-weight:750; border:1px solid transparent; }
+.admin-review-diff-counts .added,.admin-review-diff-status--added { color:#BBF7D0; background:rgba(22,163,74,.12); border-color:rgba(34,197,94,.3); }
+.admin-review-diff-counts .modified,.admin-review-diff-status--modified { color:#FDE68A; background:rgba(217,119,6,.12); border-color:rgba(245,158,11,.3); }
+.admin-review-diff-counts .deleted,.admin-review-diff-status--deleted { color:#FECACA; background:rgba(185,28,28,.13); border-color:rgba(248,113,113,.3); }
+.admin-review-diff-counts .unchanged,.admin-review-diff-status--unchanged { color:#CBD5E1; background:rgba(100,116,139,.12); border-color:rgba(148,163,184,.22); }
+.admin-review-risk-delta { display:flex; flex-direction:column; gap:8px; padding-top:10px; border-top:1px solid rgba(255,255,255,.07); }
+.admin-review-risk-delta strong { font-size:.8rem; color:#E2E8F0; }
+.admin-review-risk-delta > div { display:flex; flex-wrap:wrap; gap:7px; }
+.admin-review-risk-chip { display:inline-flex; align-items:center; gap:6px; padding:5px 9px; border-radius:999px; font-size:.74rem; }
+.admin-review-risk-chip--warning { color:#FDE68A; background:rgba(217,119,6,.11); border:1px solid rgba(245,158,11,.28); }
+.admin-review-risk-chip--good { color:#BBF7D0; background:rgba(22,163,74,.1); border:1px solid rgba(34,197,94,.25); }
+.admin-review-risk-chip--danger { color:#FECACA; background:rgba(185,28,28,.11); border:1px solid rgba(248,113,113,.28); }
+.admin-review-diff-section { display:flex; flex-direction:column; gap:10px; }
+.admin-review-diff-list { display:flex; flex-direction:column; gap:10px; }
+.admin-review-diff-entry { overflow:hidden; border-radius:14px; border:1px solid rgba(148,163,184,.15); background:rgba(15,23,42,.72); }
+.admin-review-diff-entry--added { border-color:rgba(34,197,94,.24); }
+.admin-review-diff-entry--modified { border-color:rgba(245,158,11,.24); }
+.admin-review-diff-entry--deleted { border-color:rgba(248,113,113,.24); }
+.admin-review-diff-entry > summary { list-style:none; cursor:pointer; display:grid; grid-template-columns:auto minmax(120px,1fr) auto; gap:10px; align-items:center; padding:11px 12px; }
+.admin-review-diff-entry > summary::-webkit-details-marker { display:none; }
+.admin-review-diff-entry-title { min-width:0; font-weight:720; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.admin-review-diff-fields { font-size:.72rem; color:rgba(226,232,240,.52); text-align:right; }
+.admin-review-diff-entry-body { border-top:1px solid rgba(255,255,255,.06); }
+.admin-review-diff-code { overflow:auto; max-height:520px; padding:8px 0; background:#0B1120; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.76rem; line-height:1.5; }
+.admin-review-diff-line { display:grid; grid-template-columns:26px minmax(max-content,1fr); min-width:max-content; }
+.admin-review-diff-line > span { user-select:none; text-align:center; color:rgba(226,232,240,.35); }
+.admin-review-diff-line code { padding:1px 14px 1px 4px; white-space:pre; color:#CBD5E1; }
+.admin-review-diff-line--add { background:rgba(22,163,74,.13); }
+.admin-review-diff-line--add > span,.admin-review-diff-line--add code { color:#BBF7D0; }
+.admin-review-diff-line--del { background:rgba(185,28,28,.14); }
+.admin-review-diff-line--del > span,.admin-review-diff-line--del code { color:#FECACA; }
+.admin-review-diff-line--same code { color:rgba(203,213,225,.62); }
+.admin-review-diff-skip { padding:5px 14px 5px 30px; color:#818CF8; background:rgba(79,70,229,.08); font-size:.72rem; }
+.admin-review-diff-empty,.admin-review-no-changes { padding:16px; text-align:center; color:rgba(226,232,240,.58); border:1px dashed rgba(148,163,184,.16); border-radius:12px; }
+.admin-review-unchanged { border:1px solid rgba(148,163,184,.13); border-radius:14px; background:rgba(30,41,59,.42); overflow:hidden; }
+.admin-review-unchanged > summary { list-style:none; cursor:pointer; padding:11px 13px; display:flex; justify-content:space-between; gap:10px; align-items:center; color:#CBD5E1; }
+.admin-review-unchanged > summary::-webkit-details-marker { display:none; }
+.admin-review-unchanged > summary small { color:rgba(226,232,240,.46); }
+.admin-review-unchanged-titles { display:flex; flex-wrap:wrap; gap:6px; padding:0 13px 11px; }
+.admin-review-unchanged-titles span { padding:4px 8px; border-radius:8px; background:rgba(255,255,255,.045); color:rgba(226,232,240,.68); font-size:.72rem; }
+.admin-review-load-unchanged { margin:0 13px 13px; }
+.admin-review-unchanged [data-admin-unchanged-content] { padding:0 13px 13px; }
+
 .admin-list-item,.admin-card { background:rgba(30,41,59,0.8); border-radius:12px; padding:12px; margin-bottom:12px; }
 .admin-list-item { display:flex; justify-content:space-between; align-items:center; gap:12px; }
 .admin-card-title { font-weight:bold; margin-bottom:4px; }
@@ -247,6 +295,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helve
   @media (max-width: 640px) { .header-discover { width:100%; min-width:0; } .header-search { max-width:none; } .tag-filter { width:100%; } .modal-overlay { padding:calc(12px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left)); } .modal-content { max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); border-radius:18px; } .modal-header { padding:12px 12px 8px 18px; } .modal-header h2 { font-size:1.2rem; min-width:0; } .modal-body { padding:14px 18px calc(18px + env(safe-area-inset-bottom)); } .detail-cover { height:180px; } .detail-summary { padding:16px; } .detail-summary--split { grid-template-columns:1fr; } .detail-card-row { align-items:flex-start; } }
   @media (max-width: 960px) { .header-left { flex-wrap:wrap; } }
   @media (max-width: 640px) { .release-notice { max-width:100%; white-space:normal; text-align:left; } }
-  @media (max-width: 640px) { .admin-review-queue-summary { align-items:flex-start; flex-direction:column; } .admin-review-card-head { flex-wrap:wrap; } .admin-review-state { margin-left:58px; } .admin-review-meta-item { border-radius:10px; } .admin-review-card-actions { display:grid; grid-template-columns:1fr 1fr; } .admin-review-card-actions .btn { min-width:0; } .admin-review-summary-head { flex-wrap:wrap; } .admin-review-description-hint { display:none; } .admin-review-sticky-actions { display:grid; grid-template-columns:1fr 1fr; padding:10px; } .admin-review-sticky-actions .btn { min-width:0; } }
+  @media (max-width: 640px) { .admin-review-queue-summary { align-items:flex-start; flex-direction:column; } .admin-review-card-head { flex-wrap:wrap; } .admin-review-state { margin-left:58px; } .admin-review-meta-item { border-radius:10px; } .admin-review-card-actions { display:grid; grid-template-columns:1fr 1fr; } .admin-review-card-actions .btn { min-width:0; } .admin-review-summary-head { flex-wrap:wrap; } .admin-review-description-hint { display:none; } .admin-review-sticky-actions { display:grid; grid-template-columns:1fr 1fr; padding:10px; } .admin-review-sticky-actions .btn { min-width:0; } .admin-review-diff-summary-head { align-items:flex-start; flex-direction:column; } .admin-review-diff-entry > summary { grid-template-columns:auto minmax(0,1fr); } .admin-review-diff-fields { grid-column:1 / -1; text-align:left; } .admin-review-diff-code { max-height:60dvh; font-size:.7rem; } .admin-review-unchanged > summary { align-items:flex-start; flex-direction:column; } }
 
 `;
