@@ -13,6 +13,7 @@ function createDefaultTavernState() {
     installedProjects: [],
     installedProjectsLoaded: false,
     localProjectMap: new Map(),
+    installedRemoteProjectMap: new Map(),
     updateDiffMap: new Map(),
     pendingProjectActions: new Map(),
     worldbooks: { primary: null, additional: [], available: [] },
@@ -252,6 +253,22 @@ function rebuildInstalledProjectState(installedProjectMap) {
   const list = Array.from(resolvedProjectMap.values());
   state.tavern.installedProjects = list;
   state.tavern.localProjectMap = new Map(list.map(project => [project.projectId, project]));
+  const installedIds = new Set(list.map(project => project.projectId).filter(Boolean));
+  state.tavern.installedRemoteProjectMap = new Map(
+    Array.from(state.tavern.installedRemoteProjectMap || new Map()).filter(([projectId]) => installedIds.has(projectId)),
+  );
+}
+
+function mergeInstalledRemoteProjects(projects) {
+  const installedIds = new Set(state.tavern.installedProjects.map(project => project.projectId || project.id).filter(Boolean));
+  const remoteProjectMap = new Map(state.tavern.installedRemoteProjectMap || new Map());
+  (Array.isArray(projects) ? projects : []).forEach(project => {
+    if (!project?.id || !installedIds.has(project.id)) return;
+    remoteProjectMap.set(project.id, project);
+  });
+  state.tavern.installedRemoteProjectMap = new Map(
+    Array.from(remoteProjectMap.entries()).filter(([projectId]) => installedIds.has(projectId)),
+  );
 }
 
 function setInstalledProjects(projects, options) {
@@ -303,6 +320,11 @@ function isSubscribedProject(projectId) {
 
 function mergeProjectsForInstalledView(source) {
   const projectMap = new Map((source || []).map(project => [project.id, project]));
+  state.tavern.installedRemoteProjectMap.forEach((remoteProject, projectId) => {
+    if (!projectMap.has(projectId)) {
+      projectMap.set(projectId, remoteProject);
+    }
+  });
   state.tavern.installedProjects.forEach(localProject => {
     const projectId = localProject.projectId || localProject.id;
     if (!projectMap.has(projectId)) {
