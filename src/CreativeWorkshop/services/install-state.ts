@@ -4,6 +4,7 @@ import { getCreativeWorkshopRegexId } from './regex-name';
 export type CreativeWorkshopInstalledProject = {
   projectId: string;
   name: string;
+  legacyProjectName: string | null;
   localVersion: string | null;
   remoteVersion: string | null;
   entryCount: number;
@@ -12,6 +13,8 @@ export type CreativeWorkshopInstalledProject = {
   hasUpdate: boolean;
   worldbookName: string | null;
 };
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 async function readWorldbookEntries(worldbookName: string) {
   try {
@@ -64,11 +67,17 @@ export async function listInstalledCreativeWorkshopProjects(): Promise<CreativeW
       const firstEntry = projectEntries[0];
       const firstRegex = projectRegexes[0];
       const localVersion = firstEntry ? _.get(firstEntry, 'extra.cw_project_version', null) : null;
+      const legacyProjectName =
+        projectEntries
+          .map(entry => _.get(entry, 'extra.fate_project_name'))
+          .find(value => _.isString(value) && Boolean(value)) ||
+        (!UUID_PATTERN.test(projectId) ? projectId : null);
       return {
         projectId,
         name: firstEntry
-          ? _.get(firstEntry, 'extra.cw_project_name_display', _.get(firstEntry, 'name', '未命名项目'))
-          : _.get(firstRegex, 'script_name', '未命名项目'),
+          ? _.get(firstEntry, 'extra.cw_project_name_display', legacyProjectName || _.get(firstEntry, 'name', '未命名项目'))
+          : legacyProjectName || _.get(firstRegex, 'script_name', '未命名项目'),
+        legacyProjectName,
         localVersion,
         remoteVersion: null,
         entryCount: projectEntries.length,
