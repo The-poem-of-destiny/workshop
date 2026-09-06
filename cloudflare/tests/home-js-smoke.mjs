@@ -24,6 +24,7 @@ const fragments = {
   homeApiScript: await evaluateStandalone('src/pages/home/api.ts', 'homeApiScript'),
   homeCardsRenderScript: await evaluateStandalone('src/pages/home/render/cards.ts', 'homeCardsRenderScript'),
   homeDetailModalRenderScript: await evaluateStandalone('src/pages/home/render/detail-modal.ts', 'homeDetailModalRenderScript'),
+  homeReviewDiffRenderScript: await evaluateStandalone('src/pages/home/render/review-diff.ts', 'homeReviewDiffRenderScript'),
   homeLayoutRenderScript: await evaluateStandalone('src/pages/home/render/layout.ts', 'homeLayoutRenderScript'),
   homeModalsScript: await evaluateStandalone('src/pages/home/modals.ts', 'homeModalsScript'),
 };
@@ -34,6 +35,9 @@ for (const [name, script] of Object.entries(fragments)) {
 }
 
 assert.match(fragments.homeModalsScript, /id=\"versionLabel\"/);
+assert.match(fragments.homeModalsScript, /审核外链/);
+assert.match(fragments.homeDetailModalRenderScript, /collectProjectExternalLinks/);
+assert.match(fragments.homeDetailModalRenderScript, /未访问、未验证远端内容/);
 assert.match(fragments.homeModalsScript, /版本名称（可选）/);
 assert.doesNotMatch(fragments.homeModalsScript, /versionBump|Patch|Minor|Major/);
 assert.match(fragments.homeCardsRenderScript, /撤回更新/);
@@ -158,8 +162,8 @@ const fragmentNames = Object.keys(fragments);
 const homeScript = Function(...fragmentNames, `return (${appExpression});`)(...Object.values(fragments));
 assert.equal(typeof homeScript, 'string');
 new Function(homeScript);
-assert.match(homeScript, /reviewProject\(projectId, \{ action, expectedRevision: project\?\.draftRevision \}\)/);
-assert.match(homeScript, /reviewProject\(projectId, \{ action, rejectReason: reason, expectedRevision: project\?\.draftRevision \}\)/);
+assert.match(homeScript, /reviewProject\(project\.id, \{ action,/);
+assert.match(homeScript, /expectedRevision: project\?\.draftRevision \|\| reviewProjectData\?\.draftRevision/);
 assert.match(homeScript, /确定撤回这次更新吗/);
 assert.match(homeScript, /正在审核\/被退回的更新草稿也会一并删除/);
 assert.match(homeScript, /document\.querySelectorAll\('\.project-card'\)/);

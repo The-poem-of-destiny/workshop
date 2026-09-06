@@ -16,6 +16,15 @@ const ProjectEntryInspection = z.object({
   hasCharacterArtwork: z.boolean().default(false).describe('系统检测到完整角色立绘模板'),
   characterArtworkBlockCount: z.number().int().min(0).default(0).describe('完整角色立绘模板块数量'),
   inspectionWarnings: z.array(z.string()).default([]).describe('内容静态检查警告'),
+  externalLinks: z
+    .array(
+      z.object({
+        url: z.string(),
+        hostname: z.string(),
+      }),
+    )
+    .default([])
+    .describe('静态检测到的 HTTP/HTTPS 外链；未验证远端内容'),
 });
 
 export const WorldbookEntryPreview = z.object({

@@ -49,6 +49,7 @@ assert.equal(validateProjectContentText('not-json', 'worldbook').valid, false);
 const plainInspection = inspectProjectEntry({ content: '普通世界书内容' }, 'worldbook');
 assert.equal(plainInspection.hasEjs, false);
 assert.equal(plainInspection.hasCharacterArtwork, false);
+assert.deepEqual(plainInspection.externalLinks, []);
 
 const normalEjsInspection = inspectProjectEntry({ content: '<%_ const value = 1; _%>正文' }, 'worldbook');
 assert.equal(normalEjsInspection.hasEjs, true);
@@ -72,6 +73,11 @@ assert.equal(artworkInspection.hasEjs, true);
 assert.equal(artworkInspection.hasCharacterArtwork, true);
 assert.equal(artworkInspection.characterArtworkBlockCount, 1);
 assert.deepEqual(artworkInspection.inspectionWarnings, []);
+assert.deepEqual(artworkInspection.externalLinks, [
+  { url: 'https://files.catbox.moe/2lwbf6.png', hostname: 'files.catbox.moe' },
+  { url: 'https://files.catbox.moe/p6vp2s.png', hostname: 'files.catbox.moe' },
+  { url: 'https://files.catbox.moe/9ayahb.webm', hostname: 'files.catbox.moe' },
+]);
 
 const brokenArtworkInspection = inspectProjectEntry(
   { content: '<%# char-info-ejs-builder:start:v2 %>\n<%_ const profile = {}; _%>\n后面的世界书正文' },
@@ -82,10 +88,11 @@ assert.equal(brokenArtworkInspection.hasCharacterArtwork, false);
 assert.deepEqual(brokenArtworkInspection.inspectionWarnings, [CHARACTER_ARTWORK_INCOMPLETE_WARNING]);
 
 const findOnlyRegexInspection = inspectProjectEntry(
-  { findRegex: '<%_.*?_%>', replaceString: '普通替换文本' },
+  { findRegex: 'https://match-only.example/foo', replaceString: '普通替换文本' },
   'regex',
 );
 assert.equal(findOnlyRegexInspection.hasEjs, false);
+assert.deepEqual(findOnlyRegexInspection.externalLinks, []);
 
 const replaceEjsInspection = inspectProjectEntry(
   { findRegex: 'foo', replaceString: '<%= value %>' },
@@ -93,14 +100,42 @@ const replaceEjsInspection = inspectProjectEntry(
 );
 assert.equal(replaceEjsInspection.hasEjs, true);
 
+const externalLinkInspection = inspectProjectEntry(
+  {
+    content:
+      '图一 https://Example.com/a.png，重复 https://example.com/a.png。\n文档：https://docs.example.com/readme?q=1).',
+  },
+  'worldbook',
+);
+assert.deepEqual(externalLinkInspection.externalLinks, [
+  { url: 'https://example.com/a.png', hostname: 'example.com' },
+  { url: 'https://docs.example.com/readme?q=1', hostname: 'docs.example.com' },
+]);
+
+const unsafeSchemeInspection = inspectProjectEntry(
+  { content: 'javascript:alert(1) file:///C:/secret.txt data:text/html,bad' },
+  'worldbook',
+);
+assert.deepEqual(unsafeSchemeInspection.externalLinks, []);
+
+const htmlBoundaryInspection = inspectProjectEntry(
+  { content: 'https://example.com/image.png<script>alert(1)</script>' },
+  'worldbook',
+);
+assert.deepEqual(htmlBoundaryInspection.externalLinks, [
+  { url: 'https://example.com/image.png', hostname: 'example.com' },
+]);
+
 const previewBook = JSON.stringify({ entries: [{ uid: 1, comment: '立绘模板', content: artworkContent }] });
 const previewEntry = parseWorldbookEntriesPreview(previewBook)[0];
 assert.equal(previewEntry.hasEjs, true);
 assert.equal(previewEntry.hasCharacterArtwork, true);
 assert.equal(previewEntry.characterArtworkBlockCount, 1);
+assert.equal(previewEntry.externalLinks.length, 3);
 
 const regexPreview = parseRegexEntriesPreview(JSON.stringify([{ id: 'ejs', replaceString: '<%= value %>' }]))[0];
 assert.equal(regexPreview.hasEjs, true);
 assert.equal(regexPreview.hasCharacterArtwork, false);
+assert.deepEqual(regexPreview.externalLinks, []);
 
 console.log('project content validation, entry removal, and content inspection OK');

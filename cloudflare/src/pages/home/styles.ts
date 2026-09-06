@@ -268,6 +268,21 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helve
 .detail-meta-item { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); }
 .detail-description,.detail-entry-content { border-radius:16px; background:rgba(15,23,42,0.72); border:1px solid rgba(255,255,255,0.06); color:rgba(226,232,240,0.88); white-space:pre-wrap; word-break:break-word; }
 .detail-description { padding:16px 18px; }
+.external-links-section { gap:12px; }
+.external-links-note { display:flex; align-items:flex-start; gap:8px; padding:10px 12px; border-radius:12px; background:rgba(59,130,246,.08); border:1px solid rgba(96,165,250,.2); color:rgba(219,234,254,.78); font-size:.78rem; line-height:1.45; }
+.external-links-note i { margin-top:2px; flex:none; }
+.external-link-groups { display:flex; flex-direction:column; gap:8px; }
+.external-link-domain { overflow:hidden; border:1px solid rgba(148,163,184,.14); border-radius:12px; background:rgba(15,23,42,.6); }
+.external-link-domain > summary { list-style:none; cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:12px; padding:10px 12px; color:#E2E8F0; font-size:.82rem; font-weight:650; }
+.external-link-domain > summary::-webkit-details-marker { display:none; }
+.external-link-domain > summary span { display:inline-flex; align-items:center; gap:7px; min-width:0; }
+.external-link-domain > summary span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.external-link-domain > summary span:last-child { flex:none; color:rgba(226,232,240,.55); font-size:.72rem; }
+.external-link-list { display:flex; flex-direction:column; gap:8px; padding:0 10px 10px; }
+.external-link-item { min-width:0; padding:10px; border-radius:10px; background:rgba(2,6,23,.48); border:1px solid rgba(255,255,255,.05); }
+.external-link-item code { display:block; max-width:100%; overflow-wrap:anywhere; white-space:pre-wrap; color:#BFDBFE; font-size:.76rem; line-height:1.45; user-select:text; }
+.external-link-sources { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.external-link-sources span { display:inline-flex; max-width:100%; padding:3px 7px; border-radius:999px; background:rgba(255,255,255,.05); color:rgba(226,232,240,.62); font-size:.68rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .detail-entry-list { display:flex; flex-direction:column; gap:12px; }
 .entry-item { border:1px solid rgba(255,255,255,0.1); border-radius:12px; overflow:hidden; background:rgba(15,23,42,0.55); }
 .entry-header { background:rgba(0,0,0,0.3); padding:12px 14px; cursor:pointer; display:flex; align-items:center; gap:8px; font-weight:500; }
