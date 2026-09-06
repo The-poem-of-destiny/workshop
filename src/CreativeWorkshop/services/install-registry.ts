@@ -36,8 +36,12 @@ export function getCreativeWorkshopInstallRecord(projectId: string): CreativeWor
   return getCreativeWorkshopInstallRecords()[projectId] || null;
 }
 
-export async function resolveCreativeWorkshopInstallWorldbook(projectId: string): Promise<string | null> {
-  const recorded = getCreativeWorkshopInstallRecord(projectId);
+export async function resolveCreativeWorkshopInstallWorldbook(
+  projectId: string,
+  legacyProjectName?: string,
+): Promise<string | null> {
+  const recorded = getCreativeWorkshopInstallRecord(projectId) ||
+    (legacyProjectName ? getCreativeWorkshopInstallRecord(legacyProjectName) : null);
   if (recorded?.worldbookName) return recorded.worldbookName;
 
   const charWorldbooks = getCharWorldbookNames('current');
@@ -52,7 +56,9 @@ export async function resolveCreativeWorkshopInstallWorldbook(projectId: string)
     if (
       entries.some(
         entry =>
-          _.get(entry, 'extra.cw_project_id') === projectId || _.get(entry, 'extra.fate_project_name') === projectId,
+          _.get(entry, 'extra.cw_project_id') === projectId ||
+          _.get(entry, 'extra.fate_project_name') === projectId ||
+          Boolean(legacyProjectName && _.get(entry, 'extra.fate_project_name') === legacyProjectName),
       )
     ) {
       return worldbookName;
