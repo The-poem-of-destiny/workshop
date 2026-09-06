@@ -1,4 +1,4 @@
-import { getCreativeWorkshopInstallRecords } from './install-registry';
+import { getCreativeWorkshopInstallRecords, getCreativeWorkshopRelevantWorldbookNames } from './install-registry';
 import { getCreativeWorkshopRegexId } from './regex-name';
 
 export type CreativeWorkshopInstalledProject = {
@@ -26,13 +26,8 @@ async function readWorldbookEntries(worldbookName: string) {
 }
 
 export async function listInstalledCreativeWorkshopProjects(): Promise<CreativeWorkshopInstalledProject[]> {
-  const charWorldbooks = getCharWorldbookNames('current');
   const registry = getCreativeWorkshopInstallRecords();
-  const worldbookNames = _.uniq([
-    charWorldbooks.primary,
-    ...(charWorldbooks.additional || []),
-    ...Object.values(registry).map(record => record.worldbookName),
-  ]).filter((name): name is string => _.isString(name) && Boolean(name));
+  const worldbookNames = getCreativeWorkshopRelevantWorldbookNames();
 
   const worldbooks = await Promise.all(
     worldbookNames.map(async worldbookName => ({

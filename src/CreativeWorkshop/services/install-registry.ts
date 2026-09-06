@@ -36,6 +36,27 @@ export function getCreativeWorkshopInstallRecord(projectId: string): CreativeWor
   return getCreativeWorkshopInstallRecords()[projectId] || null;
 }
 
+export function getCreativeWorkshopRelevantWorldbookNames(projectId?: string, legacyProjectName?: string): string[] {
+  const charWorldbooks = getCharWorldbookNames('current');
+  const registry = getCreativeWorkshopInstallRecords();
+  const registryNames = projectId
+    ? [registry[projectId]?.worldbookName, legacyProjectName ? registry[legacyProjectName]?.worldbookName : null]
+    : Object.values(registry).map(record => record.worldbookName);
+  let chatWorldbook: string | null = null;
+  try {
+    chatWorldbook = getChatWorldbookName('current');
+  } catch {
+    chatWorldbook = null;
+  }
+  return _.uniq([
+    ...registryNames,
+    charWorldbooks.primary,
+    ...(charWorldbooks.additional || []),
+    ...getGlobalWorldbookNames(),
+    chatWorldbook,
+  ]).filter((name): name is string => _.isString(name) && Boolean(name));
+}
+
 export async function resolveCreativeWorkshopInstallWorldbook(
   projectId: string,
   legacyProjectName?: string,
@@ -44,10 +65,7 @@ export async function resolveCreativeWorkshopInstallWorldbook(
     (legacyProjectName ? getCreativeWorkshopInstallRecord(legacyProjectName) : null);
   if (recorded?.worldbookName) return recorded.worldbookName;
 
-  const charWorldbooks = getCharWorldbookNames('current');
-  const candidates = _.uniq([charWorldbooks.primary, ...(charWorldbooks.additional || [])]).filter(
-    (name): name is string => _.isString(name) && Boolean(name),
-  );
+  const candidates = getCreativeWorkshopRelevantWorldbookNames(projectId, legacyProjectName);
   const existingNames = new Set(getWorldbookNames());
 
   for (const worldbookName of candidates) {

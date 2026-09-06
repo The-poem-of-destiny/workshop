@@ -3,6 +3,7 @@ import { getCurrentCreativeWorkshopContext } from '../services/context';
 import { CREATIVE_WORKSHOP_CLIENT_VERSION } from '../version';
 import { getCreativeWorkshopProjectDiff } from '../services/diff';
 import { listInstalledCreativeWorkshopProjects } from '../services/install-state';
+import { deleteCreativeWorkshopInstallRecord } from '../services/install-registry';
 import {
   installCreativeWorkshopRegex,
   uninstallCreativeWorkshopRegex,
@@ -308,6 +309,10 @@ export function createCreativeWorkshopBridgeHost(option: HostOption) {
           );
           if (stillInstalled) {
             throw new Error('卸载未完全完成：仍检测到旧工坊安装条目，请重试或手动检查世界书/正则');
+          }
+          deleteCreativeWorkshopInstallRecord(String(event.data.payload?.projectId));
+          if (actionLegacyProjectName && actionLegacyProjectName !== String(event.data.payload?.projectId)) {
+            deleteCreativeWorkshopInstallRecord(actionLegacyProjectName);
           }
           await post(
             'bridge:uninstall-result',
