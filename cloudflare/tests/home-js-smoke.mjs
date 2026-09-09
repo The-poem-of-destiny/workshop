@@ -191,7 +191,12 @@ assert.doesNotMatch(fragments.homeModalsScript, /window\.prompt\("复制最新�
 assert.doesNotMatch(fragments.homeModalsScript, /versionBump|Patch|Minor|Major/);
 assert.match(fragments.homeCardsRenderScript, /撤回更新/);
 assert.doesNotMatch(fragments.homeCardsRenderScript, /tag-system-ejs/);
-assert.match(fragments.homeCardsRenderScript, /card-artwork-badge/);
+assert.match(fragments.homeCardsRenderScript, /card-quality-signal/);
+assert.doesNotMatch(fragments.homeCardsRenderScript, /icon-stat-btn/);
+assert.match(fragments.homeLayoutRenderScript, /mobile-tool-dock/);
+assert.match(fragments.homeLayoutRenderScript, /projectSearchInputMobile/);
+assert.match(fragments.homeDetailModalRenderScript, /detail-stats-row/);
+assert.match(fragments.homeDetailModalRenderScript, /detail-like-btn/);
 assert.match(fragments.homeCardsRenderScript, /getProjectDisplayTags\(project\)/);
 assert.match(fragments.homeModalsScript, /data-display-tag/);
 assert.match(fragments.homeModalsScript, /首页展示标签最多/);
@@ -273,14 +278,15 @@ const cardRenderUi = Function(
   project => Array.isArray(project.displayTags) ? project.displayTags : [],
   { systemSignals: { ejs: { label: 'EJS', card: false }, characterArtwork: { label: '有角色立绘', card: true } }, display: { cardCustomTags: true } },
 );
-const displayTagCardHtml = cardRenderUi.renderProjectCard({ id: 'display-tags', name: 'Display Tags', version: '1.0.0', versionLabel: null, displayTags: ['人鱼', '纯爱'], hasCharacterArtwork: true, tags: [], downloadsCount: 0 });
+const displayTagCardHtml = cardRenderUi.renderProjectCard({ id: 'display-tags', name: 'Display Tags', version: '1.0.0', versionLabel: null, displayTags: ['人鱼', '纯爱'], hasCharacterArtwork: true, coverImage: '/cover.png', tags: [], downloadsCount: 0 });
 assert.match(displayTagCardHtml, />人鱼<\/span>/);
 assert.match(displayTagCardHtml, />纯爱<\/span>/);
-assert.match(displayTagCardHtml, /card-cover[^>]*>.*card-artwork-badge/);
+assert.match(displayTagCardHtml, /card-quality-signal[^>]*>.*fa-images/);
+assert.doesNotMatch(displayTagCardHtml, /icon-stat-btn|card-meta--version/);
 const legacyCardHtml = cardRenderUi.renderProjectCard({ id: 'legacy', name: 'Legacy', version: '1.2.3', versionLabel: null, tags: [], downloadsCount: 0 });
-assert.match(legacyCardHtml, /card-meta card-meta--version"><span>1\.2\.3<\/span> <span>2026\/9\/6<\/span>/);
+assert.doesNotMatch(legacyCardHtml, /card-meta--version|1\.2\.3/);
 const labeledCardHtml = cardRenderUi.renderProjectCard({ id: 'labeled', name: 'Labeled', version: '1.2.3', versionLabel: '夏季版', tags: [], downloadsCount: 0 });
-assert.match(labeledCardHtml, /card-meta card-meta--version"><span>夏季版<\/span> <span>2026\/9\/6<\/span>/);
+assert.doesNotMatch(labeledCardHtml, /card-meta--version|夏季版/);
 
 const createLegacyIdentityUi = () => Function(
   `${fragments.homeStateScript}; return { state, setProjectsPage, setInstalledProjects, getLocalProjectMeta, getLegacyInstalledProjectMatches };`,

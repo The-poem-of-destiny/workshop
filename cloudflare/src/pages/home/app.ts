@@ -408,9 +408,43 @@ export const homeScript = String.raw`
     const userMenu = document.getElementById('userMenu');
     const projectLoadMoreBtn = document.getElementById('projectLoadMoreBtn');
     const releaseNoticeBtn = document.getElementById('releaseNoticeBtn');
+    const mobileSearchInput = document.getElementById('projectSearchInputMobile');
+    const mobileToolSheet = document.getElementById('mobileToolSheet');
+    const mobileToolBackdrop = document.getElementById('mobileToolBackdrop');
+    const mobileToolClose = document.getElementById('mobileToolClose');
 
     if (loginBtn) loginBtn.onclick = openLoginPopup;
     if (releaseNoticeBtn) releaseNoticeBtn.onclick = openReleaseNoticeModal;
+
+    const closeMobileTool = () => {
+      if (!mobileToolSheet || !mobileToolBackdrop) return;
+      mobileToolSheet.classList.remove('show');
+      mobileToolBackdrop.classList.remove('show');
+      mobileToolSheet.setAttribute('aria-hidden', 'true');
+      document.querySelectorAll('[data-mobile-tool]').forEach(button => button.classList.remove('active'));
+    };
+    const openMobileTool = mode => {
+      if (!mobileToolSheet || !mobileToolBackdrop) return;
+      const titleMap = { search: '搜索', filter: '筛选', sort: '排序' };
+      const title = document.getElementById('mobileToolTitle');
+      if (title) title.textContent = titleMap[mode] || '浏览工具';
+      mobileToolSheet.querySelectorAll('[data-mobile-panel]').forEach(panel => {
+        panel.hidden = panel.dataset.mobilePanel !== mode;
+      });
+      mobileToolSheet.classList.add('show');
+      mobileToolBackdrop.classList.add('show');
+      mobileToolSheet.setAttribute('aria-hidden', 'false');
+      document.querySelectorAll('[data-mobile-tool]').forEach(button => button.classList.toggle('active', button.dataset.mobileTool === mode));
+      if (mode === 'search') setTimeout(() => mobileSearchInput?.focus(), 120);
+    };
+    if (mobileToolClose) mobileToolClose.onclick = closeMobileTool;
+    if (mobileToolBackdrop) mobileToolBackdrop.onclick = closeMobileTool;
+    document.querySelectorAll('[data-mobile-tool]').forEach(button => {
+      button.addEventListener('click', event => {
+        event.stopPropagation();
+        openMobileTool(button.dataset.mobileTool || 'search');
+      });
+    });
     if (workshopCloseBtn) workshopCloseBtn.onclick = requestCloseWorkshop;
     if (logoutBtn) logoutBtn.onclick = logout;
     if (uploadBtn) uploadBtn.onclick = event => {
@@ -518,6 +552,32 @@ export const homeScript = String.raw`
       });
     }
 
+    document.querySelectorAll('.mobile-sort-option').forEach(button => {
+      button.addEventListener('click', event => {
+        event.stopPropagation();
+        if (state.sortRequestPending) return;
+        const nextSortMode = button.dataset.sortValue || DEFAULT_SORT_MODE;
+        if (state.sortMode === nextSortMode) {
+          closeMobileTool();
+          return;
+        }
+        state.sortRequestPending = true;
+        const sortLabelMap = { published: '发布时间', updated: '更新日期', likes: '点赞数', downloads: '下载量' };
+        showToast('正在按' + (sortLabelMap[nextSortMode] || '当前方式') + '排序...', 'info');
+        state.sortMode = nextSortMode;
+        state.sortMenuOpen = false;
+        resetProjectPagination();
+        renderApp();
+        fetchProjects(true, {
+          page: 0,
+          pageSize: state.projectPagination.pageSize,
+        }).finally(() => {
+          state.sortRequestPending = false;
+          renderApp();
+        });
+      });
+    });
+
     if (searchInput) {
       const runSearch = value => {
         const nextKeyword = String(value || '').trim();
@@ -539,6 +599,29 @@ export const homeScript = String.raw`
       };
     }
 
+    if (mobileSearchInput) {
+      const runMobileSearch = value => {
+        const nextKeyword = String(value || '').trim();
+        state.searchKeyword = nextKeyword;
+        if (searchInput && searchInput.value !== nextKeyword) searchInput.value = nextKeyword;
+        if (nextKeyword === lastCommittedSearchKeyword) return;
+        lastCommittedSearchKeyword = nextKeyword;
+        resetProjectPagination();
+        void fetchProjects(true, { page: 0, pageSize: state.projectPagination.pageSize });
+      };
+      mobileSearchInput.oninput = event => {
+        state.searchKeyword = event.target.value;
+      };
+      mobileSearchInput.onchange = event => runMobileSearch(event.target.value);
+      mobileSearchInput.onkeydown = event => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          runMobileSearch(event.target.value);
+          closeMobileTool();
+        }
+      };
+    }
+
     if (baseTagFilter) {
       baseTagFilter.addEventListener('click', event => {
         if (state.filterRequestPending) {
@@ -555,6 +638,35 @@ export const homeScript = String.raw`
           return;
         }
 
+        resetProjectPagination();
+        state.filterRequestPending = true;
+        renderApp();
+        fetchProjects(true, {
+          page: 0,
+          pageSize: state.projectPagination.pageSize,
+        }).finally(() => {
+          state.filterRequestPending = false;
+          renderApp();
+        });
+      });
+    }
+
+    const mobileTagFilter = document.querySelector('.mobile-filter-options');
+    if (mobileTagFilter) {
+      mobileTagFilter.addEventListener('click', event => {
+        if (state.filterRequestPending) return;
+        const nextTagButton = event.target instanceof Element ? event.target.closest('[data-base-tag]') : null;
+        if (!nextTagButton) return;
+        const nextTag = nextTagButton.dataset.baseTag || 'all';
+        if (state.activeBaseTag === nextTag) {
+          closeMobileTool();
+          return;
+        }
+        state.activeBaseTag = nextTag;
+        if (state.showOnlyMyProjects || state.showSubscribedAndInstalledProjects) {
+          renderApp();
+          return;
+        }
         resetProjectPagination();
         state.filterRequestPending = true;
         renderApp();
@@ -597,6 +709,23 @@ export const homeScript = String.raw`
         event.preventDefault();
         openDetail();
       });
+    });
+
+    document.querySelectorAll('.card-more-btn').forEach(button => {
+      button.addEventListener('click', event => {
+        event.stopPropagation();
+        const card = button.closest('.project-card');
+        if (!card) return;
+        const shouldOpen = !card.classList.contains('admin-menu-open');
+        document.querySelectorAll('.project-card.admin-menu-open').forEach(openCard => openCard.classList.remove('admin-menu-open'));
+        if (!shouldOpen) return;
+        card.classList.add('admin-menu-open');
+        document.addEventListener('click', () => card.classList.remove('admin-menu-open'), { once: true });
+      });
+    });
+
+    document.querySelectorAll('.card-admin-menu').forEach(menu => {
+      menu.addEventListener('click', event => event.stopPropagation());
     });
 
     document.querySelectorAll('.like-btn').forEach(button => {
