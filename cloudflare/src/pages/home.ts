@@ -1,4 +1,5 @@
 import { homeScript } from './home/app';
+import { homeShellStyles } from './home/shell-styles';
 import { homeStyles } from './home/styles';
 
 export const homePage = (): string => {
@@ -10,7 +11,7 @@ export const homePage = (): string => {
   <title>命定创意工坊 · 主页</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lxgw-wenkai-lite-webfont@1.1.0/style.css">
-  <style>${homeStyles}</style>
+  <style>${homeStyles}${homeShellStyles}</style>
 </head>
 <body>
   <div class="container" id="app"></div>
