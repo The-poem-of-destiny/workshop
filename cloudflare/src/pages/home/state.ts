@@ -3,6 +3,55 @@ const API_BASE = '';
 const TOKEN_KEY = 'creative_workshop_token';
 const USER_KEY = 'creative_workshop_user';
 const DEFAULT_SORT_MODE = 'published';
+const CONTENT_FONT_KEY = 'creative_workshop_content_font_v1';
+const DEFAULT_CONTENT_FONT = 'wenkai';
+const CONTENT_FONT_OPTIONS = [
+  { value: 'wenkai', label: '霞鹜文楷', family: '\"LXGW WenKai Lite\", \"Microsoft YaHei\", sans-serif', stylesheets: [] },
+  { value: 'system', label: '系统字体', family: '-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", sans-serif', stylesheets: [] },
+  { value: 'noto-sans', label: 'Noto 黑体', family: '\"Noto Sans SC\", \"Microsoft YaHei\", sans-serif', stylesheets: ['https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc@5.3.0/400.css', 'https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc@5.3.0/700.css'] },
+  { value: 'noto-serif', label: 'Noto 宋体', family: '\"Noto Serif SC\", \"Songti SC\", SimSun, serif', stylesheets: ['https://cdn.jsdelivr.net/npm/@fontsource/noto-serif-sc@5.3.0/400.css', 'https://cdn.jsdelivr.net/npm/@fontsource/noto-serif-sc@5.3.0/700.css'] },
+  { value: 'zcool-xiaowei', label: '站酷小薇', family: '\"ZCOOL XiaoWei\", \"Songti SC\", SimSun, serif', stylesheets: ['https://cdn.jsdelivr.net/npm/@fontsource/zcool-xiaowei@5.3.0/400.css'] },
+  { value: 'ma-shan-zheng', label: '马善政毛笔', family: '\"Ma Shan Zheng\", \"KaiTi\", cursive', stylesheets: ['https://cdn.jsdelivr.net/npm/@fontsource/ma-shan-zheng@5.3.0/400.css'] },
+];
+
+function readSavedContentFont() {
+  try {
+    const saved = localStorage.getItem(CONTENT_FONT_KEY) || DEFAULT_CONTENT_FONT;
+    return CONTENT_FONT_OPTIONS.some(option => option.value === saved) ? saved : DEFAULT_CONTENT_FONT;
+  } catch {
+    return DEFAULT_CONTENT_FONT;
+  }
+}
+
+function getContentFontOption(value) {
+  return CONTENT_FONT_OPTIONS.find(option => option.value === value)
+    || CONTENT_FONT_OPTIONS.find(option => option.value === DEFAULT_CONTENT_FONT)
+    || CONTENT_FONT_OPTIONS[0];
+}
+
+function ensureContentFontAssets(option) {
+  (option?.stylesheets || []).forEach(href => {
+    if (document.querySelector('link[data-workshop-font-href="' + href + '"]')) return;
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = href;
+    link.dataset.workshopFontHref = href;
+    document.head.appendChild(link);
+  });
+}
+
+function applyContentFont(value, persist = false) {
+  const option = getContentFontOption(value || state.contentFont);
+  state.contentFont = option.value;
+  ensureContentFontAssets(option);
+  document.documentElement.style.setProperty('--workshop-content-font', option.family);
+  if (persist) {
+    try {
+      localStorage.setItem(CONTENT_FONT_KEY, option.value);
+    } catch {}
+  }
+  return option;
+}
 
 function createDefaultTavernState() {
   return {
@@ -40,6 +89,8 @@ const state = {
   searchKeyword: '',
   userMenuOpen: false,
   sortMenuOpen: false,
+  fontMenuOpen: false,
+  contentFont: readSavedContentFont(),
   sortRequestPending: false,
   filterRequestPending: false,
   projectRequestToken: 0,

@@ -2,6 +2,12 @@ export const homeShellStyles = String.raw`
 /* 2026 desktop shell: reuse the mobile gallery language instead of creating a second visual system. */
 .workshop-shell { width:100%; min-width:0; }
 .workshop-main { min-width:0; }
+:root { --workshop-content-font: "LXGW WenKai Lite", "Microsoft YaHei", sans-serif; }
+.project-name,
+.card-text-preview p,
+.detail-project-name,
+.detail-description,
+.entry-title { font-family:var(--workshop-content-font); }
 .desktop-sidebar { display:none; }
 
 @media (min-width:1024px) {
@@ -721,6 +727,37 @@ export const homeShellStyles = String.raw`
   .mobile-tool-sheet-head strong { font-size:.98rem; }
   .mobile-filter-option { font-size:.82rem; }
   .mobile-tool-empty { font-size:.8rem; }
+}
+
+@media (min-width:1024px) {
+  .desktop-toolbar .font-menu-trigger {
+    min-height:40px;
+    padding:0 10px;
+    gap:7px;
+    border:1px solid rgba(255,255,255,.07);
+    border-radius:9px;
+    background:rgba(255,255,255,.025);
+    color:#aaa8a3;
+    box-shadow:none;
+  }
+  .desktop-toolbar .font-menu-trigger:hover { background:rgba(255,255,255,.045); color:#d0cfcb; }
+  .desktop-toolbar .font-menu-trigger > i:first-child { color:#73726e; }
+  .desktop-toolbar .font-menu-trigger > i:last-child { color:#66645f; font-size:.66rem; }
+  .desktop-toolbar .font-menu .user-menu-dropdown { top:calc(100% + 8px); right:0; left:auto; min-width:176px; }
+  .font-menu-item.active { color:#d5c2a5; background:rgba(162,139,107,.085); }
+  .projects-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+}
+
+@media (min-width:1280px) {
+  .projects-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+}
+
+@media (min-width:1440px) {
+  .projects-grid { grid-template-columns:repeat(5,minmax(0,1fr)); }
+}
+
+@media (max-width:1023px) {
+  .mobile-tool-dock { grid-template-columns:repeat(4,minmax(0,1fr)); }
 }
 
 @media (max-width:640px) {

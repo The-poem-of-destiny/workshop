@@ -402,6 +402,8 @@ export const homeScript = String.raw`
     const installedToggle = document.getElementById('installedProjectsToggle');
     const sortMenuTrigger = document.getElementById('sortMenuTrigger');
     const sortMenu = document.getElementById('sortMenu');
+    const fontMenuTrigger = document.getElementById('fontMenuTrigger');
+    const fontMenu = document.getElementById('fontMenu');
     const searchInput = document.getElementById('projectSearchInput');
     const baseTagFilter = document.getElementById('baseTagFilter');
     const userMenuTrigger = document.getElementById('userMenuTrigger');
@@ -425,7 +427,7 @@ export const homeScript = String.raw`
     };
     const openMobileTool = mode => {
       if (!mobileToolSheet || !mobileToolBackdrop) return;
-      const titleMap = { search: '搜索', filter: '筛选', sort: '排序' };
+      const titleMap = { search: '搜索', filter: '筛选', sort: '排序', font: '内容字体' };
       const title = document.getElementById('mobileToolTitle');
       if (title) title.textContent = titleMap[mode] || '浏览工具';
       mobileToolSheet.querySelectorAll('[data-mobile-panel]').forEach(panel => {
@@ -514,6 +516,7 @@ export const homeScript = String.raw`
         }
         state.sortMenuOpen = !state.sortMenuOpen;
         state.userMenuOpen = false;
+        state.fontMenuOpen = false;
         renderApp();
       };
 
@@ -552,7 +555,33 @@ export const homeScript = String.raw`
       });
     }
 
-    document.querySelectorAll('.mobile-sort-option').forEach(button => {
+    if (fontMenuTrigger && fontMenu) {
+      fontMenuTrigger.onclick = event => {
+        event.stopPropagation();
+        state.fontMenuOpen = !state.fontMenuOpen;
+        state.sortMenuOpen = false;
+        state.userMenuOpen = false;
+        renderApp();
+        document.addEventListener('click', () => {
+          if (!state.fontMenuOpen) return;
+          state.fontMenuOpen = false;
+          renderApp();
+        }, { once: true });
+      };
+    }
+
+    document.querySelectorAll('[data-font-value]').forEach(button => {
+      button.addEventListener('click', event => {
+        event.stopPropagation();
+        const nextFont = button.dataset.fontValue || DEFAULT_CONTENT_FONT;
+        const option = applyContentFont(nextFont, true);
+        state.fontMenuOpen = false;
+        renderApp();
+        showToast('内容字体：' + option.label, 'info');
+      });
+    });
+
+    document.querySelectorAll('.mobile-sort-option[data-sort-value]').forEach(button => {
       button.addEventListener('click', event => {
         event.stopPropagation();
         if (state.sortRequestPending) return;
@@ -685,12 +714,14 @@ export const homeScript = String.raw`
         event.stopPropagation();
         state.userMenuOpen = !state.userMenuOpen;
         state.sortMenuOpen = false;
+        state.fontMenuOpen = false;
         renderApp();
       };
       document.addEventListener('click', () => {
-        if (state.userMenuOpen || state.sortMenuOpen) {
+        if (state.userMenuOpen || state.sortMenuOpen || state.fontMenuOpen) {
           state.userMenuOpen = false;
           state.sortMenuOpen = false;
+          state.fontMenuOpen = false;
           renderApp();
         }
       }, { once: true });
@@ -862,6 +893,7 @@ export const homeScript = String.raw`
   }
 
   function renderApp() {
+    applyContentFont(state.contentFont);
     const filteredProjects = getFilteredProjects();
     app.innerHTML = renderLayout(filteredProjects);
     bindStaticActions(filteredProjects);
