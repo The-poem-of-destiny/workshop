@@ -687,4 +687,44 @@ export const homeShellStyles = String.raw`
 @media (min-width:1024px) {
   .mobile-tool-dock,.mobile-tool-backdrop,.mobile-tool-sheet { display:none !important; }
 }
+
+/* Readability pass: keep the restrained layout without microscopic secondary text. */
+.card-creator { font-size:.76rem; }
+.card-admin-menu .action-btn { font-size:.8rem; }
+.card-text-preview__type,.card-text-preview__hint { font-size:.68rem; }
+.card-text-preview p { font-size:.9rem; }
+.project-name { font-size:1rem; }
+.project-tags .tag { font-size:.67rem; }
+.card-status-line,.card-quality-signal { font-size:.66rem; }
+.card-quality-signal i { font-size:.68rem; }
+.card-footer .action-btn { font-size:.7rem; }
+
+@media (min-width:1024px) {
+  .sidebar-brand-mark { font-size:1rem; }
+  .sidebar-brand-copy strong { font-size:1.02rem; }
+  .sidebar-brand-copy small,.sidebar-section-label { font-size:.68rem; }
+  .sidebar-nav-btn { font-size:.84rem; }
+  .sidebar-nav-btn i { font-size:.86rem; }
+  .sidebar-view-state small { font-size:.67rem; }
+  .sidebar-view-state strong { font-size:.82rem; }
+  .sidebar-bottom .release-notice,.sidebar-bottom .tavern-status { font-size:.74rem; }
+  .desktop-toolbar .header-search input { font-size:.9rem; }
+  .desktop-toolbar .sort-menu-trigger > i:last-child { font-size:.66rem; }
+  .desktop-toolbar .toggle-switch { font-size:.76rem; }
+  .header .user-menu-name,.header #loginBtn { font-size:.78rem; }
+  .header .user-menu-trigger > i { font-size:.66rem; }
+}
+
+@media (max-width:1023px) {
+  .logo h1 { font-size:1.08rem; }
+  .mobile-tool-dock button { font-size:.76rem; }
+  .mobile-tool-sheet-head strong { font-size:.98rem; }
+  .mobile-filter-option { font-size:.82rem; }
+  .mobile-tool-empty { font-size:.8rem; }
+}
+
+@media (max-width:640px) {
+  .project-name { font-size:.96rem; }
+  .project-tags .tag { font-size:.64rem; }
+}
 `;
