@@ -761,7 +761,107 @@ export const homeShellStyles = String.raw`
 }
 
 @media (max-width:640px) {
-  .project-name { font-size:.96rem; }
-  .project-tags .tag { font-size:.64rem; }
+  .container {
+    padding:calc(8px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(112px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+  }
+
+  .header {
+    margin:calc(-8px - env(safe-area-inset-top)) -16px 12px;
+    padding:calc(7px + env(safe-area-inset-top)) 16px 7px;
+  }
+
+  .projects-grid {
+    gap:12px;
+    margin-top:14px;
+  }
+
+  .project-card {
+    border-color:rgba(255,255,255,.042);
+    box-shadow:0 3px 12px rgba(0,0,0,.12);
+  }
+
+  .project-card:hover {
+    border-color:rgba(255,255,255,.042);
+    box-shadow:0 3px 12px rgba(0,0,0,.12);
+  }
+
+  .card-head {
+    height:36px;
+    padding:0 8px 0 10px;
+    border-bottom:0;
+    background:transparent;
+  }
+
+  .card-cover,
+  .card-text-preview { border-bottom:0; }
+
+  .card-content { padding:11px 10px 10px; }
+  .project-name { font-size:1rem; }
+
+  .project-tags {
+    margin-top:8px;
+    line-height:1.55;
+  }
+
+  .project-tags .tag {
+    color:#aaa8a3;
+    font-size:.72rem;
+    line-height:1.55;
+  }
+
+  .project-tags .tag + .tag::before {
+    margin:0 3px;
+    color:#686761;
+  }
+
+  .card-footer {
+    min-height:40px;
+    margin-top:10px;
+    padding-top:8px;
+    border-top:0;
+  }
+
+  .card-footer .install-btn {
+    min-height:34px;
+    padding:0 10px;
+    border:1px solid rgba(162,139,107,.18);
+    background:rgba(162,139,107,.09);
+    color:#dfcfb8;
+    font-size:.74rem;
+  }
+
+  .card-footer .install-btn i { color:#c5ad8b; }
+  .card-footer .install-btn:active {
+    background:rgba(162,139,107,.15);
+    border-color:rgba(162,139,107,.26);
+    color:#f0e5d5;
+  }
+
+  .card-footer .install-btn.is-disabled {
+    background:transparent;
+    border-color:transparent;
+    color:#77756f;
+  }
+
+  .tavern-status {
+    width:28px;
+    min-width:28px;
+    height:36px;
+    border:0;
+    background:transparent;
+    box-shadow:none;
+    color:#85837d;
+  }
+
+  .tavern-status i { font-size:.9rem; }
+  .tavern-status--connected { color:#91b092; }
+  .tavern-status--connecting { color:#c5ad8b; }
+  .tavern-status--error { color:#d9918b; }
+
+  .detail-tags-row .tag {
+    border:1px solid rgba(255,255,255,.045);
+    background:rgba(255,255,255,.04);
+    color:#c6c4be;
+  }
 }
 `;
