@@ -524,7 +524,7 @@ body { background:#0f1012; color:#ececea; }
 .project-detail-modal .modal-header h2 i { color:#a28b6b; }
 .project-detail-modal .close-btn { width:38px; height:38px; border-radius:9px; color:#aaa8a3; }
 .project-detail-modal .close-btn:hover { background:rgba(255,255,255,.05); color:#ececea; }
-.project-detail-modal .modal-body { padding:0; }
+.project-detail-modal .modal-body { padding:0; overflow-x:hidden; }
 .project-detail-modal .detail-panel { gap:24px; }
 .project-detail-modal .detail-panel-scroll { overflow:visible; padding:24px 26px 30px; }
 .project-detail-modal .detail-hero { display:grid; grid-template-columns:minmax(340px,430px) minmax(0,1fr); gap:28px; align-items:stretch; }
