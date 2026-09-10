@@ -36,6 +36,29 @@ for (const [name, script] of Object.entries(fragments)) {
   new Function(script);
 }
 
+const safeLinkUtils = Function(`${fragments.homeUtilsScript}; return { escapeHtml, normalizeExternalHttpUrl };`)();
+const safeMarkdownUi = Function(
+  'escapeHtml',
+  'normalizeExternalHttpUrl',
+  `${fragments.homeDetailModalRenderScript}; return { renderSafeMarkdown, collectExternalHttpUrlsFromText };`,
+)(safeLinkUtils.escapeHtml, safeLinkUtils.normalizeExternalHttpUrl);
+const discordUrl = 'https://discord.com/channels/1417861565679669272/1501937377684488402';
+const markdownSafetySample = `## 更新\n- **重点**\n- [Discord](${discordUrl})\n<script>alert(1)</script>\n[bad](javascript:alert(1))`;
+const markdownSafetyHtml = safeMarkdownUi.renderSafeMarkdown(markdownSafetySample);
+assert.match(markdownSafetyHtml, /<h3[^>]*>更新<\/h3>/);
+assert.match(markdownSafetyHtml, /<strong>重点<\/strong>/);
+assert.match(markdownSafetyHtml, /data-external-url="https:\/\/discord\.com\/channels\//);
+assert.doesNotMatch(markdownSafetyHtml, /href=/i, 'creator Markdown links must never navigate directly');
+assert.doesNotMatch(markdownSafetyHtml, /<script/i, 'raw creator HTML must remain escaped');
+assert.match(markdownSafetyHtml, /&lt;script&gt;/);
+assert.equal(safeLinkUtils.normalizeExternalHttpUrl('javascript:alert(1)'), '');
+assert.equal(safeLinkUtils.normalizeExternalHttpUrl('https://user:pass@example.com/'), '');
+assert.deepEqual(safeMarkdownUi.collectExternalHttpUrlsFromText(`联系：${discordUrl}`), [discordUrl]);
+const codeFenceSafetyHtml = safeMarkdownUi.renderSafeMarkdown('```html\n<script>alert(1)</script>\n```');
+assert.doesNotMatch(codeFenceSafetyHtml, /<script/i, 'fenced code must not become executable HTML');
+assert.match(codeFenceSafetyHtml, /&lt;script&gt;/);
+assert.deepEqual(safeMarkdownUi.collectExternalHttpUrlsFromText('坏链接 https:// 后续文字'), [], 'malformed URLs must terminate scanning without hanging');
+
 const uploadPreviewUi = Function(
   'validateJsonUpload',
   'assertUploadSize',

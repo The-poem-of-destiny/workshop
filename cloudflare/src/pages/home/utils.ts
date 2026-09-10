@@ -49,6 +49,45 @@ function escapeHtml(unsafe) {
   });
 }
 
+function normalizeExternalHttpUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw || raw.length > 4096) return '';
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+    if (!parsed.hostname || parsed.username || parsed.password) return '';
+    return parsed.href;
+  } catch {
+    return '';
+  }
+}
+
+async function copyTextToClipboard(value) {
+  const text = String(value || '');
+  if (!text) return false;
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (error) {
+      console.warn('Clipboard API unavailable', error);
+    }
+  }
+  const field = document.createElement('textarea');
+  field.value = text;
+  field.setAttribute('readonly', '');
+  field.style.position = 'fixed';
+  field.style.opacity = '0';
+  field.style.pointerEvents = 'none';
+  document.body.appendChild(field);
+  field.focus();
+  field.select();
+  let copied = false;
+  try { copied = document.execCommand('copy'); } catch (error) { console.warn('Fallback copy failed', error); }
+  field.remove();
+  return copied;
+}
+
 function formatDate(value) {
   if (!value) return '未知日期';
   const date = new Date(value);
