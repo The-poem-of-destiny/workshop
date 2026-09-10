@@ -4,11 +4,11 @@ const TOKEN_KEY = 'creative_workshop_token';
 const USER_KEY = 'creative_workshop_user';
 const DEFAULT_SORT_MODE = 'published';
 const CONTENT_FONT_KEY = 'creative_workshop_content_font_v1';
-const DEFAULT_CONTENT_FONT = 'wenkai';
+const DEFAULT_CONTENT_FONT = 'noto-sans';
 const CONTENT_FONT_OPTIONS = [
   { value: 'wenkai', label: '霞鹜文楷', family: '\"LXGW WenKai Lite\", \"Microsoft YaHei\", sans-serif', stylesheets: [] },
   { value: 'system', label: '系统字体', family: '-apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Microsoft YaHei\", sans-serif', stylesheets: [] },
-  { value: 'noto-sans', label: 'Noto 黑体', family: '\"Noto Sans SC\", \"Microsoft YaHei\", sans-serif', stylesheets: ['https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc@5.3.0/400.css', 'https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc@5.3.0/700.css'] },
+  { value: 'noto-sans', label: 'Noto 黑体', family: '\"Noto Sans SC\", \"Microsoft YaHei\", sans-serif', stylesheets: ['https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc@5.3.0/400.css', 'https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc@5.3.0/500.css', 'https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc@5.3.0/700.css'] },
   { value: 'noto-serif', label: 'Noto 宋体', family: '\"Noto Serif SC\", \"Songti SC\", SimSun, serif', stylesheets: ['https://cdn.jsdelivr.net/npm/@fontsource/noto-serif-sc@5.3.0/400.css', 'https://cdn.jsdelivr.net/npm/@fontsource/noto-serif-sc@5.3.0/700.css'] },
   { value: 'zcool-xiaowei', label: '站酷小薇', family: '\"ZCOOL XiaoWei\", \"Songti SC\", SimSun, serif', stylesheets: ['https://cdn.jsdelivr.net/npm/@fontsource/zcool-xiaowei@5.3.0/400.css'] },
   { value: 'ma-shan-zheng', label: '马善政毛笔', family: '\"Ma Shan Zheng\", \"KaiTi\", cursive', stylesheets: ['https://cdn.jsdelivr.net/npm/@fontsource/ma-shan-zheng@5.3.0/400.css'] },
@@ -16,7 +16,7 @@ const CONTENT_FONT_OPTIONS = [
 
 function readSavedContentFont() {
   try {
-    const saved = localStorage.getItem(CONTENT_FONT_KEY) || DEFAULT_CONTENT_FONT;
+    const saved = DEFAULT_CONTENT_FONT;
     return CONTENT_FONT_OPTIONS.some(option => option.value === saved) ? saved : DEFAULT_CONTENT_FONT;
   } catch {
     return DEFAULT_CONTENT_FONT;

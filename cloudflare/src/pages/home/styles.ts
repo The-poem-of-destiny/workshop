@@ -760,4 +760,41 @@ body { color:var(--cw-text-primary); }
   .project-detail-modal .detail-description { font-size:.94rem; }
 }
 
+/* Project detail v4: full-width identity header, 8/4 media-action hero, and local table of contents. */
+body,.logo h1,.sidebar-brand-copy strong,.mobile-tool-sheet-head strong,.project-detail-modal .modal-header h2,.project-detail-modal .detail-project-name { font-family:var(--workshop-content-font); }
+.project-detail-modal .detail-panel-scroll { gap:20px; }
+.project-detail-modal .detail-project-header { display:flex; flex-direction:column; gap:8px; min-width:0; padding:2px 0 0; }
+.project-detail-modal .detail-project-header .detail-project-name { max-width:1180px; font-size:clamp(1.35rem,2.1vw,1.9rem); line-height:1.28; }
+.project-detail-modal .detail-project-header .detail-identity-row { min-height:30px; }
+.project-detail-modal .detail-toc { position:sticky; top:0; z-index:6; display:flex; align-items:center; gap:6px; min-width:0; margin:0 -8px; padding:8px; overflow-x:auto; overflow-y:hidden; border:1px solid rgba(255,255,255,.07); border-radius:10px; background:rgba(24,25,28,.94); box-shadow:0 8px 22px rgba(0,0,0,.14); backdrop-filter:blur(14px); scrollbar-width:none; }
+.project-detail-modal .detail-toc::-webkit-scrollbar { display:none; }
+.project-detail-modal .detail-toc-item { flex:none; display:inline-flex; align-items:center; min-height:34px; padding:0 11px; border:1px solid transparent; border-radius:8px; color:var(--cw-text-secondary); font-size:.78rem; font-weight:650; line-height:1; text-decoration:none; white-space:nowrap; }
+.project-detail-modal .detail-toc-item:hover,.project-detail-modal .detail-toc-item:focus-visible { border-color:rgba(255,255,255,.10); background:rgba(255,255,255,.045); color:var(--cw-text-heading); outline:none; }
+.project-detail-modal .detail-toc-item.active { border-color:rgba(162,139,107,.24); background:rgba(162,139,107,.10); color:var(--cw-text-heading); }
+.project-detail-modal .detail-hero { grid-template-columns:minmax(0,2fr) minmax(280px,1fr); gap:24px; align-items:start; }
+.project-detail-modal .detail-cover { height:clamp(330px,34vw,420px); aspect-ratio:auto; background-size:contain; background-position:center; }
+.project-detail-modal .detail-primary { min-height:0; gap:14px; padding:0; }
+.project-detail-modal .detail-primary .detail-facts { margin-top:0; grid-template-columns:repeat(2,minmax(0,1fr)); }
+.project-detail-modal .detail-primary .detail-fact:nth-child(n+3) { border-top:1px solid rgba(255,255,255,.065); }
+.project-detail-modal .detail-primary .detail-fact:nth-child(odd) { border-left:0; }
+.project-detail-modal .detail-primary .detail-fact:nth-child(even) { border-left:1px solid rgba(255,255,255,.065); }
+.project-detail-modal .detail-action-buttons { max-width:none; }
+.project-detail-modal .detail-overview,.project-detail-modal #detail-worldbook,.project-detail-modal .detail-md-heading-2 { scroll-margin-top:58px; }
+
+@media (max-width:900px) and (min-width:641px) {
+  .project-detail-modal .detail-hero { grid-template-columns:minmax(0,2fr) minmax(235px,1fr); gap:18px; }
+  .project-detail-modal .detail-cover { height:clamp(280px,40vw,340px); }
+  .project-detail-modal .detail-project-header .detail-project-name { font-size:1.35rem; }
+}
+
+@media (max-width:640px) {
+  .project-detail-modal .detail-panel-scroll { gap:16px; }
+  .project-detail-modal .detail-project-header { padding-top:14px; }
+  .project-detail-modal .detail-project-header .detail-project-name { font-size:1.2rem; line-height:1.38; }
+  .project-detail-modal .detail-toc { top:0; margin:0 calc(-15px - env(safe-area-inset-right)) 0 calc(-15px - env(safe-area-inset-left)); padding:7px calc(15px + env(safe-area-inset-right)) 7px calc(15px + env(safe-area-inset-left)); border-width:1px 0; border-radius:0; }
+  .project-detail-modal .detail-toc-item { min-height:32px; padding:0 10px; font-size:.76rem; }
+  .project-detail-modal .detail-cover { height:clamp(180px,31dvh,240px); background-size:contain; background-color:#18191c; }
+  .project-detail-modal .detail-overview,.project-detail-modal #detail-worldbook,.project-detail-modal .detail-md-heading-2 { scroll-margin-top:54px; }
+}
+
 `;

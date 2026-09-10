@@ -2,7 +2,7 @@ export const homeShellStyles = String.raw`
 /* 2026 desktop shell: reuse the mobile gallery language instead of creating a second visual system. */
 .workshop-shell { width:100%; min-width:0; }
 .workshop-main { min-width:0; }
-:root { --workshop-content-font: "LXGW WenKai Lite", "Microsoft YaHei", sans-serif; }
+:root { --workshop-content-font: "Noto Sans SC", "Microsoft YaHei", sans-serif; }
 .project-name,
 .card-text-preview p,
 .detail-project-name,
@@ -757,7 +757,7 @@ export const homeShellStyles = String.raw`
 }
 
 @media (max-width:1023px) {
-  .mobile-tool-dock { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .mobile-tool-dock { grid-template-columns:repeat(3,minmax(0,1fr)); }
 }
 
 @media (max-width:640px) {
