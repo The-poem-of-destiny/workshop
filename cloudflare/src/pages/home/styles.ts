@@ -366,7 +366,7 @@ button.detail-stat:disabled { cursor:not-allowed; opacity:.55; }
 .external-link-sources span { display:inline-flex; max-width:100%; padding:3px 7px; border-radius:999px; background:rgba(255,255,255,.05); color:rgba(226,232,240,.62); font-size:.68rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .external-link-copy-trigger { width:100%; display:block; padding:0; border:0; background:transparent; color:inherit; text-align:left; cursor:pointer; }
 .external-link-copy-trigger:hover code { color:#d8c39f; text-decoration:underline; text-underline-offset:3px; }
-.external-link-warning-modal { z-index:1400; }
+.external-link-warning-modal { z-index:10020; }
 .external-link-warning-modal .modal-content { max-width:620px; border-radius:16px; background:#18191c; border:1px solid rgba(255,255,255,.1); }
 .external-link-warning { display:grid; grid-template-columns:auto minmax(0,1fr); gap:14px 16px; padding:4px 2px 2px; }
 .external-link-warning-icon { width:38px; height:38px; display:grid; place-items:center; border-radius:10px; background:rgba(245,158,11,.1); color:#d9b66e; }
