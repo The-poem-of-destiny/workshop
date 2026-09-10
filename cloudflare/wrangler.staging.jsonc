@@ -20,8 +20,7 @@
   ],
   "kv_namespaces": [
     {
-      "binding": "SESSION_KV",
-      "id": "94b70bfd1b144386a28c418fb7345727"
+      "binding": "SESSION_KV"
     }
   ],
   "r2_buckets": [
