@@ -94,6 +94,7 @@ export const homeModalsScript = [
   '  loadingOverlay.classList.add("project-detail-modal");',
   '  try {',
   '    const detail = await fetchProjectEntries(project);',
+  '    if (!loadingOverlay.isConnected) return;',
   '    loadingOverlay.remove();',
   '    const overlay = openModal(renderProjectDetail(detail.project || project, detail.entries || [], detail.regexEntries || []), \'<i class="fas fa-info-circle"></i> 项目详情\');',
   '    overlay.classList.add("project-detail-modal");',
