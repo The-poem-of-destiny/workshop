@@ -534,7 +534,7 @@ body { background:#0f1012; color:#ececea; }
 .project-detail-modal .detail-identity-row { display:flex; align-items:center; flex-wrap:wrap; gap:8px; min-width:0; color:#aaa8a3; font-size:.78rem; }
 .project-detail-modal .detail-author { min-width:0; gap:7px; flex-wrap:nowrap; }
 .project-detail-modal .detail-author > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.project-detail-modal .detail-author-avatar { width:29px; height:29px; flex:none; border:1px solid rgba(255,255,255,.12); }
+.project-detail-modal .detail-author-avatar { width:29px; height:29px; flex:none; display:block; border:1px solid rgba(255,255,255,.12); background-color:#25262a; background-position:center; background-size:cover; background-repeat:no-repeat; }
 .project-detail-modal .detail-identity-separator { color:#5f5e5a; }
 .project-detail-modal .detail-type-label { color:#a9cdb9; font-weight:720; }
 .project-detail-modal .detail-actions-panel { display:flex; flex-direction:column; align-items:flex-start; gap:8px; padding:0; border:0; border-radius:0; background:none; }
@@ -632,6 +632,7 @@ body { background:#0f1012; color:#ececea; }
   .project-detail-modal .detail-action-buttons { gap:7px; }
   .project-detail-modal .detail-install-btn,.project-detail-modal .detail-update-btn { min-height:42px; }
   .project-detail-modal .detail-tags-row { flex-wrap:nowrap; margin-right:calc(-15px - env(safe-area-inset-right)); padding-right:calc(15px + env(safe-area-inset-right)); overflow-x:auto; overflow-y:hidden; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+  .project-detail-modal .detail-tags-row .tag { padding:6px 10px; font-size:.76rem; }
   .project-detail-modal .detail-tags-row::-webkit-scrollbar { display:none; }
   .project-detail-modal .detail-stats-row { gap:16px; }
   .project-detail-modal .detail-overview { display:flex; flex-direction:column; gap:12px; }
