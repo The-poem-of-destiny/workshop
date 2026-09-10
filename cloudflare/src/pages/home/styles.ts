@@ -797,4 +797,56 @@ body,.logo h1,.sidebar-brand-copy strong,.mobile-tool-sheet-head strong,.project
   .project-detail-modal .detail-overview,.project-detail-modal #detail-worldbook,.project-detail-modal .detail-md-heading-2 { scroll-margin-top:54px; }
 }
 
+/* Project detail v5: persistent 8/4 project workspace. */
+.project-detail-modal .detail-page-grid { display:grid; grid-template-columns:minmax(0,2fr) minmax(280px,1fr); grid-template-areas:"media rail" "content rail"; column-gap:28px; row-gap:30px; align-items:start; min-width:0; }
+.project-detail-modal .detail-media-stage { grid-area:media; min-width:0; }
+.project-detail-modal .detail-summary-rail { grid-area:rail; position:sticky; top:12px; min-width:0; display:flex; flex-direction:column; padding-left:24px; border-left:1px solid rgba(255,255,255,.075); }
+.project-detail-modal .detail-reading-column { grid-area:content; min-width:0; display:flex; flex-direction:column; gap:30px; }
+.project-detail-modal .detail-media-stage .detail-cover { width:100%; height:clamp(360px,36vw,500px); margin:0; border:1px solid rgba(255,255,255,.07); border-radius:11px; background-size:contain; background-position:center; background-repeat:no-repeat; }
+.project-detail-modal .detail-summary-rail .detail-actions-panel { padding:0 0 18px; border-bottom:1px solid rgba(255,255,255,.07); }
+.project-detail-modal .detail-summary-rail .detail-action-buttons { width:100%; }
+.project-detail-modal .detail-rail-section { min-width:0; padding:18px 0; border-bottom:1px solid rgba(255,255,255,.07); }
+.project-detail-modal .detail-rail-section:last-child { border-bottom:0; }
+.project-detail-modal .detail-rail-label { margin-bottom:11px; color:var(--cw-text-muted); font-size:.68rem; font-weight:760; letter-spacing:.08em; }
+.project-detail-modal .detail-summary-rail .detail-stats-row { margin-bottom:14px; gap:16px; }
+.project-detail-modal .detail-summary-rail .detail-facts { grid-template-columns:repeat(2,minmax(0,1fr)); border-width:1px 0 0; }
+.project-detail-modal .detail-summary-rail .detail-tags-row { gap:7px; }
+.project-detail-modal .detail-summary-rail .detail-toc { position:static; z-index:auto; display:flex; flex-direction:column; align-items:stretch; gap:3px; margin:0; padding:0; overflow:visible; border:0; border-radius:0; background:none; box-shadow:none; backdrop-filter:none; }
+.project-detail-modal .detail-summary-rail .detail-toc-item { width:100%; min-height:36px; justify-content:flex-start; padding:0 10px; border:0; border-left:2px solid transparent; border-radius:0 7px 7px 0; color:var(--cw-text-secondary); font-size:.78rem; }
+.project-detail-modal .detail-summary-rail .detail-toc-item:hover,.project-detail-modal .detail-summary-rail .detail-toc-item:focus-visible { border-color:rgba(255,255,255,.16); background:rgba(255,255,255,.035); }
+.project-detail-modal .detail-summary-rail .detail-toc-item.active { border-left-color:#a28b6b; background:rgba(162,139,107,.09); }
+.project-detail-modal .detail-reading-column .detail-overview { gap:12px; }
+.project-detail-modal .detail-reading-column .detail-description { width:100%; max-width:900px; }
+.project-detail-modal .detail-reading-column .detail-section { padding-top:24px; }
+.project-detail-modal .detail-reading-column .detail-entry-workspace { grid-template-columns:minmax(220px,260px) minmax(0,1fr); }
+.project-detail-modal .detail-reading-column .detail-entry-pane { padding-left:24px; }
+.project-detail-modal .detail-reading-column .detail-entry-panel-heading,.project-detail-modal .detail-reading-column .detail-entry-info,.project-detail-modal .detail-reading-column .detail-entry-pane .detail-entry-content { max-width:760px; }
+.project-detail-modal .detail-reading-column #detail-overview,.project-detail-modal .detail-reading-column #detail-worldbook,.project-detail-modal .detail-reading-column #detail-regex,.project-detail-modal .detail-reading-column #detail-links,.project-detail-modal .detail-reading-column .detail-md-heading-2 { scroll-margin-top:18px; }
+
+@media (max-width:1050px) {
+  .project-detail-modal .detail-page-grid { grid-template-columns:minmax(0,1fr); grid-template-areas:"media" "rail" "content"; row-gap:22px; }
+  .project-detail-modal .detail-summary-rail { position:static; padding:0; border-left:0; border-top:1px solid rgba(255,255,255,.075); border-bottom:1px solid rgba(255,255,255,.075); }
+  .project-detail-modal .detail-summary-rail .detail-actions-panel { padding:16px 0; }
+  .project-detail-modal .detail-rail-section { padding:16px 0; }
+  .project-detail-modal .detail-rail-nav { padding-bottom:14px; }
+  .project-detail-modal .detail-summary-rail .detail-toc { flex-direction:row; gap:6px; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; }
+  .project-detail-modal .detail-summary-rail .detail-toc::-webkit-scrollbar { display:none; }
+  .project-detail-modal .detail-summary-rail .detail-toc-item { width:auto; flex:none; min-height:34px; padding:0 10px; border:1px solid transparent; border-radius:8px; white-space:nowrap; }
+  .project-detail-modal .detail-summary-rail .detail-toc-item.active { border-color:rgba(162,139,107,.24); }
+  .project-detail-modal .detail-media-stage .detail-cover { height:clamp(300px,48vw,420px); }
+}
+
+@media (max-width:640px) {
+  .project-detail-modal .detail-page-grid { row-gap:16px; }
+  .project-detail-modal .detail-media-stage .detail-cover { width:calc(100% + 30px + env(safe-area-inset-left) + env(safe-area-inset-right)); height:clamp(190px,31dvh,245px); margin:0 calc(-15px - env(safe-area-inset-right)) 0 calc(-15px - env(safe-area-inset-left)); border-width:0 0 1px; border-radius:0; }
+  .project-detail-modal .detail-summary-rail .detail-actions-panel { padding:14px 0; }
+  .project-detail-modal .detail-rail-section { padding:14px 0; }
+  .project-detail-modal .detail-summary-rail .detail-facts { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .project-detail-modal .detail-summary-rail .detail-toc-item { min-height:32px; font-size:.76rem; }
+  .project-detail-modal .detail-reading-column { gap:24px; }
+  .project-detail-modal .detail-reading-column .detail-section { padding-top:18px; }
+  .project-detail-modal .detail-reading-column .detail-entry-workspace { display:flex; flex-direction:column; }
+  .project-detail-modal .detail-reading-column .detail-entry-pane { padding-left:0; }
+}
+
 `;
