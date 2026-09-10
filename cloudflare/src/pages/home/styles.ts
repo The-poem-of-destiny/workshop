@@ -709,4 +709,55 @@ body { background:#0f1012; color:#ececea; }
   .project-detail-modal .detail-entry-content { width:100%; min-height:0; padding:12px 0 0; border-left:0; border-top:1px solid rgba(255,255,255,.05); font-size:.76rem; }
 }
 
+/* 2026 accessibility/readability pass: neutral whites with AAA-oriented contrast on current dark surfaces. */
+:root {
+  --cw-text-heading:#FFFFFF;
+  --cw-text-primary:#F5F7FA;
+  --cw-text-secondary:#D7DEE8;
+  --cw-text-muted:#AEB6C2;
+  --cw-text-link:#E6EEFA;
+}
+body { color:var(--cw-text-primary); }
+.project-name,.card-text-preview p { color:var(--cw-text-primary); }
+.card-creator,.card-status-line,.card-quality-signal,.project-tags .tag,.project-load-more-meta { color:var(--cw-text-secondary); }
+.card-text-preview__type,.card-text-preview__hint,.card-signals { color:var(--cw-text-muted); }
+.card-footer .action-btn { color:var(--cw-text-primary); }
+
+.project-detail-modal .modal-content { color:var(--cw-text-primary); }
+.project-detail-modal .modal-header h2,.project-detail-modal .detail-project-name,.project-detail-modal .detail-block-title,.project-detail-modal .detail-section-title,.project-detail-modal .detail-markdown h3,.project-detail-modal .detail-markdown h4,.project-detail-modal .detail-entry-panel-heading h3 { color:var(--cw-text-heading); }
+.project-detail-modal .close-btn,.project-detail-modal .detail-identity-row,.project-detail-modal .detail-tags-row .tag,.project-detail-modal .detail-markdown blockquote,.project-detail-modal .entry-behavior-meta span,.project-detail-modal .keyword-chip,.project-detail-modal .detail-entry-nav-item { color:var(--cw-text-secondary); }
+.project-detail-modal .detail-description,.project-detail-modal .detail-entry-content,.project-detail-modal .detail-entry-pane .detail-entry-content,.project-detail-modal .detail-md-code { color:var(--cw-text-primary); }
+.project-detail-modal .detail-description { font-size:.95rem; line-height:1.76; font-weight:500; }
+.project-detail-modal .detail-entry-content,.project-detail-modal .detail-entry-pane .detail-entry-content { font-size:.92rem; line-height:1.78; font-weight:500; }
+.project-detail-modal .detail-markdown h3 { font-size:1.08rem; }
+.project-detail-modal .detail-markdown h4 { font-size:.98rem; }
+.project-detail-modal .detail-md-inline-code { color:var(--cw-text-primary); }
+.project-detail-modal .detail-safe-link { color:var(--cw-text-link); font-weight:600; }
+.project-detail-modal .detail-safe-link:hover { color:var(--cw-text-heading); }
+.project-detail-modal .detail-stat { color:var(--cw-text-secondary); }
+.project-detail-modal .detail-stat i,.project-detail-modal .detail-stat span,.project-detail-modal .detail-fact i,.project-detail-modal .detail-fact span,.project-detail-modal .detail-section-title > span:last-child,.project-detail-modal .entry-header > i,.project-detail-modal .detail-keywords-title,.project-detail-modal .detail-entry-nav-copy small,.project-detail-modal .detail-disclosure > summary::after { color:var(--cw-text-muted); }
+.project-detail-modal .detail-stat strong,.project-detail-modal .detail-fact strong { color:var(--cw-text-primary); }
+.project-detail-modal .detail-stat strong { font-size:.82rem; }
+.project-detail-modal .detail-stat span { font-size:.74rem; }
+.project-detail-modal .detail-fact span { font-size:.72rem; }
+.project-detail-modal .detail-fact strong { font-size:.82rem; }
+.project-detail-modal .detail-section-title > span:last-child { font-size:.74rem; }
+.project-detail-modal .entry-header { color:var(--cw-text-primary); font-size:.88rem; }
+.project-detail-modal .entry-behavior-meta span { font-size:.72rem; }
+.project-detail-modal .detail-keywords-title { font-size:.72rem; }
+.project-detail-modal .keyword-chip { font-size:.74rem; }
+.project-detail-modal .detail-entry-nav-item:hover,.project-detail-modal .detail-entry-nav-item.active { color:var(--cw-text-heading); }
+.project-detail-modal .detail-entry-nav-copy strong { font-size:.84rem; font-weight:700; }
+.project-detail-modal .detail-entry-nav-copy small { font-size:.7rem; }
+.project-detail-modal .detail-entry-panel-heading h3 { font-size:.98rem; }
+.external-link-warning-copy strong { color:var(--cw-text-heading); }
+.external-link-warning-copy p,.external-link-warning-copy code { color:var(--cw-text-secondary); }
+.external-link-warning-host { color:var(--cw-text-primary); }
+.detail-loading,.form-hint,.empty-state { color:var(--cw-text-secondary); }
+
+@media (max-width:640px) {
+  .project-detail-modal .detail-entry-pane .detail-entry-content,.project-detail-modal .detail-entry-content { font-size:.9rem; line-height:1.76; }
+  .project-detail-modal .detail-description { font-size:.94rem; }
+}
+
 `;

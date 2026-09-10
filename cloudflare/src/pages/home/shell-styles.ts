@@ -864,4 +864,39 @@ export const homeShellStyles = String.raw`
     color:#c6c4be;
   }
 }
+/* Accessibility/readability pass: keep hierarchy through weight/spacing, not faint yellow-gray text. */
+.sidebar-brand-copy strong,.logo h1 { color:var(--cw-text-heading); }
+.sidebar-brand-copy small,.sidebar-section-label,.sidebar-view-state small { color:var(--cw-text-muted); }
+.sidebar-nav-btn,.sidebar-view-state strong,.desktop-toolbar .sort-menu-trigger,.desktop-toolbar .toggle-switch,.header .user-menu-name,.desktop-toolbar .font-menu-trigger { color:var(--cw-text-secondary); }
+.sidebar-nav-btn i,.desktop-toolbar .header-search i,.desktop-toolbar .sort-menu-trigger > i:first-child,.desktop-toolbar .sort-menu-trigger > i:last-child,.header .user-menu-trigger > i,.desktop-toolbar .font-menu-trigger > i:first-child,.desktop-toolbar .font-menu-trigger > i:last-child { color:var(--cw-text-muted); }
+.sidebar-nav-btn:hover,.sidebar-nav-btn.active,.desktop-toolbar .sort-menu-trigger:hover,.desktop-toolbar .toggle-switch:hover,.desktop-toolbar .font-menu-trigger:hover { color:var(--cw-text-heading); }
+.sidebar-view-state strong,.header #loginBtn,.mobile-tool-sheet-head strong,.mobile-sort-option { color:var(--cw-text-primary); }
+.sidebar-bottom .release-notice { color:var(--cw-text-secondary); }
+.desktop-toolbar .header-search input,.mobile-search-box input { color:var(--cw-text-primary); }
+.mobile-tool-dock button,.mobile-filter-option { color:var(--cw-text-secondary); }
+.mobile-tool-dock button.active,.mobile-tool-dock button:active,.mobile-filter-option.active,.mobile-tool-sheet-head button { color:var(--cw-text-heading); }
+.mobile-search-box,.mobile-tool-empty { color:var(--cw-text-muted); }
+.project-tags .tag,.card-creator,.card-status-line,.card-quality-signal { color:var(--cw-text-secondary); }
+.card-text-preview__type,.card-text-preview__hint,.card-signals { color:var(--cw-text-muted); }
+.card-footer .action-btn,.card-footer .install-btn { color:var(--cw-text-primary); }
+
+.card-creator { font-size:.8rem; }
+.card-text-preview__type,.card-text-preview__hint { font-size:.72rem; font-weight:600; }
+.project-tags .tag { font-size:.72rem; font-weight:500; }
+.card-status-line,.card-quality-signal { font-size:.72rem; }
+.card-footer .action-btn { font-size:.76rem; }
+
+@media (min-width:1024px) {
+  .sidebar-brand-copy small,.sidebar-section-label { font-size:.72rem; }
+  .sidebar-view-state small { font-size:.72rem; }
+  .sidebar-bottom .release-notice,.sidebar-bottom .tavern-status { font-size:.78rem; }
+  .desktop-toolbar .toggle-switch { font-size:.8rem; }
+  .header .user-menu-name,.header #loginBtn { font-size:.8rem; }
+}
+
+@media (max-width:1023px) {
+  .mobile-tool-dock button { font-size:.8rem; }
+  .mobile-filter-option { font-size:.86rem; }
+  .mobile-tool-empty { font-size:.84rem; }
+}
 `;
