@@ -198,6 +198,90 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helve
 .edit-current-cover img { display:block; width:100%; max-height:220px; object-fit:cover; }
 .edit-current-cover--empty .empty-state { padding:18px 12px; }
 .form-submit-btn { width:100%; padding:12px; justify-content:center; }
+
+/* Creator form workspace: upload/edit share one responsive layout. */
+.project-form-modal { align-items:center; padding:24px 32px; overflow:hidden; background:rgba(5,6,8,.78); backdrop-filter:blur(10px); }
+.project-form-modal .modal-content { width:min(100%,1180px); max-width:1180px; height:calc(100dvh - 48px); max-height:calc(100dvh - 48px); border-radius:14px; background:#18191c; border-color:rgba(255,255,255,.09); box-shadow:0 28px 80px rgba(0,0,0,.5); }
+.project-form-modal .modal-header { min-height:62px; padding:0 22px; background:#18191c; border-bottom:1px solid rgba(255,255,255,.07); }
+.project-form-modal .modal-header h2 { color:#e5e4e1; font-size:1rem; font-weight:760; }
+.project-form-modal .modal-header h2 i { color:#b89d76; }
+.project-form-modal .close-btn { width:38px; height:38px; border-radius:9px; color:#aaa8a3; }
+.project-form-modal .close-btn:hover { background:rgba(255,255,255,.05); color:#ececea; }
+.project-form-modal .modal-body { min-height:0; padding:0; overflow:hidden; }
+.project-form { height:100%; min-height:0; display:flex; flex-direction:column; }
+.project-form-layout { flex:1; min-height:0; display:grid; grid-template-columns:minmax(0,1.08fr) minmax(340px,.92fr); overflow-y:auto; }
+.project-form-column { min-width:0; padding:28px 30px 32px; }
+.project-form-column--main { display:flex; flex-direction:column; gap:28px; }
+.project-form-column--assets { border-left:1px solid rgba(255,255,255,.07); background:#16171a; }
+.project-form-section { min-width:0; padding:0 0 28px; border-bottom:1px solid rgba(255,255,255,.07); }
+.project-form-section:last-child,.project-form-section--assets { padding-bottom:0; border-bottom:0; }
+.project-form-section-head { display:grid; grid-template-columns:28px minmax(0,1fr); gap:10px; align-items:start; margin-bottom:20px; }
+.project-form-section-index { width:28px; height:28px; display:grid; place-items:center; border:1px solid rgba(190,164,125,.26); border-radius:8px; background:rgba(190,164,125,.07); color:#c5ad8b; font-size:.65rem; font-weight:800; letter-spacing:.04em; }
+.project-form-section-head h3 { margin:1px 0 3px; color:#e5e4e1; font-size:.94rem; font-weight:760; line-height:1.3; }
+.project-form-section-head p { margin:0; color:#77756f; font-size:.72rem; line-height:1.5; }
+.project-form-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px 18px; align-items:start; }
+.project-form-field--wide { grid-column:1 / -1; }
+.project-form .form-group { min-width:0; margin:0; }
+.project-form .form-group > label { margin-bottom:7px; color:#aaa8a3; font-size:.76rem; font-weight:700; opacity:1; }
+.project-form .form-label-meta { margin-left:5px; color:#686762; font-size:.68rem; font-weight:600; }
+.project-form .form-group input,.project-form .form-group textarea,.project-form .form-group select { min-height:42px; padding:10px 12px; border:1px solid rgba(255,255,255,.09); border-radius:8px; outline:0; background:#121316; color:#e2e1dd; box-shadow:none; transition:border-color .16s ease,background .16s ease,box-shadow .16s ease; }
+.project-form .form-group textarea { min-height:126px; resize:vertical; line-height:1.6; }
+.project-form .form-group input::placeholder,.project-form .form-group textarea::placeholder { color:#5f5e5a; }
+.project-form .form-group input:focus,.project-form .form-group textarea:focus,.project-form .form-group select:focus { border-color:rgba(190,164,125,.52); background:#151619; box-shadow:0 0 0 3px rgba(190,164,125,.07); }
+.project-form .form-hint { margin-top:7px; color:#77756f; font-size:.7rem; line-height:1.5; }
+.project-form #displayTagsGroup { margin-top:2px; }
+.project-form .display-tag-picker { min-height:48px; padding:9px 0 0; }
+.project-form .display-tag-picker-empty { padding:11px 12px; border-color:rgba(255,255,255,.08); background:rgba(255,255,255,.015); color:#66645f; }
+.project-form .taxonomy-facet-group { background:#151619; border-color:rgba(255,255,255,.08); border-radius:9px; }
+.project-form .taxonomy-facet-group summary { padding:10px 11px; }
+.project-form .taxonomy-chip-list { padding:0 11px 11px; }
+.project-form .taxonomy-chip span { min-height:30px; padding:5px 9px; border-color:rgba(255,255,255,.08); background:#1d1e22; color:#9d9b96; font-size:.74rem; }
+.project-form .taxonomy-chip input:checked + span { border-color:rgba(190,164,125,.38); background:rgba(190,164,125,.1); color:#d8c8ad; box-shadow:none; }
+.project-upload-stack { display:flex; flex-direction:column; gap:18px; }
+.project-upload-field { padding-bottom:18px; border-bottom:1px solid rgba(255,255,255,.065); }
+.project-upload-field:last-child { padding-bottom:0; border-bottom:0; }
+.project-file-drop { min-height:92px; display:flex; align-items:center; justify-content:center; padding:18px 16px; border:1px dashed rgba(255,255,255,.16); border-radius:10px; background:#121316; color:#a9a7a2; font-size:.78rem; font-weight:650; line-height:1.5; }
+.project-file-drop:hover { border-color:rgba(190,164,125,.48); background:rgba(190,164,125,.045); color:#d7c5a8; }
+.project-file-drop.is-dragover { border-color:#bda47d; background:rgba(190,164,125,.08); box-shadow:0 0 0 3px rgba(190,164,125,.06) inset; }
+.project-form .upload-file-preview { margin-top:9px; }
+.project-form .upload-preview-summary { border-color:rgba(255,255,255,.08); background:#1c1d21; }
+.project-form .edit-current-content { margin:0; padding-top:2px; }
+.project-form-footer { flex:none; min-height:70px; display:flex; align-items:center; justify-content:space-between; gap:18px; padding:12px 22px; border-top:1px solid rgba(255,255,255,.07); background:#18191c; }
+.project-form-footer-note { min-width:0; display:flex; align-items:center; gap:8px; color:#77756f; font-size:.72rem; line-height:1.45; }
+.project-form-footer-note i { flex:none; color:#8ea78f; }
+.project-form .form-submit-btn { width:auto; min-width:176px; min-height:44px; flex:none; padding:10px 18px; border-radius:9px; background:#bea47d; border:1px solid #ceb58f; color:#151619; font-size:.8rem; font-weight:800; box-shadow:none; }
+.project-form .form-submit-btn:hover:not(:disabled) { border-color:#dbc39d; background:#cdb38b; color:#101113; }
+
+@media (max-width:900px) {
+  .project-form-layout { grid-template-columns:1fr; }
+  .project-form-column { padding:24px 22px 28px; }
+  .project-form-column--assets { border-left:0; border-top:1px solid rgba(255,255,255,.07); background:transparent; }
+}
+
+@media (max-width:640px) {
+  .project-form-modal { padding:0; align-items:stretch; background:#18191c; backdrop-filter:none; }
+  .project-form-modal .modal-content { width:100%; height:100dvh; max-height:100dvh; border:0; border-radius:0; box-shadow:none; }
+  .project-form-modal .modal-header { min-height:56px; padding:0 14px 0 16px; }
+  .project-form-modal .modal-header h2 { font-size:.92rem; }
+  .project-form-modal .close-btn { width:40px; height:40px; }
+  .project-form-layout { display:block; }
+  .project-form-column { padding:22px 16px 26px; }
+  .project-form-column--main { gap:24px; }
+  .project-form-column--assets { padding-top:24px; }
+  .project-form-section { padding-bottom:24px; }
+  .project-form-section-head { grid-template-columns:25px minmax(0,1fr); gap:9px; margin-bottom:17px; }
+  .project-form-section-index { width:25px; height:25px; border-radius:7px; font-size:.61rem; }
+  .project-form-section-head h3 { font-size:.88rem; }
+  .project-form-section-head p { font-size:.68rem; }
+  .project-form-grid { grid-template-columns:1fr; gap:15px; }
+  .project-form-field--wide { grid-column:auto; }
+  .project-form .form-group input,.project-form .form-group textarea,.project-form .form-group select { font-size:16px; }
+  .project-form .form-group textarea { min-height:118px; }
+  .project-file-drop { min-height:78px; padding:15px 12px; }
+  .project-form-footer { min-height:72px; padding:10px 12px calc(10px + env(safe-area-inset-bottom)); }
+  .project-form-footer-note { display:none; }
+  .project-form .form-submit-btn { width:100%; min-width:0; min-height:48px; }
+}
 .toast { position:fixed; bottom:20px; right:20px; background:#1E293B; color:white; padding:12px 24px; border-radius:30px; box-shadow:0 8px 20px black; z-index:10000; border-left:4px solid #6366F1; }
 .admin-review-modal,.admin-review-detail-modal { max-width:1040px; }
 .admin-review-queue { display:flex; flex-direction:column; gap:14px; }
