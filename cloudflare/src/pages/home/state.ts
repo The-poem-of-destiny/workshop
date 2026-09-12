@@ -86,6 +86,7 @@ const state = {
   showSubscribedAndInstalledProjects: false,
   sortMode: DEFAULT_SORT_MODE,
   activeBaseTag: 'all',
+  activeTag: '',
   searchKeyword: '',
   userMenuOpen: false,
   sortMenuOpen: false,
@@ -140,6 +141,7 @@ function setProjectsPage(payload) {
 
 function setMyProjects(projects) {
   state.myProjects = Array.isArray(projects) ? projects : [];
+  syncProjectStats(state.myProjects, { replace: false });
 }
 
 function resetProjectPagination() {
@@ -151,6 +153,13 @@ function getActivePublicBaseTag() {
     return 'all';
   }
   return state.activeBaseTag || 'all';
+}
+
+function getActivePublicTag() {
+  if (state.showOnlyMyProjects || state.showSubscribedAndInstalledProjects) {
+    return '';
+  }
+  return String(state.activeTag || '').trim();
 }
 
 function createProjectRequestToken() {
@@ -179,8 +188,8 @@ function getProjectPendingAction(projectId) {
   return state.tavern.pendingProjectActions.get(projectId) || null;
 }
 
-function syncProjectStats(projects) {
-  state.likesMap = new Map();
+function syncProjectStats(projects, options = {}) {
+  if (options.replace !== false) state.likesMap = new Map();
   
   (projects || []).forEach(project => {
     state.likesMap.set(project.id, {
@@ -425,11 +434,15 @@ function getFilteredProjects() {
 
   const baseTag = getActivePublicBaseTag();
   const baseTagFilteredSource = scopedSource.filter(project => matchProjectBaseTag(project, baseTag));
+  const activeTag = getActivePublicTag();
+  const tagFilteredSource = activeTag
+    ? baseTagFilteredSource.filter(project => getProjectDetailTags(project).includes(activeTag) || getProjectExtensionType(project) === activeTag)
+    : baseTagFilteredSource;
 
   const keyword = String(state.searchKeyword || '').trim().toLowerCase();
   const filteredSource = !keyword
-    ? baseTagFilteredSource
-    : baseTagFilteredSource.filter(project => {
+    ? tagFilteredSource
+    : tagFilteredSource.filter(project => {
         const haystacks = [
           project.name,
           project.description,

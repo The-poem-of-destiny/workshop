@@ -225,6 +225,8 @@ try {
   assert.deepEqual(structuredCharacterPublished.project.facets.势力, ['王国']);
   assert.deepEqual(structuredCharacterPublished.project.customTags, ['纯爱', '慢热']);
   assert.deepEqual(structuredCharacterPublished.project.displayTags, ['人鱼', '纯爱', '慢热']);
+  const facetFilteredProjects = await api('/api/projects?page=0&pageSize=50&tag=' + encodeURIComponent('人鱼'));
+  assert.ok(facetFilteredProjects.projects.some(project => project.id === structuredCharacter.projectId));
 
   const taxonomyDraft = await api(`/api/projects/${structuredCharacter.projectId}`, {
     method: 'PUT',
@@ -247,6 +249,8 @@ try {
   assert.deepEqual(taxonomyDraftDetail.project.tags, ['扩展', '战斗']);
   await approve(taxonomyDraft.projectId);
   cleanupIds.delete(taxonomyDraft.projectId);
+  const extensionTypeFilteredProjects = await api('/api/projects?page=0&pageSize=50&tag=' + encodeURIComponent('规则'));
+  assert.ok(extensionTypeFilteredProjects.projects.some(project => project.id === structuredCharacter.projectId));
 
   const taxonomyPublished = await api(`/api/projects/${structuredCharacter.projectId}`);
   assert.equal(taxonomyPublished.project.projectType, '扩展');

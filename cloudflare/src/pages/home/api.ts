@@ -151,6 +151,10 @@ async function fetchProjects(forceRefresh = false, options = {}) {
   if (baseTag && baseTag !== 'all') {
     params.set('projectType', baseTag);
   }
+  const activeTag = getActivePublicTag();
+  if (activeTag) {
+    params.set('tag', activeTag);
+  }
   const searchKeyword = String(state.searchKeyword || '').trim();
   if (searchKeyword) {
     params.set('search', searchKeyword);

@@ -649,6 +649,28 @@ export const homeShellStyles = String.raw`
     gap:7px;
   }
 
+  .mobile-filter-section + .mobile-filter-section { margin-top:16px; }
+  .mobile-filter-section-title {
+    margin:0 0 8px;
+    color:#77756f;
+    font-size:.72rem;
+    font-weight:700;
+    letter-spacing:.08em;
+  }
+
+  .mobile-tag-picker { display:block; }
+  .mobile-tag-picker > span { display:none; }
+  .mobile-tag-picker select {
+    width:100%;
+    min-height:44px;
+    padding:0 11px;
+    border:1px solid rgba(255,255,255,.09);
+    border-radius:8px;
+    background:#1b1c1f;
+    color:#d9d8d4;
+    font:inherit;
+  }
+
   .mobile-filter-option {
     min-height:42px;
     border:1px solid rgba(255,255,255,.08);
@@ -692,7 +714,44 @@ export const homeShellStyles = String.raw`
 
 @media (min-width:1024px) {
   .mobile-tool-dock,.mobile-tool-backdrop,.mobile-tool-sheet { display:none !important; }
+
+  .sidebar-tag-picker {
+    display:flex;
+    flex-direction:column;
+    gap:7px;
+    margin-top:14px;
+  }
+  .sidebar-tag-picker > span {
+    display:flex;
+    align-items:center;
+    gap:7px;
+    color:#77756f;
+    font-size:.68rem;
+    font-weight:700;
+    letter-spacing:.06em;
+  }
+  .sidebar-tag-picker select {
+    width:100%;
+    min-height:38px;
+    padding:0 9px;
+    border:1px solid rgba(255,255,255,.075);
+    border-radius:8px;
+    background:#1b1c1f;
+    color:#d9d8d4;
+    font-size:.78rem;
+  }
 }
+
+.card-owner-stats {
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+  color:#8f8d87;
+  font-size:.72rem;
+  font-variant-numeric:tabular-nums;
+}
+.card-owner-stats span { display:inline-flex; align-items:center; gap:4px; }
+.card-owner-stats i { color:#b49a77; font-size:.7rem; }
 
 /* Readability pass: keep the restrained layout without microscopic secondary text. */
 .card-creator { font-size:.76rem; }

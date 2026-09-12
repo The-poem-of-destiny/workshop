@@ -548,9 +548,9 @@ export const projectDb = {
     }
 
     if (options.tag) {
-      conditions.push('(p.facets LIKE ? OR p.custom_tags LIKE ? OR p.tags LIKE ?)');
+      conditions.push('(p.facets LIKE ? OR p.custom_tags LIKE ? OR p.tags LIKE ? OR p.extension_type = ?)');
       const tagPattern = `%"${options.tag}"%`;
-      values.push(tagPattern, tagPattern, tagPattern);
+      values.push(tagPattern, tagPattern, tagPattern, options.tag);
     }
 
     const searchTerm = options.search?.trim();
@@ -735,7 +735,13 @@ export const projectDb = {
       const publishedProject = projects.find(project => project.isPublished);
       const withPublishedVersion = (project: (typeof enrichedProjects)[number] | undefined) =>
         project && project.reviewTarget === 'draft' && publishedProject
-          ? { ...project, publishedVersion: publishedProject.version }
+          ? {
+              ...project,
+              publishedVersion: publishedProject.version,
+              likesCount: publishedProject.likesCount,
+              downloadsCount: publishedProject.downloadsCount,
+              userLiked: publishedProject.userLiked,
+            }
           : project;
 
       const pendingDraft = projects.find(project => project.reviewTarget === 'draft' && project.status === 'pending');

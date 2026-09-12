@@ -406,6 +406,8 @@ export const homeScript = String.raw`
     const fontMenu = document.getElementById('fontMenu');
     const searchInput = document.getElementById('projectSearchInput');
     const baseTagFilter = document.getElementById('baseTagFilter');
+    const projectTagFilter = document.getElementById('projectTagFilter');
+    const projectTagFilterMobile = document.getElementById('projectTagFilterMobile');
     const userMenuTrigger = document.getElementById('userMenuTrigger');
     const userMenu = document.getElementById('userMenu');
     const projectLoadMoreBtn = document.getElementById('projectLoadMoreBtn');
@@ -661,6 +663,7 @@ export const homeScript = String.raw`
         const nextTag = nextTagButton.dataset.baseTag || 'all';
         if (state.activeBaseTag === nextTag) return;
         state.activeBaseTag = nextTag;
+        state.activeTag = '';
 
         if (state.showOnlyMyProjects || state.showSubscribedAndInstalledProjects) {
           renderApp();
@@ -692,6 +695,7 @@ export const homeScript = String.raw`
           return;
         }
         state.activeBaseTag = nextTag;
+        state.activeTag = '';
         if (state.showOnlyMyProjects || state.showSubscribedAndInstalledProjects) {
           renderApp();
           return;
@@ -708,6 +712,32 @@ export const homeScript = String.raw`
         });
       });
     }
+
+    const bindProjectTagFilter = select => {
+      if (!select) return;
+      select.onchange = event => {
+        if (state.filterRequestPending) return;
+        const nextTag = String(event.target.value || '').trim();
+        if (state.activeTag === nextTag) return;
+        state.activeTag = nextTag;
+        if (state.showOnlyMyProjects || state.showSubscribedAndInstalledProjects) {
+          renderApp();
+          return;
+        }
+        resetProjectPagination();
+        state.filterRequestPending = true;
+        renderApp();
+        fetchProjects(true, {
+          page: 0,
+          pageSize: state.projectPagination.pageSize,
+        }).finally(() => {
+          state.filterRequestPending = false;
+          renderApp();
+        });
+      };
+    };
+    bindProjectTagFilter(projectTagFilter);
+    bindProjectTagFilter(projectTagFilterMobile);
 
     if (userMenuTrigger && userMenu) {
       userMenuTrigger.onclick = event => {

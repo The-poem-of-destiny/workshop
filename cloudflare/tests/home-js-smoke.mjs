@@ -193,6 +193,11 @@ assert.match(fragments.homeDetailModalRenderScript, /const tagsHtml = inspection
 assert.match(fragments.homeModalsScript, /admin-review-signal--ejs/);
 assert.match(fragments.homeApiScript, /URLSearchParams\(\{ page: '0', pageSize: '50', sort \}\)/);
 assert.match(fragments.homeApiScript, /projectType/);
+assert.match(fragments.homeApiScript, /params\.set\('tag', activeTag\)/);
+assert.match(fragments.homeLayoutRenderScript, /projectTagFilterMobile/);
+assert.match(fragments.homeLayoutRenderScript, /扩展类型/);
+assert.match(fragments.homeCardsRenderScript, /card-owner-stats/);
+assert.match(fragments.homeCardsRenderScript, /view\.downloadsCount/);
 assert.match(fragments.homeModalsScript, /最旧优先/);
 assert.match(fragments.homeModalsScript, /最新优先/);
 assert.match(fragments.homeModalsScript, /data-admin-review-type/);
