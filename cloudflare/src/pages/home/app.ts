@@ -431,7 +431,7 @@ export const homeScript = String.raw`
     const openMobileTool = mode => {
       if (!mobileToolSheet || !mobileToolBackdrop) return;
       state.mobileToolMode = mode;
-      const titleMap = { search: '搜索', sort: '排序', font: '内容字体' };
+      const titleMap = { page: '页面', search: '搜索', sort: '排序', font: '内容字体' };
       const title = document.getElementById('mobileToolTitle');
       if (title) title.textContent = titleMap[mode] || '浏览工具';
       mobileToolSheet.querySelectorAll('[data-mobile-panel]').forEach(panel => {
@@ -727,10 +727,14 @@ export const homeScript = String.raw`
         const nextTagButton = event.target instanceof Element ? event.target.closest('[data-base-tag]') : null;
         if (!nextTagButton) return;
         const nextTag = nextTagButton.dataset.baseTag || 'all';
-        if (state.activeBaseTag === nextTag) return;
+        if (state.activeBaseTag === nextTag) {
+          closeMobileTool();
+          return;
+        }
         state.activeBaseTag = nextTag;
         state.activeTags = [];
         state.searchDraft = '';
+        state.mobileToolMode = '';
         if (state.showOnlyMyProjects || state.showSubscribedAndInstalledProjects) {
           renderApp();
           return;
