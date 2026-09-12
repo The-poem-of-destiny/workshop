@@ -406,9 +406,8 @@ export const homeScript = String.raw`
     const fontMenu = document.getElementById('fontMenu');
     const searchInput = document.getElementById('projectSearchInput');
     const baseTagFilter = document.getElementById('baseTagFilter');
-    const projectTagFilter = document.getElementById('projectTagFilter');
-    const mobileOfficialTagFilter = document.getElementById('mobileOfficialTagFilter');
-    const officialTagSearchMobile = document.getElementById('officialTagSearchMobile');
+    const mobileBaseTagFilter = document.getElementById('mobileBaseTagFilter');
+
     const userMenuTrigger = document.getElementById('userMenuTrigger');
     const userMenu = document.getElementById('userMenu');
     const projectLoadMoreBtn = document.getElementById('projectLoadMoreBtn');
@@ -432,7 +431,7 @@ export const homeScript = String.raw`
     const openMobileTool = mode => {
       if (!mobileToolSheet || !mobileToolBackdrop) return;
       state.mobileToolMode = mode;
-      const titleMap = { search: '搜索', filter: '浏览', sort: '排序', font: '内容字体' };
+      const titleMap = { search: '搜索', sort: '排序', font: '内容字体' };
       const title = document.getElementById('mobileToolTitle');
       if (title) title.textContent = titleMap[mode] || '浏览工具';
       mobileToolSheet.querySelectorAll('[data-mobile-panel]').forEach(panel => {
@@ -612,19 +611,47 @@ export const homeScript = String.raw`
       });
     });
 
+    const filterLocalSearchTagSuggestions = (input, value) => {
+      const root = input?.closest('[data-unified-search]');
+      if (!root) return;
+      const query = String(value || '').trim().toLowerCase();
+      let visibleTotal = 0;
+      root.querySelectorAll('[data-search-tag-group]').forEach(group => {
+        const groupLabel = String(group.querySelector('.search-tag-group-title')?.textContent || '').toLowerCase();
+        let visibleCount = 0;
+        group.querySelectorAll('[data-search-tag]').forEach(button => {
+          const tag = String(button.dataset.searchTag || '').toLowerCase();
+          const visible = !query || tag.includes(query) || groupLabel.includes(query);
+          button.hidden = !visible;
+          if (visible) {
+            visibleCount += 1;
+            visibleTotal += 1;
+          }
+        });
+        group.hidden = visibleCount === 0;
+      });
+      const emptyState = root.querySelector('.search-tag-empty');
+      if (emptyState) emptyState.hidden = !query || visibleTotal > 0;
+    };
+
     if (searchInput) {
       const runSearch = value => {
         const nextKeyword = String(value || '').trim();
         state.searchKeyword = nextKeyword;
-        if (nextKeyword === lastCommittedSearchKeyword) return;
+        state.searchDraft = '';
+        if (nextKeyword === lastCommittedSearchKeyword) {
+          renderApp();
+          return;
+        }
         lastCommittedSearchKeyword = nextKeyword;
         resetProjectPagination();
         void fetchProjects(true, { page: 0, pageSize: state.projectPagination.pageSize });
       };
       searchInput.oninput = event => {
-        state.searchKeyword = event.target.value;
+        state.searchDraft = event.target.value;
+        filterLocalSearchTagSuggestions(event.currentTarget, event.target.value);
       };
-      searchInput.onchange = event => runSearch(event.target.value);
+
       searchInput.onkeydown = event => {
         if (event.key === 'Enter') {
           event.preventDefault();
@@ -637,16 +664,22 @@ export const homeScript = String.raw`
       const runMobileSearch = value => {
         const nextKeyword = String(value || '').trim();
         state.searchKeyword = nextKeyword;
+        state.searchDraft = '';
+        state.mobileToolMode = '';
         if (searchInput && searchInput.value !== nextKeyword) searchInput.value = nextKeyword;
-        if (nextKeyword === lastCommittedSearchKeyword) return;
+        if (nextKeyword === lastCommittedSearchKeyword) {
+          renderApp();
+          return;
+        }
         lastCommittedSearchKeyword = nextKeyword;
         resetProjectPagination();
         void fetchProjects(true, { page: 0, pageSize: state.projectPagination.pageSize });
       };
       mobileSearchInput.oninput = event => {
-        state.searchKeyword = event.target.value;
+        state.searchDraft = event.target.value;
+        filterLocalSearchTagSuggestions(event.currentTarget, event.target.value);
       };
-      mobileSearchInput.onchange = event => runMobileSearch(event.target.value);
+
       mobileSearchInput.onkeydown = event => {
         if (event.key === 'Enter') {
           event.preventDefault();
@@ -667,7 +700,7 @@ export const homeScript = String.raw`
         if (state.activeBaseTag === nextTag) return;
         state.activeBaseTag = nextTag;
         state.activeTags = [];
-        state.officialTagSearchKeyword = '';
+        state.searchDraft = '';
 
         if (state.showOnlyMyProjects || state.showSubscribedAndInstalledProjects) {
           renderApp();
@@ -687,7 +720,7 @@ export const homeScript = String.raw`
       });
     }
 
-    const mobileTagFilter = document.querySelector('.mobile-filter-options');
+    const mobileTagFilter = mobileBaseTagFilter;
     if (mobileTagFilter) {
       mobileTagFilter.addEventListener('click', event => {
         if (state.filterRequestPending) return;
@@ -697,7 +730,7 @@ export const homeScript = String.raw`
         if (state.activeBaseTag === nextTag) return;
         state.activeBaseTag = nextTag;
         state.activeTags = [];
-        state.officialTagSearchKeyword = '';
+        state.searchDraft = '';
         if (state.showOnlyMyProjects || state.showSubscribedAndInstalledProjects) {
           renderApp();
           return;
@@ -722,6 +755,7 @@ export const homeScript = String.raw`
       const current = getActivePublicTags();
       if (normalized.length === current.length && normalized.every((tag, index) => tag === current[index])) return;
       state.activeTags = normalized;
+      state.searchDraft = '';
       if (state.showOnlyMyProjects || state.showSubscribedAndInstalledProjects) {
         renderApp();
         return;
@@ -738,63 +772,61 @@ export const homeScript = String.raw`
       });
     };
 
-    if (projectTagFilter) {
-      projectTagFilter.onchange = event => {
-        if (state.filterRequestPending) return;
-        const nextTag = String(event.target.value || '').trim();
-        applyOfficialTagFilters(nextTag ? [nextTag] : []);
-      };
-    }
+    const toggleSearchTag = tagValue => {
+      if (state.filterRequestPending) return;
+      const tag = String(tagValue || '').trim();
+      if (!tag) return;
+      const current = getActivePublicTags();
+      if (!current.includes(tag) && current.length >= 12) {
+        showToast('最多同时选择 12 个官方标签', 'warning');
+        return;
+      }
+      applyOfficialTagFilters(current.includes(tag) ? current.filter(value => value !== tag) : [...current, tag]);
+    };
 
-    if (officialTagSearchMobile && mobileOfficialTagFilter) {
-      const filterOfficialTagOptions = value => {
-        const query = String(value || '').trim().toLowerCase();
-        let visibleTotal = 0;
-        mobileOfficialTagFilter.querySelectorAll('.mobile-official-tag-group').forEach(group => {
-          const groupLabel = String(group.querySelector('.mobile-official-tag-group-title')?.textContent || '').toLowerCase();
-          let visibleCount = 0;
-          group.querySelectorAll('.mobile-official-tag-chip').forEach(button => {
-            const tag = String(button.dataset.officialTag || '').toLowerCase();
-            const visible = !query || tag.includes(query) || groupLabel.includes(query);
-            button.hidden = !visible;
-            if (visible) {
-              visibleCount += 1;
-              visibleTotal += 1;
-            }
-          });
-          group.hidden = visibleCount === 0;
-        });
-        const emptyState = mobileOfficialTagFilter.querySelector('.mobile-tag-search-empty');
-        if (emptyState) emptyState.hidden = !query || visibleTotal > 0;
-      };
-      officialTagSearchMobile.oninput = event => {
-        state.officialTagSearchKeyword = event.target.value;
-        filterOfficialTagOptions(event.target.value);
-      };
-      filterOfficialTagOptions(officialTagSearchMobile.value);
-    }
-
-    if (mobileOfficialTagFilter) {
-      mobileOfficialTagFilter.addEventListener('click', event => {
-        if (state.filterRequestPending) return;
-        const target = event.target instanceof Element ? event.target : null;
-        if (!target) return;
-        if (target.closest('[data-clear-official-tags]')) {
-          applyOfficialTagFilters([]);
-          return;
-        }
-        const tagButton = target.closest('[data-official-tag]');
-        if (!tagButton) return;
-        const tag = String(tagButton.dataset.officialTag || '').trim();
-        if (!tag) return;
-        const current = getActivePublicTags();
-        if (!current.includes(tag) && current.length >= 12) {
-          showToast('最多同时选择 12 个官方标签', 'warning');
-          return;
-        }
-        applyOfficialTagFilters(current.includes(tag) ? current.filter(value => value !== tag) : [...current, tag]);
+    document.querySelectorAll('[data-search-tag]').forEach(button => {
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleSearchTag(button.dataset.searchTag);
       });
-    }
+    });
+
+    document.querySelectorAll('[data-remove-search-tag]').forEach(button => {
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const tag = String(button.dataset.removeSearchTag || '').trim();
+        if (!tag || state.filterRequestPending) return;
+        applyOfficialTagFilters(getActivePublicTags().filter(value => value !== tag));
+      });
+    });
+
+    document.querySelectorAll('[data-clear-all-search-tags]').forEach(button => {
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (state.filterRequestPending) return;
+        applyOfficialTagFilters([]);
+      });
+    });
+
+    document.querySelectorAll('[data-clear-text-search]').forEach(button => {
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!state.searchKeyword && !state.searchDraft) return;
+        state.searchKeyword = '';
+        state.searchDraft = '';
+        lastCommittedSearchKeyword = '';
+        resetProjectPagination();
+        renderApp();
+        void fetchProjects(true, { page: 0, pageSize: state.projectPagination.pageSize });
+      });
+    });
+
+    if (searchInput) filterLocalSearchTagSuggestions(searchInput, searchInput.value);
+    if (mobileSearchInput) filterLocalSearchTagSuggestions(mobileSearchInput, mobileSearchInput.value);
 
     if (userMenuTrigger && userMenu) {
       userMenuTrigger.onclick = event => {

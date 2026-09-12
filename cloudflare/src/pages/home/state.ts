@@ -87,7 +87,7 @@ const state = {
   sortMode: DEFAULT_SORT_MODE,
   activeBaseTag: 'all',
   activeTags: [],
-  officialTagSearchKeyword: '',
+  searchDraft: '',
   mobileToolMode: '',
   searchKeyword: '',
   userMenuOpen: false,
