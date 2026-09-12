@@ -227,6 +227,10 @@ try {
   assert.deepEqual(structuredCharacterPublished.project.displayTags, ['人鱼', '纯爱', '慢热']);
   const facetFilteredProjects = await api('/api/projects?page=0&pageSize=50&tag=' + encodeURIComponent('人鱼'));
   assert.ok(facetFilteredProjects.projects.some(project => project.id === structuredCharacter.projectId));
+  const multiFacetFilteredProjects = await api('/api/projects?page=0&pageSize=50&tags=' + encodeURIComponent('人鱼,圣女'));
+  assert.ok(multiFacetFilteredProjects.projects.some(project => project.id === structuredCharacter.projectId));
+  const mismatchedMultiFacetProjects = await api('/api/projects?page=0&pageSize=50&tags=' + encodeURIComponent('人鱼,规则'));
+  assert.ok(!mismatchedMultiFacetProjects.projects.some(project => project.id === structuredCharacter.projectId));
 
   const taxonomyDraft = await api(`/api/projects/${structuredCharacter.projectId}`, {
     method: 'PUT',

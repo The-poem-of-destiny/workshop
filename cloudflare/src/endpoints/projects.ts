@@ -83,6 +83,7 @@ export class ProjectList extends OpenAPIRoute {
         pageSize: Num({ description: 'Page size', default: 20 }),
         projectType: z.enum(PROJECT_TYPES).optional().describe('Filter by project type'),
         tag: Str({ required: false }).describe('Filter by tag'),
+        tags: Str({ required: false }).describe('Filter by multiple tags (AND, comma-separated)'),
         search: Str({ required: false }).describe('Search keyword'),
         sort: projectListSortSchema.default('published').describe('Sort mode'),
       }),
@@ -137,8 +138,13 @@ export class ProjectList extends OpenAPIRoute {
 
   async handle(c: AppContext) {
     const data = await this.getValidatedData<typeof this.schema>();
-    const { page, pageSize, projectType, tag, search, sort } = data.query;
+    const { page, pageSize, projectType, tag, tags, search, sort } = data.query;
     const payload = await getCurrentUserFromRequest(c);
+    const tagFilters = String(tags || '')
+      .split(',')
+      .map(value => value.trim())
+      .filter(Boolean)
+      .slice(0, 12);
 
     const result = await projectDb.list(c, {
       page,
@@ -146,6 +152,7 @@ export class ProjectList extends OpenAPIRoute {
       approvedOnly: true, // 只返回已审核通过的项目
       projectType,
       tag,
+      tags: tagFilters,
       search,
       sort,
       currentUser: payload,

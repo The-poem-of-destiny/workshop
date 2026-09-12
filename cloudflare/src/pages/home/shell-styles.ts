@@ -658,17 +658,115 @@ export const homeShellStyles = String.raw`
     letter-spacing:.08em;
   }
 
-  .mobile-tag-picker { display:block; }
-  .mobile-tag-picker > span { display:none; }
-  .mobile-tag-picker select {
-    width:100%;
-    min-height:44px;
+  .mobile-official-tag-filter {
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+  }
+
+  .mobile-tag-search {
+    height:42px;
+    display:flex;
+    align-items:center;
+    gap:8px;
     padding:0 11px;
     border:1px solid rgba(255,255,255,.09);
-    border-radius:8px;
+    border-radius:9px;
     background:#1b1c1f;
-    color:#d9d8d4;
-    font:inherit;
+    color:#77756f;
+  }
+
+  .mobile-tag-search input {
+    width:100%;
+    height:100%;
+    border:0;
+    outline:0;
+    background:transparent;
+    color:#ececea;
+    font-size:16px;
+  }
+
+  .mobile-selected-tag-block {
+    padding:10px;
+    border:1px solid rgba(162,139,107,.14);
+    border-radius:9px;
+    background:rgba(162,139,107,.055);
+  }
+
+  .mobile-selected-tag-head {
+    display:flex;
+    align-items:center;
+    margin-bottom:8px;
+    color:#9d958a;
+    font-size:.68rem;
+    font-weight:700;
+  }
+
+  .mobile-selected-tag-head button {
+    margin-left:auto;
+    padding:2px 0;
+    border:0;
+    background:transparent;
+    color:#bca786;
+    font-size:.68rem;
+  }
+
+  .mobile-selected-tag-list,
+  .mobile-official-tag-chips {
+    display:flex;
+    flex-wrap:wrap;
+    gap:7px;
+  }
+
+  .mobile-selected-tag,
+  .mobile-official-tag-chip {
+    min-height:34px;
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:0 11px;
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:999px;
+    background:rgba(255,255,255,.025);
+    color:#aaa8a3;
+    font-size:.7rem;
+    line-height:1;
+  }
+
+  .mobile-selected-tag,
+  .mobile-official-tag-chip.active {
+    border-color:rgba(162,139,107,.30);
+    background:rgba(162,139,107,.12);
+    color:#d8c4a6;
+  }
+
+  .mobile-selected-tag i,
+  .mobile-official-tag-chip i {
+    font-size:.58rem;
+  }
+
+  .mobile-official-tag-groups {
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+  }
+
+  .mobile-official-tag-group[hidden],
+  .mobile-official-tag-chip[hidden] { display:none; }
+
+  .mobile-official-tag-group-title {
+    margin-bottom:8px;
+    color:#8f8b84;
+    font-size:.68rem;
+    font-weight:700;
+  }
+
+  .mobile-tag-empty,
+  .mobile-tag-search-empty {
+    padding:18px 8px;
+    text-align:center;
+    color:#77756f;
+    font-size:.7rem;
   }
 
   .mobile-filter-option {

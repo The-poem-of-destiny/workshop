@@ -86,7 +86,9 @@ const state = {
   showSubscribedAndInstalledProjects: false,
   sortMode: DEFAULT_SORT_MODE,
   activeBaseTag: 'all',
-  activeTag: '',
+  activeTags: [],
+  officialTagSearchKeyword: '',
+  mobileToolMode: '',
   searchKeyword: '',
   userMenuOpen: false,
   sortMenuOpen: false,
@@ -155,11 +157,13 @@ function getActivePublicBaseTag() {
   return state.activeBaseTag || 'all';
 }
 
-function getActivePublicTag() {
+function getActivePublicTags() {
   if (state.showOnlyMyProjects || state.showSubscribedAndInstalledProjects) {
-    return '';
+    return [];
   }
-  return String(state.activeTag || '').trim();
+  return Array.from(new Set((Array.isArray(state.activeTags) ? state.activeTags : [])
+    .map(value => String(value || '').trim())
+    .filter(Boolean))).slice(0, 12);
 }
 
 function createProjectRequestToken() {
@@ -434,9 +438,9 @@ function getFilteredProjects() {
 
   const baseTag = getActivePublicBaseTag();
   const baseTagFilteredSource = scopedSource.filter(project => matchProjectBaseTag(project, baseTag));
-  const activeTag = getActivePublicTag();
-  const tagFilteredSource = activeTag
-    ? baseTagFilteredSource.filter(project => getProjectDetailTags(project).includes(activeTag) || getProjectExtensionType(project) === activeTag)
+  const activeTags = getActivePublicTags();
+  const tagFilteredSource = activeTags.length
+    ? baseTagFilteredSource.filter(project => activeTags.every(tag => getProjectDetailTags(project).includes(tag) || getProjectExtensionType(project) === tag))
     : baseTagFilteredSource;
 
   const keyword = String(state.searchKeyword || '').trim().toLowerCase();

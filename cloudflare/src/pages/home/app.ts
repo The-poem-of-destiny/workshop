@@ -407,7 +407,8 @@ export const homeScript = String.raw`
     const searchInput = document.getElementById('projectSearchInput');
     const baseTagFilter = document.getElementById('baseTagFilter');
     const projectTagFilter = document.getElementById('projectTagFilter');
-    const projectTagFilterMobile = document.getElementById('projectTagFilterMobile');
+    const mobileOfficialTagFilter = document.getElementById('mobileOfficialTagFilter');
+    const officialTagSearchMobile = document.getElementById('officialTagSearchMobile');
     const userMenuTrigger = document.getElementById('userMenuTrigger');
     const userMenu = document.getElementById('userMenu');
     const projectLoadMoreBtn = document.getElementById('projectLoadMoreBtn');
@@ -422,6 +423,7 @@ export const homeScript = String.raw`
 
     const closeMobileTool = () => {
       if (!mobileToolSheet || !mobileToolBackdrop) return;
+      state.mobileToolMode = '';
       mobileToolSheet.classList.remove('show');
       mobileToolBackdrop.classList.remove('show');
       mobileToolSheet.setAttribute('aria-hidden', 'true');
@@ -429,7 +431,8 @@ export const homeScript = String.raw`
     };
     const openMobileTool = mode => {
       if (!mobileToolSheet || !mobileToolBackdrop) return;
-      const titleMap = { search: '搜索', filter: '筛选', sort: '排序', font: '内容字体' };
+      state.mobileToolMode = mode;
+      const titleMap = { search: '搜索', filter: '浏览', sort: '排序', font: '内容字体' };
       const title = document.getElementById('mobileToolTitle');
       if (title) title.textContent = titleMap[mode] || '浏览工具';
       mobileToolSheet.querySelectorAll('[data-mobile-panel]').forEach(panel => {
@@ -663,7 +666,8 @@ export const homeScript = String.raw`
         const nextTag = nextTagButton.dataset.baseTag || 'all';
         if (state.activeBaseTag === nextTag) return;
         state.activeBaseTag = nextTag;
-        state.activeTag = '';
+        state.activeTags = [];
+        state.officialTagSearchKeyword = '';
 
         if (state.showOnlyMyProjects || state.showSubscribedAndInstalledProjects) {
           renderApp();
@@ -690,12 +694,10 @@ export const homeScript = String.raw`
         const nextTagButton = event.target instanceof Element ? event.target.closest('[data-base-tag]') : null;
         if (!nextTagButton) return;
         const nextTag = nextTagButton.dataset.baseTag || 'all';
-        if (state.activeBaseTag === nextTag) {
-          closeMobileTool();
-          return;
-        }
+        if (state.activeBaseTag === nextTag) return;
         state.activeBaseTag = nextTag;
-        state.activeTag = '';
+        state.activeTags = [];
+        state.officialTagSearchKeyword = '';
         if (state.showOnlyMyProjects || state.showSubscribedAndInstalledProjects) {
           renderApp();
           return;
@@ -713,31 +715,86 @@ export const homeScript = String.raw`
       });
     }
 
-    const bindProjectTagFilter = select => {
-      if (!select) return;
-      select.onchange = event => {
+    const applyOfficialTagFilters = nextTags => {
+      const normalized = Array.from(new Set((Array.isArray(nextTags) ? nextTags : [])
+        .map(value => String(value || '').trim())
+        .filter(Boolean))).slice(0, 12);
+      const current = getActivePublicTags();
+      if (normalized.length === current.length && normalized.every((tag, index) => tag === current[index])) return;
+      state.activeTags = normalized;
+      if (state.showOnlyMyProjects || state.showSubscribedAndInstalledProjects) {
+        renderApp();
+        return;
+      }
+      resetProjectPagination();
+      state.filterRequestPending = true;
+      renderApp();
+      fetchProjects(true, {
+        page: 0,
+        pageSize: state.projectPagination.pageSize,
+      }).finally(() => {
+        state.filterRequestPending = false;
+        renderApp();
+      });
+    };
+
+    if (projectTagFilter) {
+      projectTagFilter.onchange = event => {
         if (state.filterRequestPending) return;
         const nextTag = String(event.target.value || '').trim();
-        if (state.activeTag === nextTag) return;
-        state.activeTag = nextTag;
-        if (state.showOnlyMyProjects || state.showSubscribedAndInstalledProjects) {
-          renderApp();
+        applyOfficialTagFilters(nextTag ? [nextTag] : []);
+      };
+    }
+
+    if (officialTagSearchMobile && mobileOfficialTagFilter) {
+      const filterOfficialTagOptions = value => {
+        const query = String(value || '').trim().toLowerCase();
+        let visibleTotal = 0;
+        mobileOfficialTagFilter.querySelectorAll('.mobile-official-tag-group').forEach(group => {
+          const groupLabel = String(group.querySelector('.mobile-official-tag-group-title')?.textContent || '').toLowerCase();
+          let visibleCount = 0;
+          group.querySelectorAll('.mobile-official-tag-chip').forEach(button => {
+            const tag = String(button.dataset.officialTag || '').toLowerCase();
+            const visible = !query || tag.includes(query) || groupLabel.includes(query);
+            button.hidden = !visible;
+            if (visible) {
+              visibleCount += 1;
+              visibleTotal += 1;
+            }
+          });
+          group.hidden = visibleCount === 0;
+        });
+        const emptyState = mobileOfficialTagFilter.querySelector('.mobile-tag-search-empty');
+        if (emptyState) emptyState.hidden = !query || visibleTotal > 0;
+      };
+      officialTagSearchMobile.oninput = event => {
+        state.officialTagSearchKeyword = event.target.value;
+        filterOfficialTagOptions(event.target.value);
+      };
+      filterOfficialTagOptions(officialTagSearchMobile.value);
+    }
+
+    if (mobileOfficialTagFilter) {
+      mobileOfficialTagFilter.addEventListener('click', event => {
+        if (state.filterRequestPending) return;
+        const target = event.target instanceof Element ? event.target : null;
+        if (!target) return;
+        if (target.closest('[data-clear-official-tags]')) {
+          applyOfficialTagFilters([]);
           return;
         }
-        resetProjectPagination();
-        state.filterRequestPending = true;
-        renderApp();
-        fetchProjects(true, {
-          page: 0,
-          pageSize: state.projectPagination.pageSize,
-        }).finally(() => {
-          state.filterRequestPending = false;
-          renderApp();
-        });
-      };
-    };
-    bindProjectTagFilter(projectTagFilter);
-    bindProjectTagFilter(projectTagFilterMobile);
+        const tagButton = target.closest('[data-official-tag]');
+        if (!tagButton) return;
+        const tag = String(tagButton.dataset.officialTag || '').trim();
+        if (!tag) return;
+        const current = getActivePublicTags();
+        if (!current.includes(tag) && current.length >= 12) {
+          showToast('最多同时选择 12 个官方标签', 'warning');
+          return;
+        }
+        applyOfficialTagFilters(current.includes(tag) ? current.filter(value => value !== tag) : [...current, tag]);
+      });
+    }
 
     if (userMenuTrigger && userMenu) {
       userMenuTrigger.onclick = event => {

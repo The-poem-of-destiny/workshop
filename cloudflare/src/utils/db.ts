@@ -516,6 +516,7 @@ export const projectDb = {
       authorId?: string;
       projectType?: ProjectType;
       tag?: string;
+      tags?: string[];
       search?: string;
       sort?: 'published' | 'updated' | 'likes' | 'subscribes' | 'downloads';
       approvedOnly?: boolean;
@@ -547,11 +548,15 @@ export const projectDb = {
       values.push(options.projectType);
     }
 
-    if (options.tag) {
+    const tagFilters = Array.from(new Set([
+      ...(Array.isArray(options.tags) ? options.tags : []),
+      ...(options.tag ? [options.tag] : []),
+    ].map(value => String(value || '').trim()).filter(Boolean))).slice(0, 12);
+    tagFilters.forEach(tag => {
       conditions.push('(p.facets LIKE ? OR p.custom_tags LIKE ? OR p.tags LIKE ? OR p.extension_type = ?)');
-      const tagPattern = `%"${options.tag}"%`;
-      values.push(tagPattern, tagPattern, tagPattern, options.tag);
-    }
+      const tagPattern = `%"${tag}"%`;
+      values.push(tagPattern, tagPattern, tagPattern, tag);
+    });
 
     const searchTerm = options.search?.trim();
     if (searchTerm) {

@@ -151,9 +151,9 @@ async function fetchProjects(forceRefresh = false, options = {}) {
   if (baseTag && baseTag !== 'all') {
     params.set('projectType', baseTag);
   }
-  const activeTag = getActivePublicTag();
-  if (activeTag) {
-    params.set('tag', activeTag);
+  const activeTags = getActivePublicTags();
+  if (activeTags.length) {
+    params.set('tags', activeTags.join(','));
   }
   const searchKeyword = String(state.searchKeyword || '').trim();
   if (searchKeyword) {
