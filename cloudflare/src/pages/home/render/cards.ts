@@ -21,6 +21,7 @@ export const homeCardsRenderScript = [
   '    hasLegacyIdentityConflict,',
   '    canUpdate,',
   '    localVersion,',
+  '    worldbookName: localMeta?.worldbookName || project.worldbookName || null,',
   '    remoteVersion,',
   '    hasVersionDiff,',
   '    versionHtml: displayVersionLabel ? `<span>${escapeHtml(displayVersionLabel)}</span>` : "",',

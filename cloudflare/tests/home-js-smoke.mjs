@@ -162,6 +162,21 @@ assert.match(fragments.homeModalsScript, /async function beginProjectInstall/);
 assert.match(fragments.homeModalsScript, /if \(worldbookEntries\.length > 0\)/);
 assert.match(fragments.homeModalsScript, /if \(regexEntries\.length > 0\)/);
 assert.match(fragments.homeModalsScript, /requestInstallProject\(projectId/);
+assert.match(fragments.homeModalsScript, /data-new-additional-worldbook/);
+assert.match(fragments.homeModalsScript, /data-new-additional-worldbook-confirm/);
+assert.match(fragments.homeModalsScript, /已有同名世界书，将安装到现有世界书/);
+assert.match(fragments.homeModalsScript, /新附加世界书不能与角色主世界书同名/);
+assert.match(fragments.homeModalsScript, /newAdditionalConfirm\?\.click\(\)/);
+assert.match(fragments.homeDetailModalRenderScript, /getInstalledLocationLabel/);
+assert.match(fragments.homeDetailModalRenderScript, /附加世界书/);
+assert.match(fragments.homeDetailModalRenderScript, /角色正则/);
+const installLocationUi = Function('state', `${fragments.homeDetailModalRenderScript}; return { getInstalledLocationLabel };`)({
+  tavern: { worldbooks: { primary: '主世界书', additional: ['附加 A'] } },
+});
+assert.equal(installLocationUi.getInstalledLocationLabel({ isInstalled: true, worldbookName: '主世界书' }, [{}], []), '角色主世界书 · 主世界书');
+assert.equal(installLocationUi.getInstalledLocationLabel({ isInstalled: true, worldbookName: '附加 A' }, [{}], []), '附加世界书 · 附加 A');
+assert.equal(installLocationUi.getInstalledLocationLabel({ isInstalled: true, worldbookName: null }, [], [{}]), '角色正则');
+assert.equal(installLocationUi.getInstalledLocationLabel({ isInstalled: false, worldbookName: '附加 A' }, [{}], []), '');
 assert.match(fragments.homeModalsScript, /worldbookUploadPreview/);
 assert.match(fragments.homeModalsScript, /regexUploadPreview/);
 assert.match(fragments.homeModalsScript, /coverUploadPreview/);

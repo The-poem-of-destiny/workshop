@@ -593,6 +593,14 @@ button.detail-stat:disabled { cursor:not-allowed; opacity:.55; }
   .install-worldbook-option.active { border-color:rgba(190,164,125,.34); background:rgba(190,164,125,.08); color:#d7c4a7; }
   .install-worldbook-option.active > i:last-child { opacity:1; }
   .install-worldbook-empty { padding:18px 12px; border:1px dashed rgba(255,255,255,.09); border-radius:9px; color:#77756f; text-align:center; }
+  .install-worldbook-create { display:flex; flex-direction:column; gap:10px; }
+  .install-worldbook-create-trigger { width:100%; justify-content:center; border-style:dashed; }
+  .install-worldbook-create-panel { display:flex; flex-direction:column; gap:10px; padding:12px; border:1px solid rgba(190,164,125,.2); border-radius:10px; background:rgba(190,164,125,.055); }
+  .install-worldbook-create-panel[hidden] { display:none; }
+  .install-worldbook-create-panel input { width:100%; border-color:rgba(255,255,255,.085); background:#111214; color:#ececea; }
+  .install-worldbook-create-actions { display:flex; justify-content:flex-end; gap:8px; }
+  .install-location { display:grid; grid-template-columns:auto auto minmax(0,1fr); align-items:center; gap:7px; width:100%; color:#8f8d87; font-size:.72rem; line-height:1.35; }
+  .install-location i { color:#b9a17f; } .install-location strong { min-width:0; color:#d7d3cb; font-weight:650; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .install-submit-btn { width:100%; justify-content:center; min-height:46px; border:1px solid #bca47f; background:#aa916d; color:#151619; box-shadow:none; }
   .install-submit-btn:hover { transform:none; border-color:#ccb48d; background:#bda27a; box-shadow:none; }
   @media (max-width: 960px) { .header-top { flex-direction:column; align-items:stretch; } .header-left { width:100%; } .user-info { width:100%; justify-content:flex-end; margin-left:0; } }
