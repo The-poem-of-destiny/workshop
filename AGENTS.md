@@ -11,17 +11,25 @@ These rules apply to all agents and automated sessions working in this repositor
   - `upstream` = owner repository (`AkabaneSaki/myrepo`)
 - Normally, `upstream/main` is the canonical production source branch.
 - `origin/main` should be kept synchronized with `upstream/main`; do not use the fork `main` as a task-development branch.
-- `origin/staging` is the long-lived integration branch used for Master staging validation before any owner PR.
+- `origin/staging` is the long-lived integration branch used for Master validation of the active feature line before its owner PR. Production patch hotfixes may use the separate hotfix path defined below, then must be forward-ported into `origin/staging`.
 
-### Release transition — 2.1
+### Release version policy
 
-The temporary 2.0.15 recovery exception is retired for active development. The immutable `2.0.15` release tag remains the historical production backup; do not keep old hotfix/release branches merely as archives.
+- Current stable production line: `2.1.0` on owner main / production.
+- Current feature-development line: `2.2.0-dev` on `origin/staging`.
+- Version meaning is strict:
+  - `X` = breaking generation / externally incompatible contract change.
+  - `Y` = feature release. Any new user-facing feature requires the next minor line.
+  - `Z` = hotfix/bugfix only. Never put a new feature into a patch release.
+- Keep the active staging feature line at `<next-minor>.0-dev`; distinguish individual staging builds by exact Git SHA / Worker Version instead of consuming patch numbers.
+- If production needs a hotfix while staging is already on the next feature line, branch from the exact current production source, release `X.Y.(Z+1)`, then forward-port the same logical fix into `origin/staging`.
+- Do not roll the normal staging Worker backward to the production patch line just to test a hotfix. Use a separately named preview/hotfix Worker when runtime validation is needed.
+- If a hotfix cherry-pick conflicts with the newer staging line, recreate the equivalent fix there instead of merging the old production branch wholesale.
+- After a feature line is accepted and released (for example `2.2.0`), advance staging to the next feature prerelease (for example `2.3.0-dev`).
+- Internal refactors do not require an `X` bump when external behavior and contracts remain compatible.
+- Historical release tags remain immutable backups; temporary hotfix/release branches are workspaces, not archives.
 
-- The forward development line already contains the required 2.0.15 reliability protections for project/cache freshness, worldbook update reconciliation/install identity, and per-project install/update/uninstall mutation serialization. Preserve equivalent protections during later refactors.
-- `origin/main` remains a synchronized mirror of `upstream/main`; never reset or force-push either main branch back to 2.0.15.
-- 2.1 follows the normal release flow: task branch -> `origin/staging` -> Master staging acceptance -> owner PR / `upstream/main` -> stable 2.1 tag -> production deployment.
-- Until Master explicitly accepts the 2.1 staging build and the exact accepted changes are present in `upstream/main`, do not deploy 2.1 to production or treat a newer main commit as an approved release.
-- After 2.1 is released, production source returns fully to the normal rule: the exact accepted `upstream/main` commit plus its stable release tag. No 2.0.15 branch exception remains.
+See `docs/GIT-WORKFLOW.md` for the complete hotfix and forward-port flow.
 
 Before the first Git remote operation in every session, verify both actual remote URLs. Never infer ownership from a remote name alone.
 
@@ -157,6 +165,8 @@ Before commit, merge, rebase, push, tag, PR preparation, deploy, or branch clean
 16. Re-sync the fork `main` and clean up temporary task branches when safe.
 
 Do not push task branches directly to the owner repository as the normal workflow. Do not deploy a dirty working tree unless the user explicitly requests an emergency exception. Any emergency exception must be reconciled back through the fork/PR flow before the task is considered complete.
+
+The normal staging-acceptance flow above applies to feature work and fixes targeting the active staging feature line. Production patch hotfixes are the explicit parallel-line exception: validate from the exact production source, merge/tag/deploy through owner main, then forward-port the fix into `origin/staging`.
 
 ## Branch lifecycle
 
