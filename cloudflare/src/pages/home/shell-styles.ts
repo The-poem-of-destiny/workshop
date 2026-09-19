@@ -174,6 +174,20 @@ export const homeShellStyles = String.raw`
   .sidebar-view-state small { color:#66645f; font-size:.58rem; }
   .sidebar-view-state strong { color:#d5c2a5; font-size:.73rem; }
 
+  .sidebar-view-actions { margin-top:8px; }
+  .sidebar-view-actions .sidebar-nav-btn { min-height:38px; }
+  .sidebar-view-actions .sidebar-upload-shortcut {
+    border-color:rgba(162,139,107,.16);
+    background:rgba(162,139,107,.055);
+    color:#c9b799;
+  }
+  .sidebar-view-actions .sidebar-upload-shortcut i { color:#b9a180; }
+  .sidebar-view-actions .sidebar-upload-shortcut:hover {
+    border-color:rgba(162,139,107,.25);
+    background:rgba(162,139,107,.095);
+    color:#e0d0b8;
+  }
+
   .sidebar-spacer { flex:1; min-height:18px; }
 
   .sidebar-bottom {

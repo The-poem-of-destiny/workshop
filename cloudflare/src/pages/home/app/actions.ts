@@ -5,6 +5,7 @@ export const homeAppActionsScript = String.raw`
     const logoutBtn = document.getElementById('logoutBtn');
     const workshopCloseBtn = document.getElementById('workshopCloseBtn');
     const uploadBtn = document.getElementById('uploadBtn');
+    const sidebarUploadBtn = document.getElementById('sidebarUploadBtn');
     const myProjectsMenuBtn = document.getElementById('myProjectsMenuBtn');
     const adminPanelBtn = document.getElementById('adminPanelBtn');
     const bannerSettingsBtn = document.getElementById('bannerSettingsBtn');
@@ -213,8 +214,8 @@ export const homeAppActionsScript = String.raw`
       openDlcRepairModal();
     };
     if (logoutBtn) logoutBtn.onclick = logout;
-    if (uploadBtn) uploadBtn.onclick = event => {
-      event.stopPropagation();
+    const openUploadProject = event => {
+      event?.stopPropagation();
       state.userMenuOpen = false;
       try {
         openUploadModal();
@@ -223,6 +224,8 @@ export const homeAppActionsScript = String.raw`
         showToast('无法打开上传窗口: ' + (error?.message || String(error)), 'error');
       }
     };
+    if (uploadBtn) uploadBtn.onclick = openUploadProject;
+    if (sidebarUploadBtn) sidebarUploadBtn.onclick = openUploadProject;
     const toggleMyProjectsView = async () => {
       state.showOnlyMyProjects = !state.showOnlyMyProjects;
       if (state.showOnlyMyProjects) state.showSubscribedAndInstalledProjects = false;

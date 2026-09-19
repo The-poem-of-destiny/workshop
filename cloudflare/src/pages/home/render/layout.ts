@@ -57,7 +57,7 @@ export const homeLayoutRenderScript = [
   '  return `<div class="tavern-status tavern-status--${status}" title="${meta.label}"><i class="fas ${meta.icon}"></i><span>${meta.label}</span></div>`;',
   '}',
   'function renderTagFilter() {',
-  '  if (state.showOnlyMyProjects) return `<div class="sidebar-view-state"><i class="fas fa-layer-group"></i><span><small>当前视图</small><strong>我的项目</strong></span></div>`;',
+  '  if (state.showOnlyMyProjects) return `<div class="sidebar-view-state"><i class="fas fa-layer-group"></i><span><small>当前视图</small><strong>我的项目</strong></span></div><nav class="sidebar-nav sidebar-view-actions" aria-label="我的项目快捷操作"><button type="button" class="sidebar-nav-btn" data-return-all-projects><i class="fas fa-arrow-left"></i><span>返回全部项目</span></button><button type="button" class="sidebar-nav-btn sidebar-upload-shortcut" id="sidebarUploadBtn"><i class="fas fa-cloud-upload-alt"></i><span>上传项目</span></button></nav>`;',
   '  if (state.showSubscribedAndInstalledProjects) return `<div class="sidebar-view-state"><i class="fas fa-bookmark"></i><span><small>当前视图</small><strong>订阅 / 已安装</strong></span></div>`;',
   '  const options = [{ value: "all", label: "全部项目", typeClass: "all", icon: "fa-border-all" }, ...BASE_TAG_META.map(option => ({ ...option, icon: { system: "fa-microchip", extension: "fa-puzzle-piece", character: "fa-user-group", event: "fa-calendar-days" }[option.typeClass] || "fa-folder" }))];',
   '  const pendingAttr = state.filterRequestPending ? "disabled" : "";',
