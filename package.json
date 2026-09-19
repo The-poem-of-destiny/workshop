@@ -4,8 +4,10 @@
   "private": true,
   "packageManager": "pnpm@11.24.0",
   "scripts": {
-    "build": "webpack --config webpack.config.cjs --mode production",
-    "watch": "webpack --config webpack.config.cjs --mode development --watch"
+    "build": "webpack --config webpack.config.cjs --mode production && node scripts/build-workshop-legacy-shim.mjs",
+    "watch": "node scripts/build-workshop-legacy-shim.mjs && webpack --config webpack.config.cjs --mode development --watch",
+    "check:workshop-config": "node scripts/check-workshop-config.mjs",
+    "check:workshop-bundles": "node scripts/check-workshop-bundles.mjs"
   },
   "devDependencies": {
     "ts-loader": "9.5.2",

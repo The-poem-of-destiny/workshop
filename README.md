@@ -84,7 +84,7 @@ myrepo/
 
 如果你已经构建并发布了对应脚本文件，可以在 SillyTavern 的酒馆助手直接使用 CDN 地址接入：
 
-- 创意工坊：`import 'https://testingcf.jsdelivr.net/gh/Akabanesaki/myrepo@main/dist/CreativeWorkshop/index.js'`
+- 创意工坊：版本号与公开 bundle 路径以 `config/workshop.json` 的 `client.stable` / `client.publicPath` 为准；不要在文档里维护第二份当前值。
 - 自适应正则：`import 'https://testingcf.jsdelivr.net/gh/Akabanesaki/myrepo@main/dist/AutoDialogueBeautifier/index.js'`
 
 > 当前仓库内主要保存的是源码与后端工程。如果要直接用于生产环境，通常还需要你自己的构建与发布流程。

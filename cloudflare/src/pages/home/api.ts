@@ -1,6 +1,6 @@
 export const homeApiScript = String.raw`
-const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
-const UPLOAD_SIZE_ERROR = '文件过大，最大 10MB';
+const MAX_UPLOAD_SIZE = WORKSHOP_LIMITS.projectUploadBytes;
+const UPLOAD_SIZE_ERROR = '文件过大，最大 ' + WORKSHOP_LIMITS.projectUploadLabel;
 
 function assertUploadSize(file) {
   if (file && Number(file.size) > MAX_UPLOAD_SIZE) {

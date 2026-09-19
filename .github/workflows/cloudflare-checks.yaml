@@ -5,11 +5,15 @@ on:
     paths:
       - 'cloudflare/**'
       - 'src/CreativeWorkshop/**'
+      - 'config/**'
+      - 'scripts/check-workshop-config.mjs'
       - '.github/workflows/cloudflare-checks.yaml'
   pull_request:
     paths:
       - 'cloudflare/**'
       - 'src/CreativeWorkshop/**'
+      - 'config/**'
+      - 'scripts/check-workshop-config.mjs'
       - '.github/workflows/cloudflare-checks.yaml'
   workflow_dispatch:
 

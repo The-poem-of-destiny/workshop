@@ -2,6 +2,7 @@ import type { Context } from 'hono';
 import { z } from 'zod';
 import { CHARACTER_FACET_OPTIONS, EXTENSION_TYPES, MAX_CUSTOM_TAGS, MAX_DISPLAY_TAGS, PROJECT_TYPES } from './config/project-taxonomy';
 import type { Env } from './env';
+import { LEGACY_PROJECT_VERSION_BASE } from './utils/version.js';
 
 export type AppContext = Context<{ Bindings: Env }>;
 
@@ -115,7 +116,7 @@ export const Project = z.object({
   name: z.string().describe('项目名称'),
   description: z.string().optional().describe('项目描述'),
   precautions: z.string().max(2000).nullable().optional().describe('安装注意事项，按纯文本安全展示'),
-  version: z.string().default('1.0.0').describe('工坊内部机器版本'),
+  version: z.string().default(LEGACY_PROJECT_VERSION_BASE).describe('工坊内部机器版本'),
   versionLabel: z.string().nullable().optional().describe('作者自定义显示版本，仅展示'),
   publishedVersion: z.string().optional().describe('关联正式内部版本号，仅用于 draft 状态'),
   authorId: z.string().describe('作者 Discord ID'),

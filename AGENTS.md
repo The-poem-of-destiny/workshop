@@ -15,19 +15,21 @@ These rules apply to all agents and automated sessions working in this repositor
 
 ### Release version policy
 
-- Current stable production line: `2.1.0` on owner main / production.
-- Current feature-development line: `2.2.0-dev` on `origin/staging`.
-- Version meaning is strict:
-  - `X` = breaking generation / externally incompatible contract change.
-  - `Y` = feature release. Any new user-facing feature requires the next minor line.
-  - `Z` = hotfix/bugfix only. Never put a new feature into a patch release.
-- Keep the active staging feature line at `<next-minor>.0-dev`; distinguish individual staging builds by exact Git SHA / Worker Version instead of consuming patch numbers.
-- If production needs a hotfix while staging is already on the next feature line, branch from the exact current production source, release `X.Y.(Z+1)`, then forward-port the same logical fix into `origin/staging`.
-- Do not roll the normal staging Worker backward to the production patch line just to test a hotfix. Use a separately named preview/hotfix Worker when runtime validation is needed.
-- If a hotfix cherry-pick conflicts with the newer staging line, recreate the equivalent fix there instead of merging the old production branch wholesale.
-- After a feature line is accepted and released (for example `2.2.0`), advance staging to the next feature prerelease (for example `2.3.0-dev`).
-- Internal refactors do not require an `X` bump when external behavior and contracts remain compatible.
+- Creative Workshop SemVer belongs to the **SillyTavern client artifact**, not to the Worker/web deployment.
+- Before changing any client version, ask: **does the user need to change the `@version` in their Creative Workshop import to receive this change?**
+  - If **no**: do not change client SemVer. Track Worker/web releases by exact Git SHA + Cloudflare Worker Version ID.
+  - If **yes**: release a new client version.
+- Current client release values are read only from `config/workshop.json`. Never duplicate the live values in this file, UI code, tests, or deployment scripts.
+- `client.stable` = newest released client tag.
+- `client.minimum` = oldest client still allowed to enter the Workshop. A new stable client does not automatically raise this.
+- `client.staging` = active staging-client line.
+- Client version meaning is strict:
+  - `X` = incompatible client / bridge generation.
+  - `Y` = new backwards-compatible client capability.
+  - `Z` = client-side bugfix only.
+- Worker logic, web UI, copy, CSS, ranking, admin UI, D1/R2/backend fixes and other server-only changes do **not** consume patch/minor versions while the old client remains compatible.
 - Historical release tags remain immutable backups; temporary hotfix/release branches are workspaces, not archives.
+- Run `pnpm check:workshop-config` before client builds/releases and before production integration touching Workshop release configuration.
 
 See `docs/GIT-WORKFLOW.md` for the complete hotfix and forward-port flow.
 

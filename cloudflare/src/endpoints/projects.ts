@@ -2,6 +2,7 @@ import { Bool, Num, OpenAPIRoute, Str } from 'chanfana';
 import { z } from 'zod';
 import type { AppContext } from '../types';
 import { normalizeProjectTaxonomyInput, PROJECT_TYPES } from '../config/project-taxonomy';
+import { WORKSHOP_LIMITS } from '../config/runtime-limits';
 import { generateId, projectDb, userDb } from '../utils/db';
 import { resolveProjectCompatibilitySelection, validateOriginalConflictReferenceItems } from '../utils/character-reference.ts';
 import { getCurrentUserFromRequest } from '../utils/jwt';
@@ -12,12 +13,12 @@ import {
 } from '../utils/project-content';
 import { parseRegexEntriesPreview, parseWorldbookEntriesPreview, summarizeProjectInspection } from '../utils/project-preview';
 import { r2Storage } from '../utils/r2';
-import { bumpProjectVersionWithLegacyFallback } from '../utils/version.js';
+import { bumpProjectVersionWithLegacyFallback, LEGACY_PROJECT_VERSION_BASE } from '../utils/version.js';
 
 const projectListSortSchema = z.enum(['discover', 'published', 'rating', 'updated', 'likes', 'subscribes', 'downloads']);
-const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
-const MAX_COVER_REQUEST_SIZE = MAX_UPLOAD_SIZE + 1024 * 1024;
-const UPLOAD_SIZE_ERROR = '文件过大，最大 10MB';
+const MAX_UPLOAD_SIZE = WORKSHOP_LIMITS.projectUploadBytes;
+const MAX_COVER_REQUEST_SIZE = MAX_UPLOAD_SIZE + WORKSHOP_LIMITS.coverRequestOverheadBytes;
+const UPLOAD_SIZE_ERROR = `文件过大，最大 ${WORKSHOP_LIMITS.projectUploadLabel}`;
 
 
 async function readProjectPreview(
@@ -502,7 +503,7 @@ export class ProjectCreate extends OpenAPIRoute {
         name,
         description,
         precautions,
-        version: '1.0.0',
+        version: LEGACY_PROJECT_VERSION_BASE,
         versionLabel,
         characterReferenceId: compatibilitySelection.characterReferenceId,
         builtForReferenceVersionId: compatibilitySelection.builtForReferenceVersionId,
@@ -1149,13 +1150,13 @@ export class ProjectUpdate extends OpenAPIRoute {
       };
     }
 
-    await projectDb.update(c, projectId, { ...updates, version: '1.0.0', status: 'pending' });
+    await projectDb.update(c, projectId, { ...updates, version: LEGACY_PROJECT_VERSION_BASE, status: 'pending' });
     await projectDb.bumpDraftRevision(c, projectId);
 
     return {
       success: true,
       projectId,
-      targetVersion: '1.0.0',
+      targetVersion: LEGACY_PROJECT_VERSION_BASE,
       message: 'Project updated successfully',
     };
   }

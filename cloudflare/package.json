@@ -53,7 +53,8 @@
     "check:creative-workshop-stale-id-rebind": "node tests/creative-workshop-stale-id-rebind-smoke.mjs",
     "check:creative-workshop-original-conflicts": "node tests/creative-workshop-original-conflicts-smoke.mjs",
     "check:oauth-external-browser": "node tests/oauth-external-browser-smoke.mjs",
-    "check:home": "npm run check:home-js-smoke && npm run check:oauth-external-browser && npm run check:creative-workshop-conflict-consent && npm run check:project-precautions && npm run check:admin-review-recovery"
+    "check:home": "npm run check:workshop-config && npm run check:home-js-smoke && npm run check:oauth-external-browser && npm run check:creative-workshop-conflict-consent && npm run check:project-precautions && npm run check:admin-review-recovery",
+    "check:workshop-config": "node ../scripts/check-workshop-config.mjs"
   },
   "dependencies": {
     "chanfana": "^2.6.3",

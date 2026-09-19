@@ -5,6 +5,9 @@ on:
     paths:
       - 'src/**'
       - 'util/**'
+      - 'config/**'
+      - 'scripts/check-workshop-config.mjs'
+      - 'scripts/check-workshop-bundles.mjs'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'webpack.config.cjs'
@@ -38,5 +41,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
+      - name: Check Workshop source of truth
+        run: pnpm check:workshop-config
+
       - name: Build dist
         run: pnpm build
+
+      - name: Verify built Workshop bundles
+        run: pnpm check:workshop-bundles
