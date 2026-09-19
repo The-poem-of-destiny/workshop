@@ -18,7 +18,12 @@ async function evaluateStandalone(relativePath, exportName) {
   return Function(`return (${expression});`)();
 }
 
-const homeAppSource = await readFile(resolve('src/pages/home/app.ts'), 'utf8');
+const homeAppSource = (await Promise.all([
+  'src/pages/home/app.ts',
+  'src/pages/home/app/auth-flow.ts',
+  'src/pages/home/app/actions.ts',
+  'src/pages/home/app/bootstrap.ts',
+].map(path => readFile(resolve(path), 'utf8')))).join('\n');
 const homePageSource = await readFile(resolve('src/pages/home.ts'), 'utf8');
 const homeStylesSource = await readFile(resolve('src/pages/home/styles.ts'), 'utf8');
 const fragments = {
@@ -32,7 +37,18 @@ const fragments = {
   homeReviewDiffRenderScript: await evaluateStandalone('src/pages/home/render/review-diff.ts', 'homeReviewDiffRenderScript'),
   homeLayoutRenderScript: await evaluateStandalone('src/pages/home/render/layout.ts', 'homeLayoutRenderScript'),
   homePublishCheckScript: await evaluateStandalone('src/pages/home/publish-check.ts', 'homePublishCheckScript'),
-  homeModalsScript: await evaluateStandalone('src/pages/home/modals.ts', 'homeModalsScript'),
+  homeAppAuthFlowScript: await evaluateStandalone('src/pages/home/app/auth-flow.ts', 'homeAppAuthFlowScript'),
+  homeAppActionsScript: await evaluateStandalone('src/pages/home/app/actions.ts', 'homeAppActionsScript'),
+  homeAppBootstrapScript: await evaluateStandalone('src/pages/home/app/bootstrap.ts', 'homeAppBootstrapScript'),
+  homeModalsScript: [
+    await evaluateStandalone('src/pages/home/modal/core.ts', 'homeModalCoreScript'),
+    await evaluateStandalone('src/pages/home/modal/project-detail.ts', 'homeProjectDetailModalScript'),
+    await evaluateStandalone('src/pages/home/modal/project-update.ts', 'homeProjectUpdateModalScript'),
+    await evaluateStandalone('src/pages/home/modal/project-install.ts', 'homeProjectInstallModalScript'),
+    await evaluateStandalone('src/pages/home/modal/project-editor.ts', 'homeProjectEditorModalScript'),
+    await evaluateStandalone('src/pages/home/modal/admin-review.ts', 'homeAdminReviewModalScript'),
+    await evaluateStandalone('src/pages/home/modal/admin-tools.ts', 'homeAdminToolsModalScript'),
+  ].join('\n'),
   homeRepairScript: await evaluateStandalone('src/pages/home/repair-ui.ts', 'homeRepairScript'),
   homePresentationScript: await evaluateStandalone('src/pages/home/presentation.ts', 'homePresentationScript'),
 };

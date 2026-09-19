@@ -1,0 +1,46 @@
+name: Cloudflare checks
+
+on:
+  push:
+    paths:
+      - 'cloudflare/**'
+      - 'src/CreativeWorkshop/**'
+      - '.github/workflows/cloudflare-checks.yaml'
+  pull_request:
+    paths:
+      - 'cloudflare/**'
+      - 'src/CreativeWorkshop/**'
+      - '.github/workflows/cloudflare-checks.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloudflare
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cloudflare/package-lock.json
+
+      - name: Install Cloudflare dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm exec --yes --package=typescript@5.9.2 -- tsc -p tsconfig.json
+
+      - name: Home regression checks
+        run: npm run check:home
+
+      - name: CreativeWorkshop syntax
+        run: npm run check:creative-workshop-syntax

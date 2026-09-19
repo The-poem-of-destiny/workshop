@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const modals = await readFile(new URL('../src/pages/home/modals.ts', import.meta.url), 'utf8');
+const modals = (await Promise.all([
+  '../src/pages/home/modal/project-update.ts',
+  '../src/pages/home/modal/project-install.ts',
+].map(path => readFile(new URL(path, import.meta.url), 'utf8')))).join('\n');
 const bridge = await readFile(new URL('../src/pages/home/tavern-bridge.ts', import.meta.url), 'utf8');
 const host = await readFile(new URL('../../src/CreativeWorkshop/bridge/host.ts', import.meta.url), 'utf8');
 const worldbook = await readFile(new URL('../../src/CreativeWorkshop/services/worldbook.ts', import.meta.url), 'utf8');
