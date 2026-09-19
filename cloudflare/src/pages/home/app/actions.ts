@@ -5,7 +5,7 @@ export const homeAppActionsScript = String.raw`
     const logoutBtn = document.getElementById('logoutBtn');
     const workshopCloseBtn = document.getElementById('workshopCloseBtn');
     const uploadBtn = document.getElementById('uploadBtn');
-    const sidebarUploadBtn = document.getElementById('sidebarUploadBtn');
+    const myProjectsUploadBtn = document.getElementById('myProjectsUploadBtn');
     const myProjectsMenuBtn = document.getElementById('myProjectsMenuBtn');
     const adminPanelBtn = document.getElementById('adminPanelBtn');
     const bannerSettingsBtn = document.getElementById('bannerSettingsBtn');
@@ -225,7 +225,7 @@ export const homeAppActionsScript = String.raw`
       }
     };
     if (uploadBtn) uploadBtn.onclick = openUploadProject;
-    if (sidebarUploadBtn) sidebarUploadBtn.onclick = openUploadProject;
+    if (myProjectsUploadBtn) myProjectsUploadBtn.onclick = openUploadProject;
     const toggleMyProjectsView = async () => {
       state.showOnlyMyProjects = !state.showOnlyMyProjects;
       if (state.showOnlyMyProjects) state.showSubscribedAndInstalledProjects = false;
