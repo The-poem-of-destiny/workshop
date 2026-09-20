@@ -1,6 +1,11 @@
 export const homeApiScript = String.raw`
 const MAX_UPLOAD_SIZE = WORKSHOP_LIMITS.projectUploadBytes;
 const UPLOAD_SIZE_ERROR = '文件过大，最大 ' + WORKSHOP_LIMITS.projectUploadLabel;
+const DISCOVER_ROTATION_WINDOW_MS = 6 * 60 * 60 * 1000;
+const DISCOVER_CANDIDATE_POOL_SIZE = 30;
+const DISCOVER_DISPLAY_COUNT = 10;
+const DISCOVER_ANCHOR_COUNT = 2;
+const DISCOVER_MAX_PER_AUTHOR = 2;
 
 function assertUploadSize(file) {
   if (file && Number(file.size) > MAX_UPLOAD_SIZE) {
@@ -138,9 +143,70 @@ async function fetchSubscriptions(forceRefresh = false) {
   return projectIds;
 }
 
+function hashDiscoverRotation(value) {
+  let hash = 2166136261;
+  const text = String(value || '');
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function getDiscoverRotationBucket(nowMs = Date.now()) {
+  const numericNow = Number(nowMs);
+  return Math.floor((Number.isFinite(numericNow) ? numericNow : Date.now()) / DISCOVER_ROTATION_WINDOW_MS);
+}
+
+function selectDiscoverProjects(projects, nowMs = Date.now()) {
+  const candidates = (Array.isArray(projects) ? projects : [])
+    .filter(Boolean)
+    .slice(0, DISCOVER_CANDIDATE_POOL_SIZE);
+  if (candidates.length <= DISCOVER_DISPLAY_COUNT) return candidates.slice(0, DISCOVER_DISPLAY_COUNT);
+
+  const selected = [];
+  const selectedIds = new Set();
+  const authorCounts = new Map();
+  const authorKey = project => project?.authorId ? 'author:' + project.authorId : 'project:' + String(project?.id || '');
+  const addProject = (project, enforceAuthorCap = true) => {
+    const projectId = String(project?.id || '');
+    if (!projectId || selectedIds.has(projectId)) return false;
+    const key = authorKey(project);
+    const count = authorCounts.get(key) || 0;
+    if (enforceAuthorCap && count >= DISCOVER_MAX_PER_AUTHOR) return false;
+    selected.push(project);
+    selectedIds.add(projectId);
+    authorCounts.set(key, count + 1);
+    return true;
+  };
+
+  for (const project of candidates.slice(0, DISCOVER_ANCHOR_COUNT)) addProject(project);
+
+  const bucket = getDiscoverRotationBucket(nowMs);
+  const rotated = candidates
+    .slice(DISCOVER_ANCHOR_COUNT)
+    .map((project, index) => ({
+      project,
+      originalIndex: index,
+      rotationScore: hashDiscoverRotation(bucket + ':' + String(project?.id || index)),
+    }))
+    .sort((a, b) => a.rotationScore - b.rotationScore || a.originalIndex - b.originalIndex);
+
+  for (const entry of rotated) {
+    if (selected.length >= DISCOVER_DISPLAY_COUNT) break;
+    addProject(entry.project, true);
+  }
+  for (const entry of rotated) {
+    if (selected.length >= DISCOVER_DISPLAY_COUNT) break;
+    addProject(entry.project, false);
+  }
+
+  return selected;
+}
+
 async function fetchDiscoverShelves(forceRefresh = false) {
   const shelfSpecs = [
-    { key: 'discover', sort: 'discover', pageSize: 10 },
+    { key: 'discover', sort: 'discover', pageSize: DISCOVER_CANDIDATE_POOL_SIZE },
     { key: 'published', sort: 'published', pageSize: 5 },
     { key: 'rating', sort: 'rating', pageSize: 5 },
     { key: 'downloads', sort: 'downloads', pageSize: 5 },
@@ -152,7 +218,8 @@ async function fetchDiscoverShelves(forceRefresh = false) {
       const params = new URLSearchParams({ page: '0', pageSize: String(spec.pageSize), sort: spec.sort });
       if (forceRefresh) params.set('_', String(Date.now()));
       const data = await apiFetch('/api/projects?' + params.toString());
-      return [spec.key, Array.isArray(data.projects) ? data.projects : []];
+      const projects = Array.isArray(data.projects) ? data.projects : [];
+      return [spec.key, spec.key === 'discover' ? selectDiscoverProjects(projects) : projects];
     }));
     const shelves = { discover: [], published: [], rating: [], downloads: [], loading: false };
     results.forEach(([key, projects]) => { shelves[key] = projects; });
