@@ -328,8 +328,9 @@ export const homeAppActionsScript = String.raw`
           const sortLabelMap = {
             discover: '发现',
             published: '最新',
-            rating: '玩家好评',
+            updated: '最近更新',
             downloads: '下载最多',
+            likes: '点赞最多',
           };
           showToast('正在按' + (sortLabelMap[nextSortMode] || '当前方式') + '排序...', 'info');
           if (state.viewMode === 'discover') {
@@ -392,7 +393,7 @@ export const homeAppActionsScript = String.raw`
           return;
         }
         state.sortRequestPending = true;
-        const sortLabelMap = { discover: '发现', published: '最新', rating: '玩家好评', downloads: '下载最多' };
+        const sortLabelMap = { discover: '发现', published: '最新发布', updated: '最近更新', downloads: '下载最多', likes: '点赞最多' };
         showToast('正在按' + (sortLabelMap[nextSortMode] || '当前方式') + '排序...', 'info');
         if (state.viewMode === 'discover') {
           state.viewMode = 'catalog';
@@ -415,6 +416,49 @@ export const homeAppActionsScript = String.raw`
           state.sortRequestPending = false;
           renderApp();
         });
+      });
+    });
+
+    const applyMetricFilter = (kind, rawValue) => {
+      if (state.filterRequestPending) return;
+      const value = Math.max(0, Math.floor(Number(rawValue || 0)));
+      if (kind === 'likes') state.minLikes = value;
+      else if (kind === 'downloads') state.minDownloads = value;
+      else return;
+
+      if (state.viewMode === 'discover') {
+        state.viewMode = 'catalog';
+        state.sortMode = 'published';
+        state.activeBaseTag = 'all';
+        state.activeTags = [];
+        state.searchKeyword = '';
+        state.searchDraft = '';
+        lastCommittedSearchKeyword = '';
+      }
+      state.mobileToolMode = '';
+      scrollWorkshopToTop();
+      resetProjectPagination();
+      state.filterRequestPending = true;
+      renderApp();
+      fetchProjects(true, { page: 0, pageSize: state.projectPagination.pageSize }).finally(() => {
+        state.filterRequestPending = false;
+        renderApp();
+      });
+    };
+
+    document.querySelectorAll('[data-metric-filter]').forEach(select => {
+      select.addEventListener('change', event => {
+        event.stopPropagation();
+        applyMetricFilter(select.dataset.metricFilter, select.value);
+      });
+      select.addEventListener('click', event => event.stopPropagation());
+    });
+
+    document.querySelectorAll('[data-clear-metric-filter]').forEach(button => {
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        applyMetricFilter(button.dataset.clearMetricFilter, 0);
       });
     });
 

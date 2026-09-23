@@ -87,8 +87,9 @@ const state = {
   discoverShelves: {
     discover: [],
     published: [],
-    rating: [],
+    updated: [],
     downloads: [],
+    likes: [],
     loading: false,
   },
   discoverBanner: {
@@ -109,6 +110,8 @@ const state = {
   searchDraft: '',
   mobileToolMode: '',
   searchKeyword: '',
+  minLikes: 0,
+  minDownloads: 0,
   userMenuOpen: false,
   sortMenuOpen: false,
   fontMenuOpen: false,
@@ -167,15 +170,17 @@ function setDiscoverShelves(payload = {}) {
   state.discoverShelves = {
     discover: Array.isArray(payload.discover) ? payload.discover : [],
     published: Array.isArray(payload.published) ? payload.published : [],
-    rating: Array.isArray(payload.rating) ? payload.rating : [],
+    updated: Array.isArray(payload.updated) ? payload.updated : [],
     downloads: Array.isArray(payload.downloads) ? payload.downloads : [],
+    likes: Array.isArray(payload.likes) ? payload.likes : [],
     loading: Boolean(payload.loading),
   };
   const combined = [
     ...state.discoverShelves.discover,
     ...state.discoverShelves.published,
-    ...state.discoverShelves.rating,
+    ...state.discoverShelves.updated,
     ...state.discoverShelves.downloads,
+    ...state.discoverShelves.likes,
   ];
   const uniqueProjects = [];
   const seen = new Set();

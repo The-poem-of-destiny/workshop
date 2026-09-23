@@ -29,6 +29,7 @@ import {
   ProjectFetch,
   ProjectLikeToggle,
   ProjectList,
+  ProjectRatingSet,
   ProjectRepairResolve,
   ProjectRegexUpload,
   ProjectSubscribeSet,
@@ -200,6 +201,7 @@ openapi.put('/api/projects/:projectId/visibility', ProjectVisibilityUpdate);
 openapi.delete('/api/projects/:projectId', ProjectDelete);
 openapi.post('/api/projects/:projectId/entries/remove', ProjectEntryRemove);
 openapi.post('/api/projects/:projectId/like', ProjectLikeToggle);
+openapi.put('/api/projects/:projectId/rating', ProjectRatingSet);
 openapi.post('/api/projects/:projectId/subscribe', ProjectSubscribeToggle);
 openapi.put('/api/projects/:projectId/subscribe', ProjectSubscribeSet);
 

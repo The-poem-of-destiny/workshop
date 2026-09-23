@@ -67,6 +67,66 @@ async function consumeRepairResolveDailyBudget(c: AppContext, userId?: string) {
 }
 
 
+async function readPrivateProjectRatingState(
+  c: AppContext,
+  project: { id: string; authorId: string; status: string; isPublished?: boolean; visibility?: boolean },
+  payload: Awaited<ReturnType<typeof getCurrentUserFromRequest>>,
+) {
+  if (!payload) {
+    return { myRating: null, canRate: false, reason: '登录并安装后可评分', summary: null };
+  }
+
+  if (project.authorId === payload.userId) {
+    const summary = await c.env.DB.prepare(
+      `SELECT COUNT(*) AS rating_count,
+              AVG(rating) AS average_rating,
+              SUM(CASE WHEN rating = 1 THEN 1 ELSE 0 END) AS star_1,
+              SUM(CASE WHEN rating = 2 THEN 1 ELSE 0 END) AS star_2,
+              SUM(CASE WHEN rating = 3 THEN 1 ELSE 0 END) AS star_3,
+              SUM(CASE WHEN rating = 4 THEN 1 ELSE 0 END) AS star_4,
+              SUM(CASE WHEN rating = 5 THEN 1 ELSE 0 END) AS star_5
+       FROM project_ratings
+       WHERE project_id = ?`,
+    )
+      .bind(project.id)
+      .first<Record<string, number | null>>();
+    const count = Number(summary?.rating_count || 0);
+    return {
+      myRating: null,
+      canRate: false,
+      reason: '作者可以查看匿名评分统计',
+      summary: {
+        count,
+        average: count > 0 ? Math.round(Number(summary?.average_rating || 0) * 10) / 10 : null,
+        distribution: {
+          1: Number(summary?.star_1 || 0),
+          2: Number(summary?.star_2 || 0),
+          3: Number(summary?.star_3 || 0),
+          4: Number(summary?.star_4 || 0),
+          5: Number(summary?.star_5 || 0),
+        },
+      },
+    };
+  }
+
+  const viewerState = await c.env.DB.prepare(
+    `SELECT
+       (SELECT rating FROM project_ratings WHERE project_id = ?1 AND user_id = ?2) AS my_rating,
+       EXISTS(SELECT 1 FROM project_subscribes WHERE project_id = ?1 AND user_id = ?2) AS installed
+    `,
+  )
+    .bind(project.id, payload.userId)
+    .first<{ my_rating: number | null; installed: number }>();
+  const installed = Number(viewerState?.installed || 0) === 1;
+  const projectRateable = project.status === 'approved' && project.isPublished !== false && project.visibility !== false;
+  return {
+    myRating: viewerState?.my_rating == null ? null : Number(viewerState.my_rating),
+    canRate: installed && projectRateable,
+    reason: installed ? (projectRateable ? '' : '这个项目当前不能评分') : '安装这个 DLC 后才能评分',
+    summary: null,
+  };
+}
+
 async function readProjectPreview(
   c: AppContext,
   project: { downloadUrl?: string | null; id: string; publishedProjectId?: string | null },
@@ -133,6 +193,8 @@ export class ProjectList extends OpenAPIRoute {
         tag: Str({ required: false }).describe('Filter by tag'),
         tags: Str({ required: false }).describe('Filter by multiple tags (AND, comma-separated)'),
         search: Str({ required: false }).describe('Search keyword'),
+        minLikes: z.coerce.number().int().min(0).max(1_000_000).optional().describe('Minimum likes'),
+        minDownloads: z.coerce.number().int().min(0).max(1_000_000).optional().describe('Minimum downloads'),
         sort: projectListSortSchema.default('discover').describe('Sort mode'),
       }),
     },
@@ -186,7 +248,7 @@ export class ProjectList extends OpenAPIRoute {
 
   async handle(c: AppContext) {
     const data = await this.getValidatedData<typeof this.schema>();
-    const { page, pageSize, projectType, tag, tags, search, sort } = data.query;
+    const { page, pageSize, projectType, tag, tags, search, minLikes, minDownloads, sort } = data.query;
     const payload = await getCurrentUserFromRequest(c);
     const tagFilters = String(tags || '')
       .split(',')
@@ -202,6 +264,8 @@ export class ProjectList extends OpenAPIRoute {
       tag,
       tags: tagFilters,
       search,
+      minLikes,
+      minDownloads,
       sort,
       currentUser: payload,
     });
@@ -271,13 +335,17 @@ export class ProjectFetch extends OpenAPIRoute {
       }
     }
 
-    const preview = await readProjectPreview(c, project);
+    const [preview, privateRating] = await Promise.all([
+      readProjectPreview(c, project),
+      readPrivateProjectRatingState(c, project, payload),
+    ]);
 
     return {
       success: true,
       project: {
         ...project,
         ...preview,
+        privateRating,
         authorAvatar: project.authorAvatar
           ? `https://cdn.discordapp.com/avatars/${project.authorId}/${project.authorAvatar}.webp?size=100`
           : null,
@@ -961,6 +1029,73 @@ export class ProjectCoverPresentationUpdate extends OpenAPIRoute {
     const linkedId = project.publishedProjectId || project.draftProjectId || null;
     await projectDb.setCoverPresentation(c, [project.id, linkedId || ''], presentation);
     return { success: true, ...presentation };
+  }
+}
+
+export class ProjectRatingSet extends OpenAPIRoute {
+  schema = {
+    tags: ['Projects'],
+    summary: 'Set Private Project Rating',
+    request: {
+      params: z.object({
+        projectId: Str({ description: 'Project ID' }),
+      }),
+      headers: z.object({
+        authorization: z.string().describe('Session ID'),
+      }),
+      body: {
+        content: {
+          'application/json': {
+            schema: z.object({ rating: z.number().int().min(1).max(5) }),
+          },
+        },
+      },
+    },
+    responses: {
+      '200': { description: 'Private rating saved' },
+      '403': { description: 'Install required before rating' },
+    },
+  };
+
+  async handle(c: AppContext) {
+    const payload = await getCurrentUserFromRequest(c);
+    if (!payload) return c.json({ error: '请先登录' }, 401);
+    const data = await this.getValidatedData<typeof this.schema>();
+    const { projectId } = data.params;
+    const project = await c.env.DB.prepare(
+      `SELECT author_id, status, is_published, visibility FROM projects WHERE id = ?`,
+    )
+      .bind(projectId)
+      .first<{ author_id: string; status: string; is_published: number; visibility: number }>();
+
+    if (!project || project.status !== 'approved' || Number(project.is_published) !== 1 || Number(project.visibility) !== 1) {
+      return c.json({ error: '找不到这个项目' }, 404);
+    }
+    if (project.author_id === payload.userId) {
+      return c.json({ error: '作者不能给自己的项目评分' }, 400);
+    }
+
+    const installed = await c.env.DB.prepare(
+      `SELECT 1 AS installed FROM project_subscribes WHERE project_id = ? AND user_id = ? LIMIT 1`,
+    )
+      .bind(projectId, payload.userId)
+      .first<{ installed: number }>();
+    if (!installed) {
+      return c.json({ error: '安装这个 DLC 后才能评分' }, 403);
+    }
+
+    const rating = Number(data.body.rating);
+    await c.env.DB.prepare(
+      `INSERT INTO project_ratings (project_id, user_id, rating, created_at, updated_at)
+       VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       ON CONFLICT(project_id, user_id) DO UPDATE SET
+         rating = excluded.rating,
+         updated_at = CURRENT_TIMESTAMP`,
+    )
+      .bind(projectId, payload.userId, rating)
+      .run();
+
+    return { success: true, rating };
   }
 }
 

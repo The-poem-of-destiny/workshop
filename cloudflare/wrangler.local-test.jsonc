@@ -9,7 +9,7 @@
     "port": 8790
   },
   "triggers": {
-    "crons": ["5 0 * * *"]
+    "crons": ["0 2,8,14,20 * * *"]
   },
   "vars": {
     "ALLOWED_GUILD_IDS": "",

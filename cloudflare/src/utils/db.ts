@@ -699,6 +699,8 @@ export const projectDb = {
       tag?: string;
       tags?: string[];
       search?: string;
+      minLikes?: number;
+      minDownloads?: number;
       sort?: 'discover' | 'published' | 'rating' | 'updated' | 'likes' | 'subscribes' | 'downloads';
       approvedOnly?: boolean;
       currentUser?: JWTPayload | null;
@@ -727,6 +729,17 @@ export const projectDb = {
     if (options.projectType) {
       conditions.push('p.project_type = ?');
       values.push(options.projectType);
+    }
+
+    const minLikes = Math.max(0, Math.floor(Number(options.minLikes || 0)));
+    if (minLikes > 0) {
+      conditions.push('p.likes_count >= ?');
+      values.push(minLikes);
+    }
+    const minDownloads = Math.max(0, Math.floor(Number(options.minDownloads || 0)));
+    if (minDownloads > 0) {
+      conditions.push('p.downloads_count >= ?');
+      values.push(minDownloads);
     }
 
     const tagFilters = Array.from(new Set([
@@ -762,10 +775,10 @@ export const projectDb = {
 
 
     const sortMode = options.sort || 'published';
-    const hasRankingSearchFilters = Boolean(options.authorId || searchTerm || tagFilters.length > 0);
-    const rankingKind: 'discover' | 'rating' | null =
-      options.approvedOnly !== false && !hasRankingSearchFilters && (sortMode === 'discover' || sortMode === 'rating')
-        ? sortMode
+    const hasRankingSearchFilters = Boolean(options.authorId || searchTerm || tagFilters.length > 0 || minLikes > 0 || minDownloads > 0);
+    const rankingKind: 'discover' | null =
+      options.approvedOnly !== false && !hasRankingSearchFilters && sortMode === 'discover'
+        ? 'discover'
         : null;
     const orderBy = (() => {
       switch (sortMode) {
@@ -774,6 +787,10 @@ export const projectDb = {
         case 'downloads':
           return 'p.downloads_count DESC, p.created_at DESC';
         case 'likes':
+          return 'p.likes_count DESC, p.created_at DESC';
+        case 'rating':
+          // Legacy clients may still request the retired computed rating board.
+          // Keep the route compatible without rebuilding rating_rank: use the cheap public like order.
           return 'p.likes_count DESC, p.created_at DESC';
         case 'subscribes':
           // Legacy clients may still request this sort. Subscription is now an install/update-notification state,
@@ -784,6 +801,24 @@ export const projectDb = {
           return 'p.latest_approved_at DESC, p.updated_at DESC';
       }
     })();
+    const shouldHintMetricFilterOrder = Boolean(
+      options.approvedOnly !== false
+      && !options.authorId
+      && !options.projectType
+      && !searchTerm
+      && tagFilters.length === 0
+      && (minLikes > 0 || minDownloads > 0),
+    );
+    const listIndexHint = shouldHintMetricFilterOrder
+      ? ({
+          published: 'INDEXED BY idx_projects_public_latest_approved',
+          updated: 'INDEXED BY idx_projects_public_updated',
+          downloads: 'INDEXED BY idx_projects_public_downloads',
+          likes: 'INDEXED BY idx_projects_public_likes',
+          rating: 'INDEXED BY idx_projects_public_likes',
+          subscribes: 'INDEXED BY idx_projects_public_downloads',
+        } as Record<string, string>)[sortMode] || ''
+      : '';
     const offset = options.page * options.pageSize;
     const fetchLimit = options.pageSize + 1;
 
@@ -804,9 +839,7 @@ export const projectDb = {
           };
         }
 
-        const rankColumn = rankingKind === 'discover'
-          ? options.projectType ? 'discover_type_rank' : 'discover_rank'
-          : options.projectType ? 'rating_type_rank' : 'rating_rank';
+        const rankColumn = options.projectType ? 'discover_type_rank' : 'discover_rank';
         const typeClause = options.projectType ? 'AND r.project_type = ?' : '';
         const rankValues: unknown[] = [board.rankingDay];
         if (options.projectType) rankValues.push(options.projectType);
@@ -846,7 +879,7 @@ export const projectDb = {
       .prepare(
         `
           SELECT p.*, u.global_name
-          FROM projects p
+          FROM projects p ${listIndexHint}
           LEFT JOIN users u ON p.author_id = u.id
           ${listWhereClause}
           ORDER BY ${orderBy}

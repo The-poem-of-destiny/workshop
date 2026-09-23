@@ -890,8 +890,12 @@ export const homeShellStyles = String.raw`
   font-size:.72rem;
   font-variant-numeric:tabular-nums;
 }
-.card-owner-stats span { display:inline-flex; align-items:center; gap:4px; }
+.card-owner-stats span,.card-owner-stats button { display:inline-flex; align-items:center; gap:4px; }
 .card-owner-stats i { color:#b49a77; font-size:.7rem; }
+.card-owner-stats button { padding:0; border:0; background:transparent; color:inherit; font:inherit; cursor:pointer; }
+.card-owner-stats button:hover:not(:disabled),.card-owner-stats button.liked { color:#d99a94; }
+.card-owner-stats button.liked i { color:#d97872; }
+.card-owner-stats button:disabled { cursor:default; opacity:.58; }
 
 /* Readability pass: keep the restrained layout without microscopic secondary text. */
 .card-creator { font-size:.76rem; }
