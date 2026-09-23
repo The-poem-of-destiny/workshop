@@ -12,7 +12,7 @@ import {
   type ProjectType,
 } from '../config/project-taxonomy';
 import type { JWTPayload } from './jwt';
-import { getReadyProjectRankingBoard } from './project-daily-rankings';
+import { generateProjectRankingDay, getReadyProjectRankingBoard } from './project-daily-rankings';
 import { r2Storage } from './r2';
 import { bumpProjectVersionWithLegacyFallback, normalizeProjectVersionBase, parseProjectVersion } from './version.js';
 
@@ -823,7 +823,11 @@ export const projectDb = {
     const fetchLimit = options.pageSize + 1;
 
     if (rankingKind) {
-      const board = await getReadyProjectRankingBoard(c);
+      let board = await getReadyProjectRankingBoard(c);
+      if (!board) {
+        await generateProjectRankingDay(c);
+        board = await getReadyProjectRankingBoard(c);
+      }
       if (board) {
         const totalCount = options.projectType
           ? Number(board.typeCounts[options.projectType] || 0)

@@ -505,6 +505,23 @@ try {
     console.log('[FAIL] 首页 · 随机发现: random picks collapsed to 最新发布');
   }
 
+  await stopServerTree();
+  await resetDiscoveryFixtureState();
+  await assertPortAvailable();
+  startServer();
+  await waitForServer();
+  const bootstrapResult = await runScenario({
+    name: '随机发现 · 空板请求自举',
+    params: { page: 0, pageSize: 10, sort: 'discover' },
+    budget: { maxQueries: 20, maxRowsRead: eligibleProjectCount + 220, maxRowsWritten: 100 },
+    requireDiscoveryRotation: true,
+  });
+  printCostResult('随机发现 · 空板请求自举', bootstrapResult);
+  if (bootstrapResult.projectIds.length !== 10) {
+    failed = true;
+    console.log(`[FAIL] 随机发现 · 空板请求自举: expected 10 projects, got ${bootstrapResult.projectIds.length}`);
+  }
+
   if (failed) {
     console.error('\nD1 COST GATE FAILED');
     process.exitCode = 1;
