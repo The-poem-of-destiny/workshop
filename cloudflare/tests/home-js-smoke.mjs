@@ -367,6 +367,8 @@ assert.match(fragments.homeApiScript, /async function setPrivateProjectRating/);
 assert.match(fragments.homeDetailModalRenderScript, /data-project-rating/);
 assert.match(fragments.homeDetailModalRenderScript, /只有作者能看到这些统计/);
 assert.match(fragments.homeModalsScript, /setPrivateProjectRating\(projectId, rating\)/);
+assert.match(fragments.homeModalsScript, /ratingStarsWrap\?\.classList\.add\("previewing"\)/);
+assert.match(fragments.homeModalsScript, /classList\.toggle\("preview"/);
 assert.match(fragments.homeCardsRenderScript, /view\.downloadsCount/);
 assert.match(fragments.homeModalsScript, /最旧优先/);
 assert.match(fragments.homeModalsScript, /最新优先/);

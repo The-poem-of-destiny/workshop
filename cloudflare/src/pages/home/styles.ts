@@ -1083,7 +1083,8 @@ button.discover-card-stat:disabled { cursor:default; opacity:.58; }
 .project-detail-modal .private-rating-card span { display:block; margin-top:3px; color:#77756f; font-size:.66rem; line-height:1.35; }
 .project-detail-modal .private-rating-stars { flex:none; display:flex; align-items:center; gap:2px; }
 .project-detail-modal .private-rating-star { width:30px; height:30px; display:grid; place-items:center; padding:0; border:0; background:transparent; color:#575650; cursor:pointer; }
-.project-detail-modal .private-rating-star:hover:not(:disabled),.project-detail-modal .private-rating-star.active { color:#d7b46e; }
+.project-detail-modal .private-rating-star:hover:not(:disabled),.project-detail-modal .private-rating-star.active,.project-detail-modal .private-rating-star.preview { color:#d7b46e; }
+.project-detail-modal .private-rating-stars.previewing .private-rating-star.active:not(.preview) { color:#575650; }
 .project-detail-modal .private-rating-star:disabled { cursor:default; opacity:.38; }
 .project-detail-modal .private-rating-card--locked > i { color:#686761; }
 .project-detail-modal .private-rating-card--summary { display:block; }
