@@ -18,6 +18,17 @@ export type CreativeWorkshopRegexIdentity = {
   installedVersion: string | null;
 };
 
+type CreativeWorkshopWorldbookMetadataBlock = {
+  start: number;
+  end: number;
+  metadata: CreativeWorkshopWorldbookMetadata;
+};
+
+type CreativeWorkshopWorldbookMetadataScan = {
+  blocks: CreativeWorkshopWorldbookMetadataBlock[];
+  malformed: boolean;
+};
+
 function asRecord(value: unknown): Record<string, any> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, any>
@@ -37,48 +48,7 @@ function safeMetadataJson(metadata: CreativeWorkshopWorldbookMetadata): string {
     .replace(/>/g, '\\u003e');
 }
 
-export function buildCreativeWorkshopWorldbookMetadataBlock(
-  metadata: CreativeWorkshopWorldbookMetadata,
-): string {
-  return `${CREATIVE_WORKSHOP_WORLD_BOOK_META_START}${safeMetadataJson(metadata)}${CREATIVE_WORKSHOP_WORLD_BOOK_META_END}`;
-}
-
-export function stripCreativeWorkshopWorldbookMetadata(content: string): string {
-  if (!content.startsWith(CREATIVE_WORKSHOP_WORLD_BOOK_META_START)) return content;
-  const endIndex = content.indexOf(
-    CREATIVE_WORKSHOP_WORLD_BOOK_META_END,
-    CREATIVE_WORKSHOP_WORLD_BOOK_META_START.length,
-  );
-  if (endIndex < 0) return content;
-  return content.slice(endIndex + CREATIVE_WORKSHOP_WORLD_BOOK_META_END.length);
-}
-
-export function injectCreativeWorkshopWorldbookMetadata(
-  originalContent: string,
-  metadata: CreativeWorkshopWorldbookMetadata,
-): string {
-  const content = typeof originalContent === 'string' ? originalContent : '';
-  const hadWorkshopMarker = content.startsWith(CREATIVE_WORKSHOP_WORLD_BOOK_META_START);
-  const stripped = stripCreativeWorkshopWorldbookMetadata(content);
-  if (hadWorkshopMarker && stripped === content) {
-    throw new Error('世界书内容中的工坊身份标记不完整');
-  }
-  return buildCreativeWorkshopWorldbookMetadataBlock(metadata) + stripped;
-}
-
-export function readCreativeWorkshopWorldbookMetadata(
-  content: string,
-): CreativeWorkshopWorldbookMetadata | null {
-  if (typeof content !== 'string' || !content.startsWith(CREATIVE_WORKSHOP_WORLD_BOOK_META_START)) {
-    return null;
-  }
-  const endIndex = content.indexOf(
-    CREATIVE_WORKSHOP_WORLD_BOOK_META_END,
-    CREATIVE_WORKSHOP_WORLD_BOOK_META_START.length,
-  );
-  if (endIndex < 0) return null;
-
-  const raw = content.slice(CREATIVE_WORKSHOP_WORLD_BOOK_META_START.length, endIndex);
+function parseCreativeWorkshopWorldbookMetadata(raw: string): CreativeWorkshopWorldbookMetadata | null {
   try {
     const parsed = asRecord(JSON.parse(raw));
     if (!parsed) return null;
@@ -111,6 +81,124 @@ export function readCreativeWorkshopWorldbookMetadata(
   } catch {
     return null;
   }
+}
+
+function getWorldbookMetadataIdentity(metadata: CreativeWorkshopWorldbookMetadata): string {
+  return JSON.stringify([metadata.cw_project_id, metadata.cw_entry_key]);
+}
+
+function scanCreativeWorkshopWorldbookMetadata(
+  content: string,
+): CreativeWorkshopWorldbookMetadataScan {
+  const blocks: CreativeWorkshopWorldbookMetadataBlock[] = [];
+  const recognizedEndStarts = new Set<number>();
+  let malformed = false;
+  let cursor = 0;
+
+  while (cursor < content.length) {
+    const start = content.indexOf(CREATIVE_WORKSHOP_WORLD_BOOK_META_START, cursor);
+    if (start < 0) break;
+
+    const payloadStart = start + CREATIVE_WORKSHOP_WORLD_BOOK_META_START.length;
+    const endMarkerStart = content.indexOf(CREATIVE_WORKSHOP_WORLD_BOOK_META_END, payloadStart);
+    if (endMarkerStart < 0) {
+      malformed = true;
+      break;
+    }
+
+    const nestedStart = content.indexOf(CREATIVE_WORKSHOP_WORLD_BOOK_META_START, payloadStart);
+    if (nestedStart >= 0 && nestedStart < endMarkerStart) {
+      malformed = true;
+      cursor = nestedStart;
+      continue;
+    }
+
+    recognizedEndStarts.add(endMarkerStart);
+    const metadata = parseCreativeWorkshopWorldbookMetadata(
+      content.slice(payloadStart, endMarkerStart),
+    );
+    const end = endMarkerStart + CREATIVE_WORKSHOP_WORLD_BOOK_META_END.length;
+
+    if (metadata) {
+      blocks.push({ start, end, metadata });
+    } else {
+      malformed = true;
+    }
+    cursor = end;
+  }
+
+  let endCursor = 0;
+  while (endCursor < content.length) {
+    const endMarkerStart = content.indexOf(CREATIVE_WORKSHOP_WORLD_BOOK_META_END, endCursor);
+    if (endMarkerStart < 0) break;
+    if (!recognizedEndStarts.has(endMarkerStart)) malformed = true;
+    endCursor = endMarkerStart + CREATIVE_WORKSHOP_WORLD_BOOK_META_END.length;
+  }
+
+  return { blocks, malformed };
+}
+
+export function buildCreativeWorkshopWorldbookMetadataBlock(
+  metadata: CreativeWorkshopWorldbookMetadata,
+): string {
+  return `${CREATIVE_WORKSHOP_WORLD_BOOK_META_START}${safeMetadataJson(metadata)}${CREATIVE_WORKSHOP_WORLD_BOOK_META_END}`;
+}
+
+export function stripCreativeWorkshopWorldbookMetadata(content: string): string {
+  if (typeof content !== 'string' || !content) return typeof content === 'string' ? content : '';
+  const scan = scanCreativeWorkshopWorldbookMetadata(content);
+  if (scan.malformed || scan.blocks.length === 0) return content;
+
+  let output = '';
+  let cursor = 0;
+  for (const block of scan.blocks) {
+    output += content.slice(cursor, block.start);
+    cursor = block.end;
+  }
+  output += content.slice(cursor);
+  return output;
+}
+
+export function injectCreativeWorkshopWorldbookMetadata(
+  originalContent: string,
+  metadata: CreativeWorkshopWorldbookMetadata,
+): string {
+  const content = typeof originalContent === 'string' ? originalContent : '';
+  const scan = scanCreativeWorkshopWorldbookMetadata(content);
+
+  if (scan.malformed) {
+    throw new Error('世界书内容中的工坊身份标记损坏或不完整');
+  }
+
+  const block = buildCreativeWorkshopWorldbookMetadataBlock(metadata);
+  if (scan.blocks.length === 0) return block + content;
+
+  const identities = new Set(scan.blocks.map(item => getWorldbookMetadataIdentity(item.metadata)));
+  if (identities.size > 1) {
+    throw new Error('世界书内容中存在互相冲突的工坊身份标记');
+  }
+
+  let output = '';
+  let cursor = 0;
+  scan.blocks.forEach((existing, index) => {
+    output += content.slice(cursor, existing.start);
+    if (index === 0) output += block;
+    cursor = existing.end;
+  });
+  output += content.slice(cursor);
+  return output;
+}
+
+export function readCreativeWorkshopWorldbookMetadata(
+  content: string,
+): CreativeWorkshopWorldbookMetadata | null {
+  if (typeof content !== 'string' || !content) return null;
+  const scan = scanCreativeWorkshopWorldbookMetadata(content);
+  if (scan.malformed || scan.blocks.length === 0) return null;
+
+  const identities = new Set(scan.blocks.map(item => getWorldbookMetadataIdentity(item.metadata)));
+  if (identities.size !== 1) return null;
+  return scan.blocks[0].metadata;
 }
 
 export function getCreativeWorkshopWorldbookMetadataValue(

@@ -52,11 +52,126 @@ assert.equal(updated.split('poem-workshop-meta:v1-start').length - 1, 1);
 assert.equal(api.stripCreativeWorkshopWorldbookMetadata(updated), creatorContent);
 assert.equal(api.readCreativeWorkshopWorldbookMetadata(updated).cw_project_version, '2.2.1');
 
-const markerInMiddle = '普通正文\n' + injected;
-assert.equal(api.stripCreativeWorkshopWorldbookMetadata(markerInMiddle), markerInMiddle);
+const charInfoBlock = `<%# char-info-ejs-builder:start:v2 %>
+<%_ const image = "avatar.png"; _%>
+<%# char-info-ejs-builder:end:v2 %>
+`;
+const workshopAfterCharInfo = charInfoBlock + injected;
+assert.deepEqual(
+  JSON.parse(JSON.stringify(api.readCreativeWorkshopWorldbookMetadata(workshopAfterCharInfo))),
+  metadata,
+  'Workshop identity must remain readable after another tool prepends EJS',
+);
+assert.equal(
+  api.stripCreativeWorkshopWorldbookMetadata(workshopAfterCharInfo),
+  charInfoBlock + creatorContent,
+  'stripping Workshop metadata must leave prepended CharInfo EJS byte-for-byte intact',
+);
+
+const updatedAfterCharInfo = api.injectCreativeWorkshopWorldbookMetadata(workshopAfterCharInfo, {
+  ...metadata,
+  cw_project_version: '2.3.0',
+  cw_remote_version: '2.3.0',
+});
+assert.ok(updatedAfterCharInfo.startsWith(charInfoBlock), 'existing Workshop metadata must update in place, not jump above CharInfo');
+assert.equal(updatedAfterCharInfo.split('poem-workshop-meta:v1-start').length - 1, 1);
+assert.equal(api.readCreativeWorkshopWorldbookMetadata(updatedAfterCharInfo).cw_project_version, '2.3.0');
+assert.equal(
+  api.stripCreativeWorkshopWorldbookMetadata(updatedAfterCharInfo),
+  charInfoBlock + creatorContent,
+);
+
+const workshopBlock = api.buildCreativeWorkshopWorldbookMetadataBlock(metadata);
+const workshopAtBottom = creatorContent + '\nBOTTOM-SEPARATOR\n' + workshopBlock;
+assert.deepEqual(
+  JSON.parse(JSON.stringify(api.readCreativeWorkshopWorldbookMetadata(workshopAtBottom))),
+  metadata,
+  'Workshop identity position must not matter',
+);
+const updatedAtBottom = api.injectCreativeWorkshopWorldbookMetadata(workshopAtBottom, {
+  ...metadata,
+  cw_project_version: '2.4.0',
+  cw_remote_version: '2.4.0',
+});
+assert.ok(updatedAtBottom.startsWith(creatorContent + '\nBOTTOM-SEPARATOR\n'));
+assert.ok(updatedAtBottom.endsWith('poem-workshop-meta:v1-end %>'));
+assert.equal(api.readCreativeWorkshopWorldbookMetadata(updatedAtBottom).cw_project_version, '2.4.0');
+
+const staleProjectBlock = api.buildCreativeWorkshopWorldbookMetadataBlock({
+  ...metadata,
+  cw_project_id: 'old-project-id',
+  cw_entry_key: 'old-project-id:uid:27',
+});
+const copiedIntoNewProject = charInfoBlock + staleProjectBlock + creatorContent;
+const restampedForCurrentProject = api.injectCreativeWorkshopWorldbookMetadata(copiedIntoNewProject, metadata);
+assert.ok(restampedForCurrentProject.startsWith(charInfoBlock), 'a copied single Workshop block keeps its position');
+assert.equal(restampedForCurrentProject.split('poem-workshop-meta:v1-start').length - 1, 1);
+assert.equal(
+  api.readCreativeWorkshopWorldbookMetadata(restampedForCurrentProject).cw_project_id,
+  metadata.cw_project_id,
+  'a single stale Workshop block may be safely restamped for the current project',
+);
+assert.equal(
+  api.stripCreativeWorkshopWorldbookMetadata(restampedForCurrentProject),
+  charInfoBlock + creatorContent,
+);
+
+const duplicateSameIdentity =
+  charInfoBlock +
+  workshopBlock +
+  '\nMIDDLE\n' +
+  api.buildCreativeWorkshopWorldbookMetadataBlock({
+    ...metadata,
+    cw_project_version: '1.0.0',
+    cw_remote_version: '1.0.0',
+  }) +
+  creatorContent;
+const deduplicated = api.injectCreativeWorkshopWorldbookMetadata(duplicateSameIdentity, {
+  ...metadata,
+  cw_project_version: '3.0.0',
+  cw_remote_version: '3.0.0',
+});
+assert.equal(deduplicated.split('poem-workshop-meta:v1-start').length - 1, 1, 'same-identity duplicates must collapse to one block');
+assert.equal(api.readCreativeWorkshopWorldbookMetadata(deduplicated).cw_project_version, '3.0.0');
+assert.equal(
+  api.stripCreativeWorkshopWorldbookMetadata(deduplicated),
+  charInfoBlock + '\nMIDDLE\n' + creatorContent,
+  'dedupe must remove only Workshop-owned blocks and preserve surrounding creator content',
+);
+
+const conflictingBlocks =
+  workshopBlock +
+  '\n' +
+  api.buildCreativeWorkshopWorldbookMetadataBlock({
+    ...metadata,
+    cw_project_id: '22222222-2222-4222-8222-222222222222',
+    cw_entry_key: '22222222-2222-4222-8222-222222222222:uid:99',
+  }) +
+  creatorContent;
+assert.equal(api.readCreativeWorkshopWorldbookMetadata(conflictingBlocks), null);
 assert.throws(
-  () => api.injectCreativeWorkshopWorldbookMetadata('<%# poem-workshop-meta:v1-start\n{"broken":true}', metadata),
-  /身份标记不完整/,
+  () => api.injectCreativeWorkshopWorldbookMetadata(conflictingBlocks, metadata),
+  /互相冲突/,
+  'different Workshop identities in one content must fail closed',
+);
+
+const malformedWorkshopBlock =
+  charInfoBlock +
+  '<%# poem-workshop-meta:v1-start\n{"cw_project_id":"broken"} %>' +
+  creatorContent;
+assert.equal(api.readCreativeWorkshopWorldbookMetadata(malformedWorkshopBlock), null);
+assert.equal(api.stripCreativeWorkshopWorldbookMetadata(malformedWorkshopBlock), malformedWorkshopBlock);
+assert.throws(
+  () => api.injectCreativeWorkshopWorldbookMetadata(malformedWorkshopBlock, metadata),
+  /损坏或不完整/,
+  'malformed reserved Workshop blocks must never be silently deleted or rewritten',
+);
+
+const plainMarkerWords = '正文提到 poem-workshop-meta:v1-start 和 poem-workshop-meta:v1-end 但不是 EJS envelope';
+assert.equal(
+  api.injectCreativeWorkshopWorldbookMetadata(plainMarkerWords, metadata),
+  workshopBlock + plainMarkerWords,
+  'plain marker words outside the exact reserved EJS envelope are ordinary creator text',
 );
 
 const contentOnlyEntry = { content: injected };
