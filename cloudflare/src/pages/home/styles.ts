@@ -1055,9 +1055,23 @@ body { background:#0f1012; color:#ececea; }
 .project-detail-modal .detail-stat i { grid-row:auto; color:#77756f; font-size:.76rem; }
 .project-detail-modal .detail-stat strong { color:#cac9c5; font-size:.78rem; font-weight:760; line-height:1; }
 .project-detail-modal .detail-stat span { color:#77756f; font-size:.68rem; line-height:1; }
-.project-detail-modal button.detail-stat:hover:not(:disabled) { border:0; background:none; color:#d9aaa5; }
-.project-detail-modal button.detail-stat:hover:not(:disabled) i,.project-detail-modal button.detail-stat.liked i { color:#d97872; }
+.project-detail-modal button.detail-like-btn { min-height:32px; padding:0 10px; border:1px solid rgba(217,120,114,.2); border-radius:999px; background:rgba(217,120,114,.055); color:#c8a09d; transition:border-color .16s ease,background .16s ease,color .16s ease; }
+.project-detail-modal button.detail-like-btn i { color:#a78683; }
+.project-detail-modal button.detail-like-btn span { color:#b99491; font-size:.72rem; font-weight:700; }
+.project-detail-modal button.detail-like-btn:hover:not(:disabled) { border-color:rgba(217,120,114,.42); background:rgba(217,120,114,.12); color:#e2b4b0; }
+.project-detail-modal button.detail-like-btn:hover:not(:disabled) i,.project-detail-modal button.detail-like-btn.liked i { color:#d97872; }
+.project-detail-modal button.detail-like-btn.liked { border-color:rgba(217,120,114,.38); background:rgba(217,120,114,.11); }
+.project-detail-modal button.detail-like-btn.liked span { color:#dba39e; }
 .project-detail-modal button.detail-stat:disabled { opacity:.55; }
+.project-detail-modal .detail-download-stat { pointer-events:none; }
+.project-detail-modal .compatibility-row { width:100%; min-width:0; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.project-detail-modal .compatibility-status { min-width:0; display:inline-flex; align-items:center; gap:7px; color:var(--cw-text-secondary); font-size:.78rem; font-weight:720; line-height:1.35; }
+.project-detail-modal .compatibility-status-dot { width:8px; height:8px; flex:none; border-radius:50%; background:#85837e; box-shadow:0 0 0 3px rgba(133,131,126,.08); }
+.project-detail-modal .compatibility-status.is-compatible .compatibility-status-dot { background:#34d399; box-shadow:0 0 0 3px rgba(52,211,153,.1); }
+.project-detail-modal .compatibility-status.is-pending .compatibility-status-dot { background:#eab308; box-shadow:0 0 0 3px rgba(234,179,8,.1); }
+.project-detail-modal .compatibility-status.is-older .compatibility-status-dot { background:#9ca3af; box-shadow:0 0 0 3px rgba(156,163,175,.09); }
+.project-detail-modal .compatibility-status.is-incompatible .compatibility-status-dot { background:#ef4444; box-shadow:0 0 0 3px rgba(239,68,68,.1); }
+.project-detail-modal .compatibility-edit-mobile-label,.project-detail-modal .compatibility-edit-mobile-chevron { display:none; }
 .project-detail-modal .detail-warning { display:flex; align-items:flex-start; gap:8px; padding:10px 12px; border:1px solid rgba(245,158,11,.24); border-radius:10px; background:rgba(245,158,11,.07); color:#dbc58d; font-size:.76rem; line-height:1.5; }
 .project-detail-modal .detail-warning i { flex:none; margin-top:3px; }
 .project-detail-modal .detail-precautions strong { display:block; margin-bottom:3px; color:#f0d79a; }
@@ -1396,11 +1410,19 @@ body,.logo h1,.sidebar-brand-copy strong,.mobile-tool-sheet-head strong,.project
   .mobile-detail-description-toggle:hover { background:transparent; color:#e2c9a2; transform:none; }
   .mobile-detail-description-toggle[hidden] { display:none; }
   .mobile-detail-meta { margin-top:11px; color:var(--cw-text-muted); font-size:.75rem; line-height:1.5; }
-  .mobile-project-detail > .detail-stats-row { margin-top:9px; gap:16px; }
-  .mobile-detail-actions { display:flex; justify-content:flex-end; margin-top:10px; }
-  .mobile-detail-actions .detail-actions-panel { width:auto; align-items:flex-end; gap:6px; padding:0; border:0; }
-  .mobile-detail-actions .detail-action-buttons { width:auto; justify-content:flex-end; }
-  .mobile-detail-actions .detail-install-btn,.mobile-detail-actions .detail-update-btn { min-width:96px; min-height:40px; flex:none; padding:0 13px; }
+  .mobile-project-detail > .detail-stats-row { margin-top:10px; gap:10px; }
+  .mobile-project-detail > .detail-stats-row .detail-like-btn { min-height:36px; padding:0 11px; }
+  .mobile-detail-actions { display:block; margin-top:12px; }
+  .mobile-detail-actions .detail-actions-panel { width:100%; align-items:stretch; gap:10px; padding:0; border:0; }
+  .mobile-detail-actions .compatibility-row { min-height:38px; padding:0 2px; }
+  .mobile-detail-actions .compatibility-status { font-size:.8rem; }
+  .mobile-detail-actions .detail-compatibility-btn { width:auto; min-height:36px; flex:none; gap:5px; padding:0 4px 0 10px; border:0; background:transparent; color:#bca98c; box-shadow:none; }
+  .mobile-detail-actions .detail-compatibility-btn:hover { border:0; background:transparent; color:#dbc39d; box-shadow:none; transform:none; }
+  .mobile-detail-actions .compatibility-edit-desktop-icon,.mobile-detail-actions .compatibility-edit-desktop-label { display:none; }
+  .mobile-detail-actions .compatibility-edit-mobile-label,.mobile-detail-actions .compatibility-edit-mobile-chevron { display:inline; }
+  .mobile-detail-actions .compatibility-edit-mobile-chevron { font-size:.66rem; opacity:.75; }
+  .mobile-detail-actions .detail-action-buttons { width:100%; justify-content:stretch; gap:8px; }
+  .mobile-detail-actions .detail-install-btn,.mobile-detail-actions .detail-update-btn { min-width:0; min-height:46px; flex:1 1 0; padding:0 14px; }
   .mobile-project-detail > .detail-warning { margin-top:14px; }
 
   .mobile-detail-section { margin-top:22px; }

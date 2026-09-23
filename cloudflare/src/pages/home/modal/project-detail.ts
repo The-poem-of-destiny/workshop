@@ -208,6 +208,8 @@ export const homeProjectDetailModalScript = [
   "        detailLikeButton.setAttribute('aria-pressed', nextLike.liked ? 'true' : 'false');",
   "        const count = detailLikeButton.querySelector('strong');",
   '        if (count) count.textContent = String(nextLike.count);',
+  '        const label = detailLikeButton.querySelector(".detail-like-label");',
+  '        if (label) label.textContent = nextLike.liked ? "已喜欢" : "喜欢";',
   "        detailLikeButton.title = nextLike.liked ? '取消点赞' : '点赞项目';",
   '      });',
   '    }',
