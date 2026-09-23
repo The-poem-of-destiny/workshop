@@ -1079,6 +1079,14 @@ button.discover-card-stat:disabled { cursor:default; opacity:.58; }
 .project-detail-modal .detail-download-stat { pointer-events:none; }
 .project-detail-modal .private-rating-card { width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 12px; border:1px solid rgba(190,164,125,.14); border-radius:10px; background:rgba(190,164,125,.045); }
 .project-detail-modal .private-rating-card > div:first-child { min-width:0; }
+.project-detail-modal .private-rating-card--composer { display:block; }
+.project-detail-modal .private-rating-composer-top { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.project-detail-modal .private-rating-comment-input { width:100%; min-height:72px; margin-top:10px; padding:9px 10px; resize:vertical; border:1px solid rgba(255,255,255,.08); border-radius:9px; background:rgba(0,0,0,.16); color:#d8d6d1; font:inherit; font-size:.72rem; line-height:1.5; outline:none; }
+.project-detail-modal .private-rating-comment-input:focus { border-color:rgba(215,180,110,.34); box-shadow:0 0 0 2px rgba(215,180,110,.07); }
+.project-detail-modal .private-rating-comment-input:disabled { opacity:.45; cursor:not-allowed; }
+.project-detail-modal .private-rating-composer-foot { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:8px; }
+.project-detail-modal .private-rating-composer-foot > span { margin:0; color:#65635f; font-size:.62rem; }
+.project-detail-modal .private-rating-submit { min-height:34px; padding:0 12px; font-size:.7rem; }
 .project-detail-modal .private-rating-card strong { display:block; color:#d5c2a5; font-size:.74rem; font-weight:760; }
 .project-detail-modal .private-rating-card span { display:block; margin-top:3px; color:#77756f; font-size:.66rem; line-height:1.35; }
 .project-detail-modal .private-rating-stars { flex:none; display:flex; align-items:center; gap:2px; }
@@ -1096,6 +1104,16 @@ button.discover-card-stat:disabled { cursor:default; opacity:.58; }
 .project-detail-modal .private-rating-distribution span { display:flex; align-items:center; justify-content:space-between; gap:4px; margin:0; padding:5px 6px; border-radius:7px; background:rgba(255,255,255,.035); }
 .project-detail-modal .private-rating-distribution b { color:#aaa8a3; font-size:.62rem; }
 .project-detail-modal .private-rating-distribution em { color:#d4c2a6; font-size:.64rem; font-style:normal; font-variant-numeric:tabular-nums; }
+.project-detail-modal .private-rating-comments { margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,.06); }
+.project-detail-modal .private-rating-comments-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:7px; }
+.project-detail-modal .private-rating-comments-head strong { color:#bdb9b0; font-size:.68rem; }
+.project-detail-modal .private-rating-comments-head span { margin:0; color:#686761; font-size:.61rem; }
+.project-detail-modal .private-rating-comment-item { padding:8px 9px; border-radius:8px; background:rgba(255,255,255,.028); }
+.project-detail-modal .private-rating-comment-item + .private-rating-comment-item { margin-top:6px; }
+.project-detail-modal .private-rating-comment-item > div { display:flex; align-items:center; gap:7px; }
+.project-detail-modal .private-rating-comment-item b { color:#d7b46e; font-size:.66rem; }
+.project-detail-modal .private-rating-comment-item span { margin:0; color:#66645f; font-size:.6rem; }
+.project-detail-modal .private-rating-comment-item p { margin:5px 0 0; color:#aaa8a3; font-size:.7rem; line-height:1.48; white-space:pre-wrap; overflow-wrap:anywhere; }
 .project-detail-modal .compatibility-row { width:100%; min-width:0; display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .project-detail-modal .compatibility-status { min-width:0; display:inline-flex; align-items:center; gap:7px; color:var(--cw-text-secondary); font-size:.78rem; font-weight:720; line-height:1.35; }
 .project-detail-modal .compatibility-status-dot { width:8px; height:8px; flex:none; border-radius:50%; background:#85837e; box-shadow:0 0 0 3px rgba(133,131,126,.08); }

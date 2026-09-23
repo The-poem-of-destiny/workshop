@@ -73,7 +73,7 @@ async function readPrivateProjectRatingState(
   payload: Awaited<ReturnType<typeof getCurrentUserFromRequest>>,
 ) {
   if (!payload) {
-    return { myRating: null, canRate: false, reason: '登录并安装后可评分', summary: null };
+    return { myRating: null, myComment: '', canRate: false, reason: '登录并安装后可评分', summary: null };
   }
 
   if (project.authorId === payload.userId) {
@@ -84,20 +84,38 @@ async function readPrivateProjectRatingState(
               SUM(CASE WHEN rating = 2 THEN 1 ELSE 0 END) AS star_2,
               SUM(CASE WHEN rating = 3 THEN 1 ELSE 0 END) AS star_3,
               SUM(CASE WHEN rating = 4 THEN 1 ELSE 0 END) AS star_4,
-              SUM(CASE WHEN rating = 5 THEN 1 ELSE 0 END) AS star_5
+              SUM(CASE WHEN rating = 5 THEN 1 ELSE 0 END) AS star_5,
+              SUM(CASE WHEN comment_text IS NOT NULL AND TRIM(comment_text) <> '' THEN 1 ELSE 0 END) AS comment_count
        FROM project_ratings
        WHERE project_id = ?`,
     )
       .bind(project.id)
       .first<Record<string, number | null>>();
+    const comments = await c.env.DB.prepare(
+      `SELECT rating, comment_text
+       FROM project_ratings
+       WHERE project_id = ?
+         AND comment_text IS NOT NULL
+         AND TRIM(comment_text) <> ''
+       ORDER BY updated_at DESC
+       LIMIT 20`,
+    )
+      .bind(project.id)
+      .all<{ rating: number; comment_text: string }>();
     const count = Number(summary?.rating_count || 0);
     return {
       myRating: null,
+      myComment: '',
       canRate: false,
       reason: '作者可以查看匿名评分统计',
       summary: {
         count,
         average: count > 0 ? Math.round(Number(summary?.average_rating || 0) * 10) / 10 : null,
+        commentCount: Number(summary?.comment_count || 0),
+        comments: (comments.results || []).map(item => ({
+          rating: Number(item.rating || 0),
+          comment: String(item.comment_text || ''),
+        })),
         distribution: {
           1: Number(summary?.star_1 || 0),
           2: Number(summary?.star_2 || 0),
@@ -112,15 +130,17 @@ async function readPrivateProjectRatingState(
   const viewerState = await c.env.DB.prepare(
     `SELECT
        (SELECT rating FROM project_ratings WHERE project_id = ?1 AND user_id = ?2) AS my_rating,
+       (SELECT comment_text FROM project_ratings WHERE project_id = ?1 AND user_id = ?2) AS my_comment,
        EXISTS(SELECT 1 FROM project_subscribes WHERE project_id = ?1 AND user_id = ?2) AS installed
     `,
   )
     .bind(project.id, payload.userId)
-    .first<{ my_rating: number | null; installed: number }>();
+    .first<{ my_rating: number | null; my_comment: string | null; installed: number }>();
   const installed = Number(viewerState?.installed || 0) === 1;
   const projectRateable = project.status === 'approved' && project.isPublished !== false && project.visibility !== false;
   return {
     myRating: viewerState?.my_rating == null ? null : Number(viewerState.my_rating),
+    myComment: String(viewerState?.my_comment || ''),
     canRate: installed && projectRateable,
     reason: installed ? (projectRateable ? '' : '这个项目当前不能评分') : '安装这个 DLC 后才能评分',
     summary: null,
@@ -1046,7 +1066,10 @@ export class ProjectRatingSet extends OpenAPIRoute {
       body: {
         content: {
           'application/json': {
-            schema: z.object({ rating: z.number().int().min(1).max(5) }),
+            schema: z.object({
+              rating: z.number().int().min(1).max(5),
+              comment: z.string().trim().max(500).optional(),
+            }),
           },
         },
       },
@@ -1085,17 +1108,20 @@ export class ProjectRatingSet extends OpenAPIRoute {
     }
 
     const rating = Number(data.body.rating);
+    const commentProvided = data.body.comment !== undefined;
+    const commentText = commentProvided ? String(data.body.comment || '').trim() : null;
     await c.env.DB.prepare(
-      `INSERT INTO project_ratings (project_id, user_id, rating, created_at, updated_at)
-       VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `INSERT INTO project_ratings (project_id, user_id, rating, comment_text, created_at, updated_at)
+       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
        ON CONFLICT(project_id, user_id) DO UPDATE SET
          rating = excluded.rating,
+         comment_text = CASE WHEN ? = 1 THEN excluded.comment_text ELSE project_ratings.comment_text END,
          updated_at = CURRENT_TIMESTAMP`,
     )
-      .bind(projectId, payload.userId, rating)
+      .bind(projectId, payload.userId, rating, commentText || null, commentProvided ? 1 : 0)
       .run();
 
-    return { success: true, rating };
+    return { success: true, rating, ...(commentProvided ? { comment: commentText } : {}) };
   }
 }
 

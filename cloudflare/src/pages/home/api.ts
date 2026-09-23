@@ -518,12 +518,13 @@ async function toggleLike(projectId) {
   }
 }
 
-async function setPrivateProjectRating(projectId, rating) {
+async function setPrivateProjectRating(projectId, rating, comment = '') {
   if (!state.currentUser) throw new Error('请先登录');
   const numericRating = Math.max(1, Math.min(5, Math.floor(Number(rating || 0))));
+  const normalizedComment = String(comment || '').trim().slice(0, 500);
   const result = await apiFetch('/api/projects/' + projectId + '/rating', {
     method: 'PUT',
-    body: JSON.stringify({ rating: numericRating }),
+    body: JSON.stringify({ rating: numericRating, comment: normalizedComment }),
   });
   invalidateProjectDetailCache(projectId);
   return result;
