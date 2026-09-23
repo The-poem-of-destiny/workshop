@@ -47,7 +47,7 @@ async function parseResponseBody(response) {
 }
 
 async function apiFetch(endpoint, options = {}) {
-  const token= [REDACTED_SECRET](TOKEN_KEY);
+  const token = localStorage.getItem(TOKEN_KEY);
   const headers = {
     'Content-Type': 'application/json',
     ...(options.headers || {}),
@@ -89,7 +89,7 @@ async function apiFetch(endpoint, options = {}) {
 }
 
 async function fetchCurrentUser() {
-  const token= [REDACTED_SECRET](TOKEN_KEY);
+  const token = localStorage.getItem(TOKEN_KEY);
   if (!token) return null;
   try {
     const data = await apiFetch('/api/auth/me', { method: 'GET' });
@@ -182,7 +182,7 @@ async function fetchProjects(forceRefresh = false, options = {}) {
   const append = Boolean(options.append);
   const pageSize = Number(options.pageSize || state.projectPagination.pageSize || 50);
   const nextPage = append ? Number(state.projectPagination.page || 0) + 1 : Number(options.page || 0);
-  const requestToken= [REDACTED_SECRET]();
+  const requestToken = createProjectRequestToken();
   const params = new URLSearchParams({
     page: String(nextPage),
     pageSize: String(pageSize),

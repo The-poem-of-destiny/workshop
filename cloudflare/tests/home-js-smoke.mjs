@@ -55,6 +55,7 @@ const fragments = {
 
 for (const [name, script] of Object.entries(fragments)) {
   assert.equal(typeof script, 'string', `${name} must evaluate to JavaScript text`);
+  assert.doesNotMatch(script, /REDACTED_/, `${name} must not contain a persisted redaction placeholder`);
   new Function(script);
 }
 
