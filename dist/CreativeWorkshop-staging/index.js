@@ -60,7 +60,234 @@ function getCurrentCreativeWorkshopContext() {
 ;// ./src/CreativeWorkshop/version.ts
 const CREATIVE_WORKSHOP_CLIENT_VERSION = "2.2.0-dev";
 
+;// ./src/CreativeWorkshop/services/install-identity.ts
+const CREATIVE_WORKSHOP_WORLD_BOOK_META_START = '<%# poem-workshop-meta:v1-start\n';
+const CREATIVE_WORKSHOP_WORLD_BOOK_META_END = '\npoem-workshop-meta:v1-end %>';
+const CREATIVE_WORKSHOP_REGEX_ID_PREFIX = 'creative_workshop:';
+function asRecord(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? value
+        : null;
+}
+function meaningfulMetadataValue(value) {
+    if (typeof value === 'string')
+        return value ? value : null;
+    if (typeof value === 'number' && Number.isFinite(value))
+        return value;
+    return value === null ? null : value;
+}
+function safeMetadataJson(metadata) {
+    return JSON.stringify(metadata)
+        .replace(/%/g, '\\u0025')
+        .replace(/</g, '\\u003c')
+        .replace(/>/g, '\\u003e');
+}
+function parseCreativeWorkshopWorldbookMetadata(raw) {
+    try {
+        const parsed = asRecord(JSON.parse(raw));
+        if (!parsed)
+            return null;
+        if (typeof parsed.cw_project_id !== 'string' || !parsed.cw_project_id)
+            return null;
+        if (typeof parsed.cw_entry_key !== 'string' || !parsed.cw_entry_key)
+            return null;
+        if (typeof parsed.cw_project_name_display !== 'string')
+            return null;
+        if (parsed.cw_project_version !== null &&
+            parsed.cw_project_version !== undefined &&
+            typeof parsed.cw_project_version !== 'string')
+            return null;
+        if (parsed.cw_remote_version !== null &&
+            parsed.cw_remote_version !== undefined &&
+            typeof parsed.cw_remote_version !== 'string')
+            return null;
+        if (typeof parsed.cw_name_format_version !== 'string' &&
+            !(typeof parsed.cw_name_format_version === 'number' && Number.isFinite(parsed.cw_name_format_version)))
+            return null;
+        return {
+            cw_project_id: parsed.cw_project_id,
+            cw_project_name_display: parsed.cw_project_name_display,
+            cw_project_version: parsed.cw_project_version ?? null,
+            ...(parsed.cw_remote_version !== undefined ? { cw_remote_version: parsed.cw_remote_version ?? null } : {}),
+            cw_entry_key: parsed.cw_entry_key,
+            cw_name_format_version: parsed.cw_name_format_version,
+        };
+    }
+    catch {
+        return null;
+    }
+}
+function getWorldbookMetadataIdentity(metadata) {
+    return JSON.stringify([metadata.cw_project_id, metadata.cw_entry_key]);
+}
+function scanCreativeWorkshopWorldbookMetadata(content) {
+    const blocks = [];
+    const recognizedEndStarts = new Set();
+    let malformed = false;
+    let cursor = 0;
+    while (cursor < content.length) {
+        const start = content.indexOf(CREATIVE_WORKSHOP_WORLD_BOOK_META_START, cursor);
+        if (start < 0)
+            break;
+        const payloadStart = start + CREATIVE_WORKSHOP_WORLD_BOOK_META_START.length;
+        const endMarkerStart = content.indexOf(CREATIVE_WORKSHOP_WORLD_BOOK_META_END, payloadStart);
+        if (endMarkerStart < 0) {
+            malformed = true;
+            break;
+        }
+        const nestedStart = content.indexOf(CREATIVE_WORKSHOP_WORLD_BOOK_META_START, payloadStart);
+        if (nestedStart >= 0 && nestedStart < endMarkerStart) {
+            malformed = true;
+            cursor = nestedStart;
+            continue;
+        }
+        recognizedEndStarts.add(endMarkerStart);
+        const metadata = parseCreativeWorkshopWorldbookMetadata(content.slice(payloadStart, endMarkerStart));
+        const end = endMarkerStart + CREATIVE_WORKSHOP_WORLD_BOOK_META_END.length;
+        if (metadata) {
+            blocks.push({ start, end, metadata });
+        }
+        else {
+            malformed = true;
+        }
+        cursor = end;
+    }
+    let endCursor = 0;
+    while (endCursor < content.length) {
+        const endMarkerStart = content.indexOf(CREATIVE_WORKSHOP_WORLD_BOOK_META_END, endCursor);
+        if (endMarkerStart < 0)
+            break;
+        if (!recognizedEndStarts.has(endMarkerStart))
+            malformed = true;
+        endCursor = endMarkerStart + CREATIVE_WORKSHOP_WORLD_BOOK_META_END.length;
+    }
+    return { blocks, malformed };
+}
+function buildCreativeWorkshopWorldbookMetadataBlock(metadata) {
+    return `${CREATIVE_WORKSHOP_WORLD_BOOK_META_START}${safeMetadataJson(metadata)}${CREATIVE_WORKSHOP_WORLD_BOOK_META_END}`;
+}
+function stripCreativeWorkshopWorldbookMetadata(content) {
+    if (typeof content !== 'string' || !content)
+        return typeof content === 'string' ? content : '';
+    const scan = scanCreativeWorkshopWorldbookMetadata(content);
+    if (scan.malformed || scan.blocks.length === 0)
+        return content;
+    let output = '';
+    let cursor = 0;
+    for (const block of scan.blocks) {
+        output += content.slice(cursor, block.start);
+        cursor = block.end;
+    }
+    output += content.slice(cursor);
+    return output;
+}
+function injectCreativeWorkshopWorldbookMetadata(originalContent, metadata) {
+    const content = typeof originalContent === 'string' ? originalContent : '';
+    const scan = scanCreativeWorkshopWorldbookMetadata(content);
+    if (scan.malformed) {
+        throw new Error('世界书内容中的工坊身份标记损坏或不完整');
+    }
+    const block = buildCreativeWorkshopWorldbookMetadataBlock(metadata);
+    if (scan.blocks.length === 0)
+        return block + content;
+    const identities = new Set(scan.blocks.map(item => getWorldbookMetadataIdentity(item.metadata)));
+    if (identities.size > 1) {
+        throw new Error('世界书内容中存在互相冲突的工坊身份标记');
+    }
+    let output = '';
+    let cursor = 0;
+    scan.blocks.forEach((existing, index) => {
+        output += content.slice(cursor, existing.start);
+        if (index === 0)
+            output += block;
+        cursor = existing.end;
+    });
+    output += content.slice(cursor);
+    return output;
+}
+function readCreativeWorkshopWorldbookMetadata(content) {
+    if (typeof content !== 'string' || !content)
+        return null;
+    const scan = scanCreativeWorkshopWorldbookMetadata(content);
+    if (scan.malformed || scan.blocks.length === 0)
+        return null;
+    const identities = new Set(scan.blocks.map(item => getWorldbookMetadataIdentity(item.metadata)));
+    if (identities.size !== 1)
+        return null;
+    return scan.blocks[0].metadata;
+}
+function getCreativeWorkshopWorldbookMetadataValue(entry, field) {
+    const raw = entry;
+    const extra = asRecord(raw.extra);
+    const direct = meaningfulMetadataValue(extra?.[field]);
+    if (direct !== undefined && direct !== null)
+        return direct;
+    const embedded = readCreativeWorkshopWorldbookMetadata(typeof raw.content === 'string' ? raw.content : '');
+    const fallback = meaningfulMetadataValue(embedded?.[field]);
+    return fallback === undefined ? null : fallback;
+}
+function getCreativeWorkshopWorldbookMetadataString(entry, field) {
+    const value = getCreativeWorkshopWorldbookMetadataValue(entry, field);
+    if (typeof value === 'string' && value)
+        return value;
+    if (typeof value === 'number' && Number.isFinite(value))
+        return String(value);
+    return null;
+}
+function encodeRegexIdentityComponent(value) {
+    return value.replace(/%/g, '%25').replace(/:/g, '%3A');
+}
+function decodeRegexIdentityComponent(value) {
+    return value.replace(/%3A/gi, ':').replace(/%25/gi, '%');
+}
+function buildCreativeWorkshopRegexId(projectId, entryKey, installedVersion) {
+    const normalizedProjectId = String(projectId || '');
+    if (!normalizedProjectId)
+        throw new Error('Workshop regex projectId 不能为空');
+    if (normalizedProjectId.includes(':')) {
+        throw new Error('Workshop regex projectId 不能包含冒号');
+    }
+    const normalizedEntryKey = String(entryKey || '');
+    if (!normalizedEntryKey)
+        throw new Error('Workshop regex entryKey 不能为空');
+    return `${CREATIVE_WORKSHOP_REGEX_ID_PREFIX}${normalizedProjectId}:v1:${encodeRegexIdentityComponent(normalizedEntryKey)}:${encodeRegexIdentityComponent(installedVersion || '')}`;
+}
+function parseCreativeWorkshopRegexId(value) {
+    const raw = String(value || '');
+    if (!raw.startsWith(CREATIVE_WORKSHOP_REGEX_ID_PREFIX))
+        return null;
+    const rest = raw.slice(CREATIVE_WORKSHOP_REGEX_ID_PREFIX.length);
+    const projectSeparator = rest.indexOf(':');
+    if (projectSeparator <= 0)
+        return null;
+    const projectId = rest.slice(0, projectSeparator);
+    const tail = rest.slice(projectSeparator + 1);
+    if (!tail)
+        return null;
+    if (tail.startsWith('v1:')) {
+        const payload = tail.slice('v1:'.length);
+        const versionSeparator = payload.indexOf(':');
+        if (versionSeparator < 0)
+            return null;
+        const entryKey = decodeRegexIdentityComponent(payload.slice(0, versionSeparator));
+        const installedVersion = decodeRegexIdentityComponent(payload.slice(versionSeparator + 1)) || null;
+        if (!entryKey)
+            return null;
+        return { schemaVersion: 1, projectId, entryKey, installedVersion };
+    }
+    return {
+        schemaVersion: 0,
+        projectId,
+        entryKey: tail,
+        installedVersion: null,
+    };
+}
+function getCreativeWorkshopRegexIdentityKey(projectId, entryKey) {
+    return JSON.stringify([projectId, entryKey]);
+}
+
 ;// ./src/CreativeWorkshop/services/install-registry.ts
+
 const CREATIVE_WORKSHOP_INSTALL_REGISTRY_KEY = 'creative_workshop_install_registry';
 function getRegistryScopeKey() {
     return getCurrentCharacterName() || '__no_character__';
@@ -132,10 +359,14 @@ async function resolveCreativeWorkshopInstallWorldbook(projectId, legacyProjectN
         if (!existingNames.has(worldbookName))
             continue;
         const entries = await getWorldbook(worldbookName);
-        if (entries.some(entry => _.get(entry, 'extra.cw_project_id') === projectId ||
-            _.get(entry, 'extra.fate_project_name') === projectId ||
-            Boolean(legacyProjectName && _.get(entry, 'extra.cw_project_id') === legacyProjectName) ||
-            Boolean(legacyProjectName && _.get(entry, 'extra.fate_project_name') === legacyProjectName))) {
+        if (entries.some(entry => {
+            const currentProjectId = getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_id');
+            const legacyName = getCreativeWorkshopWorldbookMetadataString(entry, 'fate_project_name');
+            return currentProjectId === projectId ||
+                legacyName === projectId ||
+                Boolean(legacyProjectName && currentProjectId === legacyProjectName) ||
+                Boolean(legacyProjectName && legacyName === legacyProjectName);
+        })) {
             return worldbookName;
         }
     }
@@ -379,7 +610,7 @@ async function fetchCreativeWorkshopReferenceVersionItems(referenceVersionId) {
 ;// ./src/CreativeWorkshop/services/project-type.ts
 const CREATIVE_WORKSHOP_PROJECT_TYPES = ['系统核心', '扩展', '角色', '事件'];
 const CREATIVE_WORKSHOP_EXTENSION_TYPES = (/* unused pure expression or super */ null && (['规则', '内容']));
-const CREATIVE_WORKSHOP_NAME_FORMAT_VERSION = 3;
+const CREATIVE_WORKSHOP_NAME_FORMAT_VERSION = 4;
 function normalizeProjectType(value) {
     if (typeof value !== 'string')
         return null;
@@ -446,15 +677,36 @@ function readLeadingBracketSegment(value, offset) {
     return { value: match[1], end: offset + match[0].length };
 }
 function getExistingDlcCategory(entryName) {
-    const dlc = readLeadingBracketSegment(entryName, 0);
-    if (!dlc || dlc.value !== 'DLC')
+    const first = readLeadingBracketSegment(entryName, 0);
+    if (!first)
         return null;
-    return readLeadingBracketSegment(entryName, dlc.end)?.value || null;
+    // v4: [WS][DLC][category]author content
+    if (first.value === 'WS') {
+        const dlc = readLeadingBracketSegment(entryName, first.end);
+        if (!dlc || dlc.value !== 'DLC')
+            return null;
+        return readLeadingBracketSegment(entryName, dlc.end)?.value || null;
+    }
+    // v3/v2/legacy: [DLC][category]...
+    if (first.value !== 'DLC')
+        return null;
+    return readLeadingBracketSegment(entryName, first.end)?.value || null;
 }
 function stripExistingDlcHeader(entryName) {
-    const dlc = readLeadingBracketSegment(entryName, 0);
-    if (!dlc || dlc.value !== 'DLC')
+    const first = readLeadingBracketSegment(entryName, 0);
+    if (!first)
         return entryName;
+    // v4: [WS][DLC][category]author content
+    if (first.value === 'WS') {
+        const dlc = readLeadingBracketSegment(entryName, first.end);
+        if (!dlc || dlc.value !== 'DLC')
+            return entryName;
+        const category = readLeadingBracketSegment(entryName, dlc.end);
+        return category ? entryName.slice(category.end) : entryName;
+    }
+    if (first.value !== 'DLC')
+        return entryName;
+    const dlc = first;
     const category = readLeadingBracketSegment(entryName, dlc.end);
     if (!category)
         return entryName.slice(dlc.end);
@@ -489,10 +741,11 @@ function formatCreativeWorkshopEntryName(entryName, project, _projectName) {
     if (projectType === '系统核心')
         authorContent = stripLegacyCorePrefix(authorContent);
     const category = getExistingDlcCategory(entryName) || getCreativeWorkshopDlcCategory(project);
-    return `[DLC][${category}][WS]${authorContent}`;
+    return `[WS][DLC][${category}]${authorContent}`;
 }
 
 ;// ./src/CreativeWorkshop/services/regex-name.ts
+
 function getReadableRegexName(projectName, entry, index) {
     const name = entry.scriptName || entry.script_name || entry.id || `正则${index + 1}`;
     return String(name).startsWith('[工坊]') ? String(name) : `[工坊] ${projectName} - ${name}`;
@@ -504,11 +757,23 @@ function getCreativeWorkshopRegexEntryKey(entry, index) {
         return `id:${String(entry.id)}`;
     return `index:${index}`;
 }
-function getCreativeWorkshopManagedRegexId(projectId, entry, index) {
-    return `creative_workshop:${projectId}:${getCreativeWorkshopRegexEntryKey(entry, index)}`;
+function getCreativeWorkshopManagedRegexId(projectId, entry, index, installedVersion) {
+    return buildCreativeWorkshopRegexId(projectId, getCreativeWorkshopRegexEntryKey(entry, index), installedVersion);
 }
 function getCreativeWorkshopRegexId(regex) {
     return String(regex.id || regex.script_name || '');
+}
+function getCreativeWorkshopRegexIdentity(regex) {
+    return parseCreativeWorkshopRegexId(getCreativeWorkshopRegexId(regex));
+}
+function getCreativeWorkshopRegexStableIdentityKey(regex) {
+    const identity = getCreativeWorkshopRegexIdentity(regex);
+    return identity
+        ? getCreativeWorkshopRegexIdentityKey(identity.projectId, identity.entryKey)
+        : getCreativeWorkshopRegexId(regex);
+}
+function getCreativeWorkshopManagedRegexStableIdentityKey(projectId, entry, index) {
+    return getCreativeWorkshopRegexIdentityKey(projectId, getCreativeWorkshopRegexEntryKey(entry, index));
 }
 
 ;// ./src/CreativeWorkshop/services/diff.ts
@@ -516,9 +781,10 @@ function getCreativeWorkshopRegexId(regex) {
 
 
 
+
 const CREATIVE_WORKSHOP_DIFF_CACHE_KEY = 'creative_workshop_diff_cache';
 const PROJECT_DIFF_CACHE_TTL_MS = 5 * 60 * 1000;
-const DIFF_IDENTITY_VERSION = 2;
+const DIFF_IDENTITY_VERSION = 3;
 function getCreativeWorkshopDiffCache() {
     const variables = getVariables({ type: 'script', script_id: getScriptId() });
     const cache = _.get(variables, CREATIVE_WORKSHOP_DIFF_CACHE_KEY);
@@ -536,12 +802,12 @@ function pruneCreativeWorkshopDiffCache(cache) {
 }
 function normalizeWorldbookEntry(entry) {
     const comment = _.get(entry, 'comment', entry.name);
-    const entryKey = _.get(entry, 'extra.cw_entry_key');
+    const entryKey = getCreativeWorkshopWorldbookMetadataString(entry, 'cw_entry_key');
     return {
-        entryKey: _.isString(entryKey) && entryKey ? entryKey : comment,
+        entryKey: entryKey || comment,
         name: entry.name,
         comment,
-        content: entry.content,
+        content: stripCreativeWorkshopWorldbookMetadata(String(entry.content || '')),
         key: JSON.stringify(entry.strategy.keys || []),
         keysecondary: JSON.stringify(entry.strategy.keys_secondary?.keys || []),
     };
@@ -554,7 +820,7 @@ function normalizeRemoteEntry(entry, projectId, index, project, projectName) {
         entryKey,
         name: formatCreativeWorkshopEntryName(comment, project, projectName),
         comment,
-        content: entry.content || '',
+        content: stripCreativeWorkshopWorldbookMetadata(entry.content || ''),
         key: JSON.stringify(Array.isArray(entry.key) ? entry.key : []),
         keysecondary: JSON.stringify(Array.isArray(entry.keysecondary) ? entry.keysecondary : []),
     };
@@ -578,10 +844,14 @@ async function getCreativeWorkshopProjectDiff(projectId, expectedVersion, legacy
         ? await getWorldbook(worldbookName)
         : [];
     const localEntries = worldbookEntries
-        .filter(entry => _.get(entry, 'extra.cw_project_id') === projectId ||
-        _.get(entry, 'extra.fate_project_name') === projectId ||
-        Boolean(legacyProjectName && _.get(entry, 'extra.cw_project_id') === legacyProjectName) ||
-        Boolean(legacyProjectName && _.get(entry, 'extra.fate_project_name') === legacyProjectName))
+        .filter(entry => {
+        const currentProjectId = getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_id');
+        const legacyName = getCreativeWorkshopWorldbookMetadataString(entry, 'fate_project_name');
+        return currentProjectId === projectId ||
+            legacyName === projectId ||
+            Boolean(legacyProjectName && currentProjectId === legacyProjectName) ||
+            Boolean(legacyProjectName && legacyName === legacyProjectName);
+    })
         .map(normalizeWorldbookEntry);
     const localEntryKeys = new Set(localEntries.map(entry => entry.entryKey));
     const remoteEntries = (detail.worldbookEntriesPreview || []).map((entry, index) => {
@@ -593,18 +863,18 @@ async function getCreativeWorkshopProjectDiff(projectId, expectedVersion, legacy
     });
     const localRegexes = getTavernRegexes({ scope: 'character', enable_state: 'all' })
         .filter(regex => {
-        const regexId = getCreativeWorkshopRegexId(regex);
-        return regexId.startsWith(`creative_workshop:${projectId}:`) ||
-            Boolean(legacyProjectName && regexId.startsWith(`creative_workshop:${legacyProjectName}:`));
+        const identity = getCreativeWorkshopRegexIdentity(regex);
+        return identity?.projectId === projectId ||
+            Boolean(legacyProjectName && identity?.projectId === legacyProjectName);
     })
         .map(regex => ({
-        id: getCreativeWorkshopRegexId(regex),
+        id: getCreativeWorkshopRegexStableIdentityKey(regex),
         scriptName: String(regex.script_name || regex.id || ''),
         findRegex: regex.find_regex,
         replaceString: regex.replace_string,
     }));
     const remoteRegexes = (detail.regexEntriesPreview || []).map((entry, index) => ({
-        id: getCreativeWorkshopManagedRegexId(projectId, entry, index),
+        id: getCreativeWorkshopManagedRegexStableIdentityKey(projectId, entry, index),
         scriptName: getReadableRegexName(detail.project.name || '未命名项目', entry, index),
         findRegex: entry.findRegex || '',
         replaceString: entry.replaceString || '',
@@ -655,6 +925,7 @@ async function getCreativeWorkshopProjectDiff(projectId, expectedVersion, legacy
 ;// ./src/CreativeWorkshop/services/install-state.ts
 
 
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 async function readWorldbookEntries(worldbookName, boundNames) {
     if (!getWorldbookNames().includes(worldbookName)) {
@@ -699,34 +970,47 @@ async function scanInstalledCreativeWorkshopProjects() {
     const unreadableWorldbookNames = worldbookRows.filter(row => !row.readable).map(row => row.worldbookName);
     const worldbooks = worldbookRows.filter(row => row.readable);
     const entryRows = worldbooks.flatMap(({ worldbookName, entries }) => entries
-        .filter(entry => _.isString(_.get(entry, 'extra.cw_project_id')) || _.isString(_.get(entry, 'extra.fate_project_name')))
+        .filter(entry => Boolean(getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_id')) ||
+        Boolean(getCreativeWorkshopWorldbookMetadataString(entry, 'fate_project_name')))
         .map(entry => ({ worldbookName, entry })));
-    const groupedEntries = _.groupBy(entryRows, row => String(_.get(row.entry, 'extra.cw_project_id') || _.get(row.entry, 'extra.fate_project_name')));
+    const groupedEntries = _.groupBy(entryRows, row => String(getCreativeWorkshopWorldbookMetadataString(row.entry, 'cw_project_id') ||
+        getCreativeWorkshopWorldbookMetadataString(row.entry, 'fate_project_name') ||
+        ''));
     const regexes = getTavernRegexes({ scope: 'character', enable_state: 'all' });
-    const groupedRegexes = _.groupBy(regexes.filter(regex => getCreativeWorkshopRegexId(regex).startsWith('creative_workshop:')), regex => getCreativeWorkshopRegexId(regex).split(':')[1] || '');
+    const managedRegexRows = regexes
+        .map(regex => ({ regex, identity: getCreativeWorkshopRegexIdentity(regex) }))
+        .filter(row => Boolean(row.identity));
+    const groupedRegexes = _.groupBy(managedRegexRows, row => row.identity?.projectId || '');
     const projects = _.uniq([...Object.keys(groupedEntries), ...Object.keys(groupedRegexes)])
         .filter(Boolean)
         .map(projectId => {
         const projectRows = groupedEntries[projectId] || [];
         const projectEntries = projectRows.map(row => row.entry);
-        const projectRegexes = groupedRegexes[projectId] || [];
+        const projectRegexRows = groupedRegexes[projectId] || [];
+        const projectRegexes = projectRegexRows.map(row => row.regex);
         const firstEntry = projectEntries[0];
         const firstRegex = projectRegexes[0];
+        const regexVersions = _.uniq(projectRegexRows
+            .map(row => row.identity?.installedVersion || null)
+            .filter((value) => Boolean(value)));
         const localVersion = registry[projectId]?.installedVersion ||
-            (firstEntry ? _.get(firstEntry, 'extra.cw_project_version', null) : null);
+            (firstEntry ? getCreativeWorkshopWorldbookMetadataString(firstEntry, 'cw_project_version') : null) ||
+            (regexVersions.length === 1 ? regexVersions[0] : null);
         const legacyProjectName = projectEntries
-            .map(entry => _.get(entry, 'extra.fate_project_name'))
+            .map(entry => getCreativeWorkshopWorldbookMetadataString(entry, 'fate_project_name'))
             .find(value => _.isString(value) && Boolean(value)) ||
             (!UUID_PATTERN.test(projectId) ? projectId : null);
         const projectNameHint = projectEntries
-            .map(entry => _.get(entry, 'extra.cw_project_name_display'))
+            .map(entry => getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_name_display'))
             .find(value => _.isString(value) && Boolean(String(value).trim()));
         return {
             projectId,
             installedProjectId: projectId,
             projectNameHint: _.isString(projectNameHint) ? projectNameHint.trim() : legacyProjectName,
             name: firstEntry
-                ? _.get(firstEntry, 'extra.cw_project_name_display', legacyProjectName || _.get(firstEntry, 'name', '未命名项目'))
+                ? getCreativeWorkshopWorldbookMetadataString(firstEntry, 'cw_project_name_display') ||
+                    legacyProjectName ||
+                    _.get(firstEntry, 'name', '未命名项目')
                 : legacyProjectName || _.get(firstRegex, 'script_name', '未命名项目'),
             legacyProjectName,
             localVersion,
@@ -767,12 +1051,12 @@ function prepareCreativeWorkshopRegexEntries(detail, selectedEntryKeys) {
 async function applyPreparedCreativeWorkshopRegex(projectId, detail, regexEntries, legacyProjectName) {
     const result = await updateTavernRegexesWith(regexes => {
         const filtered = regexes.filter(regex => {
-            const regexId = getCreativeWorkshopRegexId(regex);
-            return !regexId.startsWith(`creative_workshop:${projectId}:`) &&
-                !Boolean(legacyProjectName && regexId.startsWith(`creative_workshop:${legacyProjectName}:`));
+            const identity = getCreativeWorkshopRegexIdentity(regex);
+            return identity?.projectId !== projectId &&
+                !Boolean(legacyProjectName && identity?.projectId === legacyProjectName);
         });
         const appended = regexEntries.map(({ entry, originalIndex, entryKey }) => ({
-            id: getCreativeWorkshopManagedRegexId(projectId, { ...entry, entryKey }, originalIndex),
+            id: getCreativeWorkshopManagedRegexId(projectId, { ...entry, entryKey }, originalIndex, detail.project.version || null),
             script_name: getReadableRegexName(detail.project.name || '未命名项目', entry, originalIndex),
             enabled: !entry.disabled,
             scope: 'character',
@@ -813,9 +1097,9 @@ async function installCreativeWorkshopRegex(projectId, selectedEntryKeys, expect
 }
 async function uninstallCreativeWorkshopRegex(projectId, legacyProjectName) {
     return updateTavernRegexesWith(regexes => regexes.filter(regex => {
-        const regexId = getCreativeWorkshopRegexId(regex);
-        return !regexId.startsWith(`creative_workshop:${projectId}:`) &&
-            !Boolean(legacyProjectName && regexId.startsWith(`creative_workshop:${legacyProjectName}:`));
+        const identity = getCreativeWorkshopRegexIdentity(regex);
+        return identity?.projectId !== projectId &&
+            !Boolean(legacyProjectName && identity?.projectId === legacyProjectName);
     }), { scope: 'character' });
 }
 async function updateCreativeWorkshopRegex(projectId, expectedVersion, legacyProjectName) {
@@ -986,13 +1270,14 @@ async function restoreCreativeWorkshopOriginalConflicts(projectId, statesOverrid
 }
 
 ;// ./src/CreativeWorkshop/services/worldbook-reconcile.ts
+
 function getEntryExtra(entry) {
     const extra = entry.extra;
     return extra && typeof extra === 'object' && !Array.isArray(extra) ? extra : {};
 }
 function isSameCreativeWorkshopProject(entry, projectId, projectName, legacyProjectName) {
     const extra = getEntryExtra(entry);
-    const itemProjectId = extra.cw_project_id;
+    const itemProjectId = getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_id');
     const legacyName = extra.fate_project_name;
     return (itemProjectId === projectId ||
         legacyName === projectId ||
@@ -1005,11 +1290,12 @@ function findExistingEntryIndex(worldbook, desired, projectId, options, alreadyM
         if (alreadyMatched.has(index))
             return false;
         const extra = getEntryExtra(entry);
-        const entryKey = extra.cw_entry_key;
+        const entryKey = getCreativeWorkshopWorldbookMetadataString(entry, 'cw_entry_key');
         if (entryKey === desired.stableKey || entryKey === desired.legacyKey)
             return true;
         const isConfirmedLegacyAlias = Boolean(options.legacyProjectName &&
-            (extra.cw_project_id === options.legacyProjectName || extra.fate_project_name === options.legacyProjectName));
+            (getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_id') === options.legacyProjectName ||
+                extra.fate_project_name === options.legacyProjectName));
         if (entryKey && !isConfirmedLegacyAlias)
             return false;
         if (!isSameCreativeWorkshopProject(entry, projectId, options.projectName, options.legacyProjectName))
@@ -1038,7 +1324,7 @@ function reconcileCreativeWorkshopWorldbookEntries(worldbook, desiredEntries, pr
     return worldbook.filter(entry => {
         if (!isSameCreativeWorkshopProject(entry, projectId, options.projectName, options.legacyProjectName))
             return true;
-        const entryKey = getEntryExtra(entry).cw_entry_key;
+        const entryKey = getCreativeWorkshopWorldbookMetadataString(entry, 'cw_entry_key');
         if (typeof entryKey !== 'string' || !desiredKeys.has(entryKey) || seenDesiredKeys.has(entryKey))
             return false;
         seenDesiredKeys.add(entryKey);
@@ -1174,6 +1460,7 @@ function getCreativeWorkshopFiniteNumber(entry, rawPath, previewPath, defaultVal
 
 
 
+
 function getCurrentWorldbookName() {
     const charWorldbooks = getCharWorldbookNames('current');
     if (!charWorldbooks.primary)
@@ -1300,7 +1587,14 @@ async function applyPreparedCreativeWorkshopProject(projectId, detail, prepared,
                     delay: fieldWithDefault(entry, 'effect.delay', 'delay', null),
                 },
                 probability,
-                content: entry.content || '',
+                content: injectCreativeWorkshopWorldbookMetadata(entry.content || '', {
+                    cw_project_id: projectId,
+                    cw_project_name_display: projectName,
+                    cw_project_version: detail.project.version || null,
+                    cw_remote_version: detail.project.version || null,
+                    cw_entry_key: stableKey,
+                    cw_name_format_version: CREATIVE_WORKSHOP_NAME_FORMAT_VERSION,
+                }),
                 comment: entry.comment || entry.name || name,
                 outletName: _.isString(entry.outletName) ? entry.outletName : '',
                 extra: {
@@ -1322,10 +1616,12 @@ async function applyPreparedCreativeWorkshopProject(projectId, detail, prepared,
     });
 }
 function isCreativeWorkshopProjectEntry(entry, projectId, legacyProjectName) {
-    return (_.get(entry, 'extra.cw_project_id') === projectId ||
-        _.get(entry, 'extra.fate_project_name') === projectId ||
-        Boolean(legacyProjectName && _.get(entry, 'extra.cw_project_id') === legacyProjectName) ||
-        Boolean(legacyProjectName && _.get(entry, 'extra.fate_project_name') === legacyProjectName));
+    const currentProjectId = getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_id');
+    const legacyName = getCreativeWorkshopWorldbookMetadataString(entry, 'fate_project_name');
+    return (currentProjectId === projectId ||
+        legacyName === projectId ||
+        Boolean(legacyProjectName && currentProjectId === legacyProjectName) ||
+        Boolean(legacyProjectName && legacyName === legacyProjectName));
 }
 async function deleteProjectEntriesFromWorldbook(projectId, worldbookName, legacyProjectName) {
     if (!getWorldbookNames().includes(worldbookName))
@@ -1458,7 +1754,18 @@ async function updateCreativeWorkshopProject(projectId, expectedVersion, legacyP
 
 
 
+
 const CREATIVE_WORKSHOP_REPAIR_QUEUE_KEY = 'creative_workshop_repair_queue';
+const CREATIVE_WORKSHOP_REPAIR_SENTINEL_KEY = 'creative_workshop_repair_integrity_sentinels';
+const CREATIVE_WORKSHOP_REPAIR_RESTART_KEY = 'creative_workshop_repair_restart_required';
+const REPAIR_RUNTIME_INSTANCE_ID = globalThis.crypto?.randomUUID?.() || `runtime-${Date.now()}`;
+const REPAIR_INTEGRITY_SENTINEL_NAME = '[工坊精灵]我是好人请不要打开我也不要刪掉我喵';
+const REPAIR_INTEGRITY_SENTINEL_CONTENT = 'creative-workshop-repair-integrity-sentinel:v1';
+const REPAIR_INTEGRITY_SENTINEL_PROJECT_ID = '__cw_repair_integrity_sentinel__';
+const REPAIR_INTEGRITY_SENTINEL_DISPLAY_NAME = 'Creative Workshop Repair Integrity Sentinel';
+const REPAIR_INTEGRITY_SENTINEL_VERSION = '1';
+const REPAIR_INTEGRITY_SENTINEL_ENTRY_KEY = `${REPAIR_INTEGRITY_SENTINEL_PROJECT_ID}:sentinel`;
+const REPAIR_INTEGRITY_SENTINEL_NAME_FORMAT_VERSION = '4';
 const WORKSHOP_METADATA_FIELDS = [
     'cw_project_id',
     'cw_project_name_display',
@@ -1509,6 +1816,200 @@ function writeRepairRegistry(registry) {
         return variables;
     }, { type: 'script', script_id: getScriptId() });
 }
+function isRepairIntegritySentinelEntry(entry) {
+    const raw = entry;
+    return String(raw.name || raw.comment || '') === REPAIR_INTEGRITY_SENTINEL_NAME;
+}
+function getRepairIntegrityFieldReport(entry) {
+    const raw = entry;
+    const checks = [
+        ['name', REPAIR_INTEGRITY_SENTINEL_NAME, raw?.name ?? raw?.comment],
+        [
+            'content',
+            REPAIR_INTEGRITY_SENTINEL_CONTENT,
+            stripCreativeWorkshopWorldbookMetadata(typeof raw?.content === 'string' ? raw.content : ''),
+        ],
+        ['enabled', 'false', raw?.enabled],
+        ['cw_project_id', REPAIR_INTEGRITY_SENTINEL_PROJECT_ID, entry ? getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_id') : null],
+        ['cw_project_name_display', REPAIR_INTEGRITY_SENTINEL_DISPLAY_NAME, entry ? getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_name_display') : null],
+        ['cw_project_version', REPAIR_INTEGRITY_SENTINEL_VERSION, entry ? getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_version') : null],
+        ['cw_entry_key', REPAIR_INTEGRITY_SENTINEL_ENTRY_KEY, entry ? getCreativeWorkshopWorldbookMetadataString(entry, 'cw_entry_key') : null],
+        ['cw_name_format_version', REPAIR_INTEGRITY_SENTINEL_NAME_FORMAT_VERSION, entry ? getCreativeWorkshopWorldbookMetadataString(entry, 'cw_name_format_version') : null],
+    ];
+    return checks.map(([field, expected, rawActual]) => {
+        const actual = rawActual === undefined || rawActual === null || rawActual === '' ? null : String(rawActual);
+        return {
+            field,
+            status: actual === null ? 'missing' : actual === expected ? 'ok' : 'mismatch',
+            expected,
+            actual,
+        };
+    });
+}
+function isRepairIntegritySentinelHealthy(entry) {
+    return getRepairIntegrityFieldReport(entry).every(item => item.status === 'ok');
+}
+function createRepairIntegritySentinel() {
+    return {
+        name: REPAIR_INTEGRITY_SENTINEL_NAME,
+        comment: REPAIR_INTEGRITY_SENTINEL_NAME,
+        content: injectCreativeWorkshopWorldbookMetadata(REPAIR_INTEGRITY_SENTINEL_CONTENT, {
+            cw_project_id: REPAIR_INTEGRITY_SENTINEL_PROJECT_ID,
+            cw_project_name_display: REPAIR_INTEGRITY_SENTINEL_DISPLAY_NAME,
+            cw_project_version: REPAIR_INTEGRITY_SENTINEL_VERSION,
+            cw_remote_version: REPAIR_INTEGRITY_SENTINEL_VERSION,
+            cw_entry_key: REPAIR_INTEGRITY_SENTINEL_ENTRY_KEY,
+            cw_name_format_version: REPAIR_INTEGRITY_SENTINEL_NAME_FORMAT_VERSION,
+        }),
+        enabled: false,
+        extra: {
+            cw_project_id: REPAIR_INTEGRITY_SENTINEL_PROJECT_ID,
+            cw_project_name_display: REPAIR_INTEGRITY_SENTINEL_DISPLAY_NAME,
+            cw_project_version: REPAIR_INTEGRITY_SENTINEL_VERSION,
+            cw_entry_key: REPAIR_INTEGRITY_SENTINEL_ENTRY_KEY,
+            cw_name_format_version: REPAIR_INTEGRITY_SENTINEL_NAME_FORMAT_VERSION,
+        },
+    };
+}
+function readRepairSentinelRegistry() {
+    const variables = getVariables({ type: 'script', script_id: getScriptId() });
+    const raw = _.get(variables, CREATIVE_WORKSHOP_REPAIR_SENTINEL_KEY);
+    if (!_.isObject(raw))
+        return {};
+    return Object.fromEntries(Object.entries(raw)
+        .filter(([, value]) => _.isString(value))
+        .map(([key, value]) => [key, String(value)]));
+}
+function writeRepairSentinelRegistry(registry) {
+    updateVariablesWith(variables => {
+        _.set(variables, CREATIVE_WORKSHOP_REPAIR_SENTINEL_KEY, registry);
+        return variables;
+    }, { type: 'script', script_id: getScriptId() });
+}
+function markRepairSentinelInitialized(worldbookName) {
+    const registry = readRepairSentinelRegistry();
+    registry[worldbookName] = REPAIR_INTEGRITY_SENTINEL_VERSION;
+    writeRepairSentinelRegistry(registry);
+}
+function readRepairRestartRegistry() {
+    const variables = getVariables({ type: 'script', script_id: getScriptId() });
+    const raw = _.get(variables, CREATIVE_WORKSHOP_REPAIR_RESTART_KEY);
+    if (!_.isObject(raw))
+        return {};
+    return Object.fromEntries(Object.entries(raw)
+        .filter(([, value]) => _.isString(value))
+        .map(([key, value]) => [key, String(value)]));
+}
+function writeRepairRestartRegistry(registry) {
+    updateVariablesWith(variables => {
+        _.set(variables, CREATIVE_WORKSHOP_REPAIR_RESTART_KEY, registry);
+        return variables;
+    }, { type: 'script', script_id: getScriptId() });
+}
+function markRepairRestartRequired(worldbookName) {
+    const registry = readRepairRestartRegistry();
+    registry[worldbookName] = REPAIR_RUNTIME_INSTANCE_ID;
+    writeRepairRestartRegistry(registry);
+}
+function clearRepairRestartRequired(worldbookName) {
+    const registry = readRepairRestartRegistry();
+    if (!(worldbookName in registry))
+        return;
+    delete registry[worldbookName];
+    writeRepairRestartRegistry(registry);
+}
+function isRepairRestartRequired(worldbookName) {
+    return readRepairRestartRegistry()[worldbookName] === REPAIR_RUNTIME_INSTANCE_ID;
+}
+function wasRepairRestartSatisfied(worldbookName) {
+    const marker = readRepairRestartRegistry()[worldbookName];
+    return Boolean(marker && marker !== REPAIR_RUNTIME_INSTANCE_ID);
+}
+async function ensureRepairIntegritySentinel(worldbookName) {
+    const before = await getWorldbook(worldbookName);
+    const sentinels = before.filter(isRepairIntegritySentinelEntry);
+    const initialized = readRepairSentinelRegistry()[worldbookName] === REPAIR_INTEGRITY_SENTINEL_VERSION;
+    if (sentinels.length === 0) {
+        if (initialized) {
+            return {
+                locked: true,
+                reason: `世界书「${worldbookName}」的工坊精灵不见了；本地数据完整性无法确认`,
+                entries: before,
+                status: 'locked',
+                fields: getRepairIntegrityFieldReport(null),
+                sentinelCount: 0,
+            };
+        }
+        await updateWorldbookWith(worldbookName, worldbook => {
+            if (!worldbook.some(isRepairIntegritySentinelEntry))
+                worldbook.push(createRepairIntegritySentinel());
+            return worldbook;
+        });
+        const after = await getWorldbook(worldbookName);
+        const created = after.filter(isRepairIntegritySentinelEntry);
+        if (created.length !== 1 || !isRepairIntegritySentinelHealthy(created[0])) {
+            return {
+                locked: true,
+                reason: `世界书「${worldbookName}」无法建立完整的工坊精灵`,
+                entries: after,
+                status: 'locked',
+                fields: getRepairIntegrityFieldReport(created[0] || null),
+                sentinelCount: created.length,
+            };
+        }
+        markRepairSentinelInitialized(worldbookName);
+        return {
+            locked: false,
+            reason: null,
+            entries: after,
+            status: 'created',
+            fields: getRepairIntegrityFieldReport(created[0]),
+            sentinelCount: 1,
+        };
+    }
+    if (sentinels.length !== 1) {
+        return {
+            locked: true,
+            reason: `世界书「${worldbookName}」的工坊精灵数量异常`,
+            entries: before,
+            status: 'locked',
+            fields: getRepairIntegrityFieldReport(sentinels[0] || null),
+            sentinelCount: sentinels.length,
+        };
+    }
+    const fields = getRepairIntegrityFieldReport(sentinels[0]);
+    if (fields.some(item => item.status !== 'ok')) {
+        return {
+            locked: true,
+            reason: `世界书「${worldbookName}」的工坊精灵资料损坏`,
+            entries: before,
+            status: 'locked',
+            fields,
+            sentinelCount: 1,
+        };
+    }
+    if (!initialized)
+        markRepairSentinelInitialized(worldbookName);
+    return {
+        locked: false,
+        reason: null,
+        entries: before,
+        status: 'healthy',
+        fields,
+        sentinelCount: 1,
+    };
+}
+async function assertRepairIntegritySentinel(worldbookName) {
+    const integrity = await ensureRepairIntegritySentinel(worldbookName);
+    if (!integrity.locked)
+        return;
+    const brokenFields = integrity.fields
+        .filter(item => item.status !== 'ok')
+        .map(item => `${item.field}=${item.status}`)
+        .join(', ');
+    throw new Error(`DLC 修复已锁定：${integrity.reason || '工坊精灵完整性检查失败'}`
+        + `${brokenFields ? `（${brokenFields}）` : ''}。请不要继续重装或手动删除条目，截图并去 DC 找我处理。`);
+}
 function writeRepairRecord(record) {
     const registry = readRepairRegistry();
     const scopeKey = getRepairScopeKey();
@@ -1551,6 +2052,14 @@ function parseDlcEntryName(name) {
     if (!_.isString(name))
         return null;
     const value = String(name);
+    const v4 = value.match(/^\[WS\]\[DLC\]\[([^\]]+)\]/);
+    if (v4) {
+        return {
+            category: v4[1],
+            projectName: null,
+            workshopSourceMarker: true,
+        };
+    }
     const v3 = value.match(/^\[DLC\]\[([^\]]+)\]\[WS\]/);
     if (v3) {
         return {
@@ -1577,12 +2086,7 @@ function parseDlcEntryName(name) {
     };
 }
 function readStringMetadata(entry, field) {
-    const value = _.get(entry, `extra.${field}`);
-    if (_.isString(value) && value)
-        return String(value);
-    if (typeof value === 'number' && Number.isFinite(value))
-        return String(value);
-    return null;
+    return getCreativeWorkshopWorldbookMetadataString(entry, field);
 }
 function readUid(entry) {
     const value = entry.uid;
@@ -1654,18 +2158,73 @@ async function scanCreativeWorkshopRepairCandidates(options = {}) {
         : enabledWorldbookNames;
     const rows = await Promise.all(requestedWorldbookNames.map(async (worldbookName) => {
         try {
-            return { worldbookName, entries: await getWorldbook(worldbookName), readable: true };
+            const integrity = await ensureRepairIntegritySentinel(worldbookName);
+            return {
+                worldbookName,
+                entries: integrity.entries,
+                readable: true,
+                repairIntegrityLocked: integrity.locked,
+                repairIntegrityReason: integrity.reason,
+                repairIntegrityStatus: integrity.status,
+                repairIntegrityFields: integrity.fields,
+                repairIntegritySentinelCount: integrity.sentinelCount,
+            };
         }
         catch (error) {
             console.warn('[CreativeWorkshop] repair scan 无法读取世界书', { worldbookName, error });
-            return { worldbookName, entries: [], readable: false };
+            return {
+                worldbookName,
+                entries: [],
+                readable: false,
+                repairIntegrityLocked: false,
+                repairIntegrityReason: null,
+                repairIntegrityStatus: 'created',
+                repairIntegrityFields: [],
+                repairIntegritySentinelCount: 0,
+            };
         }
     }));
+    const integrityFailure = rows.find(row => row.readable && row.repairIntegrityLocked);
+    if (integrityFailure) {
+        return {
+            candidates: [],
+            unreadableWorldbookNames: rows.filter(row => !row.readable).map(row => row.worldbookName),
+            pending: getCreativeWorkshopPendingRepairs(),
+            availableWorldbookNames,
+            enabledWorldbookNames,
+            scannedWorldbookNames: requestedWorldbookNames,
+            officialBaselineVersion: OFFICIAL_WORLDBOOK_BASELINE_VERSION,
+            officialBaselineSkippedCount: 0,
+            modifiedOfficialBaselineEntries: [],
+            repairIntegrityLocked: true,
+            repairIntegrityReason: integrityFailure.repairIntegrityReason,
+            repairIntegrityWorldbookName: integrityFailure.worldbookName,
+            repairIntegrityStatus: 'locked',
+            repairIntegrityFields: integrityFailure.repairIntegrityFields,
+            repairIntegritySentinelCount: integrityFailure.repairIntegritySentinelCount,
+            repairRestartRequired: false,
+            repairRestartWorldbookNames: [],
+        };
+    }
+    const readableIntegrityRows = rows.filter(row => row.readable);
+    const repairRestartWorldbookNames = readableIntegrityRows
+        .filter(row => row.repairIntegrityStatus === 'healthy' && isRepairRestartRequired(row.worldbookName))
+        .map(row => row.worldbookName);
+    readableIntegrityRows
+        .filter(row => row.repairIntegrityStatus === 'healthy' && wasRepairRestartSatisfied(row.worldbookName))
+        .forEach(row => clearRepairRestartRequired(row.worldbookName));
+    const repairIntegrityStatus = readableIntegrityRows.length > 0
+        && readableIntegrityRows.every(row => row.repairIntegrityStatus === 'healthy')
+        ? 'healthy'
+        : 'created';
+    const primaryIntegrityRow = readableIntegrityRows[0] || null;
     let officialBaselineSkippedCount = 0;
     const modifiedOfficialBaselineEntries = [];
     const entryRows = [];
     for (const row of rows.filter(row => row.readable)) {
         for (const entry of row.entries) {
+            if (isRepairIntegritySentinelEntry(entry))
+                continue;
             const header = parseDlcEntryName(entry.name);
             const currentProjectId = readStringMetadata(entry, 'cw_project_id');
             const legacyProjectName = readStringMetadata(entry, 'fate_project_name');
@@ -1710,20 +2269,31 @@ async function scanCreativeWorkshopRepairCandidates(options = {}) {
         const worldbookName = candidateRows[0].worldbookName;
         const entryUids = entries.map(readUid).filter((value) => value !== null);
         const metadata = makeMetadataReport(entries);
-        const detectedProjectIds = _.uniq([
+        const entryProjectIds = _.uniq([
             ...entries.map(entry => readStringMetadata(entry, 'cw_project_id')).filter((value) => Boolean(value)),
             ...entries.map(entry => readStringMetadata(entry, 'fate_project_name')).filter((value) => Boolean(value)),
         ]);
-        const regexIds = regexes
-            .filter(regex => {
-            const regexId = getCreativeWorkshopRegexId(regex);
+        const matchingRegexes = regexes.filter(regex => {
+            const identity = getCreativeWorkshopRegexIdentity(regex);
             const scriptName = _.isString(regex.script_name) ? String(regex.script_name) : '';
-            return detectedProjectIds.some(projectId => regexId.startsWith(`creative_workshop:${projectId}:`)) ||
-                scriptName.startsWith(`[工坊] ${name} -`);
-        })
+            if (identity && entryProjectIds.length > 0)
+                return entryProjectIds.includes(identity.projectId);
+            return scriptName.startsWith(`[工坊] ${name} -`);
+        });
+        const regexIdentities = matchingRegexes
+            .map(regex => getCreativeWorkshopRegexIdentity(regex))
+            .filter((identity) => Boolean(identity));
+        const detectedProjectIds = _.uniq([
+            ...entryProjectIds,
+            ...(entryProjectIds.length === 0 ? regexIdentities.map(identity => identity.projectId) : []),
+        ]);
+        const regexIds = matchingRegexes
             .map(regex => getCreativeWorkshopRegexId(regex))
             .filter(Boolean);
         const versions = _.uniq(entries.map(entry => readStringMetadata(entry, 'cw_project_version')).filter((value) => Boolean(value)));
+        const regexVersions = _.uniq(regexIdentities
+            .map(identity => identity.installedVersion)
+            .filter((value) => Boolean(value)));
         const legacyNames = _.uniq(entries.map(entry => readStringMetadata(entry, 'fate_project_name')).filter((value) => Boolean(value)));
         const base = {
             candidateId,
@@ -1740,7 +2310,11 @@ async function scanCreativeWorkshopRepairCandidates(options = {}) {
             detectedProjectId: detectedProjectIds.length === 1 ? detectedProjectIds[0] : null,
             detectedProjectIds,
             legacyProjectName: legacyNames.length === 1 ? legacyNames[0] : null,
-            localVersion: versions.length === 1 ? versions[0] : null,
+            localVersion: versions.length === 1
+                ? versions[0]
+                : versions.length === 0 && regexVersions.length === 1
+                    ? regexVersions[0]
+                    : null,
             metadata,
         };
         return {
@@ -1758,6 +2332,14 @@ async function scanCreativeWorkshopRepairCandidates(options = {}) {
         officialBaselineVersion: OFFICIAL_WORLDBOOK_BASELINE_VERSION,
         officialBaselineSkippedCount,
         modifiedOfficialBaselineEntries,
+        repairIntegrityLocked: false,
+        repairIntegrityReason: null,
+        repairIntegrityWorldbookName: null,
+        repairIntegrityStatus,
+        repairIntegrityFields: primaryIntegrityRow?.repairIntegrityFields || [],
+        repairIntegritySentinelCount: primaryIntegrityRow?.repairIntegritySentinelCount || 0,
+        repairRestartRequired: repairRestartWorldbookNames.length > 0,
+        repairRestartWorldbookNames,
     };
 }
 function normalizeRepairTarget(target) {
@@ -1836,18 +2418,19 @@ async function deleteSelectedRepairArtifacts(target) {
 }
 async function verifyCreativeWorkshopRepair(target, expectedEntryCount, expectedRegexCount) {
     const entries = await getWorldbook(target.worldbookName);
-    const installedEntries = entries.filter(entry => _.get(entry, 'extra.cw_project_id') === target.projectId);
+    const installedEntries = entries.filter(entry => getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_id') === target.projectId);
     if (installedEntries.length !== expectedEntryCount) {
         throw new Error(`修复验证失败：世界书应有 ${expectedEntryCount} 个新版条目，实际 ${installedEntries.length} 个`);
     }
     const regexes = getTavernRegexes({ scope: 'character', enable_state: 'all' });
-    const installedRegexCount = regexes.filter(regex => getCreativeWorkshopRegexId(regex).startsWith(`creative_workshop:${target.projectId}:`)).length;
+    const installedRegexCount = regexes.filter(regex => getCreativeWorkshopRegexIdentity(regex)?.projectId === target.projectId).length;
     if (installedRegexCount !== expectedRegexCount) {
         throw new Error(`修复验证失败：应有 ${expectedRegexCount} 个新版正则，实际 ${installedRegexCount} 个`);
     }
 }
 async function repairCreativeWorkshopProject(rawTarget) {
     const target = normalizeRepairTarget(rawTarget);
+    await assertRepairIntegritySentinel(target.worldbookName);
     const repairId = `${target.candidateId}::${target.projectId}`;
     const startedAt = Date.now();
     writeRepairRecord({ repairId, target, status: 'preparing', error: null, startedAt, updatedAt: startedAt });
@@ -1871,6 +2454,7 @@ async function repairCreativeWorkshopProject(rawTarget) {
         }
         updateRepairRecord(repairId, { status: 'verifying', error: null });
         await verifyCreativeWorkshopRepair(target, prepared.length, preparedRegexes.length);
+        markRepairRestartRequired(target.worldbookName);
         deleteRepairRecord(repairId);
         return {
             success: true,
