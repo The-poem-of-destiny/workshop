@@ -16,14 +16,24 @@ export type ProjectEntryInspection = {
 export const CHARACTER_ARTWORK_START = '<%# char-info-ejs-builder:start:v2 %>';
 export const CHARACTER_ARTWORK_END = '<%# char-info-ejs-builder:end:v2 %>';
 export const CHARACTER_ARTWORK_INCOMPLETE_WARNING = 'character_artwork_marker_incomplete';
+const WORKSHOP_METADATA_START = '<%# poem-workshop-meta:v1-start\n';
+const WORKSHOP_METADATA_END = '\npoem-workshop-meta:v1-end %>';
 
 const EJS_TAG_PATTERN = /<%[\s\S]*?%>/;
 const HTTP_URL_PATTERN = /https?:\/\/[^\s<>"'`，。；：！？、（）【】《》“”‘’]+/giu;
 
+function stripWorkshopMetadataBlock(content: string): string {
+  if (!content.startsWith(WORKSHOP_METADATA_START)) return content;
+  const endIndex = content.indexOf(WORKSHOP_METADATA_END, WORKSHOP_METADATA_START.length);
+  if (endIndex < 0) return content;
+  return content.slice(endIndex + WORKSHOP_METADATA_END.length);
+}
+
 function getInspectableStrings(entry: Record<string, unknown>, kind: ProjectEntryKind): string[] {
   if (kind === 'worldbook') {
     const content = typeof entry.content === 'string' ? entry.content : typeof entry.text === 'string' ? entry.text : '';
-    return content ? [content] : [];
+    const inspectableContent = stripWorkshopMetadataBlock(content);
+    return inspectableContent ? [inspectableContent] : [];
   }
 
   const replacement =

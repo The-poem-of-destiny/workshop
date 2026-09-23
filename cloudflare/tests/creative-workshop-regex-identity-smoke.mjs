@@ -20,18 +20,39 @@ function loadCommonJs(compiled, context, filename) {
   return module.exports;
 }
 
+const identityApi = loadCommonJs(
+  await compile('src/CreativeWorkshop/services/install-identity.ts'),
+  { JSON, String, Number, Object, Array, Error },
+  'install-identity.ts',
+);
+
 const regexNameApi = loadCommonJs(
   await compile('src/CreativeWorkshop/services/regex-name.ts'),
-  {},
+  {
+    require(specifier) {
+      if (specifier === './install-identity') return identityApi;
+      throw new Error(`Unexpected require: ${specifier}`);
+    },
+  },
   'regex-name.ts',
 );
 
 assert.equal(regexNameApi.getCreativeWorkshopRegexEntryKey({ id: 'abc' }, 0), 'id:abc');
 assert.equal(regexNameApi.getCreativeWorkshopRegexEntryKey({ id: 0 }, 5), 'id:0');
 assert.equal(regexNameApi.getCreativeWorkshopRegexEntryKey({}, 2), 'index:2');
-assert.equal(
-  regexNameApi.getCreativeWorkshopManagedRegexId('project-1', { id: 'abc' }, 0),
-  'creative_workshop:project-1:id:abc',
+
+const generatedId = regexNameApi.getCreativeWorkshopManagedRegexId('project-1', { id: 'abc' }, 0, '1.2.3');
+assert.equal(generatedId, 'creative_workshop:project-1:v1:id%3Aabc:1.2.3');
+assert.deepEqual(
+  JSON.parse(JSON.stringify(regexNameApi.getCreativeWorkshopRegexIdentity({ id: generatedId }))),
+  { schemaVersion: 1, projectId: 'project-1', entryKey: 'id:abc', installedVersion: '1.2.3' },
+);
+assert.deepEqual(
+  JSON.parse(JSON.stringify(regexNameApi.getCreativeWorkshopRegexIdentity({
+    id: 'creative_workshop:project-1:id:abc',
+  }))),
+  { schemaVersion: 0, projectId: 'project-1', entryKey: 'id:abc', installedVersion: null },
+  'legacy 2.1.x regex ids must remain readable',
 );
 
 const projectId = 'project-1';
@@ -39,12 +60,7 @@ const detail = {
   project: { id: projectId, name: 'w', version: '1.0.0' },
   worldbookEntriesPreview: [],
   regexEntriesPreview: [
-    {
-      id: 'abc',
-      scriptName: 'R',
-      findRegex: 'foo',
-      replaceString: 'bar',
-    },
+    { id: 'abc', scriptName: 'R', findRegex: 'foo', replaceString: 'bar' },
   ],
 };
 const localRegexes = [
@@ -78,24 +94,14 @@ const diffApi = loadCommonJs(
   await compile('src/CreativeWorkshop/services/diff.ts'),
   {
     require(specifier) {
-      if (specifier === './install-registry') {
-        return { resolveCreativeWorkshopInstallWorldbook: async () => null };
-      }
-      if (specifier === './project-fetch') {
-        return { fetchCreativeWorkshopProjectDetail: async () => detail };
-      }
-      if (specifier === './project-type') {
-        return { formatCreativeWorkshopEntryName: comment => comment };
-      }
+      if (specifier === './install-registry') return { resolveCreativeWorkshopInstallWorldbook: async () => null };
+      if (specifier === './project-fetch') return { fetchCreativeWorkshopProjectDetail: async () => detail };
+      if (specifier === './project-type') return { formatCreativeWorkshopEntryName: comment => comment };
+      if (specifier === './install-identity') return identityApi;
       if (specifier === './regex-name') return regexNameApi;
       throw new Error(`Unexpected require: ${specifier}`);
     },
-    console,
-    Promise,
-    Map,
-    Set,
-    Date,
-    JSON,
+    console, Promise, Map, Set, Date, JSON,
     _: lodash,
     getVariables: () => scriptVariables,
     getScriptId: () => 'test-script',
@@ -112,8 +118,8 @@ const diffApi = loadCommonJs(
 );
 
 const result = await diffApi.getCreativeWorkshopProjectDiff(projectId, '1.0.0');
-assert.equal(result.diff.added.regexEntries.length, 0, 'same managed regex must not be reported as added');
-assert.equal(result.diff.removed.regexEntries.length, 0, 'same managed regex must not be reported as removed');
-assert.equal(result.diff.modified.regexEntries.length, 0, 'same managed regex must not be reported as modified');
+assert.equal(result.diff.added.regexEntries.length, 0, 'legacy local regex must match the new remote identity');
+assert.equal(result.diff.removed.regexEntries.length, 0, 'legacy local regex must not appear removed');
+assert.equal(result.diff.modified.regexEntries.length, 0, 'identity format/version metadata must not create a fake content diff');
 
 console.log('CreativeWorkshop regex identity smoke: ok');

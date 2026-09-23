@@ -1,3 +1,5 @@
+import { getCreativeWorkshopWorldbookMetadataString } from './install-identity';
+
 const CREATIVE_WORKSHOP_INSTALL_REGISTRY_KEY = 'creative_workshop_install_registry';
 
 export type CreativeWorkshopOriginalEntryState = {
@@ -99,13 +101,14 @@ export async function resolveCreativeWorkshopInstallWorldbook(
     if (!existingNames.has(worldbookName)) continue;
     const entries = await getWorldbook(worldbookName);
     if (
-      entries.some(
-        entry =>
-          _.get(entry, 'extra.cw_project_id') === projectId ||
-          _.get(entry, 'extra.fate_project_name') === projectId ||
-          Boolean(legacyProjectName && _.get(entry, 'extra.cw_project_id') === legacyProjectName) ||
-          Boolean(legacyProjectName && _.get(entry, 'extra.fate_project_name') === legacyProjectName),
-      )
+      entries.some(entry => {
+        const currentProjectId = getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_id');
+        const legacyName = getCreativeWorkshopWorldbookMetadataString(entry, 'fate_project_name');
+        return currentProjectId === projectId ||
+          legacyName === projectId ||
+          Boolean(legacyProjectName && currentProjectId === legacyProjectName) ||
+          Boolean(legacyProjectName && legacyName === legacyProjectName);
+      })
     ) {
       return worldbookName;
     }

@@ -19,6 +19,10 @@ import {
   type CreativeWorkshopDesiredWorldbookEntry,
 } from './worldbook-reconcile';
 import {
+  getCreativeWorkshopWorldbookMetadataString,
+  injectCreativeWorkshopWorldbookMetadata,
+} from './install-identity';
+import {
   getCreativeWorkshopFiniteNumber,
   getCreativeWorkshopPositionRole,
   getCreativeWorkshopPositionType,
@@ -178,7 +182,14 @@ export async function applyPreparedCreativeWorkshopProject(
             delay: fieldWithDefault(entry, 'effect.delay', 'delay', null),
           },
           probability,
-          content: entry.content || '',
+          content: injectCreativeWorkshopWorldbookMetadata(entry.content || '', {
+            cw_project_id: projectId,
+            cw_project_name_display: projectName,
+            cw_project_version: detail.project.version || null,
+            cw_remote_version: detail.project.version || null,
+            cw_entry_key: stableKey,
+            cw_name_format_version: CREATIVE_WORKSHOP_NAME_FORMAT_VERSION,
+          }),
           comment: entry.comment || entry.name || name,
           outletName: _.isString(entry.outletName) ? entry.outletName : '',
           extra: {
@@ -204,11 +215,13 @@ export async function applyPreparedCreativeWorkshopProject(
 }
 
 function isCreativeWorkshopProjectEntry(entry: WorldbookEntry, projectId: string, legacyProjectName?: string) {
+  const currentProjectId = getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_id');
+  const legacyName = getCreativeWorkshopWorldbookMetadataString(entry, 'fate_project_name');
   return (
-    _.get(entry, 'extra.cw_project_id') === projectId ||
-    _.get(entry, 'extra.fate_project_name') === projectId ||
-    Boolean(legacyProjectName && _.get(entry, 'extra.cw_project_id') === legacyProjectName) ||
-    Boolean(legacyProjectName && _.get(entry, 'extra.fate_project_name') === legacyProjectName)
+    currentProjectId === projectId ||
+    legacyName === projectId ||
+    Boolean(legacyProjectName && currentProjectId === legacyProjectName) ||
+    Boolean(legacyProjectName && legacyName === legacyProjectName)
   );
 }
 

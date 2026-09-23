@@ -1,11 +1,20 @@
 import { resolveCreativeWorkshopInstallWorldbook } from './install-registry';
 import { fetchCreativeWorkshopProjectDetail } from './project-fetch';
 import { formatCreativeWorkshopEntryName } from './project-type';
-import { getCreativeWorkshopManagedRegexId, getCreativeWorkshopRegexId, getReadableRegexName } from './regex-name';
+import {
+  getCreativeWorkshopWorldbookMetadataString,
+  stripCreativeWorkshopWorldbookMetadata,
+} from './install-identity';
+import {
+  getCreativeWorkshopManagedRegexStableIdentityKey,
+  getCreativeWorkshopRegexIdentity,
+  getCreativeWorkshopRegexStableIdentityKey,
+  getReadableRegexName,
+} from './regex-name';
 
 const CREATIVE_WORKSHOP_DIFF_CACHE_KEY = 'creative_workshop_diff_cache';
 const PROJECT_DIFF_CACHE_TTL_MS = 5 * 60 * 1000;
-const DIFF_IDENTITY_VERSION = 2;
+const DIFF_IDENTITY_VERSION = 3;
 
 type CreativeWorkshopDiffCache = Record<
   string,
@@ -47,12 +56,12 @@ function pruneCreativeWorkshopDiffCache(cache: CreativeWorkshopDiffCache): Creat
 
 function normalizeWorldbookEntry(entry: WorldbookEntry) {
   const comment = _.get(entry, 'comment', entry.name);
-  const entryKey = _.get(entry, 'extra.cw_entry_key');
+  const entryKey = getCreativeWorkshopWorldbookMetadataString(entry, 'cw_entry_key');
   return {
-    entryKey: _.isString(entryKey) && entryKey ? entryKey : comment,
+    entryKey: entryKey || comment,
     name: entry.name,
     comment,
-    content: entry.content,
+    content: stripCreativeWorkshopWorldbookMetadata(String(entry.content || '')),
     key: JSON.stringify(entry.strategy.keys || []),
     keysecondary: JSON.stringify(entry.strategy.keys_secondary?.keys || []),
   };
@@ -72,7 +81,7 @@ function normalizeRemoteEntry(
     entryKey,
     name: formatCreativeWorkshopEntryName(comment, project, projectName),
     comment,
-    content: entry.content || '',
+    content: stripCreativeWorkshopWorldbookMetadata(entry.content || ''),
     key: JSON.stringify(Array.isArray(entry.key) ? entry.key : []),
     keysecondary: JSON.stringify(Array.isArray(entry.keysecondary) ? entry.keysecondary : []),
   };
@@ -104,13 +113,14 @@ export async function getCreativeWorkshopProjectDiff(
     ? await getWorldbook(worldbookName)
     : [];
   const localEntries = worldbookEntries
-    .filter(
-      entry =>
-        _.get(entry, 'extra.cw_project_id') === projectId ||
-        _.get(entry, 'extra.fate_project_name') === projectId ||
-        Boolean(legacyProjectName && _.get(entry, 'extra.cw_project_id') === legacyProjectName) ||
-        Boolean(legacyProjectName && _.get(entry, 'extra.fate_project_name') === legacyProjectName),
-    )
+    .filter(entry => {
+      const currentProjectId = getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_id');
+      const legacyName = getCreativeWorkshopWorldbookMetadataString(entry, 'fate_project_name');
+      return currentProjectId === projectId ||
+        legacyName === projectId ||
+        Boolean(legacyProjectName && currentProjectId === legacyProjectName) ||
+        Boolean(legacyProjectName && legacyName === legacyProjectName);
+    })
     .map(normalizeWorldbookEntry);
   const localEntryKeys = new Set(localEntries.map(entry => entry.entryKey));
   const remoteEntries = (detail.worldbookEntriesPreview || []).map((entry, index) => {
@@ -128,21 +138,19 @@ export async function getCreativeWorkshopProjectDiff(
   });
 
   const localRegexes = getTavernRegexes({ scope: 'character', enable_state: 'all' })
-    .filter(
-      regex => {
-        const regexId = getCreativeWorkshopRegexId(regex);
-        return regexId.startsWith(`creative_workshop:${projectId}:`) ||
-          Boolean(legacyProjectName && regexId.startsWith(`creative_workshop:${legacyProjectName}:`));
-      },
-    )
+    .filter(regex => {
+      const identity = getCreativeWorkshopRegexIdentity(regex);
+      return identity?.projectId === projectId ||
+        Boolean(legacyProjectName && identity?.projectId === legacyProjectName);
+    })
     .map(regex => ({
-      id: getCreativeWorkshopRegexId(regex),
+      id: getCreativeWorkshopRegexStableIdentityKey(regex),
       scriptName: String(regex.script_name || regex.id || ''),
       findRegex: regex.find_regex,
       replaceString: regex.replace_string,
     }));
   const remoteRegexes = (detail.regexEntriesPreview || []).map((entry, index) => ({
-    id: getCreativeWorkshopManagedRegexId(projectId, entry, index),
+    id: getCreativeWorkshopManagedRegexStableIdentityKey(projectId, entry, index),
     scriptName: getReadableRegexName(detail.project.name || '未命名项目', entry, index),
     findRegex: entry.findRegex || '',
     replaceString: entry.replaceString || '',

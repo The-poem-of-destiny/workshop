@@ -9,6 +9,26 @@ const repairUiSource = await readFile(new URL('../src/pages/home/repair-ui.ts', 
 const bridgeSource = await readFile(new URL('../../src/CreativeWorkshop/bridge/host.ts', import.meta.url), 'utf8');
 const protocolSource = await readFile(new URL('../../src/CreativeWorkshop/bridge/protocol.ts', import.meta.url), 'utf8');
 const officialBaseline = JSON.parse(await readFile(new URL('../../data/official-card-baselines/poem-of-destiny/v4.3.3/worldbook-fingerprints.json', import.meta.url), 'utf8'));
+const identitySource = await readFile(new URL('../../src/CreativeWorkshop/services/install-identity.ts', import.meta.url), 'utf8');
+const identityCompiled = ts.transpileModule(identitySource, {
+  compilerOptions: {
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2020,
+    esModuleInterop: true,
+  },
+}).outputText;
+const identityModule = { exports: {} };
+vm.runInNewContext(identityCompiled, {
+  module: identityModule,
+  exports: identityModule.exports,
+  JSON,
+  String,
+  Number,
+  Object,
+  Array,
+  Error,
+}, { filename: 'install-identity.ts' });
+const identityApi = identityModule.exports;
 
 const compiled = ts.transpileModule(repairSource, {
   compilerOptions: {
@@ -75,14 +95,21 @@ function createHarness({ worldbooks: initialWorldbooks, regexes: initialRegexes 
         return {
           prepareCreativeWorkshopRegexEntries: detail => detail.regexEntriesPreview || [],
           applyPreparedCreativeWorkshopRegex: async (projectId, detail, prepared) => {
-            regexes = regexes.filter(regex => !String(regex.id || '').startsWith(`creative_workshop:${projectId}:`));
-            regexes.push(...prepared.map((entry, index) => ({ id: `creative_workshop:${projectId}:${index}`, script_name: entry.script_name || `new-${index}` })));
+            regexes = regexes.filter(regex => identityApi.parseCreativeWorkshopRegexId(String(regex.id || ''))?.projectId !== projectId);
+            regexes.push(...prepared.map((entry, index) => ({
+              id: identityApi.buildCreativeWorkshopRegexId(projectId, `index:${index}`, detail.project.version || null),
+              script_name: entry.script_name || `new-${index}`,
+            })));
           },
         };
       }
       if (specifier === './regex-name') {
-        return { getCreativeWorkshopRegexId: regex => String(regex?.id || '') };
+        return {
+          getCreativeWorkshopRegexId: regex => String(regex?.id || ''),
+          getCreativeWorkshopRegexIdentity: regex => identityApi.parseCreativeWorkshopRegexId(String(regex?.id || '')),
+        };
       }
+      if (specifier === './install-identity') return identityApi;
       if (specifier === './worldbook') {
         return {
           ensureCreativeWorkshopTargetWorldbook: async name => name,
@@ -100,6 +127,14 @@ function createHarness({ worldbooks: initialWorldbooks, regexes: initialRegexes 
             worldbooks[worldbookName].push({
               uid: 999,
               name: '[WS][DLC][事件]最新版',
+              content: identityApi.injectCreativeWorkshopWorldbookMetadata('', {
+                cw_project_id: projectId,
+                cw_project_name_display: detail.project.name,
+                cw_project_version: detail.project.version,
+                cw_remote_version: detail.project.version,
+                cw_entry_key: `${projectId}:latest-entry`,
+                cw_name_format_version: '4',
+              }),
               extra: {
                 cw_project_id: projectId,
                 cw_project_name_display: detail.project.name,
@@ -257,13 +292,83 @@ officialBaseline.entries = [
 }
 
 {
+  const recoveredProjectId = '22222222-2222-4222-8222-222222222222';
+  const harness = createHarness({
+    worldbooks: { DLC: brokenEntries },
+    regexes: [{
+      id: identityApi.buildCreativeWorkshopRegexId(recoveredProjectId, 'id:old-regex', '7.8.9'),
+      script_name: '[工坊] 秋日祭 - 旧正则',
+    }],
+  });
+  const report = await harness.api.scanCreativeWorkshopRepairCandidates();
+  assert.equal(report.candidates.length, 1);
+  assert.equal(report.candidates[0].detectedProjectId, recoveredProjectId, 'regex identity may recover project id only when worldbook identity is absent');
+  assert.equal(report.candidates[0].localVersion, '1.0.0', 'worldbook version remains authoritative when it still exists');
+  assert.equal(report.candidates[0].regexCount, 1);
+
+  const entriesWithoutVersion = brokenEntries.map(entry => ({
+    ...entry,
+    extra: Object.fromEntries(Object.entries(entry.extra || {}).filter(([key]) => key !== 'cw_project_version')),
+  }));
+  const versionFallbackHarness = createHarness({
+    worldbooks: { DLC: entriesWithoutVersion },
+    regexes: [{
+      id: identityApi.buildCreativeWorkshopRegexId(recoveredProjectId, 'id:old-regex', '7.8.9'),
+      script_name: '[工坊] 秋日祭 - 旧正则',
+    }],
+  });
+  const versionFallbackReport = await versionFallbackHarness.api.scanCreativeWorkshopRepairCandidates();
+  assert.equal(
+    versionFallbackReport.candidates[0].localVersion,
+    '7.8.9',
+    'regex identity may recover version only when worldbook version metadata is absent',
+  );
+}
+
+{
+  const rightProjectId = '33333333-3333-4333-8333-333333333333';
+  const wrongProjectId = '44444444-4444-4444-8444-444444444444';
+  const harness = createHarness({
+    worldbooks: {
+      DLC: [{
+        uid: 205,
+        name: '[WS][DLC][角色]同名条目',
+        extra: {
+          cw_project_id: rightProjectId,
+          cw_project_name_display: '同名项目',
+          cw_project_version: '1.0.0',
+          cw_entry_key: rightProjectId + ':uid:205',
+          cw_name_format_version: '4',
+        },
+      }],
+    },
+    regexes: [{
+      id: identityApi.buildCreativeWorkshopRegexId(wrongProjectId, 'id:wrong', '9.9.9'),
+      script_name: '[工坊] 同名项目 - 错项目正则',
+    }],
+  });
+  const report = await harness.api.scanCreativeWorkshopRepairCandidates();
+  assert.equal(report.candidates.length, 1);
+  assert.equal(report.candidates[0].detectedProjectId, rightProjectId);
+  assert.equal(report.candidates[0].regexCount, 0, 'same-name regex from another project must not be attached when worldbook identity is known');
+  assert.equal(report.candidates[0].localVersion, '1.0.0');
+}
+
+{
   const harness = createHarness({ worldbooks: { DLC: brokenEntries } });
   const firstReport = await harness.api.scanCreativeWorkshopRepairCandidates();
   assert.equal(firstReport.repairIntegrityLocked, false);
   const sentinel = harness.worldbooks.DLC.find(entry => entry.name === '[工坊精灵]我是好人请不要打开我也不要刪掉我喵');
   sentinel.extra.cw_entry_key = '';
+  const backupRecoveredReport = await harness.api.scanCreativeWorkshopRepairCandidates();
+  assert.equal(
+    backupRecoveredReport.repairIntegrityLocked,
+    false,
+    'embedded identity backup must keep Repair usable when only extra metadata is lost',
+  );
+  sentinel.content = identityApi.stripCreativeWorkshopWorldbookMetadata(sentinel.content);
   const lockedReport = await harness.api.scanCreativeWorkshopRepairCandidates();
-  assert.equal(lockedReport.repairIntegrityLocked, true, 'damaged sentinel metadata must lock DLC Repair');
+  assert.equal(lockedReport.repairIntegrityLocked, true, 'losing both identity copies must lock DLC Repair');
   assert.equal(lockedReport.candidates.length, 0, 'integrity lock must suppress all repair candidates');
   const brokenEntryKey = lockedReport.repairIntegrityFields.find(item => item.field === 'cw_entry_key');
   assert.equal(brokenEntryKey?.status, 'missing', 'integrity report must identify the exact missing sentinel metadata');
@@ -398,7 +503,10 @@ officialBaseline.entries = [
   assert.equal(harness.worldbooks.DLC.some(entry => entry.name === '[工坊精灵]我是好人请不要打开我也不要刪掉我喵'), true, 'repair sentinel must survive repair');
   assert.equal(harness.worldbooks.DLC.some(entry => entry.uid === 101 || entry.uid === 102), false, 'selected old entries must be removed by UID even when metadata is broken');
   assert.equal(harness.worldbooks.DLC.some(entry => entry.uid === 777), true, 'unselected player content must survive');
-  assert.deepEqual(harness.regexes().map(regex => regex.id).sort(), ['creative_workshop:new-project-id:0', 'keep-regex']);
+  assert.deepEqual(
+    harness.regexes().map(regex => regex.id).sort(),
+    ['creative_workshop:new-project-id:v1:index%3A0:9.9.9', 'keep-regex'],
+  );
   assert.equal(harness.api.getCreativeWorkshopPendingRepairs().length, 0);
   assert.equal(harness.installRecords.get('new-project-id')?.installedVersion, '9.9.9');
   const sameRuntimeReport = await harness.api.scanCreativeWorkshopRepairCandidates();

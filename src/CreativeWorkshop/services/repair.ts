@@ -9,7 +9,15 @@ import {
   applyPreparedCreativeWorkshopRegex,
   prepareCreativeWorkshopRegexEntries,
 } from './regex';
-import { getCreativeWorkshopRegexId } from './regex-name';
+import {
+  getCreativeWorkshopRegexId,
+  getCreativeWorkshopRegexIdentity,
+} from './regex-name';
+import {
+  getCreativeWorkshopWorldbookMetadataString,
+  injectCreativeWorkshopWorldbookMetadata,
+  stripCreativeWorkshopWorldbookMetadata,
+} from './install-identity';
 import {
   applyPreparedCreativeWorkshopProject,
   ensureCreativeWorkshopTargetWorldbook,
@@ -186,16 +194,19 @@ function isRepairIntegritySentinelEntry(entry: WorldbookEntry): boolean {
 
 function getRepairIntegrityFieldReport(entry: WorldbookEntry | null): CreativeWorkshopRepairIntegrityFieldReport[] {
   const raw = entry as any;
-  const extra = raw?.extra && typeof raw.extra === 'object' && !Array.isArray(raw.extra) ? raw.extra : {};
   const checks: Array<[string, string, unknown]> = [
     ['name', REPAIR_INTEGRITY_SENTINEL_NAME, raw?.name ?? raw?.comment],
-    ['content', REPAIR_INTEGRITY_SENTINEL_CONTENT, raw?.content],
+    [
+      'content',
+      REPAIR_INTEGRITY_SENTINEL_CONTENT,
+      stripCreativeWorkshopWorldbookMetadata(typeof raw?.content === 'string' ? raw.content : ''),
+    ],
     ['enabled', 'false', raw?.enabled],
-    ['cw_project_id', REPAIR_INTEGRITY_SENTINEL_PROJECT_ID, extra.cw_project_id],
-    ['cw_project_name_display', REPAIR_INTEGRITY_SENTINEL_DISPLAY_NAME, extra.cw_project_name_display],
-    ['cw_project_version', REPAIR_INTEGRITY_SENTINEL_VERSION, extra.cw_project_version],
-    ['cw_entry_key', REPAIR_INTEGRITY_SENTINEL_ENTRY_KEY, extra.cw_entry_key],
-    ['cw_name_format_version', REPAIR_INTEGRITY_SENTINEL_NAME_FORMAT_VERSION, extra.cw_name_format_version],
+    ['cw_project_id', REPAIR_INTEGRITY_SENTINEL_PROJECT_ID, entry ? getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_id') : null],
+    ['cw_project_name_display', REPAIR_INTEGRITY_SENTINEL_DISPLAY_NAME, entry ? getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_name_display') : null],
+    ['cw_project_version', REPAIR_INTEGRITY_SENTINEL_VERSION, entry ? getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_version') : null],
+    ['cw_entry_key', REPAIR_INTEGRITY_SENTINEL_ENTRY_KEY, entry ? getCreativeWorkshopWorldbookMetadataString(entry, 'cw_entry_key') : null],
+    ['cw_name_format_version', REPAIR_INTEGRITY_SENTINEL_NAME_FORMAT_VERSION, entry ? getCreativeWorkshopWorldbookMetadataString(entry, 'cw_name_format_version') : null],
   ];
   return checks.map(([field, expected, rawActual]) => {
     const actual = rawActual === undefined || rawActual === null || rawActual === '' ? null : String(rawActual);
@@ -216,7 +227,14 @@ function createRepairIntegritySentinel(): WorldbookEntry {
   return {
     name: REPAIR_INTEGRITY_SENTINEL_NAME,
     comment: REPAIR_INTEGRITY_SENTINEL_NAME,
-    content: REPAIR_INTEGRITY_SENTINEL_CONTENT,
+    content: injectCreativeWorkshopWorldbookMetadata(REPAIR_INTEGRITY_SENTINEL_CONTENT, {
+      cw_project_id: REPAIR_INTEGRITY_SENTINEL_PROJECT_ID,
+      cw_project_name_display: REPAIR_INTEGRITY_SENTINEL_DISPLAY_NAME,
+      cw_project_version: REPAIR_INTEGRITY_SENTINEL_VERSION,
+      cw_remote_version: REPAIR_INTEGRITY_SENTINEL_VERSION,
+      cw_entry_key: REPAIR_INTEGRITY_SENTINEL_ENTRY_KEY,
+      cw_name_format_version: REPAIR_INTEGRITY_SENTINEL_NAME_FORMAT_VERSION,
+    }),
     enabled: false,
     extra: {
       cw_project_id: REPAIR_INTEGRITY_SENTINEL_PROJECT_ID,
@@ -466,10 +484,7 @@ function parseDlcEntryName(name: unknown): CandidateEntryRow['header'] {
 }
 
 function readStringMetadata(entry: WorldbookEntry, field: string): string | null {
-  const value = _.get(entry, `extra.${field}`);
-  if (_.isString(value) && value) return String(value);
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-  return null;
+  return getCreativeWorkshopWorldbookMetadataString(entry, field);
 }
 
 function readUid(entry: WorldbookEntry): string | number | null {
@@ -671,20 +686,32 @@ export async function scanCreativeWorkshopRepairCandidates(options: {
     const worldbookName = candidateRows[0].worldbookName;
     const entryUids = entries.map(readUid).filter((value): value is string | number => value !== null);
     const metadata = makeMetadataReport(entries);
-    const detectedProjectIds = _.uniq([
+    const entryProjectIds = _.uniq([
       ...entries.map(entry => readStringMetadata(entry, 'cw_project_id')).filter((value): value is string => Boolean(value)),
       ...entries.map(entry => readStringMetadata(entry, 'fate_project_name')).filter((value): value is string => Boolean(value)),
     ]);
-    const regexIds = regexes
-      .filter(regex => {
-        const regexId = getCreativeWorkshopRegexId(regex);
-        const scriptName = _.isString((regex as any).script_name) ? String((regex as any).script_name) : '';
-        return detectedProjectIds.some(projectId => regexId.startsWith(`creative_workshop:${projectId}:`)) ||
-          scriptName.startsWith(`[工坊] ${name} -`);
-      })
+    const matchingRegexes = regexes.filter(regex => {
+      const identity = getCreativeWorkshopRegexIdentity(regex);
+      const scriptName = _.isString((regex as any).script_name) ? String((regex as any).script_name) : '';
+      if (identity && entryProjectIds.length > 0) return entryProjectIds.includes(identity.projectId);
+      return scriptName.startsWith(`[工坊] ${name} -`);
+    });
+    const regexIdentities = matchingRegexes
+      .map(regex => getCreativeWorkshopRegexIdentity(regex))
+      .filter((identity): identity is NonNullable<ReturnType<typeof getCreativeWorkshopRegexIdentity>> => Boolean(identity));
+    const detectedProjectIds = _.uniq([
+      ...entryProjectIds,
+      ...(entryProjectIds.length === 0 ? regexIdentities.map(identity => identity.projectId) : []),
+    ]);
+    const regexIds = matchingRegexes
       .map(regex => getCreativeWorkshopRegexId(regex))
       .filter(Boolean);
     const versions = _.uniq(entries.map(entry => readStringMetadata(entry, 'cw_project_version')).filter((value): value is string => Boolean(value)));
+    const regexVersions = _.uniq(
+      regexIdentities
+        .map(identity => identity.installedVersion)
+        .filter((value): value is string => Boolean(value)),
+    );
     const legacyNames = _.uniq(entries.map(entry => readStringMetadata(entry, 'fate_project_name')).filter((value): value is string => Boolean(value)));
 
     const base = {
@@ -702,7 +729,11 @@ export async function scanCreativeWorkshopRepairCandidates(options: {
       detectedProjectId: detectedProjectIds.length === 1 ? detectedProjectIds[0] : null,
       detectedProjectIds,
       legacyProjectName: legacyNames.length === 1 ? legacyNames[0] : null,
-      localVersion: versions.length === 1 ? versions[0] : null,
+      localVersion: versions.length === 1
+        ? versions[0]
+        : versions.length === 0 && regexVersions.length === 1
+          ? regexVersions[0]
+          : null,
       metadata,
     } satisfies Omit<CreativeWorkshopRepairCandidate, 'problems'>;
 
@@ -824,14 +855,16 @@ async function verifyCreativeWorkshopRepair(
   expectedRegexCount: number,
 ) {
   const entries = await getWorldbook(target.worldbookName);
-  const installedEntries = entries.filter(entry => _.get(entry, 'extra.cw_project_id') === target.projectId);
+  const installedEntries = entries.filter(
+    entry => getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_id') === target.projectId,
+  );
   if (installedEntries.length !== expectedEntryCount) {
     throw new Error(`修复验证失败：世界书应有 ${expectedEntryCount} 个新版条目，实际 ${installedEntries.length} 个`);
   }
 
   const regexes = getTavernRegexes({ scope: 'character', enable_state: 'all' });
-  const installedRegexCount = regexes.filter(regex =>
-    getCreativeWorkshopRegexId(regex).startsWith(`creative_workshop:${target.projectId}:`),
+  const installedRegexCount = regexes.filter(
+    regex => getCreativeWorkshopRegexIdentity(regex)?.projectId === target.projectId,
   ).length;
   if (installedRegexCount !== expectedRegexCount) {
     throw new Error(`修复验证失败：应有 ${expectedRegexCount} 个新版正则，实际 ${installedRegexCount} 个`);

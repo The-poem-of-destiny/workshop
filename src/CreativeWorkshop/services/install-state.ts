@@ -3,7 +3,8 @@ import {
   getCreativeWorkshopInstallRecords,
   getCreativeWorkshopRelevantWorldbookNames,
 } from './install-registry';
-import { getCreativeWorkshopRegexId } from './regex-name';
+import { getCreativeWorkshopWorldbookMetadataString } from './install-identity';
+import { getCreativeWorkshopRegexIdentity } from './regex-name';
 
 export type CreativeWorkshopInstalledProject = {
   projectId: string;
@@ -89,18 +90,27 @@ export async function scanInstalledCreativeWorkshopProjects(): Promise<CreativeW
   const entryRows = worldbooks.flatMap(({ worldbookName, entries }) =>
     entries
       .filter(
-        entry => _.isString(_.get(entry, 'extra.cw_project_id')) || _.isString(_.get(entry, 'extra.fate_project_name')),
+        entry =>
+          Boolean(getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_id')) ||
+          Boolean(getCreativeWorkshopWorldbookMetadataString(entry, 'fate_project_name')),
       )
       .map(entry => ({ worldbookName, entry })),
   );
   const groupedEntries = _.groupBy(entryRows, row =>
-    String(_.get(row.entry, 'extra.cw_project_id') || _.get(row.entry, 'extra.fate_project_name')),
+    String(
+      getCreativeWorkshopWorldbookMetadataString(row.entry, 'cw_project_id') ||
+      getCreativeWorkshopWorldbookMetadataString(row.entry, 'fate_project_name') ||
+      '',
+    ),
   );
 
   const regexes = getTavernRegexes({ scope: 'character', enable_state: 'all' });
+  const managedRegexRows = regexes
+    .map(regex => ({ regex, identity: getCreativeWorkshopRegexIdentity(regex) }))
+    .filter(row => Boolean(row.identity));
   const groupedRegexes = _.groupBy(
-    regexes.filter(regex => getCreativeWorkshopRegexId(regex).startsWith('creative_workshop:')),
-    regex => getCreativeWorkshopRegexId(regex).split(':')[1] || '',
+    managedRegexRows,
+    row => row.identity?.projectId || '',
   );
 
   const projects = _.uniq([...Object.keys(groupedEntries), ...Object.keys(groupedRegexes)])
@@ -108,25 +118,34 @@ export async function scanInstalledCreativeWorkshopProjects(): Promise<CreativeW
     .map(projectId => {
       const projectRows = groupedEntries[projectId] || [];
       const projectEntries = projectRows.map(row => row.entry);
-      const projectRegexes = groupedRegexes[projectId] || [];
+      const projectRegexRows = groupedRegexes[projectId] || [];
+      const projectRegexes = projectRegexRows.map(row => row.regex);
       const firstEntry = projectEntries[0];
       const firstRegex = projectRegexes[0];
+      const regexVersions = _.uniq(
+        projectRegexRows
+          .map(row => row.identity?.installedVersion || null)
+          .filter((value): value is string => Boolean(value)),
+      );
       const localVersion = registry[projectId]?.installedVersion ||
-        (firstEntry ? _.get(firstEntry, 'extra.cw_project_version', null) : null);
+        (firstEntry ? getCreativeWorkshopWorldbookMetadataString(firstEntry, 'cw_project_version') : null) ||
+        (regexVersions.length === 1 ? regexVersions[0] : null);
       const legacyProjectName =
         projectEntries
-          .map(entry => _.get(entry, 'extra.fate_project_name'))
+          .map(entry => getCreativeWorkshopWorldbookMetadataString(entry, 'fate_project_name'))
           .find(value => _.isString(value) && Boolean(value)) ||
         (!UUID_PATTERN.test(projectId) ? projectId : null);
       const projectNameHint = projectEntries
-        .map(entry => _.get(entry, 'extra.cw_project_name_display'))
+        .map(entry => getCreativeWorkshopWorldbookMetadataString(entry, 'cw_project_name_display'))
         .find(value => _.isString(value) && Boolean(String(value).trim()));
       return {
         projectId,
         installedProjectId: projectId,
         projectNameHint: _.isString(projectNameHint) ? projectNameHint.trim() : legacyProjectName,
         name: firstEntry
-          ? _.get(firstEntry, 'extra.cw_project_name_display', legacyProjectName || _.get(firstEntry, 'name', '未命名项目'))
+          ? getCreativeWorkshopWorldbookMetadataString(firstEntry, 'cw_project_name_display') ||
+            legacyProjectName ||
+            _.get(firstEntry, 'name', '未命名项目')
           : legacyProjectName || _.get(firstRegex, 'script_name', '未命名项目'),
         legacyProjectName,
         localVersion,

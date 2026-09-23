@@ -3,7 +3,7 @@ import { fetchCreativeWorkshopProjectDetail, type CreativeWorkshopProjectDetail 
 import {
   getCreativeWorkshopManagedRegexId,
   getCreativeWorkshopRegexEntryKey,
-  getCreativeWorkshopRegexId,
+  getCreativeWorkshopRegexIdentity,
   getReadableRegexName,
 } from './regex-name';
 
@@ -36,14 +36,19 @@ export async function applyPreparedCreativeWorkshopRegex(
   const result = await updateTavernRegexesWith(
     regexes => {
       const filtered = regexes.filter(regex => {
-        const regexId = getCreativeWorkshopRegexId(regex);
-        return !regexId.startsWith(`creative_workshop:${projectId}:`) &&
-          !Boolean(legacyProjectName && regexId.startsWith(`creative_workshop:${legacyProjectName}:`));
+        const identity = getCreativeWorkshopRegexIdentity(regex);
+        return identity?.projectId !== projectId &&
+          !Boolean(legacyProjectName && identity?.projectId === legacyProjectName);
       });
       const appended = regexEntries.map(
         ({ entry, originalIndex, entryKey }) =>
           ({
-            id: getCreativeWorkshopManagedRegexId(projectId, { ...entry, entryKey }, originalIndex),
+            id: getCreativeWorkshopManagedRegexId(
+              projectId,
+              { ...entry, entryKey },
+              originalIndex,
+              detail.project.version || null,
+            ),
             script_name: getReadableRegexName(detail.project.name || '未命名项目', entry, originalIndex),
             enabled: !entry.disabled,
             scope: 'character' as const,
@@ -97,9 +102,9 @@ export async function installCreativeWorkshopRegex(
 export async function uninstallCreativeWorkshopRegex(projectId: string, legacyProjectName?: string) {
   return updateTavernRegexesWith(
     regexes => regexes.filter(regex => {
-      const regexId = getCreativeWorkshopRegexId(regex);
-      return !regexId.startsWith(`creative_workshop:${projectId}:`) &&
-        !Boolean(legacyProjectName && regexId.startsWith(`creative_workshop:${legacyProjectName}:`));
+      const identity = getCreativeWorkshopRegexIdentity(regex);
+      return identity?.projectId !== projectId &&
+        !Boolean(legacyProjectName && identity?.projectId === legacyProjectName);
     }),
     { scope: 'character' },
   );
