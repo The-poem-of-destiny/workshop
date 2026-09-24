@@ -17,6 +17,12 @@ assert.match(reviewSource, /draft_revision = \?/, 'review mutation must atomical
 assert.match(reviewSource, /meta\?\.changes|meta\.changes/, 'review mutation must verify that exactly one row changed');
 assert.match(adminSource, /if \(!reviewedAt\)[\s\S]{0,180}409/, 'stale/already-completed reviews must return conflict');
 assert.match(adminSource, /restoreApprovedReviewToPending/, 'failed draft publication must restore the review to pending');
+assert.match(adminSource, /draftProjectId: null/, 'approving a draft must clear the published working-draft pointer');
+assert.match(adminSource, /rejectSupersededSiblingDrafts/, 'approving a draft must retire sibling review snapshots');
+assert.match(reviewSource, /reject_reason = '已被其他已通过版本取代'/, 'superseded sibling drafts must get an automatic reason');
+assert.match(reviewSource, /status IN \('pending', 'drafting'\)/, 'both submitted and still-editing stale siblings must be retired');
+assert.match(reviewSource, /COALESCE\(latest_approved_at, ''\) = COALESCE\(\?, ''\)/, 'direct sibling cleanup must stay on the approved draft base revision');
+assert.match(reviewSource, /COALESCE\(published\.latest_approved_at, ''\) <> COALESCE\(projects\.latest_approved_at, ''\)/, 'stale queued drafts must be detectable from their published baseline');
 
 const pendingEndpointStart = adminSource.indexOf('export class AdminPendingList');
 const reviewDetailEndpointStart = adminSource.indexOf('export class AdminReviewDetail');

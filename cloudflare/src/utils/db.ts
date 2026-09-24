@@ -941,6 +941,54 @@ export const projectDb = {
     return Number(result.meta?.changes || 0) === 1 ? reviewedAt : null;
   },
 
+  rejectSupersededSiblingDrafts: async (
+    c: AppContext,
+    publishedProjectId: string,
+    approvedDraftId: string,
+    baseLatestApprovedAt: string | null,
+    reviewerId: string,
+    reviewedAt: string,
+  ): Promise<number> => {
+    const result = await c.env.DB.prepare(
+      `UPDATE projects
+       SET status = 'rejected', reviewed_at = ?, reviewer_id = ?,
+           reject_reason = '已被其他已通过版本取代', updated_at = ?
+       WHERE published_project_id = ?
+         AND review_target = 'draft'
+         AND id <> ?
+         AND COALESCE(latest_approved_at, '') = COALESCE(?, '')
+         AND status IN ('pending', 'drafting')`,
+    )
+      .bind(reviewedAt, reviewerId, reviewedAt, publishedProjectId, approvedDraftId, baseLatestApprovedAt)
+      .run();
+
+    return Number(result.meta?.changes || 0);
+  },
+
+  rejectOutdatedDrafts: async (c: AppContext): Promise<number> => {
+    const timestamp = now();
+    const result = await c.env.DB.prepare(
+      `UPDATE projects
+       SET status = 'rejected', reviewed_at = ?, reviewer_id = NULL,
+           reject_reason = '已被其他已通过版本取代', updated_at = ?
+       WHERE review_target = 'draft'
+         AND status IN ('pending', 'drafting')
+         AND published_project_id IS NOT NULL
+         AND EXISTS (
+           SELECT 1
+           FROM projects AS published
+           WHERE published.id = projects.published_project_id
+             AND published.status = 'approved'
+             AND published.is_published = 1
+             AND COALESCE(published.latest_approved_at, '') <> COALESCE(projects.latest_approved_at, '')
+         )`,
+    )
+      .bind(timestamp, timestamp)
+      .run();
+
+    return Number(result.meta?.changes || 0);
+  },
+
   restoreApprovedReviewToPending: async (
     c: AppContext,
     projectId: string,
@@ -971,6 +1019,7 @@ export const projectDb = {
     currentUser?: JWTPayload | null,
     options: { sort?: 'oldest' | 'latest'; projectType?: ProjectType } = {},
   ) => {
+    await projectDb.rejectOutdatedDrafts(c);
     const db = c.env.DB;
     const offset = page * pageSize;
     const conditions = ["p.status = 'pending'"];

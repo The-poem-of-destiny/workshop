@@ -294,14 +294,13 @@ export class AdminReview extends OpenAPIRoute {
 
     let approvedVersion: string | null = null;
     let publishedVersionBeforeApproval: string | null = null;
-    let publishedDraftProjectIdBeforeApproval: string | null = null;
+    let supersededDraftCount = 0;
     if (action === 'approve' && project.reviewTarget === 'draft' && project.publishedProjectId) {
       const published = await projectDb.get(c, project.publishedProjectId);
       if (!published) {
         return c.json({ error: 'Published project not found for draft' }, 409);
       }
       publishedVersionBeforeApproval = published.version;
-      publishedDraftProjectIdBeforeApproval = published.draftProjectId || null;
       const expectedTargetVersion = bumpProjectVersionWithLegacyFallback(published.version, 'patch');
       if (project.version !== expectedTargetVersion) {
         return c.json(
@@ -370,8 +369,7 @@ export class AdminReview extends OpenAPIRoute {
             hasEjs: project.hasEjs,
             hasCharacterArtwork: project.hasCharacterArtwork,
             status: 'approved',
-            draftProjectId:
-              publishedDraftProjectIdBeforeApproval === projectId ? null : publishedDraftProjectIdBeforeApproval,
+            draftProjectId: null,
             visibility: project.visibility,
             isPublished: true,
             latestApprovedAt: reviewedAt,
@@ -405,6 +403,23 @@ export class AdminReview extends OpenAPIRoute {
           });
         }
         throw error;
+      }
+
+      try {
+        supersededDraftCount = await projectDb.rejectSupersededSiblingDrafts(
+          c,
+          project.publishedProjectId,
+          projectId,
+          project.latestApprovedAt ?? null,
+          payload.userId,
+          reviewedAt,
+        );
+      } catch (error) {
+        console.error('Failed to auto-reject superseded sibling drafts after approval', {
+          projectId,
+          publishedProjectId: project.publishedProjectId,
+          error,
+        });
       }
 
       await projectDb.delete(c, projectId);
@@ -450,12 +465,14 @@ export class AdminReview extends OpenAPIRoute {
         publishedProjectId: project.publishedProjectId || null,
         projectCreatedAt: project.createdAt,
         projectUpdatedAt: project.updatedAt,
+        supersededDraftCount,
       },
     });
 
     return {
       success: true,
       message: action === 'approve' ? 'Project approved successfully' : 'Project rejected',
+      supersededDraftCount,
     };
   }
 }
