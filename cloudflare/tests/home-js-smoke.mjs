@@ -379,6 +379,8 @@ assert.match(fragments.homeCardsRenderScript, /view\.downloadsCount/);
 assert.match(fragments.homeModalsScript, /最旧优先/);
 assert.match(fragments.homeModalsScript, /最新优先/);
 assert.match(fragments.homeModalsScript, /refreshAdminReviewQueue/);
+assert.match(fragments.homeModalsScript, /const refreshedQueue = await fetchPendingProjects/);
+assert.match(fragments.homeModalsScript, /if \(!liveIds\.has\(String\(card\.dataset\.projectId\)\)\) card\.remove\(\)/);
 assert.match(fragments.homeModalsScript, /queue\.innerHTML = renderAdminReviewQueueContents/);
 assert.match(fragments.homeModalsScript, /refreshSequence/);
 assert.match(fragments.homeModalsScript, /aria-busy/);
