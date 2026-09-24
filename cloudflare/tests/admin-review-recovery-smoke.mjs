@@ -25,11 +25,16 @@ assert.match(reviewSource, /COALESCE\(latest_approved_at, ''\) = COALESCE\(\?, '
 assert.match(reviewSource, /COALESCE\(published\.latest_approved_at, ''\) <> COALESCE\(projects\.latest_approved_at, ''\)/, 'stale queued drafts must be detectable from their published baseline');
 
 const pendingEndpointStart = adminSource.indexOf('export class AdminPendingList');
+const pendingCleanupEndpointStart = adminSource.indexOf('export class AdminPendingCleanup');
 const reviewDetailEndpointStart = adminSource.indexOf('export class AdminReviewDetail');
-assert.ok(pendingEndpointStart >= 0 && reviewDetailEndpointStart > pendingEndpointStart, 'admin pending endpoint source must be readable');
-const pendingEndpointSource = adminSource.slice(pendingEndpointStart, reviewDetailEndpointStart);
+assert.ok(pendingEndpointStart >= 0 && pendingCleanupEndpointStart > pendingEndpointStart, 'admin pending endpoint source must be readable');
+assert.ok(reviewDetailEndpointStart > pendingCleanupEndpointStart, 'admin pending cleanup endpoint source must be readable');
+const pendingEndpointSource = adminSource.slice(pendingEndpointStart, pendingCleanupEndpointStart);
+const pendingCleanupEndpointSource = adminSource.slice(pendingCleanupEndpointStart, reviewDetailEndpointStart);
 assert.doesNotMatch(pendingEndpointSource, /readReviewContentText|readDirectReviewContentText|buildProjectReviewDiff|parseWorldbookEntriesPreview|parseRegexEntriesPreview|R2_BUCKET/, 'queue sorting/listing must not read or parse full project content');
 assert.match(pendingEndpointSource, /result\.projects\.map/, 'queue listing should map lightweight database metadata only');
+assert.doesNotMatch(pendingEndpointSource, /rejectOutdatedDrafts/, 'opening the queue must not trigger a cleanup write');
+assert.match(pendingCleanupEndpointSource, /projectDb\.rejectOutdatedDrafts/, 'manual cleanup endpoint must retire outdated drafts');
 
 assert.match(r2Source, /rollback:/, 'published R2 replacement must expose a rollback operation');
 assert.match(r2Source, /mutatedKeys/, 'R2 rollback must track only keys changed by the current publication attempt');

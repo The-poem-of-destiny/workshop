@@ -1019,7 +1019,6 @@ export const projectDb = {
     currentUser?: JWTPayload | null,
     options: { sort?: 'oldest' | 'latest'; projectType?: ProjectType } = {},
   ) => {
-    await projectDb.rejectOutdatedDrafts(c);
     const db = c.env.DB;
     const offset = page * pageSize;
     const conditions = ["p.status = 'pending'"];

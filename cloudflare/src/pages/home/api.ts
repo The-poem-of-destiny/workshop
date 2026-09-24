@@ -762,6 +762,12 @@ async function fetchPendingProjects({ sort = 'oldest', projectType = '' } = {}) 
   return apiFetch('/api/admin/pending?' + params.toString());
 }
 
+async function cleanupOutdatedReviewDrafts() {
+  return apiFetch('/api/admin/pending/cleanup', {
+    method: 'POST',
+  });
+}
+
 async function fetchAdminReviewDetail(projectId) {
   return apiFetch('/api/admin/review/' + projectId, {
     method: 'GET',

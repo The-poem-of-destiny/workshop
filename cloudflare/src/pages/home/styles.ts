@@ -560,6 +560,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helve
 .admin-review-modal .modal-body,.admin-review-detail-modal .modal-body { min-height:0; padding:22px 24px 24px; background:#18191c; }
 .admin-review-queue { gap:12px; }
 .admin-review-toolbar { padding:10px 12px; border-color:rgba(255,255,255,.075); border-radius:10px; background:#1b1c1f; }
+.admin-review-toolbar-main { min-width:0; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.admin-review-cleanup-btn { flex:none; min-height:42px; padding:0 14px; border-color:rgba(190,164,125,.24); background:rgba(190,164,125,.06); color:#d7c4a7; font-size:.76rem; font-weight:720; white-space:nowrap; }
+.admin-review-cleanup-btn:hover { border-color:rgba(190,164,125,.4); background:rgba(190,164,125,.12); color:#ead8bc; }
+.admin-review-cleanup-btn:focus-visible { outline:2px solid rgba(215,196,167,.72); outline-offset:2px; }
 .admin-review-sort-control { color:#8d8b86; font-size:.76rem; }
 .admin-review-sort-control select { border-color:rgba(255,255,255,.085); border-radius:8px; background:#151619; color:#cac9c5; outline:none; }
 .admin-review-sort-control select:focus { border-color:rgba(190,164,125,.42); box-shadow:0 0 0 2px rgba(190,164,125,.08); }
@@ -1557,6 +1561,8 @@ body,.logo h1,.sidebar-brand-copy strong,.mobile-tool-sheet-head strong,.project
 
 /* Mobile review workflow overrides legacy review sizing. */
 @media (max-width:640px) {
+  .admin-review-toolbar-main { width:100%; align-items:stretch; flex-direction:column; }
+  .admin-review-cleanup-btn { width:100%; min-height:46px; justify-content:center; font-size:.8rem; }
   .admin-review-queue-summary { align-items:center; flex-direction:row; }
   .admin-review-queue-summary > div { flex:1; }
   .admin-review-start-btn { min-height:38px; padding:0 12px; }

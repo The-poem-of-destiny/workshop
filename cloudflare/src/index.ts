@@ -43,6 +43,7 @@ import {
 import {
   AdminActionLogList,
   AdminList,
+  AdminPendingCleanup,
   AdminPendingList,
   AdminProjectList,
   AdminReview,
@@ -268,6 +269,7 @@ app.get('/api/files/*', async c => {
 // ============ 管理员接口 ============
 openapi.get('/api/admin/logs', AdminActionLogList);
 openapi.get('/api/admin/pending', AdminPendingList);
+openapi.post('/api/admin/pending/cleanup', AdminPendingCleanup);
 openapi.get('/api/admin/review/:projectId', AdminReviewDetail);
 openapi.post('/api/admin/review/:projectId', AdminReview);
 openapi.get('/api/admin/projects', AdminProjectList);

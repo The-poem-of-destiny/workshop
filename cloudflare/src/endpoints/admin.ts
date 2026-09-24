@@ -146,6 +146,52 @@ export class AdminPendingList extends OpenAPIRoute {
 }
 
 /**
+ * 清理已经被新通过版本取代的旧审核请求 (仅管理员)
+ */
+export class AdminPendingCleanup extends OpenAPIRoute {
+  schema = {
+    tags: ['Admin'],
+    summary: 'Cleanup Outdated Pending Drafts (Admin Only)',
+    request: {
+      headers: z.object({
+        authorization: z.string().describe('Session ID'),
+      }),
+    },
+    responses: {
+      '200': {
+        description: 'Returns the number of outdated drafts retired',
+      },
+      '403': {
+        description: 'Admin only',
+      },
+    },
+  };
+
+  async handle(c: AppContext) {
+    const payload = await getCurrentUserFromRequest(c);
+    if (!payload || !payload.isAdmin) {
+      return c.json({ error: 'Admin only' }, 403);
+    }
+
+    const cleanedCount = await projectDb.rejectOutdatedDrafts(c);
+    if (cleanedCount > 0) {
+      await projectDb.logAdminAction(c, {
+        action: 'outdated_review_drafts_cleaned',
+        targetType: 'project_draft',
+        actorId: payload.userId,
+        actorName: payload.globalName || payload.username,
+        detail: { cleanedCount },
+      });
+    }
+
+    return {
+      success: true,
+      cleanedCount,
+    };
+  }
+}
+
+/**
  * 审核项目 (仅管理员)
  */
 export class AdminReviewDetail extends OpenAPIRoute {
