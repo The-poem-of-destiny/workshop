@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { bumpProjectVersionWithLegacyFallback } from '../src/utils/version.js';
 
 const adminSource = await readFile(resolve('src/endpoints/admin.ts'), 'utf8');
-const projectsSource = await readFile(resolve('src/endpoints/projects.ts'), 'utf8');
+const projectsSource = await readFile(resolve('src/endpoints/projects/write.ts'), 'utf8');
 const dbSource = await readFile(resolve('src/utils/db.ts'), 'utf8');
 const typesSource = await readFile(resolve('src/types.ts'), 'utf8');
 const cardsSource = await readFile(resolve('src/pages/home/render/cards.ts'), 'utf8');

@@ -2,7 +2,7 @@ import { OpenAPIRoute, Str } from 'chanfana';
 import { z } from 'zod';
 import type { AppContext } from '../types';
 import { WORKSHOP_LIMITS } from '../config/runtime-limits';
-import { generateId, projectDb } from '../utils/db';
+import { projectDb } from '../utils/db';
 import { getCurrentUserFromRequest } from '../utils/jwt';
 import {
   removeProjectEntryFromJson,
@@ -228,6 +228,7 @@ export { ProjectRepairResolve } from './projects/repair';
 
 export {
   ProjectCreate,
+  ProjectDelete,
   ProjectUpdate,
   ProjectVisibilityUpdate,
 } from './projects/write';
@@ -489,142 +490,6 @@ export {
   ProjectSubscribeSet,
   ProjectSubscribeToggle,
 } from './projects/social';
-
-/**
- * 删除项目
- */
-export class ProjectDelete extends OpenAPIRoute {
-  schema = {
-    tags: ['Projects'],
-    summary: 'Delete Project',
-    request: {
-      params: z.object({
-        projectId: Str({ description: 'Project ID' }),
-      }),
-      headers: z.object({
-        authorization: z.string().describe('Session ID'),
-      }),
-    },
-    responses: {
-      '200': {
-        description: 'Delete successful',
-      },
-    },
-  };
-
-  async handle(c: AppContext) {
-    const payload = await getCurrentUserFromRequest(c);
-    if (!payload) {
-      return c.json({ error: 'Unauthorized' }, 401);
-    }
-
-    const data = await this.getValidatedData<typeof this.schema>();
-    const { projectId } = data.params;
-
-    // 检查项目是否存在且属于当前用户
-    const project = await projectDb.get(c, projectId);
-    if (!project) {
-      return c.json({ error: 'Project not found' }, 404);
-    }
-
-    // 检查权限 (作者或管理员) - JWT payload 中已有 isAdmin
-    if (project.authorId !== payload.userId && !payload.isAdmin) {
-      return c.json({ error: 'Permission denied' }, 403);
-    }
-
-    if (project.reviewTarget === 'draft' && project.publishedProjectId && project.status === 'pending') {
-      const published = await projectDb.get(c, project.publishedProjectId, payload);
-      if (!published) return c.json({ error: 'Published project not found for draft' }, 409);
-      if (published.draftProjectId && published.draftProjectId !== project.id) {
-        return c.json({ error: 'A newer working draft already exists.' }, 409);
-      }
-
-      const nextDraftId = generateId();
-      const nextVersion = bumpProjectVersionWithLegacyFallback(published.version, 'patch');
-      await projectDb.create(c, {
-        id: nextDraftId,
-        name: project.name,
-        description: project.description || undefined,
-        precautions: project.precautions ?? null,
-        version: nextVersion,
-        versionLabel: project.versionLabel ?? null,
-        authorId: project.authorId,
-        authorName: project.authorName,
-        authorAvatar: project.authorAvatar || '',
-        projectType: project.projectType,
-        extensionType: project.extensionType,
-        facets: project.facets,
-        customTags: project.customTags,
-        displayTags: project.displayTags,
-        tags: project.tags,
-        coverImage: project.coverImage || undefined,
-        coverPositionX: project.coverPositionX,
-        coverPositionY: project.coverPositionY,
-        coverZoom: project.coverZoom,
-        downloadUrl: project.downloadUrl || undefined,
-        fileSize: project.fileSize || undefined,
-        hasEjs: project.hasEjs,
-        hasCharacterArtwork: project.hasCharacterArtwork,
-        rootProjectId: project.rootProjectId || published.rootProjectId || published.id,
-        publishedProjectId: published.id,
-        reviewTarget: 'draft',
-        draftRevision: 1,
-        visibility: project.visibility,
-        isPublished: false,
-        latestApprovedAt: published.latestApprovedAt || published.reviewedAt,
-        status: 'drafting',
-      });
-
-      try {
-        const copied = await r2Storage.copyProjectFilesToPublished(
-          c,
-          project.id,
-          nextDraftId,
-          project.coverImage || undefined,
-        );
-        await projectDb.update(c, nextDraftId, {
-          downloadUrl: copied.downloadUrl || project.downloadUrl || undefined,
-          fileSize: copied.fileSize ?? project.fileSize ?? undefined,
-          coverImage: copied.coverImage || project.coverImage || undefined,
-        });
-        await projectDb.update(c, published.id, { draftProjectId: nextDraftId });
-      } catch (error) {
-        await projectDb.delete(c, nextDraftId).catch(() => undefined);
-        throw error;
-      }
-
-      return {
-        success: true,
-        continuedDraftProjectId: nextDraftId,
-        reviewRequestId: project.id,
-        message: 'Review snapshot preserved. Continue editing in the new draft.',
-      };
-    }
-
-    // 删除正式项目时，一并清理当前草稿和历史审核快照。
-    let linkedDraftId: string | null = null;
-    if (project.isPublished) {
-      const linkedDraftIds = await projectDb.listDraftIdsByPublishedId(c, project.id);
-      linkedDraftId = project.draftProjectId || linkedDraftIds[0] || null;
-      for (const linkedId of linkedDraftIds) {
-        await r2Storage.deleteProjectFiles(c, linkedId);
-        await projectDb.delete(c, linkedId);
-      }
-    }
-
-    // 删除目标项目自己的 R2 文件
-    await r2Storage.deleteProjectFiles(c, projectId);
-
-    // 删除数据库记录
-    await projectDb.delete(c, projectId);
-
-    return {
-      success: true,
-      deletedDraftProjectId: linkedDraftId,
-      message: 'Project deleted successfully',
-    };
-  }
-}
 
 /**
  * 上传项目正则文件
