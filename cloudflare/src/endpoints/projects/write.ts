@@ -192,3 +192,51 @@ export class ProjectCreate extends OpenAPIRoute {
     }
   }
 }
+
+export class ProjectVisibilityUpdate extends OpenAPIRoute {
+  schema = {
+    tags: ['Projects'],
+    summary: 'Update Project Visibility',
+    request: {
+      params: z.object({
+        projectId: Str({ description: 'Project ID' }),
+      }),
+      headers: z.object({
+        authorization: z.string().describe('Session ID'),
+      }),
+      body: {
+        content: {
+          'application/json': {
+            schema: z.object({
+              visibility: z.boolean(),
+            }),
+          },
+        },
+      },
+    },
+  };
+
+  async handle(c: AppContext) {
+    const payload = await getCurrentUserFromRequest(c);
+    if (!payload) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const data = await this.getValidatedData<typeof this.schema>();
+    const project = await projectDb.get(c, data.params.projectId, payload);
+    if (!project) {
+      return c.json({ error: 'Project not found' }, 404);
+    }
+
+    if (project.authorId !== payload.userId && !payload.isAdmin) {
+      return c.json({ error: 'Permission denied' }, 403);
+    }
+
+    await projectDb.setVisibility(c, project.id, data.body.visibility);
+
+    return {
+      success: true,
+      visibility: data.body.visibility,
+    };
+  }
+}
