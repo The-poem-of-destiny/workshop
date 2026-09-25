@@ -87,6 +87,7 @@ const files = {
   runtimeLimits: await read('cloudflare/src/config/runtime-limits.ts'),
   homeApi: await read('cloudflare/src/pages/home/api.ts'),
   projectsEndpoint: await read('cloudflare/src/endpoints/projects.ts'),
+  projectsWriteEndpoint: await read('cloudflare/src/endpoints/projects/write.ts'),
   siteSettingsEndpoint: await read('cloudflare/src/endpoints/site-settings.ts'),
   types: await read('cloudflare/src/types.ts'),
   versionUtil: await read('cloudflare/src/utils/version.js'),
@@ -124,13 +125,14 @@ assert.match(files.homeApi, /WORKSHOP_LIMITS\.projectUploadBytes/);
 assert.match(files.homeApi, /WORKSHOP_LIMITS\.projectUploadLabel/);
 assert.match(files.projectsEndpoint, /WORKSHOP_LIMITS\.projectUploadBytes/);
 assert.match(files.projectsEndpoint, /WORKSHOP_LIMITS\.coverRequestOverheadBytes/);
-assert.match(files.projectsEndpoint, /LEGACY_PROJECT_VERSION_BASE/);
+assert.match(files.projectsWriteEndpoint, /LEGACY_PROJECT_VERSION_BASE/);
 assert.match(files.siteSettingsEndpoint, /WORKSHOP_LIMITS\.bannerUploadBytes/);
 assert.match(files.siteSettingsEndpoint, /WORKSHOP_LIMITS\.bannerUploadLabel/);
 assert.match(files.types, /LEGACY_PROJECT_VERSION_BASE/);
 assert.match(files.versionUtil, /LEGACY_PROJECT_VERSION_BASE\s*=\s*['"]1\.0\.0['"]/);
 assert.doesNotMatch(files.homeApi, /10\s*\*\s*1024\s*\*\s*1024|最大\s*10MB/);
 assert.doesNotMatch(files.projectsEndpoint, /10\s*\*\s*1024\s*\*\s*1024|version:\s*['"]1\.0\.0['"]/);
+assert.doesNotMatch(files.projectsWriteEndpoint, /version:\s*['"]1\.0\.0['"]/);
 assert.doesNotMatch(files.siteSettingsEndpoint, /8\s*\*\s*1024\s*\*\s*1024|8 MB or smaller/);
 assert.doesNotMatch(files.types, /default\(['"]1\.0\.0['"]\)/);
 

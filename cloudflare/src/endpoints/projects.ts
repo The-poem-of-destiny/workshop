@@ -1,10 +1,8 @@
 import { OpenAPIRoute, Str } from 'chanfana';
 import { z } from 'zod';
 import type { AppContext } from '../types';
-import { normalizeProjectTaxonomyInput, PROJECT_TYPES } from '../config/project-taxonomy';
 import { WORKSHOP_LIMITS } from '../config/runtime-limits';
 import { generateId, projectDb } from '../utils/db';
-import { resolveProjectCompatibilitySelection, validateOriginalConflictReferenceItems } from '../utils/character-reference.ts';
 import { getCurrentUserFromRequest } from '../utils/jwt';
 import {
   removeProjectEntryFromJson,
@@ -13,7 +11,7 @@ import {
 } from '../utils/project-content';
 import { parseRegexEntriesPreview, parseWorldbookEntriesPreview, summarizeProjectInspection } from '../utils/project-preview';
 import { r2Storage } from '../utils/r2';
-import { bumpProjectVersionWithLegacyFallback, LEGACY_PROJECT_VERSION_BASE } from '../utils/version.js';
+import { bumpProjectVersionWithLegacyFallback } from '../utils/version.js';
 
 const MAX_UPLOAD_SIZE = WORKSHOP_LIMITS.projectUploadBytes;
 const MAX_COVER_REQUEST_SIZE = MAX_UPLOAD_SIZE + WORKSHOP_LIMITS.coverRequestOverheadBytes;
@@ -230,6 +228,7 @@ export { ProjectRepairResolve } from './projects/repair';
 
 export {
   ProjectCreate,
+  ProjectUpdate,
   ProjectVisibilityUpdate,
 } from './projects/write';
 
@@ -490,221 +489,6 @@ export {
   ProjectSubscribeSet,
   ProjectSubscribeToggle,
 } from './projects/social';
-
-/**
- * 更新项目信息
- */
-export class ProjectUpdate extends OpenAPIRoute {
-  schema = {
-    tags: ['Projects'],
-    summary: 'Update Project',
-    request: {
-      params: z.object({
-        projectId: Str({ description: 'Project ID' }),
-      }),
-      headers: z.object({
-        authorization: z.string().describe('Session ID'),
-      }),
-      body: {
-        content: {
-          'application/json': {
-            schema: z.object({
-              name: Str({ required: false }),
-              description: Str({ required: false }),
-              versionLabel: z.string().max(80).nullable().optional(),
-              builtForReferenceVersionId: z.string().max(120).nullable().optional(),
-              compatibilityConfirmed: z.boolean().optional(),
-              conflictsWithOriginal: z.boolean().optional(),
-              originalConflictReferenceItemIds: z.array(z.string()).max(500).optional(),
-              projectType: z.enum(PROJECT_TYPES).optional(),
-              extensionType: z.enum(['规则', '内容']).nullable().optional(),
-              facets: z.record(z.array(z.string())).optional(),
-              customTags: z.array(z.string()).optional(),
-              displayTags: z.array(z.string()).optional(),
-              tags: z.array(z.string()).optional(),
-              coverImage: Str({ required: false }),
-            }),
-          },
-        },
-      },
-    },
-    responses: {
-      '200': {
-        description: 'Update successful',
-      },
-    },
-  };
-
-  async handle(c: AppContext) {
-    const payload = await getCurrentUserFromRequest(c);
-    if (!payload) {
-      return c.json({ error: 'Unauthorized' }, 401);
-    }
-
-    const data = await this.getValidatedData<typeof this.schema>();
-    const { projectId } = data.params;
-
-    // 检查项目是否存在且属于当前用户
-    const project = await projectDb.get(c, projectId);
-    if (!project) {
-      return c.json({ error: 'Project not found' }, 404);
-    }
-
-    if (project.authorId !== payload.userId && !payload.isAdmin) {
-      return c.json({ error: 'Permission denied' }, 403);
-    }
-
-    const taxonomyInput: Record<string, unknown> = {
-      tags: data.body.tags ?? project.tags,
-    };
-    if (data.body.projectType !== undefined) {
-      taxonomyInput.projectType = data.body.projectType;
-    } else if (data.body.tags === undefined) {
-      taxonomyInput.projectType = project.projectType;
-    }
-
-    const targetProjectType = data.body.projectType
-      ?? (data.body.tags !== undefined ? undefined : project.projectType);
-    if (data.body.extensionType !== undefined) {
-      taxonomyInput.extensionType = data.body.extensionType;
-    } else if (targetProjectType === '扩展' || (targetProjectType === undefined && project.projectType === '扩展')) {
-      taxonomyInput.extensionType = project.extensionType;
-    }
-
-    if (data.body.facets !== undefined) {
-      taxonomyInput.facets = data.body.facets;
-    } else if (targetProjectType === '角色' || (targetProjectType === undefined && project.projectType === '角色')) {
-      taxonomyInput.facets = project.facets;
-    }
-
-    if (data.body.customTags !== undefined) {
-      taxonomyInput.customTags = data.body.customTags;
-    } else if (data.body.tags === undefined) {
-      taxonomyInput.customTags = project.customTags;
-    }
-
-    const tagPoolChanged = data.body.projectType !== undefined
-      || data.body.facets !== undefined
-      || data.body.customTags !== undefined
-      || data.body.tags !== undefined;
-    if (data.body.displayTags !== undefined) {
-      taxonomyInput.displayTags = data.body.displayTags;
-    } else if (!tagPoolChanged) {
-      taxonomyInput.displayTags = project.displayTags;
-    }
-
-    const taxonomyResult = normalizeProjectTaxonomyInput(taxonomyInput, {
-      requireExtensionSubtypeForExplicitType: false,
-    });
-    if (!taxonomyResult.value) {
-      return c.json({ error: taxonomyResult.error || 'Invalid project taxonomy' }, 400);
-    }
-    const taxonomy = taxonomyResult.value;
-    const targetBuiltForReferenceVersionId = data.body.builtForReferenceVersionId !== undefined
-      ? data.body.builtForReferenceVersionId
-      : project.builtForReferenceVersionId;
-    const shouldRefreshCompatibility = data.body.builtForReferenceVersionId !== undefined
-      || data.body.compatibilityConfirmed !== undefined;
-    let compatibilityUpdates: Record<string, unknown> = {};
-    let conflictUpdates: Record<string, unknown> = {};
-    try {
-      if (shouldRefreshCompatibility) {
-        const confirmed = data.body.compatibilityConfirmed === true;
-        const selection = await resolveProjectCompatibilitySelection(c, {
-          builtForReferenceVersionId: targetBuiltForReferenceVersionId,
-          testedThroughReferenceVersionId: confirmed ? targetBuiltForReferenceVersionId : null,
-        });
-        compatibilityUpdates = {
-          characterReferenceId: selection.characterReferenceId,
-          builtForReferenceVersionId: selection.builtForReferenceVersionId,
-          testedThroughReferenceVersionId: selection.testedThroughReferenceVersionId,
-          compatibilityStatus: selection.compatibilityStatus,
-          compatibilityKnownIncompatible: false,
-          compatibilityNote: null,
-          compatibilityGraceUntil: selection.compatibilityGraceUntil,
-          compatibilityUpdatedAt: selection.builtForReferenceVersionId ? new Date().toISOString() : null,
-        };
-      }
-
-      if (data.body.conflictsWithOriginal !== undefined || data.body.originalConflictReferenceItemIds !== undefined) {
-        const conflictsWithOriginal = data.body.conflictsWithOriginal ?? project.conflictsWithOriginal;
-        const requestedIds = data.body.originalConflictReferenceItemIds ?? project.originalConflictReferenceItemIds;
-        const validatedIds = conflictsWithOriginal
-          ? await validateOriginalConflictReferenceItems(c, targetBuiltForReferenceVersionId, requestedIds)
-          : [];
-        if (conflictsWithOriginal && validatedIds.length === 0) {
-          return c.json({ error: '请选择需要暂时关闭的原版内容' }, 400);
-        }
-        conflictUpdates = {
-          conflictsWithOriginal,
-          originalConflictReferenceItemIds: validatedIds,
-        };
-      }
-    } catch (error) {
-      return c.json({ error: error instanceof Error ? error.message : '角色卡版本无效，请重新选择' }, 400);
-    }
-
-    const { compatibilityConfirmed: _compatibilityConfirmed, ...bodyUpdates } = data.body;
-    const updates = {
-      ...bodyUpdates,
-      ...compatibilityUpdates,
-      ...conflictUpdates,
-      projectType: taxonomy.projectType,
-      extensionType: taxonomy.extensionType,
-      facets: taxonomy.facets,
-      customTags: taxonomy.customTags,
-      displayTags: taxonomy.displayTags,
-      tags: taxonomy.legacyTags,
-      ...(data.body.versionLabel !== undefined
-        ? { versionLabel: typeof data.body.versionLabel === 'string' ? data.body.versionLabel.trim() || null : null }
-        : {}),
-    };
-
-    if (project.isPublished && project.status === 'approved') {
-      const targetVersion = bumpProjectVersionWithLegacyFallback(project.version, 'patch');
-      const draftId = await projectDb.createDraftFromPublished(c, projectId, { ...updates, version: targetVersion });
-      if (!draftId) {
-        return c.json({ error: 'Draft creation failed' }, 500);
-      }
-
-      return {
-        success: true,
-        projectId: draftId,
-        draftProjectId: draftId,
-        targetVersion,
-        message: '修改后的新版本已进入审核区，主界面仍显示旧版本。',
-      };
-    }
-
-    if (project.reviewTarget === 'draft' && project.publishedProjectId) {
-      const published = await projectDb.get(c, project.publishedProjectId);
-      if (!published) {
-        return c.json({ error: 'Published project not found for draft' }, 409);
-      }
-
-      const targetVersion = bumpProjectVersionWithLegacyFallback(published.version, 'patch');
-      await projectDb.update(c, projectId, { ...updates, version: targetVersion, status: 'pending' });
-      await projectDb.bumpDraftRevision(c, projectId);
-      return {
-        success: true,
-        projectId,
-        draftProjectId: projectId,
-        targetVersion,
-        message: 'Draft updated and resubmitted for review',
-      };
-    }
-
-    await projectDb.update(c, projectId, { ...updates, version: LEGACY_PROJECT_VERSION_BASE, status: 'pending' });
-    await projectDb.bumpDraftRevision(c, projectId);
-
-    return {
-      success: true,
-      projectId,
-      targetVersion: LEGACY_PROJECT_VERSION_BASE,
-      message: 'Project updated successfully',
-    };
-  }
-}
 
 /**
  * 删除项目
