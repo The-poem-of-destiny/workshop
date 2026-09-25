@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 
 const apiSource = await readFile(new URL('../src/pages/home/api.ts', import.meta.url), 'utf8');
 const repairUiSource = await readFile(new URL('../src/pages/home/repair-ui.ts', import.meta.url), 'utf8');
-const projectsSource = await readFile(new URL('../src/endpoints/projects.ts', import.meta.url), 'utf8');
+const projectsSource = await readFile(new URL('../src/endpoints/projects/repair.ts', import.meta.url), 'utf8');
 const dbSource = await readFile(new URL('../src/utils/db.ts', import.meta.url), 'utf8');
 const indexSource = await readFile(new URL('../src/index.ts', import.meta.url), 'utf8');
 const migrationSource = await readFile(new URL('../migrations/0017_repair_resolve_guard.sql', import.meta.url), 'utf8');
