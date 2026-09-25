@@ -197,7 +197,12 @@ async function readProjectContentForEdit(
   return null;
 }
 
-export { ProjectList } from './projects/read';
+export {
+  MyProjects,
+  MySubscriptions,
+  ProjectBatchFetch,
+  ProjectList,
+} from './projects/read';
 
 /**
  * 获取项目详情
@@ -265,52 +270,6 @@ export class ProjectFetch extends OpenAPIRoute {
       },
       worldbookEntriesPreview: preview.worldbookEntriesPreview,
       regexEntriesPreview: preview.regexEntriesPreview,
-    };
-  }
-}
-
-/**
- * 批量获取指定项目摘要。主要用于本地已安装项目筛选，不读取 R2 项目内容。
- */
-export class ProjectBatchFetch extends OpenAPIRoute {
-  schema = {
-    tags: ['Projects'],
-    summary: 'Get Project Summaries By IDs',
-    request: {
-      body: {
-        content: {
-          'application/json': {
-            schema: z.object({
-              projectIds: z.array(z.string().min(1)).min(1).max(50),
-            }),
-          },
-        },
-      },
-    },
-    responses: {
-      '200': { description: 'Returns project summaries for requested IDs' },
-    },
-  };
-
-  async handle(c: AppContext) {
-    const data = await this.getValidatedData<typeof this.schema>();
-    const payload = await getCurrentUserFromRequest(c);
-    const projectIds = Array.from(new Set(data.body.projectIds.map(value => value.trim()).filter(Boolean))).slice(0, 50);
-    const projects = await projectDb.getMany(c, projectIds, payload);
-
-    const visibleProjects = projects.filter(project => {
-      if (project.status === 'approved') return true;
-      return Boolean(payload && (project.authorId === payload.userId || payload.isAdmin));
-    });
-
-    return {
-      success: true,
-      projects: visibleProjects.map(project => ({
-        ...project,
-        authorAvatar: project.authorAvatar
-          ? `https://cdn.discordapp.com/avatars/${project.authorId}/${project.authorAvatar}.webp?size=100`
-          : null,
-      })),
     };
   }
 }
@@ -391,75 +350,6 @@ export class ProjectRepairResolve extends OpenAPIRoute {
     });
 
     return { success: true, results };
-  }
-}
-
-/**
- * 获取当前用户的所有项目
- */
-export class MyProjects extends OpenAPIRoute {
-  schema = {
-    tags: ['Projects'],
-    summary: 'Get My Projects',
-    request: {
-      headers: z.object({
-        authorization: z.string().describe('Session ID'),
-      }),
-    },
-    responses: {
-      '200': {
-        description: "Returns user's projects",
-      },
-    },
-  };
-
-  async handle(c: AppContext) {
-    const payload = await getCurrentUserFromRequest(c);
-    if (!payload) {
-      return c.json({ error: 'Unauthorized' }, 401);
-    }
-
-    const projects = await projectDb.getByAuthor(c, payload.userId, payload);
-
-    return {
-      success: true,
-      projects: projects.map(p => ({
-        ...p,
-        authorAvatar: p.authorAvatar
-          ? `https://cdn.discordapp.com/avatars/${p.authorId}/${p.authorAvatar}.webp?size=100`
-          : null,
-      })),
-    };
-  }
-}
-
-/**
- * 获取当前用户的项目更新订阅
- */
-export class MySubscriptions extends OpenAPIRoute {
-  schema = {
-    tags: ['Projects'],
-    summary: 'Get My Project Update Subscriptions',
-    request: {
-      headers: z.object({
-        authorization: z.string().describe('Session ID'),
-      }),
-    },
-    responses: {
-      '200': { description: "Returns user's subscribed project IDs" },
-    },
-  };
-
-  async handle(c: AppContext) {
-    const payload = await getCurrentUserFromRequest(c);
-    if (!payload) {
-      return c.json({ error: 'Unauthorized' }, 401);
-    }
-
-    return {
-      success: true,
-      projectIds: await projectDb.getSubscribedProjectIds(c, payload.userId),
-    };
   }
 }
 
