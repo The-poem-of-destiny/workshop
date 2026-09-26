@@ -275,10 +275,10 @@ assert.doesNotMatch(fragments.homeApiScript, /missingProjectIds\.map\(async proj
 assert.doesNotMatch(fragments.homeApiScript, /selectDiscoverProjects|getDiscoverRotationBucket|DISCOVER_CANDIDATE_POOL_SIZE/);
 assert.match(fragments.homeApiScript, /\{ key: 'discover', sort: 'discover', pageSize: 10 \}/);
 assert.match(fragments.homeApiScript, /\{ key: 'updated', sort: 'updated', pageSize: 5 \}/);
-assert.match(fragments.homeApiScript, /\{ key: 'likes', sort: 'likes', pageSize: 5 \}/);
+
 assert.match(fragments.homeLayoutRenderScript, /随机发现/);
 assert.match(fragments.homeLayoutRenderScript, /最近更新/);
-assert.match(fragments.homeLayoutRenderScript, /点赞最多/);
+
 assert.match(fragments.homeCardsRenderScript, /const projectType = getBaseTag\(project\)/);
 assert.match(fragments.homeCardsRenderScript, /const typeClass = getTypeClass\(project\)/);
 assert.match(fragments.homeCardsRenderScript, /getProjectDisplayTags\(project\)\.slice\(0, 5\)/);
@@ -338,6 +338,13 @@ assert.match(fragments.homeCardsRenderScript, /devteam-recommend-btn/);
 assert.match(fragments.homeApiScript, /\/api\/devteam-recommendations/);
 assert.match(fragments.homeModalsScript, /DevTeam Recommend/);
 assert.match(fragments.homeDetailModalRenderScript, /DevTeam 推荐/);
+assert.match(fragments.homeDetailModalRenderScript, /detail-devteam-recommend-btn/);
+assert.match(fragments.homeModalsScript, /detail-devteam-recommend-btn/);
+assert.match(fragments.homeCardsRenderScript, /还没有推荐/);
+assert.doesNotMatch(fragments.homeLayoutRenderScript, /shelves\.downloads/);
+assert.doesNotMatch(fragments.homeLayoutRenderScript, /shelves\.likes/);
+assert.doesNotMatch(fragments.homeApiScript, /key: 'downloads', sort: 'downloads'/);
+assert.doesNotMatch(fragments.homeApiScript, /key: 'likes', sort: 'likes'/);
 assert.doesNotMatch(fragments.homeLayoutRenderScript, /value: \"discover\", label: \"发现\"/);
 assert.match(fragments.homeLayoutRenderScript, /value: \"published\", label: \"最新发布\"/);
 assert.match(fragments.homeLayoutRenderScript, /value: \"rating\", label: \"玩家好评（暂未开放）\", disabled: true/);

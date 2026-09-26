@@ -152,8 +152,6 @@ async function fetchDiscoverShelves(forceRefresh = false) {
     { key: 'discover', sort: 'discover', pageSize: 10 },
     { key: 'published', sort: 'published', pageSize: 5 },
     { key: 'updated', sort: 'updated', pageSize: 5 },
-    { key: 'downloads', sort: 'downloads', pageSize: 5 },
-    { key: 'likes', sort: 'likes', pageSize: 5 },
   ];
   setDiscoverShelves({ ...state.discoverShelves, loading: true });
   renderApp();

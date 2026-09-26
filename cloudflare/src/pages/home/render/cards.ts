@@ -54,7 +54,7 @@ export const homeCardsRenderScript = [
   '}',
   'function renderDevTeamRecommendations() {',
   '  const curators = Array.isArray(state.devTeamCurators) ? state.devTeamCurators : [];',
-  '  if (!curators.length) return "";',
+  '  if (!curators.length) return state.currentUser?.isAdmin ? `<section class="devteam-recommendations"><div class="devteam-recommendations-title"><small>DEVTEAM RECOMMEND</small><h2>开发组推荐</h2></div><div class="devteam-recommend-empty"><i class="fas fa-user-pen"></i><div><strong>还没有推荐</strong><p>打开任意公开作品详情，点击「DevTeam 推荐」就可以写第一条。</p></div></div></section>` : "";',
   '  const blocks = curators.map(curator => {',
   '    const recommendations = Array.isArray(curator?.recommendations) ? curator.recommendations.filter(item => item?.project) : [];',
   '    if (!recommendations.length) return "";',
