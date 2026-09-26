@@ -5,6 +5,7 @@ import { homeProjectInstallModalScript } from './modal/project-install';
 import { homeProjectEditorModalScript } from './modal/project-editor';
 import { homeAdminReviewModalScript } from './modal/admin-review';
 import { homeAdminToolsModalScript } from './modal/admin-tools';
+import { homeDevTeamRecommendModalScript } from './modal/devteam-recommend';
 
 export const homeModalsScript = [
   homeModalCoreScript,
@@ -14,4 +15,5 @@ export const homeModalsScript = [
   homeProjectEditorModalScript,
   homeAdminReviewModalScript,
   homeAdminToolsModalScript,
+  homeDevTeamRecommendModalScript,
 ].join('\n');

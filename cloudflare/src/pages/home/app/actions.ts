@@ -275,6 +275,19 @@ export const homeAppActionsScript = String.raw`
         openCoverPresentationModal(project);
       });
     });
+    document.querySelectorAll('.devteam-recommend-btn').forEach(button => {
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const projectId = button.dataset.id;
+        const project = filteredProjects.find(item => item.id === projectId)
+          || state.projects.find(item => item.id === projectId)
+          || state.myProjects.find(item => item.id === projectId);
+        if (!project) { showToast('找不到项目资料', 'error'); return; }
+        button.closest('.project-card')?.classList.remove('admin-menu-open');
+        openDevTeamRecommendationModal(project);
+      });
+    });
 
     const setInstalledProjectsView = async enabled => {
       state.showSubscribedAndInstalledProjects = Boolean(enabled);
@@ -719,7 +732,10 @@ export const homeAppActionsScript = String.raw`
 
     document.querySelectorAll('.project-card, .discover-card').forEach(card => {
       const openDetail = () => {
-        const project = filteredProjects.find(item => item.id === card.dataset.id);
+        const projectId = card.dataset.id;
+        const project = filteredProjects.find(item => item.id === projectId)
+          || state.projects.find(item => item.id === projectId)
+          || (state.devTeamCurators || []).flatMap(curator => curator.recommendations || []).map(item => item.project).find(item => item?.id === projectId);
         if (project) showProjectDetail(project);
       };
       card.addEventListener('click', openDetail);

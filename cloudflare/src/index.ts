@@ -53,6 +53,11 @@ import {
 
 import { AdminDiscoverBannerUpdate, AdminDiscoverBannerUpload, DiscoverBannerGet } from './endpoints/site-settings';
 import {
+  AdminDevTeamRecommendationDelete,
+  AdminDevTeamRecommendationSet,
+  DevTeamRecommendationList,
+} from './endpoints/recommendations';
+import {
   AdminCharacterReferenceCreate,
   AdminCharacterReferenceVersionCreate,
   CharacterReferenceList,
@@ -189,6 +194,7 @@ openapi.post('/api/projects/batch', ProjectBatchFetch);
 openapi.post('/api/projects/repair-resolve', ProjectRepairResolve);
 openapi.get('/api/projects/:projectId', ProjectFetch);
 openapi.get('/api/site/discover-banner', DiscoverBannerGet);
+openapi.get('/api/devteam-recommendations', DevTeamRecommendationList);
 openapi.get('/api/character-references', CharacterReferenceList);
 openapi.get('/api/character-references/versions/:versionId/items', CharacterReferenceVersionItems);
 
@@ -211,6 +217,10 @@ openapi.post('/api/projects/:projectId/upload', ProjectUpload);
 openapi.post('/api/projects/:projectId/upload-cover', ProjectCoverUpload);
 openapi.put('/api/projects/:projectId/cover-presentation', ProjectCoverPresentationUpdate);
 openapi.post('/api/projects/:projectId/upload-regex', ProjectRegexUpload);
+
+// ============ DevTeam 推荐 (管理员维护) ============
+openapi.put('/api/admin/devteam-recommendations/:projectId', AdminDevTeamRecommendationSet);
+openapi.delete('/api/admin/devteam-recommendations/:projectId', AdminDevTeamRecommendationDelete);
 
 // ============ 项目文件下载 (代理) ============
 // 通过 worker 代理下载，解决 CORS 问题

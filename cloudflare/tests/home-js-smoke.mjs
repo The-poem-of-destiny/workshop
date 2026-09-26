@@ -48,6 +48,7 @@ const fragments = {
     await evaluateStandalone('src/pages/home/modal/project-editor.ts', 'homeProjectEditorModalScript'),
     await evaluateStandalone('src/pages/home/modal/admin-review.ts', 'homeAdminReviewModalScript'),
     await evaluateStandalone('src/pages/home/modal/admin-tools.ts', 'homeAdminToolsModalScript'),
+    await evaluateStandalone('src/pages/home/modal/devteam-recommend.ts', 'homeDevTeamRecommendModalScript'),
   ].join('\n'),
   homeRepairScript: await evaluateStandalone('src/pages/home/repair-ui.ts', 'homeRepairScript'),
   homePresentationScript: await evaluateStandalone('src/pages/home/presentation.ts', 'homePresentationScript'),
@@ -331,6 +332,12 @@ assert.match(fragments.homeStateScript, /DEFAULT_SORT_MODE = 'discover'/);
 assert.match(fragments.homeStateScript, /viewMode: 'discover'/);
 assert.match(fragments.homeLayoutRenderScript, /data-workshop-view=\"discover\"/);
 assert.match(fragments.homeLayoutRenderScript, /renderDiscoverHome/);
+assert.match(fragments.homeLayoutRenderScript, /renderDevTeamRecommendations\(\)/);
+assert.match(fragments.homeCardsRenderScript, /DEVTEAM RECOMMEND/);
+assert.match(fragments.homeCardsRenderScript, /devteam-recommend-btn/);
+assert.match(fragments.homeApiScript, /\/api\/devteam-recommendations/);
+assert.match(fragments.homeModalsScript, /DevTeam Recommend/);
+assert.match(fragments.homeDetailModalRenderScript, /DevTeam 推荐/);
 assert.doesNotMatch(fragments.homeLayoutRenderScript, /value: \"discover\", label: \"发现\"/);
 assert.match(fragments.homeLayoutRenderScript, /value: \"published\", label: \"最新发布\"/);
 assert.match(fragments.homeLayoutRenderScript, /value: \"rating\", label: \"玩家好评（暂未开放）\", disabled: true/);

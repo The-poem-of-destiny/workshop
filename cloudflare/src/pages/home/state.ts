@@ -101,6 +101,7 @@ const state = {
     mobilePositionY: 50,
     mobileZoom: 1,
   },
+  devTeamCurators: [],
   viewMode: 'discover',
   showOnlyMyProjects: false,
   showSubscribedAndInstalledProjects: false,
@@ -157,6 +158,26 @@ function setDiscoverBanner(banner) {
     ...state.discoverBanner,
     ...(banner && typeof banner === 'object' ? banner : {}),
   };
+}
+
+function setDevTeamCurators(curators) {
+  state.devTeamCurators = Array.isArray(curators) ? curators : [];
+}
+
+function getMyDevTeamRecommendation(projectId) {
+  const userId = state.currentUser?.id;
+  if (!userId) return null;
+  const curator = (state.devTeamCurators || []).find(item => item?.id === userId);
+  if (!curator) return null;
+  const recommendation = (curator.recommendations || []).find(item => item?.project?.id === projectId);
+  return recommendation ? { curator, recommendation } : null;
+}
+
+function getDevTeamRecommendationsForProject(projectId) {
+  return (state.devTeamCurators || []).flatMap(curator => {
+    const recommendation = (curator?.recommendations || []).find(item => item?.project?.id === projectId);
+    return recommendation ? [{ curator, recommendation }] : [];
+  });
 }
 
 function setProjects(projects) {

@@ -178,6 +178,29 @@ async function fetchDiscoverShelves(forceRefresh = false) {
   }
 }
 
+async function fetchDevTeamRecommendations(forceRefresh = false) {
+  const suffix = forceRefresh ? ('?_=' + Date.now()) : '';
+  const data = await apiFetch('/api/devteam-recommendations' + suffix);
+  const curators = Array.isArray(data.curators) ? data.curators : [];
+  setDevTeamCurators(curators);
+  const projects = curators.flatMap(curator => (curator.recommendations || []).map(item => item.project)).filter(Boolean);
+  syncProjectStats(projects, { replace: false });
+  return curators;
+}
+
+async function saveDevTeamRecommendation(projectId, comment, bio) {
+  await apiFetch('/api/admin/devteam-recommendations/' + encodeURIComponent(projectId), {
+    method: 'PUT',
+    body: JSON.stringify({ comment, bio }),
+  });
+  return fetchDevTeamRecommendations(true);
+}
+
+async function deleteDevTeamRecommendation(projectId) {
+  await apiFetch('/api/admin/devteam-recommendations/' + encodeURIComponent(projectId), { method: 'DELETE' });
+  return fetchDevTeamRecommendations(true);
+}
+
 async function fetchProjects(forceRefresh = false, options = {}) {
   const append = Boolean(options.append);
   const pageSize = Number(options.pageSize || state.projectPagination.pageSize || 50);

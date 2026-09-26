@@ -25,7 +25,10 @@ export const homeAppBootstrapScript = String.raw`
       resumeEmbeddedOAuthPolling();
     }
     showRejectedProjectReminder(authState?.rejectedProjects);
-    await fetchDiscoverBanner().catch(error => console.warn('[CreativeWorkshop] Banner 配置加载失败', error));
+    await Promise.all([
+      fetchDiscoverBanner().catch(error => console.warn('[CreativeWorkshop] Banner 配置加载失败', error)),
+      fetchDevTeamRecommendations().catch(error => console.warn('[CreativeWorkshop] DevTeam 推荐加载失败', error)),
+    ]);
     await fetchDiscoverShelves(false);
   }
 

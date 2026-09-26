@@ -1489,7 +1489,7 @@ async function enrichProject(
 /**
  * 解析项目数据库行
  */
-function parseProjectRow(row: Record<string, unknown>) {
+export function parseProjectRow(row: Record<string, unknown>) {
   let parsedTags: string[] = [];
   try {
     const rawTags = row.tags;
@@ -1581,7 +1581,7 @@ function parseProjectRow(row: Record<string, unknown>) {
     regexEntriesPreview: [],
     likesCount: Number(row.likes_count ?? 0),
     subscribesCount: Number(row.subscribes_count ?? 0),
-    userLiked: false,
+    userLiked: Number(row.user_liked ?? 0) === 1,
     userSubscribed: false,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
