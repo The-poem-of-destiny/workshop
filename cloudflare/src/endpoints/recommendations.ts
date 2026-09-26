@@ -51,13 +51,20 @@ export class DevTeamRecommendationList extends OpenAPIRoute {
        LEFT JOIN project_likes viewer_like
          ON viewer_like.project_id = p.id AND viewer_like.user_id = ?
        WHERE curator.enabled = 1
-         AND curator_user.is_admin = 1
+         AND (
+           curator_user.is_admin = 1
+           OR r.curator_id = ?
+           OR EXISTS (
+             SELECT 1 FROM super_admins super_admin
+             WHERE super_admin.user_id = r.curator_id
+           )
+         )
          AND p.status = 'approved'
          AND p.is_published = 1
          AND p.visibility = 1
        ORDER BY r.updated_at DESC
        LIMIT 100`,
-    ).bind(currentUser?.userId || '').all<RecommendationRow>();
+    ).bind(currentUser?.userId || '', c.env.SUPER_ADMIN_USER_ID?.trim() || '').all<RecommendationRow>();
 
     const rows = result.results || [];
     const curators = new Map<string, any>();

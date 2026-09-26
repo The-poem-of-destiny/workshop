@@ -26,6 +26,7 @@ const homeAppSource = (await Promise.all([
 ].map(path => readFile(resolve(path), 'utf8')))).join('\n');
 const homePageSource = await readFile(resolve('src/pages/home.ts'), 'utf8');
 const homeStylesSource = await readFile(resolve('src/pages/home/styles.ts'), 'utf8');
+const recommendationsEndpointSource = await readFile(resolve('src/endpoints/recommendations.ts'), 'utf8');
 const fragments = {
   homeStateScript: await evaluateStandalone('src/pages/home/state.ts', 'homeStateScript'),
   homeUtilsScript: await evaluateStandalone('src/pages/home/utils.ts', 'homeUtilsScript'),
@@ -336,6 +337,8 @@ assert.match(fragments.homeLayoutRenderScript, /renderDevTeamRecommendations\(\)
 assert.match(fragments.homeCardsRenderScript, /DEVTEAM RECOMMEND/);
 assert.match(fragments.homeCardsRenderScript, /devteam-recommend-btn/);
 assert.match(fragments.homeApiScript, /\/api\/devteam-recommendations/);
+assert.match(recommendationsEndpointSource, /SUPER_ADMIN_USER_ID/);
+assert.match(recommendationsEndpointSource, /FROM super_admins super_admin/);
 assert.match(fragments.homeModalsScript, /DevTeam Recommend/);
 assert.match(fragments.homeDetailModalRenderScript, /DevTeam 推荐/);
 assert.match(fragments.homeDetailModalRenderScript, /detail-devteam-recommend-btn/);
