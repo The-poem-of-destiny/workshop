@@ -102,6 +102,7 @@ const state = {
     mobileZoom: 1,
   },
   devTeamCurators: [],
+  activeDevTeamCuratorIndex: 0,
   viewMode: 'discover',
   showOnlyMyProjects: false,
   showSubscribedAndInstalledProjects: false,
@@ -162,6 +163,12 @@ function setDiscoverBanner(banner) {
 
 function setDevTeamCurators(curators) {
   state.devTeamCurators = Array.isArray(curators) ? curators : [];
+  if (!state.devTeamCurators.length) {
+    state.activeDevTeamCuratorIndex = 0;
+    return;
+  }
+  const currentIndex = Number(state.activeDevTeamCuratorIndex || 0);
+  state.activeDevTeamCuratorIndex = Math.min(state.devTeamCurators.length - 1, Math.max(0, currentIndex));
 }
 
 function getMyDevTeamRecommendation(projectId) {

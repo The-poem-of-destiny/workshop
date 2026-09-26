@@ -186,10 +186,10 @@ async function fetchDevTeamRecommendations(forceRefresh = false) {
   return curators;
 }
 
-async function saveDevTeamRecommendation(projectId, comment, bio) {
+async function saveDevTeamRecommendation(projectId, fields) {
   await apiFetch('/api/admin/devteam-recommendations/' + encodeURIComponent(projectId), {
     method: 'PUT',
-    body: JSON.stringify({ comment, bio }),
+    body: JSON.stringify(fields || {}),
   });
   return fetchDevTeamRecommendations(true);
 }

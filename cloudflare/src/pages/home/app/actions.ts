@@ -289,6 +289,57 @@ export const homeAppActionsScript = String.raw`
       });
     });
 
+    const shiftDevTeamCurator = delta => {
+      const count = Array.isArray(state.devTeamCurators) ? state.devTeamCurators.length : 0;
+      if (count < 2) return;
+      const current = Number(state.activeDevTeamCuratorIndex || 0);
+      state.activeDevTeamCuratorIndex = ((current + Number(delta || 0)) % count + count) % count;
+      renderApp();
+    };
+    document.querySelectorAll('[data-devteam-curator-shift]').forEach(button => {
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        shiftDevTeamCurator(Number(button.dataset.devteamCuratorShift || 0));
+      });
+    });
+    document.querySelectorAll('[data-devteam-curator-index]').forEach(button => {
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        state.activeDevTeamCuratorIndex = Number(button.dataset.devteamCuratorIndex || 0);
+        renderApp();
+      });
+    });
+    document.querySelectorAll('.devteam-curator-head[data-devteam-curator-id]').forEach(button => {
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        openDlcKitchenCuratorModal(button.dataset.devteamCuratorId);
+      });
+    });
+    const devTeamCarousel = document.querySelector('.devteam-curator-carousel');
+    if (devTeamCarousel && (state.devTeamCurators || []).length > 1) {
+      let touchStartX = null;
+      let touchStartY = null;
+      devTeamCarousel.addEventListener('touchstart', event => {
+        const touch = event.touches?.[0];
+        touchStartX = touch ? touch.clientX : null;
+        touchStartY = touch ? touch.clientY : null;
+      }, { passive: true });
+      devTeamCarousel.addEventListener('touchend', event => {
+        if (touchStartX === null || touchStartY === null) return;
+        const touch = event.changedTouches?.[0];
+        if (!touch) return;
+        const deltaX = touch.clientX - touchStartX;
+        const deltaY = touch.clientY - touchStartY;
+        touchStartX = null;
+        touchStartY = null;
+        if (Math.abs(deltaX) < 48 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
+        shiftDevTeamCurator(deltaX < 0 ? 1 : -1);
+      }, { passive: true });
+    }
+
     const setInstalledProjectsView = async enabled => {
       state.showSubscribedAndInstalledProjects = Boolean(enabled);
       if (state.showSubscribedAndInstalledProjects) state.showOnlyMyProjects = false;

@@ -8,7 +8,9 @@ type RecommendationRow = Record<string, unknown> & {
   curator_id: string;
   project_id: string;
   comment_text: string;
+  reaction_label: string | null;
   recommendation_updated_at: string;
+  curator_title: string | null;
   curator_bio: string | null;
   curator_username: string;
   curator_global_name: string | null;
@@ -38,7 +40,9 @@ export class DevTeamRecommendationList extends OpenAPIRoute {
          r.curator_id,
          r.project_id,
          r.comment_text,
+         r.reaction_label,
          r.updated_at AS recommendation_updated_at,
+         curator.title AS curator_title,
          curator.bio AS curator_bio,
          curator_user.username AS curator_username,
          curator_user.global_name AS curator_global_name,
@@ -76,6 +80,7 @@ export class DevTeamRecommendationList extends OpenAPIRoute {
           id: row.curator_id,
           name: row.curator_global_name || row.curator_username,
           avatarUrl: getCuratorAvatarUrl(row),
+          title: row.curator_title || '',
           bio: row.curator_bio || '',
           recommendations: [],
         });
@@ -83,6 +88,7 @@ export class DevTeamRecommendationList extends OpenAPIRoute {
       curators.get(row.curator_id).recommendations.push({
         project,
         comment: row.comment_text,
+        reactionLabel: row.reaction_label || '',
         updatedAt: row.recommendation_updated_at,
       });
     }
@@ -103,6 +109,8 @@ export class AdminDevTeamRecommendationSet extends OpenAPIRoute {
           'application/json': {
             schema: z.object({
               comment: z.string().trim().min(1).max(500),
+              reactionLabel: z.string().trim().max(32).optional(),
+              title: z.string().trim().max(48).optional(),
               bio: z.string().trim().max(160).optional(),
             }),
           },
@@ -128,20 +136,34 @@ export class AdminDevTeamRecommendationSet extends OpenAPIRoute {
 
     await c.env.DB.batch([
       c.env.DB.prepare(
-        `INSERT INTO devteam_curators (user_id, bio, enabled, updated_at)
-         VALUES (?, COALESCE(?, ''), 1, CURRENT_TIMESTAMP)
+        `INSERT INTO devteam_curators (user_id, title, bio, enabled, updated_at)
+         VALUES (?, COALESCE(?, ''), COALESCE(?, ''), 1, CURRENT_TIMESTAMP)
          ON CONFLICT(user_id) DO UPDATE SET
+           title = COALESCE(?, devteam_curators.title),
            bio = COALESCE(?, devteam_curators.bio),
            enabled = 1,
            updated_at = CURRENT_TIMESTAMP`,
-      ).bind(payload.userId, data.body.bio ?? null, data.body.bio ?? null),
+      ).bind(
+        payload.userId,
+        data.body.title ?? null,
+        data.body.bio ?? null,
+        data.body.title ?? null,
+        data.body.bio ?? null,
+      ),
       c.env.DB.prepare(
-        `INSERT INTO devteam_recommendations (curator_id, project_id, comment_text, updated_at)
-         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        `INSERT INTO devteam_recommendations (curator_id, project_id, comment_text, reaction_label, updated_at)
+         VALUES (?, ?, ?, COALESCE(?, ''), CURRENT_TIMESTAMP)
          ON CONFLICT(curator_id, project_id) DO UPDATE SET
            comment_text = excluded.comment_text,
+           reaction_label = COALESCE(?, devteam_recommendations.reaction_label),
            updated_at = CURRENT_TIMESTAMP`,
-      ).bind(payload.userId, data.params.projectId, data.body.comment),
+      ).bind(
+        payload.userId,
+        data.params.projectId,
+        data.body.comment,
+        data.body.reactionLabel ?? null,
+        data.body.reactionLabel ?? null,
+      ),
     ]);
 
     return { success: true };

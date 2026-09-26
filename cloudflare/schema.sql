@@ -100,6 +100,7 @@ CREATE INDEX IF NOT EXISTS idx_users_guilds ON users(guilds);
 
 CREATE TABLE IF NOT EXISTS devteam_curators (
     user_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL DEFAULT '',
     bio TEXT NOT NULL DEFAULT '',
     enabled INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -111,6 +112,7 @@ CREATE TABLE IF NOT EXISTS devteam_recommendations (
     curator_id TEXT NOT NULL,
     project_id TEXT NOT NULL,
     comment_text TEXT NOT NULL,
+    reaction_label TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (curator_id, project_id),
