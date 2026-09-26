@@ -61,7 +61,7 @@ export const homeLayoutRenderScript = [
   '  const options = [{ value: "all", label: "全部项目", typeClass: "all", icon: "fa-border-all" }, ...BASE_TAG_META.map(option => ({ ...option, icon: { system: "fa-microchip", extension: "fa-puzzle-piece", character: "fa-user-group", event: "fa-calendar-days" }[option.typeClass] || "fa-folder" }))];',
   '  const pendingAttr = state.filterRequestPending ? "disabled" : "";',
   '  const pendingClass = state.filterRequestPending ? "is-disabled" : "";',
-  '  const discoverHtml = `<button class="sidebar-nav-btn sidebar-discover-btn ${state.viewMode === "discover" ? "active" : ""} ${pendingClass}" type="button" data-workshop-view="discover" ${pendingAttr}><i class="fas fa-sparkles"></i><span>发现</span></button><div class="sidebar-nav-divider"></div>`;',
+  '  const discoverHtml = `<button class="sidebar-nav-btn sidebar-discover-btn ${state.viewMode === "discover" ? "active" : ""} ${pendingClass}" type="button" data-workshop-view="discover" ${pendingAttr}><i class="fas fa-compass"></i><span>发现</span></button><div class="sidebar-nav-divider"></div>`;',
   '  const optionHtml = options.map(option => `<button class="tag-filter-btn sidebar-nav-btn ${state.viewMode === "catalog" && state.activeBaseTag === option.value ? "active" : ""} ${option.typeClass} ${pendingClass}" type="button" data-base-tag="${option.value}" ${pendingAttr}><i class="fas ${option.icon}"></i><span>${escapeHtml(option.label)}</span></button>`).join("");',
   '  return `<nav class="tag-filter sidebar-nav" id="baseTagFilter" aria-label="作品分类">${discoverHtml}${optionHtml}</nav>`;',
   '}',
