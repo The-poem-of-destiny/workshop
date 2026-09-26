@@ -186,6 +186,39 @@ async function fetchDevTeamRecommendations(forceRefresh = false) {
   return curators;
 }
 
+async function fetchDlcKitchenProfile(forceRefresh = false) {
+  if (!state.currentUser?.isAdmin) return null;
+  if (!forceRefresh && state.dlcKitchenProfile) return state.dlcKitchenProfile;
+  const suffix = forceRefresh ? ('?_=' + Date.now()) : '';
+  const data = await apiFetch('/api/admin/devteam-curator-profile' + suffix);
+  const profile = data?.profile || {};
+  state.dlcKitchenProfile = {
+    title: String(profile.title || ''),
+    bio: String(profile.bio || ''),
+    reactionPresets: Array.isArray(profile.reactionPresets)
+      ? profile.reactionPresets.map(item => String(item || '').trim()).filter(Boolean).slice(0, 12)
+      : [],
+  };
+  return state.dlcKitchenProfile;
+}
+
+async function saveDlcKitchenProfile(profile) {
+  const data = await apiFetch('/api/admin/devteam-curator-profile', {
+    method: 'PUT',
+    body: JSON.stringify(profile || {}),
+  });
+  const saved = data?.profile || {};
+  state.dlcKitchenProfile = {
+    title: String(saved.title || ''),
+    bio: String(saved.bio || ''),
+    reactionPresets: Array.isArray(saved.reactionPresets)
+      ? saved.reactionPresets.map(item => String(item || '').trim()).filter(Boolean).slice(0, 12)
+      : [],
+  };
+  await fetchDevTeamRecommendations(true);
+  return state.dlcKitchenProfile;
+}
+
 async function saveDevTeamRecommendation(projectId, fields) {
   await apiFetch('/api/admin/devteam-recommendations/' + encodeURIComponent(projectId), {
     method: 'PUT',

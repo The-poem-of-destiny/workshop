@@ -23,6 +23,31 @@ function getCuratorAvatarUrl(row: RecommendationRow): string {
   return `https://cdn.discordapp.com/avatars/${row.curator_id}/${row.curator_avatar}.webp?size=100`;
 }
 
+type CuratorProfileRow = {
+  title: string | null;
+  bio: string | null;
+  reaction_presets: string | null;
+};
+
+function parseReactionPresets(value: unknown): string[] {
+  if (typeof value !== 'string' || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item): item is string => typeof item === 'string')
+      .map(item => item.trim())
+      .filter(Boolean)
+      .slice(0, 12);
+  } catch {
+    return [];
+  }
+}
+
+function normalizeReactionPresets(items: string[]): string[] {
+  return Array.from(new Set(items.map(item => item.trim()).filter(Boolean))).slice(0, 12);
+}
+
 export class DevTeamRecommendationList extends OpenAPIRoute {
   schema = {
     tags: ['Recommendations'],
@@ -97,6 +122,95 @@ export class DevTeamRecommendationList extends OpenAPIRoute {
   }
 }
 
+export class AdminDevTeamCuratorProfileGet extends OpenAPIRoute {
+  schema = {
+    tags: ['Admin'],
+    summary: 'Get own DLC kitchen curator profile',
+    request: {
+      headers: z.object({ authorization: z.string().describe('Session ID') }),
+    },
+    responses: {
+      '200': { description: 'Curator profile returned' },
+      '403': { description: 'Admin only' },
+    },
+  };
+
+  async handle(c: AppContext) {
+    const payload = await getCurrentUserFromRequest(c);
+    if (!payload?.isAdmin) return c.json({ error: 'Admin only' }, 403);
+
+    const row = await c.env.DB.prepare(
+      'SELECT title, bio, reaction_presets FROM devteam_curators WHERE user_id = ?',
+    ).bind(payload.userId).first<CuratorProfileRow>();
+
+    return {
+      success: true,
+      profile: {
+        title: row?.title || '',
+        bio: row?.bio || '',
+        reactionPresets: parseReactionPresets(row?.reaction_presets),
+      },
+    };
+  }
+}
+
+export class AdminDevTeamCuratorProfileSet extends OpenAPIRoute {
+  schema = {
+    tags: ['Admin'],
+    summary: 'Update own DLC kitchen curator profile',
+    request: {
+      headers: z.object({ authorization: z.string().describe('Session ID') }),
+      body: {
+        content: {
+          'application/json': {
+            schema: z.object({
+              title: z.string().trim().max(48),
+              bio: z.string().trim().max(160),
+              reactionPresets: z.array(z.string().trim().min(1).max(32)).max(12),
+            }),
+          },
+        },
+      },
+    },
+    responses: {
+      '200': { description: 'Curator profile saved' },
+      '403': { description: 'Admin only' },
+    },
+  };
+
+  async handle(c: AppContext) {
+    const payload = await getCurrentUserFromRequest(c);
+    if (!payload?.isAdmin) return c.json({ error: 'Admin only' }, 403);
+    const data = await this.getValidatedData<typeof this.schema>();
+    const reactionPresets = normalizeReactionPresets(data.body.reactionPresets);
+
+    await c.env.DB.prepare(
+      `INSERT INTO devteam_curators (user_id, title, bio, reaction_presets, enabled, updated_at)
+       VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+       ON CONFLICT(user_id) DO UPDATE SET
+         title = excluded.title,
+         bio = excluded.bio,
+         reaction_presets = excluded.reaction_presets,
+         enabled = 1,
+         updated_at = CURRENT_TIMESTAMP`,
+    ).bind(
+      payload.userId,
+      data.body.title,
+      data.body.bio,
+      JSON.stringify(reactionPresets),
+    ).run();
+
+    return {
+      success: true,
+      profile: {
+        title: data.body.title,
+        bio: data.body.bio,
+        reactionPresets,
+      },
+    };
+  }
+}
+
 export class AdminDevTeamRecommendationSet extends OpenAPIRoute {
   schema = {
     tags: ['Admin'],
@@ -110,8 +224,6 @@ export class AdminDevTeamRecommendationSet extends OpenAPIRoute {
             schema: z.object({
               comment: z.string().trim().min(1).max(500),
               reactionLabel: z.string().trim().max(32).optional(),
-              title: z.string().trim().max(48).optional(),
-              bio: z.string().trim().max(160).optional(),
             }),
           },
         },
@@ -136,20 +248,12 @@ export class AdminDevTeamRecommendationSet extends OpenAPIRoute {
 
     await c.env.DB.batch([
       c.env.DB.prepare(
-        `INSERT INTO devteam_curators (user_id, title, bio, enabled, updated_at)
-         VALUES (?, COALESCE(?, ''), COALESCE(?, ''), 1, CURRENT_TIMESTAMP)
+        `INSERT INTO devteam_curators (user_id, enabled, updated_at)
+         VALUES (?, 1, CURRENT_TIMESTAMP)
          ON CONFLICT(user_id) DO UPDATE SET
-           title = COALESCE(?, devteam_curators.title),
-           bio = COALESCE(?, devteam_curators.bio),
            enabled = 1,
            updated_at = CURRENT_TIMESTAMP`,
-      ).bind(
-        payload.userId,
-        data.body.title ?? null,
-        data.body.bio ?? null,
-        data.body.title ?? null,
-        data.body.bio ?? null,
-      ),
+      ).bind(payload.userId),
       c.env.DB.prepare(
         `INSERT INTO devteam_recommendations (curator_id, project_id, comment_text, reaction_label, updated_at)
          VALUES (?, ?, ?, COALESCE(?, ''), CURRENT_TIMESTAMP)

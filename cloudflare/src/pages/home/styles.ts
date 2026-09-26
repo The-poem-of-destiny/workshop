@@ -987,6 +987,22 @@ button.discover-card-stat:disabled { cursor:default; opacity:.58; }
 .devteam-editor-form textarea { min-height:130px; resize:vertical; line-height:1.55; }
 .devteam-editor-actions { display:flex; justify-content:flex-end; gap:8px; }
 .devteam-editor-note { margin:0; color:#74716b; font-size:.66rem; line-height:1.5; }
+.devteam-editor-project > span { color:#85827b; font-size:.67rem; line-height:1.45; }
+.dlc-kitchen-preset-editor,.dlc-kitchen-preset-quick-wrap { display:grid; gap:8px; }
+.dlc-kitchen-preset-editor { padding:11px 12px; border:1px solid rgba(255,255,255,.07); border-radius:9px; background:rgba(255,255,255,.02); }
+.dlc-kitchen-preset-editor-head { display:flex; align-items:center; justify-content:space-between; gap:12px; color:#d8d5ce; font-size:.76rem; font-weight:650; }
+.dlc-kitchen-preset-editor-head small,.dlc-kitchen-preset-hint,.dlc-kitchen-preset-quick-wrap > small { color:#77756f; font-size:.65rem; font-weight:400; line-height:1.45; }
+.dlc-kitchen-preset-list,.dlc-kitchen-preset-quick { display:flex; flex-wrap:wrap; gap:7px; min-height:34px; align-items:center; }
+.dlc-kitchen-preset-chip { min-height:34px; max-width:100%; padding:6px 10px; border:1px solid rgba(100,167,213,.24); border-radius:999px; background:rgba(100,167,213,.07); color:#9cc8e5; font-family:inherit; font-size:.68rem; font-weight:650; line-height:1.25; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.dlc-kitchen-preset-chip:hover,.dlc-kitchen-preset-chip.active { border-color:rgba(115,184,230,.48); background:rgba(100,167,213,.16); color:#d2ecfb; }
+.dlc-kitchen-preset-chip--remove { display:inline-flex; align-items:center; gap:7px; }
+.dlc-kitchen-preset-chip--remove i { opacity:.65; font-size:.58rem; }
+.dlc-kitchen-preset-empty { color:#716f69; font-size:.67rem; }
+.dlc-kitchen-preset-add { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; }
+.dlc-kitchen-preset-add input { width:100%; min-width:0; padding:10px 11px; border:1px solid rgba(255,255,255,.09); border-radius:8px; background:#17181a; color:#e4e2dd; font:inherit; }
+.dlc-kitchen-preset-quick-wrap > span { color:#d8d5ce; font-size:.76rem; font-weight:650; }
+.dlc-kitchen-preset-quick-wrap > span small { color:#77756f; font-size:.65rem; font-weight:400; }
+.dlc-kitchen-preset-quick-wrap--empty { padding:10px 11px; border:1px dashed rgba(255,255,255,.08); border-radius:8px; background:rgba(255,255,255,.018); }
 .devteam-detail-recommendations { margin-top:18px; }
 .devteam-detail-recommendation-list { display:grid; gap:9px; margin-top:10px; }
 .devteam-detail-recommendation { display:grid; grid-template-columns:38px minmax(0,1fr); gap:10px; padding:10px; border:1px solid rgba(255,255,255,.065); border-radius:9px; background:rgba(255,255,255,.022); }
@@ -1017,6 +1033,9 @@ button.discover-card-stat:disabled { cursor:default; opacity:.58; }
   .devteam-curator-arrow--next { right:6px; }
   .devteam-editor-actions { flex-direction:column-reverse; }
   .devteam-editor-actions .btn { width:100%; }
+  .dlc-kitchen-preset-add { grid-template-columns:1fr; }
+  .dlc-kitchen-preset-add .btn { width:100%; min-height:42px; }
+  .dlc-kitchen-preset-chip { min-height:38px; padding:8px 11px; }
   .dlc-kitchen-full-grid { grid-template-columns:1fr; }
 }
 

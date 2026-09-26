@@ -102,6 +102,7 @@ const state = {
     mobileZoom: 1,
   },
   devTeamCurators: [],
+  dlcKitchenProfile: null,
   activeDevTeamCuratorIndex: 0,
   viewMode: 'discover',
   showOnlyMyProjects: false,
@@ -148,7 +149,7 @@ function setCurrentUser(user) {
   const nextUserId = nextUser?.id || null;
   state.currentUser = nextUser;
   if (previousUserId !== nextUserId) {
-    
+    state.dlcKitchenProfile = null;
     state.subsMap = new Map();
     state.subscriptionsLoaded = false;
   }

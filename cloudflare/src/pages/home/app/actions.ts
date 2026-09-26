@@ -7,6 +7,7 @@ export const homeAppActionsScript = String.raw`
     const uploadBtn = document.getElementById('uploadBtn');
     const myProjectsUploadBtn = document.getElementById('myProjectsUploadBtn');
     const myProjectsMenuBtn = document.getElementById('myProjectsMenuBtn');
+    const dlcKitchenSettingsBtn = document.getElementById('dlcKitchenSettingsBtn');
     const adminPanelBtn = document.getElementById('adminPanelBtn');
     const bannerSettingsBtn = document.getElementById('bannerSettingsBtn');
     const addAdminBtn = document.getElementById('addAdminBtn');
@@ -35,6 +36,7 @@ export const homeAppActionsScript = String.raw`
     const mobileDlcRepairBtn = document.getElementById('mobileDlcRepairBtn');
     const mobileMyProjectsBtn = document.getElementById('mobileMyProjectsBtn');
     const mobileUploadBtn = document.getElementById('mobileUploadBtn');
+    const mobileDlcKitchenSettingsBtn = document.getElementById('mobileDlcKitchenSettingsBtn');
     const mobileAdminPanelBtn = document.getElementById('mobileAdminPanelBtn');
     const mobileBannerSettingsBtn = document.getElementById('mobileBannerSettingsBtn');
     const mobileAddAdminBtn = document.getElementById('mobileAddAdminBtn');
@@ -243,6 +245,16 @@ export const homeAppActionsScript = String.raw`
     };
     if (myProjectsMenuBtn) myProjectsMenuBtn.onclick = toggleMyProjectsView;
     if (mobileMyProjectsBtn) mobileMyProjectsBtn.onclick = toggleMyProjectsView;
+    if (dlcKitchenSettingsBtn) dlcKitchenSettingsBtn.onclick = event => {
+      event.stopPropagation();
+      state.userMenuOpen = false;
+      void openDlcKitchenSettingsModal();
+    };
+    if (mobileDlcKitchenSettingsBtn) mobileDlcKitchenSettingsBtn.onclick = event => {
+      event.stopPropagation();
+      closeMobileTool();
+      void openDlcKitchenSettingsModal();
+    };
     if (adminPanelBtn) adminPanelBtn.onclick = openAdminPanel;
     if (mobileAdminPanelBtn) mobileAdminPanelBtn.onclick = () => { closeMobileTool(); openAdminPanel(); };
     if (bannerSettingsBtn) bannerSettingsBtn.onclick = event => {

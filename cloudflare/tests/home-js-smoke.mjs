@@ -27,6 +27,7 @@ const homeAppSource = (await Promise.all([
 const homePageSource = await readFile(resolve('src/pages/home.ts'), 'utf8');
 const homeStylesSource = await readFile(resolve('src/pages/home/styles.ts'), 'utf8');
 const recommendationsEndpointSource = await readFile(resolve('src/endpoints/recommendations.ts'), 'utf8');
+const indexSource = await readFile(resolve('src/index.ts'), 'utf8');
 const fragments = {
   homeStateScript: await evaluateStandalone('src/pages/home/state.ts', 'homeStateScript'),
   homeUtilsScript: await evaluateStandalone('src/pages/home/utils.ts', 'homeUtilsScript'),
@@ -341,12 +342,24 @@ assert.match(recommendationsEndpointSource, /SUPER_ADMIN_USER_ID/);
 assert.match(recommendationsEndpointSource, /FROM super_admins super_admin/);
 assert.match(recommendationsEndpointSource, /curator\.title AS curator_title/);
 assert.match(recommendationsEndpointSource, /r\.reaction_label/);
+assert.match(recommendationsEndpointSource, /reaction_presets/);
 assert.match(recommendationsEndpointSource, /reactionLabel: z\.string\(\)\.trim\(\)\.max\(32\)/);
+assert.match(recommendationsEndpointSource, /reactionPresets: z\.array/);
+assert.match(indexSource, /\/api\/admin\/devteam-curator-profile/);
+assert.match(fragments.homeApiScript, /fetchDlcKitchenProfile/);
+assert.match(fragments.homeApiScript, /saveDlcKitchenProfile/);
 assert.match(fragments.homeCardsRenderScript, /data-devteam-curator-shift/);
 assert.match(fragments.homeCardsRenderScript, /查看全部 \$\{recommendations\.length\} 道/);
 assert.match(fragments.homeAppActionsScript, /touchstart/);
 assert.match(fragments.homeAppActionsScript, /openDlcKitchenCuratorModal/);
-assert.match(fragments.homeModalsScript, /devTeamCuratorTitle/);
+assert.match(fragments.homeAppActionsScript, /openDlcKitchenSettingsModal/);
+assert.match(fragments.homeLayoutRenderScript, /dlcKitchenSettingsBtn/);
+assert.match(fragments.homeLayoutRenderScript, /mobileDlcKitchenSettingsBtn/);
+assert.match(fragments.homeModalsScript, /dlcKitchenCuratorTitle/);
+assert.match(fragments.homeModalsScript, /dlcKitchenCuratorBio/);
+assert.match(fragments.homeModalsScript, /dlcKitchenPresetAdd/);
+assert.match(fragments.homeModalsScript, /data-reaction-preset-index/);
+assert.doesNotMatch(fragments.homeModalsScript, /devTeamCuratorTitle/);
 assert.match(fragments.homeModalsScript, /devTeamReactionLabel/);
 assert.match(fragments.homeModalsScript, /DLC私房菜/);
 assert.match(fragments.homeDetailModalRenderScript, /DLC私房菜/);

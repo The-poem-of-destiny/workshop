@@ -53,6 +53,8 @@ import {
 
 import { AdminDiscoverBannerUpdate, AdminDiscoverBannerUpload, DiscoverBannerGet } from './endpoints/site-settings';
 import {
+  AdminDevTeamCuratorProfileGet,
+  AdminDevTeamCuratorProfileSet,
   AdminDevTeamRecommendationDelete,
   AdminDevTeamRecommendationSet,
   DevTeamRecommendationList,
@@ -218,7 +220,9 @@ openapi.post('/api/projects/:projectId/upload-cover', ProjectCoverUpload);
 openapi.put('/api/projects/:projectId/cover-presentation', ProjectCoverPresentationUpdate);
 openapi.post('/api/projects/:projectId/upload-regex', ProjectRegexUpload);
 
-// ============ DevTeam 推荐 (管理员维护) ============
+// ============ DLC私房菜 (管理员维护) ============
+openapi.get('/api/admin/devteam-curator-profile', AdminDevTeamCuratorProfileGet);
+openapi.put('/api/admin/devteam-curator-profile', AdminDevTeamCuratorProfileSet);
 openapi.put('/api/admin/devteam-recommendations/:projectId', AdminDevTeamRecommendationSet);
 openapi.delete('/api/admin/devteam-recommendations/:projectId', AdminDevTeamRecommendationDelete);
 
