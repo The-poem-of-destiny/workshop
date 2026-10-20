@@ -135,6 +135,26 @@ packages/{contracts,content,domain}
 - **旧路径 shim**：由同一个 bucket 提供，保留一个下架周期后删除。
 - **回滚**：把稳定指针与版本记录指回上一版本对象，不重建 Worker。
 
+### D-22 客户端分发：Worker 代理 R2 + Workers Cache
+
+替代 D-21 中“R2 自定义域 + zone CDN”的部分。
+
+- **不使用 zone 缓存**，也不给 R2 绑自定义域。`/client/*` 由 Worker 读取 R2 对象后返回。
+- 版本化路径 `/client/v/<sha>/index.js`：
+  - 浏览器与边缘都 `immutable`，`max-age=31536000`；
+  - `Cache-Tag: client:v:<sha>`。
+- 稳定指针 `/client/stable/index.js`（以及 `staging`）：
+  - 浏览器：`Cache-Control: public, max-age=0, must-revalidate`；
+  - 边缘：`Cloudflare-CDN-Cache-Control: max-age=300`，`Cache-Tag: client:stable`；
+  - 发布时覆盖对象后 `ctx.cache.purge({ tags: ['client:stable'] })`，不必等 TTL。
+- CORS：`Access-Control-Allow-Origin: *`，不带 credentials（随机酒馆域名需要模块 import）。
+- 发布顺序：上传版本对象 → 更新 D1 版本记录 → 覆盖稳定对象 → purge tag。
+- 回滚：覆盖稳定对象 + 更新记录 + purge。
+- 取舍：
+  - HIT 时不执行 Worker；MISS 时计一次 Worker 请求。
+  - 开启 Workers Cache 后，Web 的 Static Assets 请求也按普通请求计费（金额很小）。
+  - 稳定指针的边缘 TTL 决定“未被 purge 时”的最坏陈旧窗口。
+
 ---
 
 ## 待定
@@ -161,3 +181,4 @@ packages/{contracts,content,domain}
 | D-20 | 启用 `client.minimum`（早期建议） | D-06 精确匹配 |
 | D-21 | 嵌入模式用 BroadcastChannel/localStorage 交付 token（讨论稿） | D-10 一次性 code + verifier |
 | D-22 | 客户端 block 仍跑 DO 生成报告（讨论稿） | D-09 不跑 DO |
+| D-23 | R2 自定义域 + zone CDN 分发 client（D-21） | D-22 Worker 代理 + Workers Cache |
