@@ -2,13 +2,15 @@
 
 日期：2026-10-20  
 输入：两份独立方案（`model-deepseek.md` 记为 A，`model-gpt.md` 记为 B）+ 本次逐文件复核。  
-性质：这是**决策文档**，不是三份方案的对照。冲突项在 §12 裁决，采纳来源逐条标注。
+性质：**架构与迁移方案**；决策唯一来源是 [`decisions.md`](decisions.md)。冲突项在 §12 裁决，采纳来源逐条标注。
 
 复核方式：A/B 的关键指控都回到代码验过；另外补查了三处会影响裁决的事实——`visibility` 的实际过滤位置、FTS 搜索的真实调用、排行相关表的引用范围（见 §1.3、§12）。
 
 ---
 
-## 0. 决策摘要
+## 0. 方案摘要
+
+> 导航用摘要；决策以 [`decisions.md`](decisions.md) 为准，本节不复述细节。
 
 1. **重写，不搬目录。** 保留产品语义与安全姿态，替换实现：一个 pnpm workspace、一个 Worker、一个 React Web、一个 Tavern Helper 桥接脚本。
 2. **鉴权先修，再谈结构。** OAuth 登录当前可被任意站点劫持（已核实）；改成 Origin 白名单 + 一次性 flow + 可撤销 opaque session，角色每请求读库。
@@ -16,10 +18,10 @@
 4. **单一 Worker + Static Assets**，不用 Pages；**Free 套餐下保留一个 `ContentService` DO**（Worker 10ms / DO 30s），删除正则分发器与不必要的读路径转发；KV 新系统不用。
 5. **数据从 `0001_initial.sql` 重建**，旧库只读保留；迁移保留公开项目 id，逐表映射 + 对账。
 6. **一次性切换**：停写屏障必须覆盖旧文件 GET 计数与 OAuth 写路径；开放写入后不承诺无损回切旧库。
-7. **缓存分两步走**：切换时所有动态 API `no-store`；验收后再对 viewer-neutral 的公开 GET 开 Workers Cache。
-8. **保留中文 FTS 搜索、排行榜、互动计数与抽签行为**；只删除确认无生产调用的旧小时榜模块与表。
+7. **缓存分两步走**：切换时所有动态 API `no-store`；验收后按 D-28 对公开与个人 GET 开 Workers Cache。
+8. **保留中文 FTS 搜索、排行榜、互动计数**；抽签入口收起，去留见 Q-10；只删除确认无生产调用的旧小时榜模块与表。
 9. **删除源码正则测试**，重建为 domain 单测 + workerd 集成 + 契约测试 + 少量真实 E2E。
-10. **产物不入库**（客户端 release 产物除外），用不可变 CI artifact + 精确 SHA 部署。
+10. **产物不入库**；用不可变 CI artifact + 精确 SHA 部署，客户端产物上传 R2。
 
 ---
 
@@ -86,7 +88,7 @@ workshop/
 │  │  ├ web/                   # React + Vite 源码 → 构建进 Worker Static Assets
 │  │  ├ migrations/            # 0001_initial.sql 起，唯一 schema 来源
 │  │  └ wrangler.jsonc         # 显式 environment bindings
-│  └ tavern-client/            # 产物二：TH 桥接；单文件 IIFE，发布到 R2（D-21）
+│  └ tavern-client/            # 产物二：TH 桥接；单文件 IIFE，发布到 R2（D-22）
 ├ packages/
 │  ├ contracts/                # zod HTTP/bridge schema、错误码、DTO
 │  ├ content/                  # 解析/规范化/fingerprint/checker
@@ -163,7 +165,7 @@ Free 套餐的资源预算与实现约束见 D-25；前端方向（单屏列表�
 | 身份 | `POST /auth/flows`、`GET /auth/flows/:id`、`POST /auth/flows/:id/redeem`、`GET /me`、`DELETE /sessions/current` |
 | 作者 | `POST /projects`、`PATCH /projects/:id`、`POST /projects/:id/revisions`、`PUT /projects/:id/revisions/:rev/files/:kind`、`POST /projects/:id/revisions/:rev/submit`、`PATCH /projects/:id/visibility` |
 | 审核 | `GET /admin/submissions`、`GET /admin/submissions/:id`、`POST /admin/submissions/:id/review` |
-| 安装 | `GET /projects/:id/releases/:releaseId/manifest`、`GET /projects/:id/releases/:releaseId/files/:kind` |
+| 安装 | `GET /projects/:id/releases/:releaseId/manifest`、`GET /projects/:id/releases/:releaseId/files/:kind`（需登录） |
 | 个人 | `GET /me/state?ids=`、`PUT/DELETE /me/likes/:id`、`/me/subscriptions/:id`、`/me/ratings/:id` |
 | 管理 | `GET /admin/projects`、`GET /admin/members`、`PUT /admin/members/:id/role`、`GET /admin/audit-events`、`PUT /site` |
 
@@ -181,12 +183,12 @@ Free 套餐的资源预算与实现约束见 D-25；前端方向（单屏列表�
 | 阶段 | 策略 |
 |---|---|
 | 切换时 | 静态资产内容哈希 + `immutable`；HTML/manifest `no-cache`；**所有动态 API `private, no-store`**；草稿、审核、`/me/*`、计数文件不缓存 |
-| 验收后 | 只对 viewer-neutral 公开 GET 开 Workers Cache：`CDN-Cache-Control: max-age=30..60, stale-while-revalidate=...`，`Cache-Tag` 做发布/下架 purge |
-| 永不 | 带 `Authorization` 的响应、计数下载、草稿/审核 |
+| 验收后 | 按 D-28：公开 GET 走 `Public` 共享缓存；个人 GET 经网关 + `ctx.props` 按用户缓存；`Cache-Tag` 做发布/下架 purge |
+| 永不 | 计数下载的写请求、草稿/审核、未鉴权的内部响应、所有写操作 |
 
 理由：A 假设“边缘会尊重 `s-maxage`”，但没有启用 Workers Cache 时该头没有消费者；B 的首版全不缓存安全但不给开启路径。分两步既满足“现在需要缓存”，又避免在下架/隐藏语义未测试时引入缓存泄漏。
 
-删除 `caches.default` 三处与客户端全部 TTL Map；客户端只保留请求期 in-flight 去重。
+删除 `caches.default` 三处与客户端全部 TTL Map；客户端只保留请求期 in-flight 去重。已批准项目的文件下载也要求登录（D-29）；可安装文件不进入公开缓存。
 
 Workers Cache 的键、头、失效、并发、身份、测量与额度模型，以及开启门禁，见 D-24；公开展示数据共享缓存、个人状态经网关 + `ctx.props` 按用户缓存，见 D-28。
 
@@ -210,7 +212,7 @@ Workers Cache 的键、头、失效、并发、身份、测量与额度模型，
 - published 行 → revision 1；当前 draft 行 → revision 2；其它 pending/rejected 只保留最新 rejected 供作者查看。
 - 文件 key → `projects/{projectId}/revisions/{revId}/{worldbook|regex|cover}`；逐对象校验 sha256/size；不盲 fetch 外链封面。
 - users 合并三套权限来源，冲突列阻塞项；JWT、KV OAuth、旧 session 不迁移（全部重新登录）。
-- 互动、私人评分、精选、banner、基线、审计、当前抽签/曝光状态迁入；历史日指标只保留可解释部分。
+- 互动、私人评分、精选、banner、基线、审计、曝光状态迁入；抽签状态仅在 Q-10 决定保留时迁入；历史日指标只保留可解释部分。
 - 不迁：`public_project_counts`、`admins`、`super_admins`、`project_rank_snapshots`、`project_ranking_days`、旧搜索派生表、旧缓存 revision、锁 token。
 
 ### 7.2 对账（必须全过）
@@ -246,11 +248,11 @@ Workers Cache 的键、头、失效、并发、身份、测量与额度模型，
 
 ## 10. 删除清单
 
-`pages/home/**`、`pages/home.ts`、`/assets/home.js` 等动态资源路由、`contentServiceKey`、`CodeCheckService`（按 CPU 实测）、`caches.default` ×3、客户端 TTL 缓存与 `forceRefresh`、`public_project_counts` 及其 trigger、`admins`/`super_admins`、`project_rank_snapshots`、`project_ranking_days`、`project-ranking-snapshots.ts`、`test-bundles/`、`wrangler.frontend.jsonc`、`utils/auth.ts` KV session、committed `generated/*.txt`、`scripts/deployment/*.ps1`、`sync-staging-from-backup.py`、重复 lockfile、`test-dist` shim（窗口后）。
+`pages/home/**`、`pages/home.ts`、`/assets/home.js` 等动态资源路由、`contentServiceKey`、旧 `CodeCheckService` 命名与路由（保留一个内容服务 DO，D-01）、`caches.default` ×3、客户端 TTL 缓存与 `forceRefresh`、`public_project_counts` 及其 trigger、`admins`/`super_admins`、`project_rank_snapshots`、`project_ranking_days`、`project-ranking-snapshots.ts`、`test-bundles/`、`wrangler.frontend.jsonc`、`utils/auth.ts` KV session、committed `generated/*.txt`、`scripts/deployment/*.ps1`、`sync-staging-from-backup.py`、重复 lockfile、`test-dist` shim（窗口后）。
 
 ## 11. 保留清单
 
-中文 FTS 搜索（`project_search`/`_short`/`_tags` 语义，重建索引）、日榜与发现历史、7d/30d 周期排序、互动计数与私人评分、抽签、编辑精选、内容策略与 taxonomy 规则、安装握手与最低版本、不信任客户端的校验姿态、下载计数口径。
+中文 FTS 搜索（`project_search`/`_short`/`_tags` 语义，重建索引）、日榜与发现历史、7d/30d 周期排序、互动计数与私人评分、抽签（入口收起，Q-10 待定）、编辑精选、内容策略与 taxonomy 规则、安装握手与最低版本、不信任客户端的校验姿态、下载计数口径。
 
 ---
 
@@ -272,4 +274,4 @@ Workers Cache 的键、头、失效、并发、身份、测量与额度模型，
 
 ## 13. 决策
 
-所有决策统一记录在 [`decisions.md`](decisions.md)。本方案只描述架构与迁移，不复述决策；文中 `D-xx` / `Q-xx` 均指向该文件。
+所有决策统一记录在 [`decisions.md`](decisions.md)。本方案描述架构与迁移；决策细节以该文件为准，文中 `D-xx` / `Q-xx` 均指向该文件。

@@ -25,7 +25,7 @@ Cloudflare **Free** 套餐。普通 Worker 每请求 10ms CPU，Durable Object �
 
 ### D-05 客户端分发
 
-使用**固定地址**，由 Worker / Static Assets 提供（`/client/...`），服务端控制版本与缓存头，不使用 jsDelivr `@main` 或 `@tag`。静态资源请求默认免费并可被 CDN 缓存。
+使用**固定地址**，由 Worker 代理 R2 提供（`/client/...`，D-22），服务端控制版本与缓存头，不使用 jsDelivr `@main` 或 `@tag`。
 
 ### D-06 客户端版本门禁
 
@@ -46,7 +46,7 @@ Cloudflare **Free** 套餐。普通 Worker 每请求 10ms CPU，Durable Object �
 - DO 自动检查：`pass` 自动发布；`warn` 自动发布并显示警告标记；`block` 转人工。
 - **没有自动拒绝**：自动检查只决定“发布 / 转人工”，拒绝只能由人做。
 - 超时重试，达到上限转人工，不能静默跳过。
-- 审核者浏览器检查：**一票生效**，通过即发布、失败即拒绝；结果绑定 `submission_id + content_hash + checker_revision`。
+- 审核者基于 DO 报告做**一票决定**：通过即发布、失败即拒绝；结果绑定 `submission_id + content_hash + checker_revision`。本地重跑仅作辅助，且必须同 revision（D-31）。
 - `pass/warn/block` 的语义**唯一定义在 checker**；业务层不写“某类型必须人工”的散落判断。
 
 ### D-10 认证与跨域
@@ -83,20 +83,20 @@ Cloudflare **Free** 套餐。普通 Worker 每请求 10ms CPU，Durable Object �
 
 ### D-16 产物与发布
 
-构建产物不提交（客户端 release 产物例外）；CI 对精确 SHA 构建一次并逐级提升同一 artifact；部署只走 CI；删除 PowerShell 部署器。
+构建产物不提交；客户端发布产物上传到 R2，不进仓库；CI 对精确 SHA 构建一次并逐级提升同一 artifact；部署只走 CI；删除 PowerShell 部署器。
 
 ### D-17 缓存
 
-切换时所有动态 API `private, no-store`；验收后再对 viewer-neutral 公开 GET 开 Workers Cache。静态资产用内容哈希 + immutable。删除 `caches.default` 与客户端 TTL 缓存。
+切换时所有动态 API `private, no-store`；验收后按 D-28 对公开 GET 与个人 GET 开 Workers Cache。静态资产用内容哈希 + immutable。删除 `caches.default` 与客户端 TTL 缓存。
 
 ### D-18 架构骨架
 
-pnpm workspace：`apps/{worker,web,tavern-client}` + `packages/{contracts,content,domain}` + `config/` + `data/` + `tools/` + `tests/` + `docs/`。Worker 内 `http → use case → storage`；不设独立 db 包。
+pnpm workspace：`apps/worker`（含 `web/`）+ `apps/tavern-client` + `packages/{contracts,content,domain}` + `config/` + `data/` + `tools/` + `tests/` + `docs/`。Worker 内 `http → use case → storage`；不设独立 db 包。
 
 ### D-19 部署形态：只用 Worker，不用 Pages
 
 - **不存在 Cloudflare Pages 项目**：不创建 Pages 项目、不使用 Pages Functions、不使用 `pages_build_output_dir`、不执行 `wrangler pages deploy`。
-- `apps/web` 只是 React + Vite 的源码与构建目录；产物通过**同一个 Worker** 的 Static Assets（`assets.directory`）随 Worker 一起部署。
+- `apps/worker/web` 只是 React + Vite 的源码与构建目录；产物通过**同一个 Worker** 的 Static Assets（`assets.directory`）随 Worker 一起部署。
 - 对外只有一个入口 Worker：`/api/*` 走 Hono，其余由 Static Assets 提供；`/api` 未匹配返回 JSON 404。
 - 构建产物与 Worker 版本一一对应，回滚 Worker 版本即回滚前端。
 - CI 只跑 `wrangler deploy`（或 versions/deployments 流程），不引入第二套托管平台。
@@ -118,12 +118,14 @@ apps/
 packages/{contracts,content,domain}
 ```
 
-- 一次 Worker 部署发布 API 与 Web；client 产物独立发布到 R2（见 D-21），回滚粒度因此不同。
+- 一次 Worker 部署发布 API 与 Web；client 产物独立发布到 R2（见 D-22），回滚粒度因此不同。
 - client 版本与 Worker 版本独立记录；兼容性由 D-06 的精确匹配门禁保证。
 - 测试与 e2e 分开：Worker 走 workerd/HTTP；client 走真实 SillyTavern。
 - 该条细化 D-18 的目录骨架，不改变依赖方向与运行时拓扑。
 
 ### D-21 客户端产物托管在 R2（独立发版）
+
+> 状态：托管部分已被 D-22 替代（Worker 代理 R2，不使用自定义域/zone）；版本记录仍按本条的 D1 方案。
 
 - **存储**：独立 R2 bucket（例如 `workshop-client`），通过自定义域 `client.<zone>` 公开；不使用 Pages，不额外建 Worker。
 - **路径**：
@@ -178,7 +180,7 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
 | Workers | 100k 请求/天；10ms CPU/请求；3MB 脚本；50 subrequest | 请求是硬上限，超额失败；缓存 HIT 仍计请求 |
 | Durable Objects | 100k 请求/天；13k GB-s/天；5GB 存储；30s CPU/请求 | 只用于内容解析/checker；启用 hibernation |
 | D1 | 5M rows read/天；100k rows written/天；5GB | 读放大是主要风险 |
-| KV | 100k 读/天；1k 写/天；1GB | 只放配置/版本记录，绝不做计数 |
+| KV | 100k 读/天；1k 写/天；1GB | 新系统不用；版本记录在 D1 |
 | R2 | 10GB 存储；1M Class A/月；10M Class B/月；出网免费 | 请求路径禁止 List；发布才写 |
 | Workers Cache | 按标准请求计费（HIT 也算） | 省 CPU，不省请求数 |
 
@@ -186,7 +188,7 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
 
 1. **读预算**：每个公开读请求设 rows read 上限并纳入测试；热路径禁止大范围扫描。**展示型聚合不物化**（总数、分类数、周期统计）：按需查询 + Workers Cache 摊薄，过期重算；只有“每请求必读且必须强一致”的计数（下载、订阅）才用原子增量。物化只用于缓存摊不薄或一致性要求更高的场景。
 2. **写预算**：写操作批量、幂等；100k rows/天是硬约束，审核与安装登记不得逐条写。
-3. **KV 定位**：只存低频配置；1k 写/天意味着任何用户行为都不能写 KV。
+3. **KV 定位**：新系统不用（版本记录在 D1）；1k 写/天也不足以承载任何用户行为。
 4. **R2 定位**：对象按 key 直取；发布时上传，请求路径不 List；公开产物靠 Workers Cache 降 Class B。
 5. **DO 定位**：只保留一个；内容解析、checker 复核、发布串行化；不得按页面浏览调用；使用 hibernation，避免空转计费。
 6. **CPU**：Worker p95 < 10ms；不做 zip/大文本/循环加密；重活进 DO 或离线 job。
@@ -199,11 +201,11 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
 本轮只冻结方向与数据契约；具体实现等框架重构完成后进行。
 
 - **风格**：保留现有视觉语言，做小改，不重做设计系统。
-- **信息架构**：删除发现页；列表页是首屏，也是唯一主屏。顶部是一个“发现”栏目：一行 4 个，按小时固定一组，客户端洗牌（D-27）。
+- **信息架构**：删除发现页；列表页是首屏，也是唯一主屏。顶部是发现栏，细节见 D-27。
 - **列表**：桌面一行 4 个；卡片图不使用 1:1，默认 16:9，`object-fit: cover`。
 - **卡片字段**：标题、作者头像与名称、`世界书 N 条 | 正则 N 条`、发布时间、上次更新时间、适配版本（世界书 schema，如 `4.3`）、作者一句话介绍、跳转 Discord 帖子的按钮（链接选填）。
 - **详情**：右侧栏补充作者一句话介绍与最新更新时间；现有安装/下载操作保留。
-- **统计**：列表底部统计删除；header 也不放统计；列表区只显示“第 X–Y 条”，不显示总数。
+- **统计**：footer 与 header 都不放统计（D-27）。
 - **响应式**：手机必须可用；断点建议 4 / 3 / 2 / 1 列；参考 NexusMods 的信息密度，不照搬其视觉。
 - **数据契约**：上述字段必须进入公开 DTO；作者头像、一句话介绍、Discord 帖子地址、世界书 schema 版本、两类条目计数在发布时写入 release 元数据（版本固有属性，不是聚合统计）。
 
@@ -226,7 +228,7 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
   - `default` 网关：`cache.enabled=false`，每个请求都执行鉴权、规范化、路由。
   - `Public`：`cache.enabled=true`，匿名共享缓存。
   - `Viewer`：`cache.enabled=true`，网关鉴权后删除 `Authorization`，通过 `ctx.exports.Viewer.fetch(req, { props: { userId, sessionVersion } })` 调用；`ctx.props` 进入缓存键，按用户隔离。
-- **公开范围**：项目列表、详情、发现栏、作者资料、分类、首页，以及其中的下载量/订阅量展示值、公开图片/附件，走 `Public` 共享缓存。
+- **公开范围**：项目列表、详情、发现栏、作者资料、分类、首页，以及其中的下载量/订阅量展示值、封面与画廊图片，走 `Public` 共享缓存；可安装文件不在公开缓存内（D-29）。
 - **个人状态**：仍走独立 `/api/v1/me/*`，避免每个项目详情按用户分片；响应按 `userId + sessionVersion` 缓存 15–30s。浏览器侧 `no-store`，边缘 TTL 用 `Cloudflare-CDN-Cache-Control`，优先级在 staging 验证（D-24）。
 - **隔离与安全**：
   - props 只由网关设置；禁止把客户端头当作身份来源。
@@ -259,7 +261,7 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
 - 查看自己的审核状态、拒绝原因、草稿与私有项目。
 - 我的项目、我的订阅、我的评分。
 - 审核队列、批准/拒绝、管理后台、Banner/精选/角色基线登记。
-- 每日抽签（若保留）、举报/申诉（若保留）。
+- 每日抽签（入口已收起；是否保留见 Q-10）。
 - 登出与会话撤销。
 
 匿名详情不返回文件列表、下载地址与安装入口，只显示摘要与登录提示。
@@ -295,7 +297,7 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
 - 排序：最近更新、发布时间、下载、点赞；筛选：类型、标签；搜索在 header；删除最低赞/最低下载筛选。
 - Banner 保留，压成窄条，位于 header 下、发现栏上。
 - 编辑精选只保留数据与后台设置，不做独立区块；后续可作为发现栏的候选来源。
-- 每日抽签从主 UI 删除，不设 header 入口；相关接口与配额表本轮删除。
+- 每日抽签入口从主 UI 收起，不设 header 入口；接口与配额表暂留；是否保留见 Q-10。
 - “已安装/待更新”用 Tavern client 本地状态（D-29），无需登录。
 - 点作者名进入该作者的筛选列表，不做作者主页。
 - 我的项目/我的订阅从 header 用户菜单进入，复用列表组件。
@@ -309,6 +311,12 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
 - 兼容截止：删除 tags 镜像、旧订阅 toggle（保留 `PUT` 设置接口）、旧身份/名称解析；旧排名快照与日榜表在确认无读取后删除；旧 client shim 保留一个周期。
 - 固定分发：`/client/stable/index.js` 与 `/client/staging/index.js`；版本文件 `/client/v/<sha>/index.js`；旧 jsDelivr 地址显示一次迁移提示，一个周期后下线。
 
+### D-34 删除上传收据（attestation）
+
+- 删除签名收据与二次上传；上传一次完成。
+- 服务端校验结构、大小与内容哈希；客户端 gate 仍记录但不信任（D-09）。
+- 理由：收据只证明“字节被某个 checker revision 预检过”，不证明 checker 真的运行；权威结论由 DO 的 review checker 给出（D-31）。
+
 ---
 
 ## 待定
@@ -317,15 +325,18 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
 |---|---|---|---|
 | Q-05 | 安装状态的权威记录 | D1 行 / 条目内单一记录 / registry 降级为缓存，三者选一 | 技术 |
 | Q-06 | 审核队列读取契约 | 稳定 cursor 或短期 snapshot | 技术 |
+| Q-10 | 每日抽签是否保留 | UI 入口已收起；接口与配额表暂留 | 产品 |
 
 ---
 
 ## 被替代
 
-| ID | 原决策 | 替代 |
+> S-xx 是被放弃的早期提案，不是有效决策编号；有效决策只有 D-xx。
+
+| ID | 原提案 | 替代 |
 |---|---|---|
-| D-19 | 使用 jsDelivr `@tag` 分发（早期建议） | D-05 固定地址 |
-| D-20 | 启用 `client.minimum`（早期建议） | D-06 精确匹配 |
-| D-21 | 嵌入模式用 BroadcastChannel/localStorage 交付 token（讨论稿） | D-10 一次性 code + verifier |
-| D-22 | 客户端 block 仍跑 DO 生成报告（讨论稿） | D-09 不跑 DO |
-| D-23 | R2 自定义域 + zone CDN 分发 client（D-21） | D-22 Worker 代理 + Workers Cache |
+| S-01 | 使用 jsDelivr `@tag` 分发（早期建议） | D-05 固定地址 |
+| S-02 | 启用 `client.minimum`（早期建议） | D-06 精确匹配 |
+| S-03 | 嵌入模式用 BroadcastChannel/localStorage 交付 token（讨论稿） | D-10 一次性 code + verifier |
+| S-04 | 客户端 block 仍跑 DO 生成报告（讨论稿） | D-09 不跑 DO |
+| S-05 | R2 自定义域 + zone CDN 分发 client（早期托管方案） | D-22 Worker 代理 + Workers Cache |
