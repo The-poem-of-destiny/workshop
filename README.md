@@ -1,176 +1,86 @@
-# 命定之诗与黄昏之歌
+# 命定创意工坊
 
-这是一个**专门为角色卡「命定之诗与黄昏之歌」服务**的 SillyTavern 扩展仓库，核心目标不是提供通用型插件集合，而是围绕该角色卡的使用体验，统一提供：
+这是「命定之诗与黄昏之歌」的**创意工坊**独立仓库，包含两部分：
 
-- 面向专属内容分发与同步的 **命定创意工坊**
-- 面向角色对话表现优化的 **自适应正则美化**
-- 面向角色演出与展示的表情、立绘等素材资源
+- **SillyTavern 客户端脚本**：在酒馆内打开工坊界面，浏览、安装、更新和修复社区项目；
+- **Cloudflare Worker 后端**：项目上传、审核、发布、点赞、订阅、鉴权与文件分发。
 
-仓库同时提供一套基于 Cloudflare Workers 的创意工坊后端，用于支撑与该角色卡生态相关的项目上传、审核、展示、点赞、可见性与鉴权等能力。
-
-## 项目概览
-
-### 1. 命定创意工坊
-
-前端脚本入口位于 [`src/CreativeWorkshop/index.ts`](src/CreativeWorkshop/index.ts)，用于在 SillyTavern 内打开图形化工坊界面，并通过 iframe 连接远端服务。
-
-核心用途包括：
-
-- 浏览社区共享内容
-- 拉取并同步世界书或相关项目资源
-- 在接入审核机制的前提下进行内容上传与分发
-- 通过自定义变量切换工坊服务地址，默认接入 [`src/CreativeWorkshop/services/config.ts`](src/CreativeWorkshop/services/config.ts) 中定义的 Cloudflare Worker 地址
-
-### 2. 自适应正则美化
-
-脚本入口位于 [`src/AutoDialogueBeautifier/index.ts`](src/AutoDialogueBeautifier/index.ts)。该模块会在 AI 输出完成后自动检测消息内容，根据命中的规则动态注册对应正则，从而实现对话格式、文本表现和展示层效果的自动美化。
-
-特性包括：
-
-- 支持从 CDN 拉取远程 `regex.json`（实现见 [`src/AutoDialogueBeautifier/index.ts`](src/AutoDialogueBeautifier/index.ts)）
-- 支持多 CDN 回退，提升加载成功率
-- 自动检测消息内容并匹配所需规则
-- 使用缓存与防抖机制降低重复计算和循环触发风险
-- 根据聊天变量自动维护当前激活的正则列表
-
-### 3. Cloudflare 创意工坊后端
-
-后端代码位于 [`cloudflare/src/index.ts`](cloudflare/src/index.ts)，技术栈基于 Hono 与 chanfana，负责提供创意工坊的 Web 页面、OpenAPI 文档与接口服务。
-
-目前可从代码结构中确认的能力包括：
-
-- Discord OAuth 登录与登录状态查询
-- 项目列表、详情、创建、更新、删除
-- 项目文件、封面与正则文件上传
-- 点赞、项目可见性与登录鉴权
-- 管理员审核、连续审核队列、项目管理、管理员列表与审计日志查询
-- 结构化项目分类、扩展子类型、角色官方标签、自定义标签与首页展示标签
-- 基于 D1 的项目数据管理，表结构定义见 [`cloudflare/schema.sql`](cloudflare/schema.sql)
+角色卡本体、世界书、立绘素材和自适应正则美化脚本不在本仓库维护。
 
 ## 仓库结构
 
 ```text
-myrepo/
-├─ README.md
-├─ src/
-│  ├─ AutoDialogueBeautifier/    # 自适应正则脚本源码
-│  └─ CreativeWorkshop/          # 创意工坊脚本源码与桥接逻辑
+workshop/
+├─ src/CreativeWorkshop/     # 客户端脚本：桥接、安装、修复、差异对比
 ├─ cloudflare/
-│  ├─ src/                       # Worker 路由、页面和业务逻辑
-│  ├─ schema.sql                 # D1 数据库结构
-│  └─ package.json               # Worker 依赖与脚本
-└─ picture/                      # 角色立绘、表情与 GIF 资源
+│  ├─ src/                   # Worker 路由、页面与业务逻辑
+│  ├─ migrations/            # D1 结构演进
+│  ├─ tests/                 # Worker / 页面冒烟测试
+│  └─ schema.sql             # 新数据库基线结构
+├─ config/workshop.json      # 客户端版本、分发路径、服务地址的唯一事实来源
+├─ scripts/                  # 构建、产物校验与部署辅助脚本
+├─ data/                     # 官方角色卡基线指纹等运行时数据
+├─ tests/                    # 浏览器端到端测试
+├─ dist/                     # 正式构建产物
+└─ test-dist/                # 历史公开导入路径的兼容 shim
 ```
 
-## 主要技术组成
+## 客户端
 
-### 客户端脚本
+入口是 [`src/CreativeWorkshop/index.ts`](src/CreativeWorkshop/index.ts)。它在 SillyTavern 中创建 iframe，并通过 postMessage bridge 与宿主页面通信：
 
-- TypeScript
-- SillyTavern 脚本环境
-- iframe + bridge 通信
-- 正则驱动的对话后处理机制
+- 安装、更新、卸载项目世界书与正则；
+- 项目差异对比与冲突处理；
+- DLC 修复、安装状态登记与脚本依赖检查。
 
-### 后端服务
+`dist/` 下的正式产物由 `config/workshop.json` 的 `client.stable` / `client.publicPath` 决定；历史 `test-dist` 路径只保留一个自我改写的兼容 shim。当前版本号、分发路径和端点不要在文档里再维护第二份。
 
-- Cloudflare Workers
-- Hono
-- chanfana / OpenAPI 3.1
-- Cloudflare D1
+## 后端
 
-## 安装与接入
+Worker 代码位于 [`cloudflare/src/index.ts`](cloudflare/src/index.ts)，技术栈为 Cloudflare Workers + Hono + chanfana（OpenAPI 3.1），数据存储为 D1，文件存储为 R2，OAuth 状态使用 KV。
 
-### SillyTavern 用户脚本安装
+能力范围：
 
-如果你已经构建并发布了对应脚本文件，可以在 SillyTavern 的酒馆助手直接使用 CDN 地址接入：
+- Discord OAuth 登录与登录态查询；
+- 项目列表、详情、创建、更新、删除与可见性；
+- 世界书 / 正则 / 封面文件上传与审核；
+- 点赞、订阅、搜索、排序与首页展示；
+- 管理员审核队列、项目管理、管理员与审计日志；
+- 结构化项目分类、官方标签、自定义标签与展示标签。
 
-- 创意工坊：版本号与公开 bundle 路径以 `config/workshop.json` 的 `client.stable` / `client.publicPath` 为准；不要在文档里维护第二份当前值。
-- 自适应正则：`import 'https://testingcf.jsdelivr.net/gh/Akabanesaki/myrepo@main/dist/AutoDialogueBeautifier/index.js'`
+产品规则与分类定义的唯一来源在 `cloudflare/src/config/`；上传与请求上限在 `cloudflare/src/config/runtime-limits.ts`。
 
-> 当前仓库内主要保存的是源码与后端工程。如果要直接用于生产环境，通常还需要你自己的构建与发布流程。
+## 本地开发
 
-## 开发说明
+根目录使用 pnpm：
 
-### 本地查看 Cloudflare Worker
+```text
+pnpm install
+pnpm build              # 构建正式产物与兼容 shim
+pnpm watch              # 开发监听
+pnpm check:workshop-config
+pnpm check:workshop-bundles
+```
 
-[`cloudflare/package.json`](cloudflare/package.json) 中定义了以下常用命令：
+Worker 目录使用 npm：
 
-- `npm run dev`：启动本地 Worker 开发环境
-- `npm run deploy`：部署到 Cloudflare Workers
-- `npm run cf-typegen`：生成 Wrangler 类型
+```text
+cd cloudflare
+npm install
+npm run dev             # 本地 Worker
+npm run cf-typegen      # 修改 wrangler.jsonc 绑定的必做步骤
+npm run check:types
+npm run check:home-js-smoke
+```
 
-### 数据库初始化
+端到端测试使用 Playwright，命令见根 `package.json`。
 
-D1 的当前新库结构以 [`cloudflare/schema.sql`](cloudflare/schema.sql) 为准；已存在环境的演进历史以 [`cloudflare/migrations/`](cloudflare/migrations/) 为准。
+## 部署
 
-不要在 README 手工维护第二份“当前表清单”：项目、审核、搜索索引、计数器、随机抽取等功能会持续增加或迁移表结构，复制清单很容易过期。
+Git 仓库与 Cloudflare 运行时是两套独立状态。部署前必须记录被部署的确切提交 SHA，并在部署后单独验证 Worker 版本；推送代码不等于部署。
 
-共享项目文档不随 code branch 复制维护。Canonical documentation 位于 `origin/documentation`：
-
-- [Documentation Index](https://github.com/uikawinwing/myrepo/blob/documentation/docs/INDEX.md)：按名称、用途、状态和 related issue 找需要的文档；
-- [Agent Policy](https://github.com/uikawinwing/myrepo/blob/documentation/docs/AGENT-POLICY.md)：仓库操作规则；
-- [`cloudflare/README.md`](cloudflare/README.md)：当前 Worker 代码目录与验证入口。
-
-未实现计划、维护审计与历史记录也统一由 documentation branch 的 `docs/` 管理；不要从旧 code branch 的文档快照推断当前状态。
-
-## 使用说明
-
-### 命定创意工坊
-
-1. 在 SillyTavern 中加载脚本
-2. 首次打开时阅读并确认免责声明
-3. 进入工坊界面后浏览、筛选并导入内容
-4. 如有需要，可通过脚本变量覆盖默认 Worker 地址
-
-### 自适应正则美化
-
-1. 加载脚本后自动运行
-2. 脚本会从远端拉取规则集
-3. 当 AI 输出命中特定格式时，自动激活对应正则规则
-4. 规则状态会随聊天上下文动态同步
-
-## 素材资源说明
-
-[`picture/`](picture/) 目录下收录了多个角色或形象的表情资源，包括静态 PNG 与动态 GIF，可作为角色卡、世界书、立绘切换或前端展示素材使用。
-
-## 适用场景
-
-本仓库适合以下用途：
-
-- 为 SillyTavern 角色卡提供配套世界书与资源分发能力
-- 构建一个可审核、可分享的创意工坊系统
-- 为 AI 输出增加自动格式修饰与表现增强能力
-- 统一管理角色相关图片资产与扩展脚本
-
-## 免责声明
-
-- 本仓库是专门为角色卡「命定之诗与黄昏之歌」服务的项目。
-- [`picture/`](picture/) 目录中的部分素材可能来源于网络收集或第三方公开资源，并非全部为仓库维护者原创。
-- 对于非原创、非独占授权或权属不明确的第三方素材，其著作权、邻接权及其他相关权利归原作者或原权利人所有。
-- 除非对应文件、目录或说明文字中另有明确声明，这些第三方素材**不自动纳入**根目录 [`LICENSE`](LICENSE) 的统一授权范围。
-- 若你计划转载、改编、重新分发或在其他项目中使用 [`picture/`](picture/) 目录中的素材，请先自行确认原始来源与授权条件。
-- 如相关权利人认为仓库内素材存在侵权、误用或授权说明不准确的情况，可联系仓库维护者处理。
+部署脚本与检查入口在 `scripts/deployment/`，环境配置在 `cloudflare/wrangler*.jsonc`。密钥只通过 `wrangler secret put` 写入，不进入仓库。
 
 ## 许可证
 
-本仓库当前采用 [`CC BY-NC-SA 4.0`](LICENSE)（知识共享署名-非商业性使用-相同方式共享 4.0 国际）对**仓库维护者有权授权的原创内容**进行授权。
-
-这意味着你可以：
-
-- 在**非商业**前提下复制、传播与转载本仓库中的原创内容
-- 在**非商业**前提下修改、改编和二次创作原创内容
-- 继续分发衍生作品，但必须保持署名，并采用相同协议共享
-
-这也意味着你**不可以**：
-
-- 将本仓库原创内容用于任何形式的商业用途
-- 将本仓库原创内容打包售卖、付费分发，或用于盈利性服务
-- 在再分发或改编后改用更宽松或更封闭的授权方式
-
-需要特别注意：
-
-- 根目录 [`LICENSE`](LICENSE) 主要适用于仓库中的原创脚本、原创文档及仓库维护者明确拥有授权权利的内容
-- 对于 [`picture/`](picture/) 目录中的第三方素材，以及你所调用的第三方项目接口、平台接口或服务能力，本仓库**不当然取得其再授权权**
-- 使用者在二次使用相关第三方内容或第三方服务接口时，应自行遵守其原始许可协议、接口条款和平台规则
-
-具体条款以根目录 [`LICENSE`](LICENSE) 文件及本节免责声明为准。
+本仓库原创内容采用 [`CC BY-NC-SA 4.0`](LICENSE) 授权。第三方接口、平台服务及其素材不因本仓库授权而改变原有许可，使用者需自行遵守对应条款。

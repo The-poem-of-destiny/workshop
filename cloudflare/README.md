@@ -13,7 +13,7 @@
 - 管理员审核、日志与内容 Diff；
 - 对 Tavern Client 提供项目与安装所需接口。
 
-根目录 `AGENTS.md` 只负责 bootstrap；仓库级 Git / staging / production 规则从 `origin/documentation:docs/AGENT-POLICY.md` 读取。
+根目录 `AGENTS.md` 是仓库操作规则与部署边界的唯一来源。
 
 ## 目录
 
@@ -155,20 +155,12 @@ Git 与 Cloudflare runtime 是两套状态。
 ```text
 task branch
 → tests/review
-→ origin/staging
-→ staging Worker exact SHA
-→ Master acceptance
-→ owner main
-→ production Worker exact owner-main SHA
+→ origin/main
+→ staging/preview Worker exact SHA
+→ acceptance
+→ production Worker exact main SHA
 ```
 
-不要把 task branch 直接部署到正常 staging Worker，也不要把“push 到 staging branch”和“部署 staging Worker”说成同一件事。
+不要把 task branch 直接部署到 staging Worker，也不要把“push 到 main”和“部署 Worker”说成同一件事。
 
-具体 SOP 与进一步资料统一从 canonical documentation 读取：
-
-```text
-origin/documentation:docs/INDEX.md
-origin/documentation:docs/AGENT-POLICY.md
-```
-
-`docs/INDEX.md` 会按任务指向当前 architecture audit、active plans、release SOP 等文档；code branch 不维护这些文档的本地副本。
+具体规则见根目录 [`AGENTS.md`](../AGENTS.md)。

@@ -8,7 +8,7 @@ Do **not** run the scripts directly from `scripts/deployment/`: their relative-p
 
 ## Candidate staging flow (after controlled local installation)
 
-1. Use an isolated task branch based on the refreshed `upstream/main`. Push that branch to `origin`.
+1. Use an isolated task branch based on the refreshed `origin/main`. Push that branch to `origin`.
 2. Resolve its full 40-character commit SHA and pass both `-SourceBranch` and `-SourceSha` to the installed `deploy-staging.ps1`.
 3. The helper fetches the named `origin` branch, validates the full SHA pin and that the commit descends from latest `upstream/main`, validates existing profile allowlist/target/account/bindings, runs D1 cost gate and Wrangler dry-run, and restores the original checkout.
 4. First run `-CheckOnly`; only explicitly invoke actual staging deployment after reviewing the result.
@@ -23,7 +23,7 @@ The old `origin/staging` route remains available for migration only; after #46 c
 - Update only the `source.allowed` list of the **machine-owned staging profile** with the anchored candidate branch pattern from `staging-source-policy.example.json`; preserve every other profile field, especially account, Worker, D1, R2, and auth.
 - Re-run installed-helper tests; verify the real machine-specific production/staging profile assertions (the portable source test intentionally skips those).
 - Pilot a previously unshipped, backward-compatible Worker/Web issue in staging. Do not use already-deployed #44.
-- After the pilot succeeds, update the normative SOP exclusively in `origin/documentation:docs/AGENT-POLICY.md` and its linked guides. This README is tooling documentation, not an independent operating policy.
+- After the pilot succeeds, update the normative policy in the repository root `AGENTS.md`. This README is tooling documentation, not an independent operating policy.
 
 ## Safety boundary
 

@@ -1,75 +1,55 @@
 # Repository Agent Bootstrap
 
-This file is intentionally minimal.
+This repository is the standalone Creative Workshop: the SillyTavern client bundle and the Cloudflare Worker backend. Card content, worldbooks, artwork and the dialogue beautifier live in the card repository.
 
-It is not the repository's full operating policy and must not duplicate Git, release, deployment, cleanup, UX, or project-specific rules.
+## Remotes and identity
 
-## Canonical documentation
+- `origin` → `git@github.com:The-poem-of-destiny/workshop.git`
+- Local Git identity for every checkout: `aoo` / `lxxxaoo@users.noreply.github.com`. Never change the global identity.
 
-The single shared documentation source is:
+Verify the actual remote URL before the first remote operation in a session. Do not infer ownership from the remote name.
 
-`origin/documentation:docs/`
+## Canonical refs
 
-The documentation catalogue is:
+- `origin/main` is the only long-lived branch and the base for all new work.
+- `archive/release-*` branches are frozen historical refs. Do not build, merge, or deploy from them.
+- Task branches are short-lived: `fix/*`, `feature/*`, `chore/*`. Integrate into `main`, then delete.
+- Tags are immutable release markers. Never move or re-push an existing tag.
 
-`origin/documentation:docs/INDEX.md`
+Work starts from refreshed `origin/main`, never from the local worktree HEAD alone.
 
-The normative repository operating policy is:
+## Build and verification
 
-`origin/documentation:docs/AGENT-POLICY.md`
+Root (pnpm):
 
-Ordinary code/task branches must not maintain their own shared `docs/` copy.
+- `pnpm build` — stable and staging client bundles plus the legacy-path shim
+- `pnpm check:workshop-config` — manifest, build wiring and documentation consistency
+- `pnpm check:workshop-bundles` — built artifact verification
 
-## Required bootstrap
+Worker (npm, inside `cloudflare/`):
 
-Before repository mutation, deployment/release decisions, branch/worktree cleanup, or other project-level decisions:
+- `npm run cf-typegen` before `npm run check:types`; the generated types file is not committed
+- `npm run check:home-js-smoke` and the other `check:*` scripts cover page and API contracts
 
-1. Verify the actual remotes:
-   - `origin` → `https://github.com/uikawinwing/myrepo.git`
-   - `upstream` → `https://github.com/AkabaneSaki/myrepo.git`
-2. Refresh the documentation ref:
-   `git fetch origin documentation:refs/remotes/origin/documentation`
-3. Read:
-   `git show origin/documentation:docs/INDEX.md`
-4. Read:
-   `git show origin/documentation:docs/AGENT-POLICY.md`
-5. Read any additional document selected by the canonical index for the task.
+Run the config check and the bundle verification after any build-pipeline change. A rebuilt bundle legitimately differs from the committed one in source-map bytes; regenerate rather than hand-edit.
 
-If canonical documentation cannot be refreshed/read, stop before destructive repository mutation, deployment, release, or cleanup. Do not silently fall back to stale policy copied from an old worktree or chat.
+## Single sources of truth
 
-## Canonical Git refs
+- Client version, distribution paths, service endpoints and companion-script dependencies: `config/workshop.json`. Never repeat live values in code, docs, tests or deployment scripts; import the manifest.
+- New-database structure: `cloudflare/schema.sql`. Existing databases evolve only through `cloudflare/migrations/`.
+- Project taxonomy, content policy, ranking parameters and runtime limits: `cloudflare/src/config/` and `cloudflare/src/utils/`.
+- Product and creator-facing wording: plain everyday Chinese, no internal field or implementation names in the UI.
 
-- Code baseline for all new features, fixes and hotfixes: refreshed `upstream/main` exact SHA
-- Master Staging: a Cloudflare candidate runtime, not a Git integration line
-- Historical `origin/staging`: frozen/retired, preserved for audit only (#46)
-- Shared documentation source of truth: `origin/documentation`
+## Deployment
 
-Local branches named `main` or `staging` are not authoritative and may not exist.
+Git history and Cloudflare runtime are separate states.
 
-Never use the current workspace HEAD, a local mirror branch, or `mergedIntoWorkspaceHead` as a substitute for the explicit canonical ref when deciding whether work is current, merged, deployable, or safe to delete.
+- Record the exact commit SHA before deploying and verify the resulting Worker version afterwards.
+- Never treat a push as a deployment, and never treat the newest local deploy log as proof of the live version.
+- Secrets go through `wrangler secret put`. Never commit credentials, tokens or D1/R2 dumps.
+- Do not hand-edit production D1. Schema changes need a migration, verified locally first.
+- Deployment helpers and environment configs live in `scripts/deployment/` and `cloudflare/wrangler*.jsonc`.
 
-## Worktrees
+## Session closeout
 
-Development happens on short-lived code task branches/worktrees from exact `upstream/main`; documentation edits use `origin/documentation`.
-
-Prefer direct sibling worktrees beside the primary checkout. Do not create long-lived nested task worktrees.
-
-The primary checkout may use a management-only branch such as `workspace/control`. It is not an integration baseline or deployment source.
-
-## Shared documentation changes
-
-Do not edit shared docs in a code feature/fix/refactor/hotfix branch.
-
-Documentation changes must start from refreshed `origin/documentation`, use a short-lived docs task branch/worktree, and integrate back into `origin/documentation`.
-
-Plans/reports should state the related GitHub issue(s), or explicitly explain why there is no issue.
-
-## Policy changes
-
-Change normative operating rules only in:
-
-`origin/documentation:docs/AGENT-POLICY.md`
-
-Do not recreate duplicate policy in root/nested `AGENTS.md`, README files, task notes, or code branches.
-
-The goal is one documentation source, not synchronized copies.
+Report the branch, created commit SHAs, what was pushed where, whether `origin/main` contains the change, and any intentional leftovers.
