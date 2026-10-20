@@ -14,6 +14,14 @@
 - 匿名公开 API 样本：`tests/fixtures/legacy/`（16 个响应 + manifest）。
 - 抓取脚本：`tools/p0-capture.mjs`。
 
+### P2 读路径
+
+- 公开读：`GET /api/v1/projects`（limit/cursor/sort/type/search）、`GET /api/v1/projects/:id`、`GET /api/v1/home`、`GET /api/v1/recommendations`、`GET /api/v1/reference-sets`、`GET /api/v1/site`。
+- 中文搜索：trigram + 1–2 字短索引，走 D1 FTS。
+- 登录后安装：`GET /api/v1/projects/:id/releases/:releaseId/manifest`、`.../files/:kind`；session 查库、过期/撤销校验。
+- 公开封面：`GET /api/v1/assets/*`，只允许 `covers/`、`banners/`。
+- 集成测试：workerd + D1/R2，覆盖列表、搜索、详情、私有 404、manifest/files、home/recommendations/references/banner。
+
 ### P1 基础
 
 - pnpm workspace：`apps/*`、`packages/*`。
@@ -37,7 +45,6 @@
 
 ## 待办
 
-- P2 读路径：projects list/detail/home/recommendations/reference sets、install manifest/files。
 - P3 写路径：identity/session、revision、upload、submit/review/publish、interactions、admin。
 - P4 迁移：`data_backup` 的 extract/transform/load/verify + 对账（P4 前不读取）。
 - P5 切换：本地/staging 演练 + 生产 runbook；真实生产切换留人工审批。

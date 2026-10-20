@@ -53,6 +53,10 @@ CREATE TABLE projects (
   visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('public', 'private')),
   working_revision_id TEXT,
   published_revision_id TEXT,
+  published_at TEXT,
+  downloads_count INTEGER NOT NULL DEFAULT 0,
+  likes_count INTEGER NOT NULL DEFAULT 0,
+  subscriptions_count INTEGER NOT NULL DEFAULT 0,
   row_version INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -77,6 +81,10 @@ CREATE TABLE project_revisions (
   tags TEXT NOT NULL DEFAULT '[]',
   metadata TEXT NOT NULL DEFAULT '{}',
   manifest_hash TEXT,
+  worldbook_count INTEGER NOT NULL DEFAULT 0,
+  regex_count INTEGER NOT NULL DEFAULT 0,
+  schema_version TEXT,
+  discord_thread_url TEXT,
   created_by TEXT NOT NULL REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   UNIQUE (project_id, revision_no)
@@ -148,6 +156,26 @@ CREATE TABLE project_subscriptions (
 );
 
 CREATE INDEX idx_project_subscriptions_user ON project_subscriptions(user_id, created_at DESC);
+
+CREATE TRIGGER project_likes_count_insert AFTER INSERT ON project_likes
+BEGIN
+  UPDATE projects SET likes_count = likes_count + 1 WHERE id = NEW.project_id;
+END;
+
+CREATE TRIGGER project_likes_count_delete AFTER DELETE ON project_likes
+BEGIN
+  UPDATE projects SET likes_count = MAX(likes_count - 1, 0) WHERE id = OLD.project_id;
+END;
+
+CREATE TRIGGER project_subscriptions_count_insert AFTER INSERT ON project_subscriptions
+BEGIN
+  UPDATE projects SET subscriptions_count = subscriptions_count + 1 WHERE id = NEW.project_id;
+END;
+
+CREATE TRIGGER project_subscriptions_count_delete AFTER DELETE ON project_subscriptions
+BEGIN
+  UPDATE projects SET subscriptions_count = MAX(subscriptions_count - 1, 0) WHERE id = OLD.project_id;
+END;
 
 CREATE TABLE project_ratings (
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

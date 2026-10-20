@@ -2,3 +2,7 @@ export * from "./errors.js";
 export * from "./health.js";
 export * from "./identity.js";
 export * from "./projects.js";
+export * from "./recommendations.js";
+export * from "./references.js";
+export * from "./release.js";
+export * from "./site.js";

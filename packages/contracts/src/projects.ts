@@ -7,6 +7,9 @@ export type ProjectType = z.infer<typeof projectTypeSchema>;
 export const extensionTypeSchema = z.enum(["规则", "内容"]);
 export type ExtensionType = z.infer<typeof extensionTypeSchema>;
 
+export const projectSortSchema = z.enum(["updated", "published", "downloads", "likes"]);
+export type ProjectSort = z.infer<typeof projectSortSchema>;
+
 export const projectSummarySchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -19,6 +22,11 @@ export const projectSummarySchema = z.object({
   projectType: projectTypeSchema.nullable(),
   extensionType: extensionTypeSchema.nullable(),
   tags: z.array(z.string()),
+  entries: z.object({
+    worldbook: z.number().int().nonnegative(),
+    regex: z.number().int().nonnegative(),
+  }),
+  schemaVersion: z.string().nullable(),
   counts: z.object({
     downloads: z.number().int().nonnegative(),
     likes: z.number().int().nonnegative(),
@@ -32,16 +40,26 @@ export const projectSummarySchema = z.object({
 
 export type ProjectSummary = z.infer<typeof projectSummarySchema>;
 
+export const projectDetailSchema = projectSummarySchema.extend({
+  authorNote: z.string().nullable(),
+  discordThreadUrl: z.string().nullable(),
+});
+
+export type ProjectDetail = z.infer<typeof projectDetailSchema>;
+
+export const projectListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  cursor: z.string().max(512).optional(),
+  sort: projectSortSchema.default("updated"),
+  projectType: projectTypeSchema.optional(),
+  search: z.string().trim().min(1).max(80).optional(),
+});
+
+export type ProjectListQuery = z.infer<typeof projectListQuerySchema>;
+
 export const projectListResponseSchema = z.object({
   items: z.array(projectSummarySchema),
   nextCursor: z.string().nullable(),
 });
 
 export type ProjectListResponse = z.infer<typeof projectListResponseSchema>;
-
-export const pageQuerySchema = z.object({
-  cursor: z.string().max(256).optional(),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-});
-
-export type PageQuery = z.infer<typeof pageQuerySchema>;

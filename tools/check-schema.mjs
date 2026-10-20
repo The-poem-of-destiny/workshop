@@ -63,6 +63,13 @@ db.prepare(`INSERT INTO submissions (id, project_id, revision_id, submitted_by, 
   VALUES (?, ?, ?, ?, ?)`)
   .run("s1", "p1", "r1", "u1", now);
 
+db.prepare("INSERT INTO project_likes (project_id, user_id) VALUES (?, ?)").run("p1", "u1");
+db.prepare("INSERT INTO project_subscriptions (project_id, user_id) VALUES (?, ?)").run("p1", "u1");
+const counters = db.prepare("SELECT likes_count, subscriptions_count FROM projects WHERE id = ?").get("p1");
+if (counters.likes_count !== 1 || counters.subscriptions_count !== 1) {
+  throw new Error(`counter triggers failed: ${JSON.stringify(counters)}`);
+}
+
 const fts = db.prepare("SELECT rowid FROM project_search WHERE project_search MATCH ?").all("命定之");
 if (fts.length !== 1) throw new Error(`trigram search returned ${fts.length} rows`);
 

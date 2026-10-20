@@ -2,8 +2,35 @@ import { Hono } from "hono";
 import { healthResponseSchema } from "@workshop/contracts";
 import type { Env } from "./env";
 import { jsonError } from "./http/errors";
+import { homeRoutes } from "./http/routes/home";
+import { projectsRoutes } from "./http/routes/projects";
+import { recommendationRoutes } from "./http/routes/recommendations";
+import { referenceRoutes } from "./http/routes/references";
+import { siteRoutes } from "./http/routes/site";
 
 export const app = new Hono<{ Bindings: Env }>();
+
+app.route("/api/v1/projects", projectsRoutes);
+app.route("/api/v1/home", homeRoutes);
+app.route("/api/v1/recommendations", recommendationRoutes);
+app.route("/api/v1/reference-sets", referenceRoutes);
+app.route("/api/v1/site", siteRoutes);
+
+app.get("/api/v1/assets/*", async c => {
+  const key = c.req.path.replace("/api/v1/assets/", "");
+  if (!key.startsWith("covers/") && !key.startsWith("banners/")) {
+    return jsonError(c, "not_found", "Asset not found");
+  }
+  const object = await c.env.R2.get(key);
+  if (!object) return jsonError(c, "not_found", "Asset not found");
+  return new Response(object.body, {
+    headers: {
+      "content-type": object.httpMetadata?.contentType ?? "application/octet-stream",
+      "content-length": String(object.size),
+      "cache-control": "public, max-age=60, must-revalidate",
+    },
+  });
+});
 
 app.use("*", async (c, next) => {
   await next();
