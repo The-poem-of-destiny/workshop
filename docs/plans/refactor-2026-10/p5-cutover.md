@@ -12,33 +12,31 @@
 
 ## 2. 本地演练
 
-```text
-1. 关闭旧系统写入口（本地快照/只读模式）。
-2. 用新 migration 建空库。
-3. tools/migrate/cli.mjs all --source data_backup --target .tmp/migration.json
-4. tools/migrate/cli.mjs reconcile --source data_backup --target .tmp/migration.json
-5. 应用迁移到本地 D1；抽样安装 manifest/files。
-6. 启动新 Worker：pnpm --filter @workshop/worker dev
-7. 跑 pnpm check + Playwright 本地旅程。
-8. 重跑迁移，确认幂等；delta 重跑结果一致。
-```
+已完成（2026-10-21）：
+
+- 本地 D1 应用 `0001_initial.sql`：59 条命令成功。
+- 真实备份：`from_d1_sql.py` 导出 7 张表 + 690 个 R2 资产（0 缺失）；全量跑两次字节一致；verify/reconcile 全过；`--since 2026-09-01` delta 也通过。
+- 本地 HTTP E2E：`pnpm e2e:local` 10/10（health、静态 UI、列表、创建、上传、私有 404、发布提交、审核公开读、下载幂等、Origin 拒绝）。
+- 实际浏览器：本地 Chromium 打开首页，标题「命定创意工坊」，读到 E2E Project 卡片。
 
 验收：
 
-- 对账全过（项目数、published 指针、每项目文件 sha256、互动数、评分、审计、FK）。
-- 公开读差分样本通过；私有/草稿/审核数据不泄露。
-- 安装 manifest/files 对抽样项目可用。
-- 5xx < 0.5%（本地/ staging 压测）。
+- [x] 对账全过（项目数、published 指针、每项目文件 sha256、互动数、评分、审计、FK）。
+- [x] 公开读差分样本通过；私有/草稿/审核数据不泄露。
+- [x] 安装 manifest/files 对抽样项目可用。
+- [ ] 5xx < 0.5%（尚未做本地/ staging 压测）。
 
 ## 3. Staging 演练
 
-1. 部署同一 commit 到 staging（仅 staging）。
-2. 对 staging D1 应用 migration。
-3. 用脱敏样本或 `data_backup` 的 staging 子集跑迁移。
-4. 冒烟：`/api/v1/health`、列表、详情、搜索、登录、manifest/files、审核队列。
-5. 验证缓存头：动态 API `private, no-store`；封面/静态资产按策略。
-6. 记录 Worker version、commit SHA、migration 列表、artifact hash。
-7. 演练回滚：部署上一版本，确认旧代码仍可服务 staging。
+已完成（2026-10-21，账户 `ThisAccount`，仅 staging）：
+
+1. 对 `workshop-staging` D1 远程应用 `0001_initial.sql`：59 条命令成功。
+2. `wrangler deploy --env staging` 成功；Worker version `bda4def5-7fb2-42da-b13b-23821d74759d`。
+3. 冒烟：`/api/v1/health` 200、`/api/v1/projects` 200、`/` 200 HTML、无 Origin 的 auth flow 403。
+4. 动态响应带 `private, no-store`，安全头正常。
+5. 未导入真实备份到 staging；`data_backup` 只在本地演练使用。
+
+未完成：staging 回滚演练、staging 压测/5xx 统计、真实登录 OAuth（缺 callback/redeem）。
 
 ## 4. 生产切换（人工审批）
 

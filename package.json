@@ -10,6 +10,7 @@
     "check:workspace": "node tools/check-workspace.mjs",
     "check:schema": "node tools/check-schema.mjs",
     "worker:test": "pnpm --filter @workshop/worker test",
+    "e2e:local": "node tools/e2e-local.mjs",
     "check:workshop-bundles": "node scripts/check-workshop-bundles.mjs"
   },
   "devDependencies": {

@@ -25,3 +25,6 @@ data_backup/
 apps/worker/web/dist/
 
 dist/
+
+__pycache__/
+*.pyc

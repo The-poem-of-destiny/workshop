@@ -2,6 +2,16 @@
 
 This local-only tool turns a directory of legacy JSON/JSONL table exports into a deterministic JSON representation of the new Worker tables. It deliberately has **no default source directory** and never reads `data_backup/` automatically.
 
+## Legacy SQL dump input
+
+`from_d1_sql.py` converts a legacy D1 SQL dump plus its R2 tree into the JSON files this tool reads. It derives `assets.json` from each project row's `cover_image`/`download_url` and hashes the matching local R2 object.
+
+```sh
+python3 tools/migrate/from_d1_sql.py data_backup/d1-export.sql data_backup/r2 /tmp/legacy-export
+```
+
+Use a disposable directory outside the repository; never commit the dump or generated target.
+
 ## Commands
 
 ```sh

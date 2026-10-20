@@ -38,7 +38,7 @@ const idFor = (prefix, ...parts) => `${prefix}-${parts.map(safe).join('-')}`;
 const json = value => typeof value === 'string' ? value : JSON.stringify(value ?? {});
 const array = value => Array.isArray(value) ? value : value == null ? [] : typeof value === 'string' ? (() => { try { const x = JSON.parse(value); return Array.isArray(x) ? x : [value]; } catch { return [value]; } })() : [value];
 const compare = (a, b) => {
-  const x = JSON.stringify(a), y = JSON.stringify(b);
+  const x = stableStringify(a), y = stableStringify(b);
   return x < y ? -1 : x > y ? 1 : 0;
 };
 const stableRows = rows => [...rows].sort(compare);
@@ -240,7 +240,22 @@ export function transform(source) {
   return { format: 'workshop-migration-v1', meta: { expectedProjectCount: projectCount, expectedProjectIds, expectedPublishedPointerCount: publishedCount, expectedPublishedProjectIds, assetSha256, sourceCounts: { projects: projectCount, users: users.length } }, tables };
 }
 
-function duplicateIds(rows) { const seen = new Set(), duplicate = []; for (const row of rows) { if (seen.has(row.id)) duplicate.push(row.id); seen.add(row.id); } return duplicate; }
+function rowKey(row) {
+  if (row?.id != null) return `id:${row.id}`;
+  if (row?.project_id != null && row?.user_id != null) return `pu:${row.project_id}:${row.user_id}:${row.day_key ?? ''}`;
+  if (row?.project_id != null && row?.day_key != null) return `pd:${row.project_id}:${row.day_key}`;
+  return null;
+}
+function duplicateIds(rows) {
+  const seen = new Set(), duplicate = [];
+  for (const row of rows) {
+    const key = rowKey(row);
+    if (key == null) continue;
+    if (seen.has(key)) duplicate.push(key);
+    seen.add(key);
+  }
+  return duplicate;
+}
 export function verify(target) {
   const mismatches = [], tables = target?.tables ?? {};
   const projects = Array.isArray(tables.projects) ? tables.projects : [];
@@ -266,7 +281,19 @@ export function verify(target) {
   for (const row of tables.reference_items ?? []) if (!referenceVersions.has(row.reference_version_id)) mismatches.push({ check: 'fk', table: 'reference_items', id: row.id });
   for (const asset of tables.assets ?? []) { const expectedHash = target?.meta?.assetSha256?.[asset.id]; if (expectedHash && expectedHash.toLowerCase() !== text(asset.sha256).toLowerCase()) mismatches.push({ check: 'asset_sha256', id: asset.id, expected: expectedHash, actual: asset.sha256 }); if (!/^[a-f0-9]{64}$/i.test(text(asset.sha256))) mismatches.push({ check: 'asset_sha256', id: asset.id, sha256: asset.sha256 }); if (asset.content_base64) { const actual = createHash('sha256').update(Buffer.from(asset.content_base64, 'base64')).digest('hex'); if (actual !== asset.sha256.toLowerCase()) mismatches.push({ check: 'asset_sha256', id: asset.id, expected: asset.sha256, actual }); } }
   const pending = new Set(); for (const row of tables.submissions ?? []) if (row.status === 'pending' || row.status === 'checking') { if (pending.has(row.project_id)) mismatches.push({ check: 'pending_submission_unique', project_id: row.project_id }); pending.add(row.project_id); }
-  return { ok: mismatches.length === 0, checks: { projectCount: projects.length, publishedPointerCount: published, assets: (tables.assets ?? []).length, foreignKeys: true, duplicateIds: true, pendingSubmissionUniqueness: true }, mismatches };
+  const has = check => mismatches.some(item => item.check === check);
+  return {
+    ok: mismatches.length === 0,
+    checks: {
+      projectCount: projects.length,
+      publishedPointerCount: published,
+      assets: (tables.assets ?? []).length,
+      foreignKeys: !has('fk'),
+      duplicateIds: !has('duplicate_ids'),
+      pendingSubmissionUniqueness: !has('pending_submission_unique'),
+    },
+    mismatches,
+  };
 }
 
 export function reconcile(expected, target) {

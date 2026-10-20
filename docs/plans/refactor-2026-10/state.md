@@ -46,7 +46,9 @@
 
 ### P5/P6
 
-- 本地 P5 演练：`wrangler d1 migrations apply workshop-staging --local` 成功执行 59 条命令；本地 Worker 返回 health 200、空项目列表 200、静态首页 200、无 Origin 的 auth flow 403，安全头与 `private, no-store` 正常。
+- 本地 P5 演练：本地 D1 migration 59 条命令成功；`pnpm e2e:local` 10/10；实际 Chromium 首页读到 E2E 项目；health/list/root/auth-Origin 冒烟通过。
+- 真实备份 P4：`from_d1_sql.py` 导出 7 表 + 690 资产；全量两次字节一致；verify/reconcile 全过；`--since 2026-09-01` delta 通过（20 项目 / 32 revision / 56 资产 / 134 用户）。
+- Staging：`workshop-staging` D1 远程 migration 成功；Worker `bda4def5-7fb2-42da-b13b-23821d74759d` 部署成功；health/list/root/Origin 冒烟通过。未导入真实备份，未做回滚/压测。
 - P6 已删除 `cloudflare/`、`tests/e2e/`、`playwright.config.mjs`、`scripts/deployment/`、旧配置检查脚本、`test-bundles/` 与提交的 `dist/`；客户端需要的版本/内容工具移入 `packages/domain`。
 - `p5-cutover.md`：本地/staging 演练 + 生产 runbook + 回滚 + stop conditions。
 - `p6-cleanup.md`：旧代码/表/产物/测试删除顺序与零引用验证；保留项已记录。
@@ -84,8 +86,8 @@
 
 - 独立 evaluator：P1–P6 连续两轮零发现。
 - P3 缺口：真实 Discord OAuth callback/redeem（当前只有 flow 创建/状态，PKCE challenge 可选）；内容 checker DO。
-- P4：等 `data_backup` 到位后跑真实 extract/transform/verify + 对账。
-- P5：本地演练已完成；staging 部署与真实生产切换仍留人工审批。
+- P4：真实备份全量/两次/delta/对账已完成；D1/R2 实际 load 适配器仍未实现。
+- P5：本地与 staging 部署已完成；staging 回滚/压测、真实生产切换仍留人工审批。
 - P6：`cloudflare/` 已删除；`test-dist` shim 与旧客户端保留到客户端迁移/下架窗口。
 - Web UI：已有最小列表/详情页；登录、上传、审核后台未接入。
 - 真实 SillyTavern / Tavern client 验证未做。

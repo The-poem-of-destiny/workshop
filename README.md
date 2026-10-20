@@ -56,6 +56,7 @@ workshop/
 ```text
 pnpm install
 pnpm check                 # workspace、类型、测试、schema、迁移测试、wrangler dry-run
+pnpm e2e:local             # 启动真实 workerd + 本地 D1/R2，跑 10 条 HTTP E2E
 pnpm --filter @workshop/worker dev
 pnpm --filter @workshop/worker web:build
 ```
@@ -74,6 +75,7 @@ Git 仓库与 Cloudflare 运行时是两套独立状态。部署前必须记录�
 - 配置与绑定：`apps/worker/wrangler.jsonc`
 - 部署前：`pnpm check`，并先执行 `pnpm --filter @workshop/worker web:build`
 - 迁移：`wrangler d1 migrations apply <database> --remote --config apps/worker/wrangler.jsonc`
+- 旧备份：`python3 tools/migrate/from_d1_sql.py <dump.sql> <r2-dir> <临时输出目录>`，再用 `tools/migrate/cli.mjs` 执行/校验/对账
 - 密钥只通过 `wrangler secret put` 写入，不进入仓库
 
 P5 切换演练与 P6 清理记录见 `docs/plans/refactor-2026-10/`。
