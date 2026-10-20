@@ -32,8 +32,8 @@ projectsRoutes.get("/:id", async c => {
 projectsRoutes.post("/:id/downloads", async c => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
-  const recorded = await recordDownload(c.env.DB, c.req.param("id"));
-  if (!recorded) return jsonError(c, "not_found", "Project not found");
+  const recorded = await recordDownload(c.env.DB, c.req.param("id"), session.userId);
+  if (recorded === "not_found") return jsonError(c, "not_found", "Project not found");
   return c.body(null, 204);
 });
 

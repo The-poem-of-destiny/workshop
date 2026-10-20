@@ -6,7 +6,7 @@
   "scripts": {
     "build": "webpack --config webpack.config.cjs --mode production && node scripts/build-workshop-legacy-shim.mjs",
     "watch": "node scripts/build-workshop-legacy-shim.mjs && webpack --config webpack.config.cjs --mode development --watch",
-    "check": "pnpm check:workspace && pnpm -r --if-present typecheck && pnpm -r --if-present test && pnpm check:schema && pnpm --filter @workshop/worker check:wrangler",
+    "check": "pnpm check:workspace && pnpm -r --if-present typecheck && pnpm -r --if-present test && pnpm check:schema && node tools/migrate/test.mjs && pnpm --filter @workshop/worker check:wrangler",
     "check:workspace": "node tools/check-workspace.mjs",
     "check:schema": "node tools/check-schema.mjs",
     "worker:test": "pnpm --filter @workshop/worker test",

@@ -189,6 +189,16 @@ CREATE TABLE project_ratings (
 
 CREATE INDEX idx_project_ratings_project ON project_ratings(project_id, rating);
 
+CREATE TABLE download_events (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  day_key TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (user_id, project_id, day_key)
+);
+
+CREATE INDEX idx_download_events_project_day ON download_events(project_id, day_key);
+
 CREATE TABLE project_metrics_daily (
   day_key TEXT NOT NULL,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -198,6 +208,14 @@ CREATE TABLE project_metrics_daily (
 );
 
 CREATE INDEX idx_project_metrics_project ON project_metrics_daily(project_id, day_key DESC);
+
+CREATE TRIGGER download_events_count AFTER INSERT ON download_events
+BEGIN
+  UPDATE projects SET downloads_count = downloads_count + 1 WHERE id = NEW.project_id;
+  INSERT INTO project_metrics_daily (day_key, project_id, downloads)
+  VALUES (NEW.day_key, NEW.project_id, 1)
+  ON CONFLICT(day_key, project_id) DO UPDATE SET downloads = downloads + 1;
+END;
 
 CREATE TABLE ranking_runs (
   id TEXT PRIMARY KEY,

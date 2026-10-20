@@ -1,14 +1,23 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { extract, transform, verify, reconcile, stableStringify } from './lib.mjs';
 
 const dir = await mkdtemp(path.join(os.tmpdir(), 'workshop-migration-'));
 try {
   await mkdir(path.join(dir, 'source'));
   const source = path.join(dir, 'source');
+  const cliPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'cli.mjs');
+  const help = spawnSync(process.execPath, [cliPath, '--help'], { encoding: 'utf8' });
+  assert.equal(help.status, 0, '--help exits successfully');
+  assert.match(help.stdout, /Usage: node tools\/migrate\/cli\.mjs/);
+  const missing = spawnSync(process.execPath, [cliPath, 'all', '--source', '/nonexistent', '--target', path.join(dir, 'missing-target.json')], { encoding: 'utf8' });
+  assert.notEqual(missing.status, 0, 'a nonexistent source exits non-zero');
+  assert.match(missing.stderr, /migration:/);
   await writeFile(path.join(source, 'users.json'), JSON.stringify([
     { id: 'u1', username: 'author', role: 'member', created_at: '2024-01-01T00:00:00Z' },
     { id: 'u2', username: 'reviewer', is_admin: true }
@@ -30,13 +39,19 @@ try {
   assert.equal(firstRun.tables.assets[0].sha256.length, 64);
   assert.equal(verify(firstRun).ok, true);
 
+  const lostPointer = structuredClone(firstRun);
+  lostPointer.tables.projects[0].published_revision_id = null;
+  assert.equal(verify(lostPointer).ok, false, 'lost published pointer is detected');
+
   const changed = structuredClone(firstRun);
   changed.tables.assets[0].sha256 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
   assert.equal(verify(changed).ok, false, 'asset mismatch is detected');
   assert.equal(reconcile(firstRun, changed).ok, false, 'reconcile reports target mismatch');
 
-  const delta = await extract(source, { since: '2024-01-03T00:00:00Z' });
-  assert.equal(delta.tables.projects.length, 1, 'delta uses row timestamps');
+  const delta = transform(await extract(source, { since: '2024-01-03T00:00:00Z' }));
+  assert.equal(delta.tables.projects[0].id, firstRun.tables.projects[0].id, 'delta retains published project identity');
+  assert.equal(delta.tables.projects[0].published_revision_id, firstRun.tables.projects[0].published_revision_id, 'delta retains published pointer');
+  assert.equal(verify(delta).ok, true, 'delta output verifies');
   console.log('migration tests passed');
 } finally {
   await rm(dir, { recursive: true, force: true });

@@ -1,3 +1,4 @@
+import { WORKSHOP_LIMITS } from "@workshop/domain";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import {
@@ -22,7 +23,7 @@ import { jsonError } from "../errors.js";
 import { requireSession } from "../session.js";
 
 export const authoringRoutes = new Hono<{ Bindings: Env }>();
-const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = WORKSHOP_LIMITS.projectUploadBytes;
 
 async function bodyJson(c: Context<{ Bindings: Env }>): Promise<unknown> {
   try {
@@ -62,12 +63,13 @@ authoringRoutes.patch("/:id", async c => {
   if (!auth.session) return auth.response;
   const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
   if (!project) return jsonError(c, "not_found", "Project not found");
-  if (ifMatchVersion(c.req.header("if-match")) !== project.row_version) {
+  const expectedVersion = ifMatchVersion(c.req.header("if-match"));
+  if (expectedVersion === null || expectedVersion !== project.row_version) {
     return jsonError(c, "precondition_failed", "Project version does not match");
   }
   const parsed = patchProjectSchema.safeParse(await bodyJson(c));
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid project metadata", parsed.error.flatten());
-  const result = await patchProject(c.env.DB, auth.session, project.id, parsed.data);
+  const result = await patchProject(c.env.DB, auth.session, project.id, expectedVersion, parsed.data);
   if (!result) return jsonError(c, "precondition_failed", "Project version does not match");
   return c.json(result);
 });
@@ -77,10 +79,14 @@ authoringRoutes.patch("/:id/visibility", async c => {
   if (!auth.session) return auth.response;
   const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
   if (!project) return jsonError(c, "not_found", "Project not found");
+  const expectedVersion = ifMatchVersion(c.req.header("if-match"));
+  if (expectedVersion === null || expectedVersion !== project.row_version) {
+    return jsonError(c, "precondition_failed", "Project version does not match");
+  }
   const parsed = visibilityUpdateSchema.safeParse(await bodyJson(c));
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid visibility", parsed.error.flatten());
-  const rowVersion = await updateVisibility(c.env.DB, auth.session, project.id, parsed.data);
-  if (!rowVersion) return jsonError(c, "conflict", "Project was changed");
+  const rowVersion = await updateVisibility(c.env.DB, auth.session, project.id, expectedVersion, parsed.data);
+  if (!rowVersion) return jsonError(c, "precondition_failed", "Project version does not match");
   return c.json({ rowVersion });
 });
 
@@ -89,10 +95,14 @@ authoringRoutes.post("/:id/revisions", async c => {
   if (!auth.session) return auth.response;
   const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
   if (!project) return jsonError(c, "not_found", "Project not found");
+  const expectedVersion = ifMatchVersion(c.req.header("if-match"));
+  if (expectedVersion === null || expectedVersion !== project.row_version) {
+    return jsonError(c, "precondition_failed", "Project version does not match");
+  }
   const parsed = patchProjectSchema.safeParse(await bodyJson(c));
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid revision metadata", parsed.error.flatten());
-  const result = await createRevision(c.env.DB, auth.session, project.id, parsed.data);
-  if (!result) return jsonError(c, "conflict", "Project was changed");
+  const result = await createRevision(c.env.DB, auth.session, project.id, expectedVersion, parsed.data);
+  if (!result) return jsonError(c, "precondition_failed", "Project version does not match");
   return c.json(result, 201);
 });
 
@@ -104,12 +114,23 @@ authoringRoutes.put("/:id/revisions/:revisionId/files/:kind", async c => {
   const revision = await getRevisionForProject(c.env.DB, c.req.param("id"), c.req.param("revisionId"), auth.session);
   if (!revision) return jsonError(c, "not_found", "Revision not found");
   const declaredLength = Number(c.req.header("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_BYTES) {
+  if (!Number.isFinite(declaredLength) || declaredLength <= 0) {
+    return jsonError(c, "bad_request", "Content-Length required");
+  }
+  if (declaredLength > MAX_UPLOAD_BYTES) {
     return jsonError(c, "payload_too_large", "File exceeds 10 MiB limit");
+  }
+  const mime = (c.req.header("content-type") ?? "").split(";", 1)[0]!.trim().toLowerCase();
+  const allowedMime: Record<string, readonly string[]> = {
+    worldbook: ["application/json", "text/plain"],
+    regex: ["application/json", "text/plain"],
+    cover: ["image/png", "image/jpeg", "image/webp"],
+  };
+  if (!allowedMime[parsedKind.data]?.includes(mime)) {
+    return jsonError(c, "unsupported_media_type", "Unsupported content type");
   }
   const body = await c.req.raw.arrayBuffer();
   if (body.byteLength > MAX_UPLOAD_BYTES) return jsonError(c, "payload_too_large", "File exceeds 10 MiB limit");
-  const mime = (c.req.header("content-type") ?? "application/octet-stream").split(";", 1)[0]!.trim().toLowerCase();
   const result = await upsertAsset(c.env.DB, c.env.R2, c.req.param("id"), revision.id, parsedKind.data, body, mime);
   return c.json(result);
 });

@@ -9,6 +9,7 @@ import type { Env } from "../../env.js";
 import {
   changeAdminMemberRole,
   getAdminSubmission,
+  getSubmissionAsset,
   listAdminMembers,
   listAdminProjects,
   listAdminSubmissions,
@@ -56,6 +57,26 @@ adminRoutes.get("/submissions/:id", async c => {
   return c.json(submission);
 });
 
+adminRoutes.get("/submissions/:id/files/:kind", async c => {
+  const auth = await requireReviewer(c);
+  if (!auth) return jsonError(c, auth === null ? "unauthorized" : "forbidden", "Reviewer access required");
+  const kind = c.req.param("kind");
+  if (kind !== "worldbook" && kind !== "regex") {
+    return jsonError(c, "bad_request", "Unsupported file kind");
+  }
+  const asset = await getSubmissionAsset(c.env.DB, c.req.param("id"), kind);
+  if (!asset) return jsonError(c, "not_found", "File not found");
+  const object = await c.env.R2.get(asset.r2_key);
+  if (!object) return jsonError(c, "not_found", "File not found");
+  return new Response(object.body, {
+    headers: {
+      "content-type": asset.mime,
+      "content-length": String(asset.bytes),
+      "cache-control": "private, no-store",
+    },
+  });
+});
+
 adminRoutes.post("/submissions/:id/review", async c => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
@@ -101,7 +122,7 @@ adminRoutes.put("/members/:id/role", async c => {
   const parsed = adminRoleRequestSchema.safeParse(await readJson(c));
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid role", parsed.error.flatten());
 
-  const result = await changeAdminMemberRole(c.env.DB, c.req.param("id"), parsed.data.role);
+  const result = await changeAdminMemberRole(c.env.DB, c.req.param("id"), parsed.data.role, session.userId);
   if (result.kind === "not_found") return jsonError(c, "not_found", "Member not found");
   if (result.kind === "last_owner") return jsonError(c, "conflict", "Cannot demote the last owner");
   return c.json({ ok: true });

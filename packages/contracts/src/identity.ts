@@ -31,7 +31,7 @@ export type AuthFlowMode = z.infer<typeof authFlowModeSchema>;
 
 export const authFlowCreateSchema = z.object({
   mode: authFlowModeSchema,
-  origin: z.string().url(),
+  codeChallenge: z.string().min(43).max(128).optional(),
 });
 
 export type AuthFlowCreate = z.infer<typeof authFlowCreateSchema>;

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { extract, transform, verify, reconcile, readJson, writeJson } from './lib.mjs';
 
 const help = `Usage: node tools/migrate/cli.mjs <phase> --source <dir> --target <file> [options]
@@ -66,7 +67,7 @@ export async function run(options) {
   return report.ok ? 0 : 1;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   try {
     const options = parse(process.argv.slice(2));
     if (options.help) { console.log(help); process.exit(0); }

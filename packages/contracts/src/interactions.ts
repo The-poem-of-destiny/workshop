@@ -16,7 +16,7 @@ export type MeStateResponse = z.infer<typeof meStateResponseSchema>;
 
 export const ratingInputSchema = z.object({
   rating: z.number().int().min(1).max(5),
-  comment: z.string().optional(),
+  comment: z.string().max(2000).optional(),
 });
 
 export type RatingInput = z.infer<typeof ratingInputSchema>;

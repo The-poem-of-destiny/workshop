@@ -20,7 +20,10 @@ export async function getInteractionState(
       EXISTS (SELECT 1 FROM project_subscriptions s WHERE s.project_id = p.id AND s.user_id = ?) AS subscribed,
       (SELECT r.rating FROM project_ratings r WHERE r.project_id = p.id AND r.user_id = ?) AS rating
     FROM projects p
-    WHERE p.id IN (${placeholders}) AND p.deleted_at IS NULL
+    WHERE p.id IN (${placeholders})
+      AND p.deleted_at IS NULL
+      AND p.visibility = 'public'
+      AND p.published_revision_id IS NOT NULL
   `).bind(userId, userId, userId, ...projectIds).all<StateRow>();
   const byId = new Map(rows.results.map(row => [row.project_id, row]));
   const items: InteractionStateItem[] = [];
@@ -33,7 +36,9 @@ export async function getInteractionState(
 
 export async function interactionProjectExists(db: D1Database, projectId: string): Promise<boolean> {
   const row = await db.prepare(
-    "SELECT 1 AS present FROM projects WHERE id = ? AND deleted_at IS NULL",
+    `SELECT 1 AS present FROM projects
+     WHERE id = ? AND deleted_at IS NULL
+       AND visibility = 'public' AND published_revision_id IS NOT NULL`,
   ).bind(projectId).first<{ present: number }>();
   return Boolean(row);
 }

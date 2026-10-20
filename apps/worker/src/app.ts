@@ -14,6 +14,17 @@ import { siteRoutes } from "./http/routes/site";
 
 export const app = new Hono<{ Bindings: Env }>();
 
+// Register before routes: Hono wildcard middleware only runs for handlers
+// registered after it.
+app.use("*", async (c, next) => {
+  await next();
+  c.res.headers.set("x-content-type-options", "nosniff");
+  c.res.headers.set("referrer-policy", "same-origin");
+  if (!c.res.headers.has("cache-control")) {
+    c.res.headers.set("cache-control", "private, no-store");
+  }
+});
+
 app.route("/api/v1/auth", authRoutes);
 app.route("/api/v1/sessions", sessionRoutes);
 app.route("/api/v1/me", meRoutes);
@@ -30,6 +41,14 @@ app.get("/api/v1/assets/*", async c => {
   if (!key.startsWith("covers/") && !key.startsWith("banners/")) {
     return jsonError(c, "not_found", "Asset not found");
   }
+  if (key.startsWith("covers/")) {
+    const visible = await c.env.DB.prepare(`
+      SELECT 1 AS found FROM assets a
+      JOIN projects p ON p.id = a.project_id
+      WHERE a.r2_key = ? AND p.visibility = 'public' AND p.deleted_at IS NULL
+    `).bind(key).first<{ found: number }>();
+    if (!visible) return jsonError(c, "not_found", "Asset not found");
+  }
   const object = await c.env.R2.get(key);
   if (!object) return jsonError(c, "not_found", "Asset not found");
   return new Response(object.body, {
@@ -39,13 +58,6 @@ app.get("/api/v1/assets/*", async c => {
       "cache-control": "public, max-age=60, must-revalidate",
     },
   });
-});
-
-app.use("*", async (c, next) => {
-  await next();
-  c.res.headers.set("x-content-type-options", "nosniff");
-  c.res.headers.set("referrer-policy", "same-origin");
-  c.res.headers.set("cache-control", "private, no-store");
 });
 
 app.get("/api/v1/health", c => {

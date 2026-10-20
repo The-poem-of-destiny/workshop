@@ -29,6 +29,9 @@ importers:
       '@workshop/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@workshop/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       hono:
         specifier: ^4.13.13
         version: 4.13.13

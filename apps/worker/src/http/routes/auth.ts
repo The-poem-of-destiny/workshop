@@ -44,10 +44,9 @@ authRoutes.post("/flows", async c => {
   } catch {
     return jsonError(c, "bad_request", "Invalid JSON body");
   }
-  const bodyRecord = typeof body === "object" && body !== null ? body as Record<string, unknown> : null;
-  const requestedOrigin = typeof bodyRecord?.origin === "string" ? bodyRecord.origin : undefined;
+  const requestOrigin = c.req.header("origin");
   const configuredOrigins = (c.env.ALLOWED_ORIGINS ?? "").split(",").map(origin => origin.trim()).filter(Boolean);
-  if (!requestedOrigin || !configuredOrigins.includes(requestedOrigin)) {
+  if (!requestOrigin || !configuredOrigins.includes(requestOrigin)) {
     return jsonError(c, "forbidden", "Origin is not allowed");
   }
   const parsed = authFlowCreateSchema.safeParse(body);
@@ -55,25 +54,30 @@ authRoutes.post("/flows", async c => {
 
   const id = crypto.randomUUID();
   const state = randomToken();
-  const verifier = randomToken(48);
+  const codeChallenge = parsed.data.codeChallenge;
+  const verifier = codeChallenge ? undefined : randomToken(48);
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
   await insertAuthFlow(c.env.DB, {
     id,
     state,
     verifier,
-    origin: parsed.data.origin,
+    codeChallenge,
+    origin: requestOrigin,
     mode: parsed.data.mode,
     expiresAt,
   });
 
   const discordClientId = (c.env as DiscordEnv).DISCORD_CLIENT_ID;
-  let url = `${parsed.data.origin}/auth/pending?flow=${encodeURIComponent(id)}`;
+  let url = `${requestOrigin}/auth/pending?flow=${encodeURIComponent(id)}`;
   if (discordClientId) {
-    const callback = new URL(CALLBACK_PATH, parsed.data.origin).toString();
-    const challengeBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
-    let challengeBinary = "";
-    for (const value of new Uint8Array(challengeBytes)) challengeBinary += String.fromCharCode(value);
-    const challenge = btoa(challengeBinary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+    const callback = new URL(CALLBACK_PATH, requestOrigin).toString();
+    let challenge = codeChallenge;
+    if (!challenge) {
+      const challengeBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier ?? ""));
+      let challengeBinary = "";
+      for (const value of new Uint8Array(challengeBytes)) challengeBinary += String.fromCharCode(value);
+      challenge = btoa(challengeBinary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+    }
     const query = new URLSearchParams({
       client_id: discordClientId,
       response_type: "code",

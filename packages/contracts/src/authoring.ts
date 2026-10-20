@@ -11,6 +11,8 @@ export const projectMetadataSchema = z.object({
   authorNote: optionalText,
   projectType: projectTypeSchema.nullable().optional(),
   extensionType: extensionTypeSchema.nullable().optional(),
+  schemaVersion: z.string().trim().max(32).nullable().optional(),
+  discordThreadUrl: z.string().url().max(500).nullable().optional(),
   tags: tagsSchema,
 });
 export type ProjectMetadata = z.infer<typeof projectMetadataSchema>;

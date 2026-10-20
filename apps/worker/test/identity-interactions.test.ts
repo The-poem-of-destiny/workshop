@@ -79,14 +79,20 @@ describe("identity and interactions", () => {
   it("validates origins and exposes only flow status", async () => {
     const rejected = await app.request("/api/v1/auth/flows", {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mode: "browser", origin: "https://evil.example" }),
+      headers: { "content-type": "application/json", origin: "https://evil.example" },
+      body: JSON.stringify({ mode: "browser" }),
     }, { ...bindings, ALLOWED_ORIGINS: "https://workshop.example" });
     expect(rejected.status).toBe(403);
-    const created = await app.request("/api/v1/auth/flows", {
+    const missing = await app.request("/api/v1/auth/flows", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mode: "device", origin: "https://workshop.example" }),
+      body: JSON.stringify({ mode: "browser" }),
+    }, { ...bindings, ALLOWED_ORIGINS: "https://workshop.example" });
+    expect(missing.status).toBe(403);
+    const created = await app.request("/api/v1/auth/flows", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://workshop.example" },
+      body: JSON.stringify({ mode: "device" }),
     }, { ...bindings, ALLOWED_ORIGINS: "https://workshop.example" });
     expect(created.status).toBe(201);
     const flow = await created.json() as { id: string; state: string; url: string; expiresAt: string };

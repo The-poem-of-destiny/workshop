@@ -243,6 +243,19 @@ export async function getAdminSubmission(db: D1Database, id: string) {
   };
 }
 
+export async function getSubmissionAsset(
+  db: D1Database,
+  submissionId: string,
+  kind: "worldbook" | "regex",
+) {
+  return db.prepare(`
+    SELECT a.r2_key, a.mime, a.bytes
+    FROM submissions s
+    JOIN assets a ON a.revision_id = s.revision_id
+    WHERE s.id = ? AND a.kind = ?
+  `).bind(submissionId, kind).first<{ r2_key: string; mime: string; bytes: number }>();
+}
+
 export async function reviewAdminSubmission(
   db: D1Database,
   submissionId: string,
@@ -275,10 +288,24 @@ export async function reviewAdminSubmission(
     db.prepare(`
       INSERT INTO reviews
         (id, submission_id, reviewer_id, decision, reason, manifest_hash, checker_version, report, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+      WHERE EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = ?)
     `).bind(
       reviewId, submissionId, reviewerId, request.decision, request.reason ?? null,
-      target.manifest_hash, checkerVersion, report, now,
+      target.manifest_hash, checkerVersion, report, now, submissionId, nextStatus,
+    ),
+    db.prepare(`
+      INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
+      SELECT ?, ?, 'submission', ?, ?, ?, ?
+      WHERE EXISTS (SELECT 1 FROM reviews WHERE submission_id = ?)
+    `).bind(
+      crypto.randomUUID(),
+      `review.${request.decision}`,
+      submissionId,
+      reviewerId,
+      JSON.stringify({ projectId: target.project_id, revisionId: target.revision_id, checkerVersion }),
+      now,
+      submissionId,
     ),
   ];
 
@@ -291,11 +318,14 @@ export async function reviewAdminSubmission(
           search_tags = r.tags, row_version = row_version + 1, updated_at = ?
       FROM project_revisions r
       WHERE projects.id = ? AND r.id = ?
-    `).bind(target.revision_id, now, now, target.project_id, target.revision_id));
+        AND EXISTS (SELECT 1 FROM reviews WHERE submission_id = ?)
+        AND EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = 'approved')
+    `).bind(target.revision_id, now, now, target.project_id, target.revision_id, submissionId, submissionId));
   }
 
   try {
-    await db.batch(statements);
+    const results = await db.batch(statements);
+    if ((results[1]?.meta.changes ?? 0) === 0) return { kind: "conflict" as const };
   } catch (error) {
     // UNIQUE(reviews.submission_id) and the conditional update make races a 409.
     if (error instanceof Error && /unique|constraint/i.test(error.message)) {
@@ -366,21 +396,27 @@ export async function changeAdminMemberRole(
   db: D1Database,
   targetUserId: string,
   role: "member" | "reviewer" | "owner",
+  actorId: string,
 ) {
   const target = await db.prepare("SELECT id, role FROM users WHERE id = ?").bind(targetUserId)
     .first<{ id: string; role: "member" | "reviewer" | "owner" }>();
   if (!target) return { kind: "not_found" as const };
-  if (target.role === "owner" && role !== "owner") {
-    const count = await db.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'owner'")
-      .first<{ count: number }>();
-    if ((count?.count ?? 0) <= 1) return { kind: "last_owner" as const };
-  }
 
   const now = new Date().toISOString();
+  const updated = await db.prepare(`
+    UPDATE users SET role = ?, updated_at = ?
+    WHERE id = ?
+      AND (role <> 'owner' OR ? = 'owner' OR (SELECT COUNT(*) FROM users WHERE role = 'owner') > 1)
+  `).bind(role, now, targetUserId, role).run();
+  if (updated.meta.changes === 0) return { kind: "last_owner" as const };
+
   await db.batch([
-    db.prepare("UPDATE users SET role = ?, updated_at = ? WHERE id = ?").bind(role, now, targetUserId),
     db.prepare("UPDATE sessions SET session_version = session_version + 1, revoked_at = ? WHERE user_id = ?")
       .bind(now, targetUserId),
+    db.prepare(`
+      INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
+      VALUES (?, 'member.role_change', 'user', ?, ?, ?, ?)
+    `).bind(crypto.randomUUID(), targetUserId, actorId, JSON.stringify({ from: target.role, to: role }), now),
   ]);
   return { kind: "ok" as const };
 }

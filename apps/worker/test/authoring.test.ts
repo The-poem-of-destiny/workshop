@@ -81,15 +81,23 @@ describe("authoring write paths", () => {
   it("keeps revision numbers immutable and uploads hashed assets", async () => {
     const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Versions" }) });
     const first = await created.json() as { project: { id: string }; workingRevisionId: string };
-    const revision = await request(`/${first.project.id}/revisions`, { method: "POST", body: JSON.stringify({ title: "Second" }) });
+    const revision = await request(`/${first.project.id}/revisions`, {
+      method: "POST",
+      headers: { "if-match": "1" },
+      body: JSON.stringify({ title: "Second" }),
+    });
     expect(revision.status).toBe(201);
     const second = await revision.json() as { revisionId: string };
     const upload = await request(`/${first.project.id}/revisions/${second.revisionId}/files/worldbook`, {
-      method: "PUT", body: '{"entries":[]}', headers: { "content-type": "application/json" },
+      method: "PUT",
+      body: '{"entries":[]}',
+      headers: { "content-type": "application/json", "content-length": "14" },
     });
     expect(upload.status).toBe(200);
     await expect(upload.json()).resolves.toMatchObject({ kind: "worldbook", bytes: 14, mime: "application/json" });
-    const object = await bindings.R2.get(`projects/${first.project.id}/revisions/${second.revisionId}/worldbook.json`);
+    const listed = await bindings.R2.list({ prefix: `projects/${first.project.id}/revisions/${second.revisionId}/worldbook-` });
+    expect(listed.objects).toHaveLength(1);
+    const object = await bindings.R2.get(listed.objects[0]!.key);
     await expect(object?.text()).resolves.toBe('{"entries":[]}');
     const rows = await bindings.DB.prepare("SELECT revision_no FROM project_revisions WHERE project_id = ? ORDER BY revision_no")
       .bind(first.project.id).all<{ revision_no: number }>();
@@ -109,7 +117,28 @@ describe("authoring write paths", () => {
     expect(statuses.results.map(row => row.status)).toEqual(["superseded", "pending"]);
     const forbidden = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/nope`, { method: "PUT", body: "x" });
     expect(forbidden.status).toBe(400);
-    const oversized = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/cover`, { method: "PUT", body: new Uint8Array(10 * 1024 * 1024 + 1) });
+
+    // A submitted revision is frozen: no post-submit byte replacement.
+    const frozen = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`, {
+      method: "PUT",
+      body: '{"entries":[]}',
+      headers: { "content-type": "application/json", "content-length": "14" },
+    });
+    expect(frozen.status).toBe(404);
+
+    // A fresh working revision can still be uploaded; size is rejected before buffering.
+    const next = await request(`/${first.project.id}/revisions`, {
+      method: "POST",
+      headers: { "if-match": "1" },
+      body: JSON.stringify({ title: "Third" }),
+    });
+    expect(next.status).toBe(201);
+    const third = await next.json() as { revisionId: string };
+    const oversized = await request(`/${first.project.id}/revisions/${third.revisionId}/files/cover`, {
+      method: "PUT",
+      body: "x",
+      headers: { "content-type": "image/png", "content-length": String(10 * 1024 * 1024 + 1) },
+    });
     expect(oversized.status).toBe(413);
   });
 });

@@ -1,18 +1,20 @@
-export async function recordDownload(db: D1Database, projectId: string): Promise<boolean> {
+export type DownloadResult = "counted" | "duplicate" | "not_found";
+
+export async function recordDownload(
+  db: D1Database,
+  projectId: string,
+  userId: string,
+): Promise<DownloadResult> {
   const project = await db.prepare(`
     SELECT 1 AS found FROM projects
     WHERE id = ? AND visibility = 'public' AND published_revision_id IS NOT NULL AND deleted_at IS NULL
   `).bind(projectId).first<{ found: number }>();
-  if (!project) return false;
+  if (!project) return "not_found";
 
   const dayKey = new Date().toISOString().slice(0, 10);
-  await db.batch([
-    db.prepare("UPDATE projects SET downloads_count = downloads_count + 1 WHERE id = ?").bind(projectId),
-    db.prepare(`
-      INSERT INTO project_metrics_daily (day_key, project_id, downloads)
-      VALUES (?, ?, 1)
-      ON CONFLICT(day_key, project_id) DO UPDATE SET downloads = downloads + 1
-    `).bind(dayKey, projectId),
-  ]);
-  return true;
+  const inserted = await db.prepare(`
+    INSERT OR IGNORE INTO download_events (user_id, project_id, day_key)
+    VALUES (?, ?, ?)
+  `).bind(userId, projectId, dayKey).run();
+  return inserted.meta.changes === 0 ? "duplicate" : "counted";
 }

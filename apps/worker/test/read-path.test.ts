@@ -159,11 +159,11 @@ describe("public read path", () => {
     const anonymous = await app.request("/api/v1/projects/p1/downloads", { method: "POST" }, bindings);
     expect(anonymous.status).toBe(401);
 
-    const response = await app.request("/api/v1/projects/p1/downloads", {
-      method: "POST",
-      headers: { authorization: "Bearer test-token" },
-    }, bindings);
+    const headers = { authorization: "Bearer test-token" };
+    const response = await app.request("/api/v1/projects/p1/downloads", { method: "POST", headers }, bindings);
     expect(response.status).toBe(204);
+    const duplicate = await app.request("/api/v1/projects/p1/downloads", { method: "POST", headers }, bindings);
+    expect(duplicate.status).toBe(204);
 
     const project = await bindings.DB.prepare("SELECT downloads_count FROM projects WHERE id = 'p1'").first<{ downloads_count: number }>();
     expect(project?.downloads_count).toBe(13);

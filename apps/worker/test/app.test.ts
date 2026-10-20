@@ -29,6 +29,17 @@ describe("worker skeleton", () => {
     });
   });
 
+  it("sets security headers on API responses", async () => {
+    const response = await app.request("/api/v1/unknown", undefined, env);
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("referrer-policy")).toBe("same-origin");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+
+    const unauthorized = await app.request("/api/v1/me", undefined, env);
+    expect(unauthorized.status).toBe(401);
+    expect(unauthorized.headers.get("cache-control")).toBe("private, no-store");
+  });
+
   it("does not swallow API 404 into the text fallback", async () => {
     const response = await app.request("/api", undefined, env);
     expect(response.status).toBe(404);

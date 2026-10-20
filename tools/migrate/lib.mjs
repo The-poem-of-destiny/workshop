@@ -94,9 +94,30 @@ export async function extract(sourceDir, options = {}) {
   }
   const since = options.since ? new Date(options.since) : null;
   if (since && Number.isNaN(since.valueOf())) throw new Error(`invalid --since timestamp: ${options.since}`);
-  if (since) for (const name of TABLES) tables[name] = tables[name].filter(row => {
-    const stamp = dateOf(row); return stamp && !Number.isNaN(new Date(stamp).valueOf()) && new Date(stamp) >= since;
-  });
+  if (since) {
+    const changedProjects = new Set(tables.projects.filter(row => {
+      const stamp = dateOf(row);
+      return stamp && !Number.isNaN(new Date(stamp).valueOf()) && new Date(stamp) >= since;
+    }).map(row => text(first(row, ['id', 'project_id']))));
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      for (const row of tables.projects) {
+        const id = text(first(row, ['id', 'project_id']));
+        const links = [row.root_project_id, row.published_project_id].filter(value => value != null).map(text);
+        if (changedProjects.has(id) || links.some(link => changedProjects.has(link))) {
+          if (!changedProjects.has(id)) { changedProjects.add(id); expanded = true; }
+          for (const link of links) if (!changedProjects.has(link)) { changedProjects.add(link); expanded = true; }
+        }
+      }
+    }
+    for (const name of TABLES) tables[name] = tables[name].filter(row => {
+      const stamp = dateOf(row);
+      const changed = stamp && !Number.isNaN(new Date(stamp).valueOf()) && new Date(stamp) >= since;
+      if (name !== 'projects') return Boolean(changed);
+      return changedProjects.has(text(first(row, ['id', 'project_id'])));
+    });
+  }
   for (const name of TABLES) tables[name] = stableRows(tables[name]);
   return { format: 'workshop-legacy-extract-v1', since: options.since ?? null, tables };
 }
@@ -186,11 +207,28 @@ export function transform(source) {
   const referenceVersionIdValues = new Set(tables.reference_versions.map(x => x.id));
   for (const row of source.tables.reference_items) { const legacyVersionId = text(first(row, ['reference_version_id', 'version_id'])); const versionId = referenceVersionIds.get(legacyVersionId) ?? legacyVersionId; if (!referenceVersionIdValues.has(versionId)) continue; const exact = text(first(row, ['exact_hash', 'hash'], hash(json(row)))); tables.reference_items.push({ id: text(first(row, ['id', 'item_id']), idFor('reference-item', versionId, exact)), reference_version_id: versionId, kind: first(row, ['kind', 'type'], 'worldbook') === 'regex' ? 'regex' : 'worldbook', source_key: first(row, ['source_key', 'key']) ?? null, display_name: text(first(row, ['display_name', 'name'], 'Unnamed item')), exact_hash: exact, normalized_content_hash: text(first(row, ['normalized_content_hash', 'normalized_hash'], exact)), name_hash: text(first(row, ['name_hash'], hash(first(row, ['display_name', 'name'], '')))), keys_hash: first(row, ['keys_hash']) ?? null, structure_hash: text(first(row, ['structure_hash'], exact)), created_at: text(first(row, ['created_at', 'createdAt'], '1970-01-01T00:00:00.000Z')) }); }
   for (const row of source.tables.audit_events) { tables.audit_events.push({ id: text(first(row, ['id', 'event_id']), idFor('audit', first(row, ['action'], 'event'), first(row, ['target_id'], 'unknown'))), action: text(first(row, ['action'], 'migration')), target_type: text(first(row, ['target_type', 'targetType'], 'legacy')), target_id: first(row, ['target_id', 'targetId']) ?? null, actor_id: first(row, ['actor_id', 'user_id']) ?? null, detail: first(row, ['detail', 'metadata']) == null ? null : json(first(row, ['detail', 'metadata'])), created_at: text(first(row, ['created_at', 'createdAt'], '1970-01-01T00:00:00.000Z')) }); }
+  const assetSha256 = {};
+  for (const row of source.tables.assets) {
+    const oldProject = text(first(row, ['project_id', 'projectId']));
+    const info = map.get(oldProject);
+    const project = info && projectInfo.get(info.pid)?.project;
+    if (!project) continue;
+    const revisionId = revByLegacy.get(text(first(row, ['revision_id', 'revisionId', 'project_id']))) ?? project.working_revision_id;
+    const kind = text(first(row, ['kind', 'type'], 'worldbook'));
+    if (!['worldbook', 'regex', 'cover', 'avatar', 'banner'].includes(kind)) continue;
+    const id = text(first(row, ['id']), idFor('asset', project.id, revisionId, kind));
+    assetSha256[id] = text(first(row, ['sha256', 'hash'], hash(`${project.id}:${revisionId}:${kind}`)));
+    const asset = tables.assets.find(candidate => candidate.id === id);
+    if (asset && row.content_base64 != null) asset.content_base64 = row.content_base64;
+  }
   for (const name of TABLES) tables[name] = stableRows(tables[name]);
-  const projectCount = tables.projects.length;
-  const publishedCount = tables.projects.filter(x => x.published_revision_id).length;
-  const assetSha256 = Object.fromEntries(tables.assets.map(x => [x.id, x.sha256]));
-  return { format: 'workshop-migration-v1', meta: { expectedProjectCount: projectCount, expectedPublishedPointerCount: publishedCount, assetSha256, sourceCounts: { projects: projectCount, users: users.length } }, tables };
+  const sourceGroups = [...new Set([...map.values()])];
+  const projectCount = sourceGroups.length;
+  const publishedGroups = sourceGroups.filter(info => info.group.some(row => row.is_published || row.published || row.status === 'approved' || row.approved));
+  const publishedCount = publishedGroups.length;
+  const expectedProjectIds = sourceGroups.map(info => info.pid).sort();
+  const expectedPublishedProjectIds = publishedGroups.map(info => info.pid).sort();
+  return { format: 'workshop-migration-v1', meta: { expectedProjectCount: projectCount, expectedProjectIds, expectedPublishedPointerCount: publishedCount, expectedPublishedProjectIds, assetSha256, sourceCounts: { projects: projectCount, users: users.length } }, tables };
 }
 
 function duplicateIds(rows) { const seen = new Set(), duplicate = []; for (const row of rows) { if (seen.has(row.id)) duplicate.push(row.id); seen.add(row.id); } return duplicate; }
@@ -200,6 +238,10 @@ export function verify(target) {
   if (target?.meta?.expectedProjectCount !== projects.length) mismatches.push({ check: 'project_count', expected: target?.meta?.expectedProjectCount, actual: projects.length });
   const published = projects.filter(x => x.published_revision_id).length;
   if (target?.meta?.expectedPublishedPointerCount !== published) mismatches.push({ check: 'published_pointer_count', expected: target?.meta?.expectedPublishedPointerCount, actual: published });
+  const actualProjectIds = projects.map(row => row.id).sort();
+  const actualPublishedProjectIds = projects.filter(row => row.published_revision_id).map(row => row.id).sort();
+  if (Array.isArray(target?.meta?.expectedProjectIds) && stableStringify(target.meta.expectedProjectIds) !== stableStringify(actualProjectIds)) mismatches.push({ check: 'project_identity', expected: target.meta.expectedProjectIds, actual: actualProjectIds });
+  if (Array.isArray(target?.meta?.expectedPublishedProjectIds) && stableStringify(target.meta.expectedPublishedProjectIds) !== stableStringify(actualPublishedProjectIds)) mismatches.push({ check: 'published_project_identity', expected: target.meta.expectedPublishedProjectIds, actual: actualPublishedProjectIds });
   for (const name of TABLES) { const dup = duplicateIds(tables[name] ?? []); if (dup.length) mismatches.push({ check: 'duplicate_ids', table: name, ids: dup }); }
   const ids = new Set(projects.map(x => x.id)), revisions = new Set((tables.project_revisions ?? []).map(x => x.id)), users = new Set((tables.users ?? []).map(x => x.id));
   for (const row of projects) { if (!users.has(row.author_id)) mismatches.push({ check: 'fk', table: 'projects', id: row.id, field: 'author_id' }); for (const key of ['working_revision_id', 'published_revision_id']) if (row[key] && !revisions.has(row[key])) mismatches.push({ check: 'fk', table: 'projects', id: row.id, field: key }); }

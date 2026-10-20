@@ -44,21 +44,20 @@ export async function sha256Hex(value: string): Promise<string> {
 export interface NewAuthFlow {
   id: string;
   state: string;
-  verifier: string;
+  verifier?: string;
+  codeChallenge?: string;
   origin: string;
   mode: AuthFlowMode;
   expiresAt: string;
 }
 
 export async function insertAuthFlow(db: D1Database, flow: NewAuthFlow): Promise<void> {
-  const [stateHash, verifierHash] = await Promise.all([
-    sha256Hex(flow.state),
-    sha256Hex(flow.verifier),
-  ]);
+  const stateHash = await sha256Hex(flow.state);
+  const challenge = flow.codeChallenge ?? (flow.verifier ? await sha256Hex(flow.verifier) : null);
   await db.prepare(`
     INSERT INTO oauth_flows (id, state_hash, verifier_hash, origin, mode, expires_at)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(flow.id, stateHash, verifierHash, flow.origin, flow.mode, flow.expiresAt).run();
+  `).bind(flow.id, stateHash, challenge, flow.origin, flow.mode, flow.expiresAt).run();
 }
 
 export async function getAuthFlowStatus(db: D1Database, id: string): Promise<AuthFlowStatus | null> {
