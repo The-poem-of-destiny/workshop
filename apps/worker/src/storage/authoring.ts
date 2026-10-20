@@ -296,19 +296,32 @@ export async function upsertAsset(
   kind: UploadResult["kind"],
   body: ArrayBuffer,
   mime: string,
-): Promise<UploadResult> {
+): Promise<UploadResult | null> {
   const hash = await crypto.subtle.digest("SHA-256", body);
   const sha256 = [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
   const ext = extensionForMime(mime);
   const r2Key = kind === "cover"
     ? `covers/${projectId}/${revisionId}-${sha256}.${ext}`
     : `projects/${projectId}/revisions/${revisionId}/${kind}-${sha256}.${ext}`;
-  await r2.put(r2Key, body, { httpMetadata: { contentType: mime } });
-  await db.prepare(`INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  const inserted = await db.prepare(`INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime)
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?
+    WHERE EXISTS (SELECT 1 FROM projects WHERE id = ? AND working_revision_id = ?)
+      AND NOT EXISTS (SELECT 1 FROM submissions WHERE revision_id = ?)
     ON CONFLICT(revision_id, kind) DO UPDATE SET r2_key = excluded.r2_key, sha256 = excluded.sha256,
       bytes = excluded.bytes, mime = excluded.mime, created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`)
-    .bind(crypto.randomUUID(), projectId, revisionId, kind, r2Key, sha256, body.byteLength, mime).run();
+    .bind(
+      crypto.randomUUID(), projectId, revisionId, kind, r2Key, sha256, body.byteLength, mime,
+      projectId, revisionId, revisionId,
+    ).run();
+  if (inserted.meta.changes === 0) return null;
+
+  try {
+    await r2.put(r2Key, body, { httpMetadata: { contentType: mime } });
+  } catch (error) {
+    await db.prepare("DELETE FROM assets WHERE revision_id = ? AND kind = ? AND r2_key = ?")
+      .bind(revisionId, kind, r2Key).run();
+    throw error;
+  }
 
   if (kind !== "cover") {
     let count = 0;
@@ -325,8 +338,11 @@ export async function upsertAsset(
       count = 0;
     }
     const column = kind === "worldbook" ? "worldbook_count" : "regex_count";
-    await db.prepare(`UPDATE project_revisions SET ${column} = ? WHERE id = ?`)
-      .bind(count, revisionId).run();
+    await db.prepare(`UPDATE project_revisions SET ${column} = ?
+      WHERE id = ?
+        AND EXISTS (SELECT 1 FROM projects WHERE id = ? AND working_revision_id = ?)
+        AND NOT EXISTS (SELECT 1 FROM submissions WHERE revision_id = ?)`)
+      .bind(count, revisionId, projectId, revisionId, revisionId).run();
   }
 
   return { kind, sha256, bytes: body.byteLength, mime, r2Key };

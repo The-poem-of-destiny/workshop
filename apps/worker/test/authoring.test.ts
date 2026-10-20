@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import schema from "../migrations/0001_initial.sql?raw";
 import { authoringRoutes } from "../src/http/routes/authoring";
+import { upsertAsset } from "../src/storage/authoring";
 import type { Env } from "../src/env";
 import { splitSql } from "./support/sql";
 
@@ -125,6 +126,21 @@ describe("authoring write paths", () => {
       headers: { "content-type": "application/json", "content-length": "14" },
     });
     expect(frozen.status).toBe(404);
+
+    // Storage-level guard closes the check-then-act window after submit.
+    const raced = await upsertAsset(
+      bindings.DB,
+      bindings.R2,
+      first.project.id,
+      first.workingRevisionId,
+      "worldbook",
+      new TextEncoder().encode('{"entries":[]}').buffer,
+      "application/json",
+    );
+    expect(raced).toBeNull();
+    const manifest = await bindings.DB.prepare("SELECT manifest_hash FROM project_revisions WHERE id = ?")
+      .bind(first.workingRevisionId).first<{ manifest_hash: string | null }>();
+    expect(manifest?.manifest_hash).toMatch(/^[0-9a-f]{64}$/);
 
     // A fresh working revision can still be uploaded; size is rejected before buffering.
     const next = await request(`/${first.project.id}/revisions`, {

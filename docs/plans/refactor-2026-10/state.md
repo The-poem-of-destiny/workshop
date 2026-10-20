@@ -34,6 +34,7 @@
 - P1：已提交/已发布 revision 冻结，上传要求 working + unpublished + 无 submission；R2 key 内容寻址。
 - P2：全局安全头中间件提前注册；`/auth/flows` 改用 `Origin` 头并要求非空；审核者可直接读取 pending submission 文件；下载计数改为 per-user/day 幂等 + DB trigger；短搜索保留 FTS 短索引；上传要求 Content-Length + MIME 白名单；封面按项目可见性授权；manifest hash 在 submit 时计算并绑定；作者可提交 schemaVersion/Discord URL；角色变更写审计并带 actor；最后 owner 检查改为条件更新。
 - P1/P2：迁移 CLI 入口判断修复（CJK 路径）；`--since` 保留完整项目组与 published 指针；verify 期望值改为源数据推导；迁移测试接入 `pnpm check`。
+- 第二轮复审：审核审计绑定本批次 `reviewId`，失败请求不再写假审计；资产写入改为条件 INSERT，堵住 submit 后的 check-then-act 替换；迁移任务的 working 指针取最新 draft，只保留一条 rejected；迁移保留 `submitted_by`/`reviewer_id`/`curator_id`，审计事件不再按事件 id 造幽灵用户；补充对应回归测试。
 
 ### P4 迁移工具
 

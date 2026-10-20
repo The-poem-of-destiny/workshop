@@ -132,6 +132,7 @@ authoringRoutes.put("/:id/revisions/:revisionId/files/:kind", async c => {
   const body = await c.req.raw.arrayBuffer();
   if (body.byteLength > MAX_UPLOAD_BYTES) return jsonError(c, "payload_too_large", "File exceeds 10 MiB limit");
   const result = await upsertAsset(c.env.DB, c.env.R2, c.req.param("id"), revision.id, parsedKind.data, body, mime);
+  if (!result) return jsonError(c, "conflict", "Revision is no longer editable");
   return c.json(result);
 });
 

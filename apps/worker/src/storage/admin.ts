@@ -297,7 +297,7 @@ export async function reviewAdminSubmission(
     db.prepare(`
       INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
       SELECT ?, ?, 'submission', ?, ?, ?, ?
-      WHERE EXISTS (SELECT 1 FROM reviews WHERE submission_id = ?)
+      WHERE EXISTS (SELECT 1 FROM reviews WHERE id = ?)
     `).bind(
       crypto.randomUUID(),
       `review.${request.decision}`,
@@ -305,7 +305,7 @@ export async function reviewAdminSubmission(
       reviewerId,
       JSON.stringify({ projectId: target.project_id, revisionId: target.revision_id, checkerVersion }),
       now,
-      submissionId,
+      reviewId,
     ),
   ];
 
