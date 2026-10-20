@@ -13,7 +13,7 @@
 1. **重写，不搬目录。** 保留产品语义与安全姿态，替换实现：一个 pnpm workspace、一个 Worker、一个 React Web、一个 Tavern Helper 桥接脚本。
 2. **鉴权先修，再谈结构。** OAuth 登录当前可被任意站点劫持（已核实）；改成 Origin 白名单 + 一次性 flow + 可撤销 opaque session，角色每请求读库。
 3. **发布改成不可变修订 + D1 指针切换。** 删除“复制草稿行 + 复制 R2 + 失败回滚”的补偿式发布。
-4. **单一 Worker + Static Assets**，不用 Pages；默认删除 DO 与 KV（前提：付费 CPU 配额，实测通过）。
+4. **单一 Worker + Static Assets**，不用 Pages；**Free 套餐下保留一个 `ContentService` DO**（Worker 10ms / DO 30s），删除正则分发器与不必要的读路径转发；KV 新系统不用。
 5. **数据从 `0001_initial.sql` 重建**，旧库只读保留；迁移保留公开项目 id，逐表映射 + 对账。
 6. **一次性切换**：停写屏障必须覆盖旧文件 GET 计数与 OAuth 写路径；开放写入后不承诺无损回切旧库。
 7. **缓存分两步走**：切换时所有动态 API `no-store`；验收后再对 viewer-neutral 的公开 GET 开 Workers Cache。
@@ -110,7 +110,7 @@ workshop/
 ## 3. 运行时
 
 - **一个 Worker**：`/api/*` 由 Hono 处理；`/assets/*`、`/`、`/client/*` 交给 Static Assets；未匹配 `/api` 返回 JSON 404，不能被 SPA fallback 吞掉。
-- **DO：默认删除。** 前提是 Workers Paid（30s CPU），用 10MB 世界书实测解析耗时；若超预算，只加回一个 `ContentService`，由 Hono 直接 `getByName(projectId)`，不再写正则分发器。
+- **DO：保留一个。** Free 套餐的 Worker 每请求 10ms，而 DO 每请求 30s；解析 10MB 世界书、服务端 checker 复核必须留在 DO。删除 `contentServiceKey` 正则分发器，由 Hono 显式 `getByName()`。列表/详情是否移出 DO，用真实数据测 CPU 后决定。
 - **KV：新系统不用。** OAuth flow、session 全落 D1，可审计、可原子消费。
 - **认证**：opaque session token（32 字节随机，库中只存 HMAC），30 天滑动过期；每请求查 `sessions → users.role`，撤销即时生效。
 - **OAuth**：`POST /auth/flows` 返回 `authorizeUrl + state`（Origin 必须命中白名单）→ 回调校验 state/TTL/guild → 生成一次性 `login_code` → 前端 `POST /auth/flows/:id/redeem` 换 session。token 只出现在 JSON body，不进 URL/HTML。
@@ -128,7 +128,7 @@ workshop/
 | `users` | Discord id；`role ∈ member/reviewer/owner`；不保留 is_admin/super_admins/admins 三套 |
 | `sessions` | token hash、user_id、expires_at、revoked_at |
 | `oauth_flows` | state hash、redeem secret hash、状态、过期、一次性消费 |
-| `projects` | 稳定 id、author、`visibility ∈ public/unlisted/private`、`published_revision_id`、`working_revision_id`、`row_version`、`deleted_at` |
+| `projects` | 稳定 id、author、`visibility ∈ public/private`、`published_revision_id`、`working_revision_id`、`row_version`、`deleted_at` |
 | `project_revisions` | 不可变；`UNIQUE(project_id, revision_no)`；metadata + asset 引用 + manifest_hash |
 | `assets` | R2 key（UUID）、sha256、bytes、mime、kind |
 | `submissions` | 一个项目最多一个 pending（partial unique index） |
@@ -148,7 +148,7 @@ workshop/
 6. 下载从 published revision 的 manifest 取 asset；每次检查 session 与项目访问权。
 7. 清理：非 published、非最新 draft、超过 90 天的 revision 与其 R2 前缀由 cron 回收；首次只出 dry-run 报告。
 
-**可见性**：显式三态。`public` 列表/搜索可见；`unlisted` 仅凭链接可见、不进列表；`private` 仅作者/审核者。当前 `visibility=0 + approved` 的行为按 `unlisted` 迁移，避免静默改变产品语义。
+**可见性**：两态。`public` 列表/搜索可见；`private` 仅作者/审核者，列表、详情、文件一律 404。旧 `visibility=0 + approved` 迁移为 `private`；不设 unlisted。
 
 ---
 
@@ -259,7 +259,7 @@ workshop/
 | 发布回滚 | 写反向回放脚本 | 写后不回旧库 | **B**；反向回放列为可选前置 | 反向回放成本高，不能默认承诺 |
 | 迁移映射 | 逐表映射 + 分组算法 | 流程/校验 + 异常清单 | **A 的映射 + B 的校验** | 互补 |
 | 鉴权 | Origin 白名单 + flow | opaque session + 角色读库 | **合并** | A 的劫持链 + B 的撤销模型 |
-| DO | 付费后可删，超时再加回 | 付费后可删 | **一致**，加实测门槛 | 不能凭名字判断 |
+| DO | 付费后可删 | 付费后可删 | **前提均不成立**：Free 下保留一个，只删分发器 | 官方限制：Worker 10ms / DO 30s |
 | 产物 | 客户端 dist 保留提交 | 全走 CI artifact | **B**，客户端 release 例外 | 分发通道需要稳定 URL |
 | 仓库树 | `apps/{worker,web,client}` + 4 包 | `apps/{worker,web,tavern-client}` + 2 包 | **B 的骨架 + `domain` 包** | worker 内分层足够，独立 db 包会逼出通用仓储 |
 
@@ -267,8 +267,12 @@ workshop/
 
 ## 13. 待确认
 
-1. Workers 套餐：Free（10ms CPU）还是 Paid（30s）。决定 DO 去留与服务端 checker 是否能保留。
-2. `visibility=0` 的产品含义：按迁移默认 `unlisted`，是否接受。
-3. 公开详情是否允许匿名看到完整可安装内容；默认只给摘要 + 条目索引，完整文件要登录。
-4. 订阅计数是否继续公开；默认保留。
-5. 客户端导入 URL 是否允许变更；默认不变，`test-dist` 保留一个下架窗口。
+已确定：Free 套餐（保留 DO）；`visibility` 两态、旧 0 视为 private；匿名不可见完整内容；订阅计数公开。
+
+仍待确认（详见 `features.md` 的 Q-01…Q-05）：
+
+1. 客户端导入 URL：`@main` / `@tag` / Worker 分发。
+2. 站外通知是否要做。
+3. 配套脚本（角色管理库、美化器）是否继续展示。
+4. 元数据修改是否仍需审核。
+5. 最低客户端版本是否启用。
