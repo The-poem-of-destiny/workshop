@@ -76,17 +76,17 @@
 ```text
 workshop/
 ├ apps/
-│  ├ worker/
+│  ├ worker/                   # 产物一：可部署 Worker
 │  │  ├ src/
 │  │  │  ├ index.ts            # fetch/scheduled 装配，无业务分流 regex
 │  │  │  ├ http/               # 路由、auth context、DTO、错误映射
 │  │  │  ├ modules/            # identity / projects / catalog / interactions / administration
 │  │  │  ├ storage/            # D1 查询、R2 读写、具体函数
 │  │  │  └ jobs/               # 榜单、过期会话、孤儿对象回收
+│  │  ├ web/                   # React + Vite 源码 → 构建进 Worker Static Assets
 │  │  ├ migrations/            # 0001_initial.sql 起，唯一 schema 来源
 │  │  └ wrangler.jsonc         # 显式 environment bindings
-│  ├ web/                      # React + Vite 源码；产物由同一个 Worker 的 Static Assets 提供（不是 Pages）
-│  └ tavern-client/            # TH 桥接、安装/更新/修复（单文件产物）
+│  └ tavern-client/            # 产物二：TH 桥接、安装/更新/修复（单文件 IIFE）
 ├ packages/
 │  ├ contracts/                # zod HTTP/bridge schema、错误码、DTO
 │  ├ content/                  # 解析/规范化/fingerprint/checker

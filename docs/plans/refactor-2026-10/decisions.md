@@ -101,6 +101,28 @@ pnpm workspace：`apps/{worker,web,tavern-client}` + `packages/{contracts,conten
 - 构建产物与 Worker 版本一一对应，回滚 Worker 版本即回滚前端。
 - CI 只跑 `wrangler deploy`（或 versions/deployments 流程），不引入第二套托管平台。
 
+### D-20 双产物与目录边界
+
+系统只有两个产物：
+
+1. **Worker**（`apps/worker`）：API + Static Assets。前端源码放在 `apps/worker/web/`，构建产物进入同一个 Worker；不是独立部署物。
+2. **Tavern Client**（`apps/tavern-client`）：独立单文件 IIFE，自己的版本号（stable/staging）与发布节奏；只允许依赖 `packages/contracts`、`packages/content`、`packages/domain` 的浏览器安全部分，禁止 import Worker 实现或 Node/Cloudflare 专用模块。
+
+```text
+apps/
+├─ worker/
+│  ├─ src/          # Hono API、storage、jobs
+│  ├─ web/          # React + Vite 源码 → Worker Static Assets
+│  └─ wrangler.jsonc
+└─ tavern-client/   # TH 桥接与安装逻辑 → 单文件产物
+packages/{contracts,content,domain}
+```
+
+- 一次 Worker 部署同时发布 API、Web 与 client 文件；回滚 Worker 版本即整体回滚。
+- client 版本与 Worker 版本独立记录；兼容性由 D-06 的精确匹配门禁保证。
+- 测试与 e2e 分开：Worker 走 workerd/HTTP；client 走真实 SillyTavern。
+- 该条细化 D-18 的目录骨架，不改变依赖方向与运行时拓扑。
+
 ---
 
 ## 待定
