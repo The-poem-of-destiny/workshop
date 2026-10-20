@@ -23,11 +23,11 @@
 
 | ID | 问题 | 选项 | 建议 |
 | --- | --- | --- | --- |
-| Q-01 | 客户端导入 URL | ① jsDelivr `@main`（现状）② jsDelivr `@tag` ③ Worker/Static Assets 分发 | **待定**。URL 存在于用户脚本里，仓库只存 `cdnBase`/`repository`/`publicPath`/版本；③ 最可控但需用户改一次地址 |
+| Q-01 | 客户端导入 URL | — | **已定：③ Worker/Static Assets 固定地址**。服务端控制版本与缓存；静态资源请求默认免费且走 CDN 缓存 |
 | Q-02 | 站外通知 | — | **已定：不做站外通知**；未来可能在 tavern-client 侧实现 |
 | Q-03 | 配套脚本是否继续展示 | — | **已定：移除**；记录“未来可能统一到某处” |
 | Q-04 | 元数据修改是否仍需审核 | — | **待讨论**：有新的审核逻辑，需产品先描述 |
-| Q-05 | 客户端版本门禁模型 | ① 精确匹配当前 channel（现状，`minimum` 已被移除并禁止）② 最低版本 ③ 能力握手 | ③ + 写入路径最低版本；只读浏览可放宽 |
+| Q-05 | 客户端版本门禁模型 | — | **已定：精确匹配当前 channel**（保持现状） |
 
 Q01 这个东西在哪里被使用？
 Q02 站外通知不做，我们未来可能会在tavern-client那边做
@@ -201,3 +201,42 @@ Q05 这个东西是啥？
 | T4 | Playwright 真实旅程 | 保留 5–8 条 | 本地 Worker |
 | T5 | 迁移对账测试 | 新增 | |
 | T6 | API 契约测试 | 新增 | 由旧 API 样本录制 |
+
+## 13. 术语：checker / attestation / DO
+
+这三者经常被混为一谈，实际是三层不同的东西。
+
+### Checker（检查器）
+
+- 是 EJS / 正则的静态分析器，源码在 `cloudflare/src/utils/ejs-checker/`（`index.mjs`、`syntax.mjs`、`audit.mjs`、`policy.mjs` 等）。
+- 通过 esbuild 打成两个浏览器 bundle：
+  - `upload-worker.mjs` → `/assets/upload-checker.js`，创作者设备在**上传前**运行；
+  - `review-worker.mjs` → `/assets/review-checker.js`，审核者设备在**审核时**对确切待审内容运行，产出 gate、audit snapshot、certification。
+- 检查内容：EJS 语法、API 白名单、外链策略、媒体、处理预算、policy 版本等。
+- 现状：两个 bundle 以 base64 文本提交在 `src/generated/*.txt`（约 932KB），由 Worker 在启动时解码后当静态文件返回；所以它们被算进 Worker 体积。
+- Q-01 改为 Static Assets 后，它们应成为普通静态文件（内容哈希命名），不再 base64 进 Worker。
+
+### Attestation（上传收据）
+
+- 由 `ProjectUploadPreflight` 在服务端签发：内容 hash + userId + kind + checkerRevision，用 `JWT_SECRET` 签名。
+- 上传时 `validateAttestedUpload` 只验证收据与**实际字节 hash** 是否一致。
+- 代码注释明确：它**不证明**浏览器真的跑过 checker，只证明“这批字节被这个用户用这个 checker revision 预检过”。
+- 它的价值是绑定内容而不是替代审核；成本是同一份文件被传两次（预检一次、上传一次）。
+
+### DO（`CodeCheckService`）
+
+- Cloudflare Free：普通 Worker 每请求 **10ms CPU**，Durable Object **30s**。
+- `index.ts` 的 `contentServiceKey()` 把 preflight、审核详情/提交、上传、详情 GET 按路径送进 `getByName('project:<id>')`。
+- DO 内部直接调用同一个 Hono app（`app.fetch(request, this.env)`）；认证、权限、revision、R2 规则都在，DO 不是旁路。
+- 作用有两个：把大 JSON 解析/摘要计算移出 10ms 预算；同一 project id 天然串行，减少并发写交错。
+- 不存业务数据。DO 本身是合理的平台用法，**问题只在“用正则再写一遍路由表”**。
+
+### 当前信任链
+
+```text
+创作者浏览器 checker（advisory）
+→ preflight 签发收据（绑定字节 hash）
+→ 上传：服务端校验收据 + 廉价结构检查
+→ 审核者浏览器 checker（full report + audit snapshot）
+→ 服务端校验绑定 + 人工批准
+```
