@@ -113,8 +113,8 @@ workshop/
 - **DO：保留一个。** Free 套餐的 Worker 每请求 10ms，而 DO 每请求 30s；解析 10MB 世界书、服务端 checker 复核必须留在 DO。删除 `contentServiceKey` 正则分发器，由 Hono 显式 `getByName()`。列表/详情是否移出 DO，用真实数据测 CPU 后决定。
 - **KV：新系统不用。** OAuth flow、session 全落 D1，可审计、可原子消费。
 - **认证**：opaque session token（32 字节随机，库中只存 HMAC），30 天滑动过期；每请求查 `sessions → users.role`，撤销即时生效。
-- **OAuth**：`POST /auth/flows` 返回 `authorizeUrl + state`（Origin 必须命中白名单）→ 回调校验 state/TTL/guild → 生成一次性 `login_code` → 前端 `POST /auth/flows/:id/redeem` 换 session。token 只出现在 JSON body，不进 URL/HTML。
-- **CORS**：只回显允许的 origin，不开 `*`、不启用 credentials。
+- **OAuth**（见 `decisions.md` D-10）：工坊 iframe 是唯一发起方。`POST /auth/flows` 校验 Origin 白名单并保存 PKCE challenge；回调校验 state/TTL/guild。交付三选一——普通浏览器由 iframe 开弹窗、同源 `postMessage` 回 token；嵌入模式回调只把一次性 code 交给宿主，宿主经 bridge 转给 iframe，由 verifier 兑换；外部浏览器走设备码。删除 state-only poll，token 永不跨 origin。
+- **CORS**：只回显允许的工坊 origin，不开 `*`、不启用 credentials。宿主（随机域名）不调用 API，因此不需要被允许。
 - **cron**：榜单生成、周期热度快照、过期会话/孤儿资产回收。
 
 ---
@@ -266,14 +266,6 @@ workshop/
 
 ---
 
-## 13. 待确认
+## 13. 决策
 
-已确定：Free 套餐（保留 DO）；`visibility` 两态、旧 0 视为 private；匿名不可见完整内容；订阅计数公开。
-
-仍待确认（详见 `features.md` 的 Q-01…Q-05）：
-
-1. 客户端导入 URL：`@main` / `@tag` / Worker 分发。
-2. 站外通知是否要做。
-3. 配套脚本（角色管理库、美化器）是否继续展示。
-4. 元数据修改是否仍需审核。
-5. 最低客户端版本是否启用。
+所有决策统一记录在 [`decisions.md`](decisions.md)。本方案只描述架构与迁移，不复述决策；文中 `D-xx` / `Q-xx` 均指向该文件。
