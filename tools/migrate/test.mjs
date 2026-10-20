@@ -24,7 +24,8 @@ try {
   ]));
   await writeFile(path.join(source, 'projects.json'), JSON.stringify([
     { id: 'pub-1', root_project_id: 'root-1', title: 'One', status: 'approved', visibility: 1, author_id: 'u1', updated_at: '2024-01-02T00:00:00Z' },
-    { id: 'draft-1', root_project_id: 'root-1', title: 'One draft', status: 'draft', author_id: 'u1', updated_at: '2024-01-03T00:00:00Z' }
+    { id: 'draft-1', root_project_id: 'root-1', title: 'One draft', status: 'draft', author_id: 'u1', updated_at: '2024-01-03T00:00:00Z' },
+    { id: 'rej-1', root_project_id: 'root-1', title: 'One rejected', status: 'rejected', author_id: 'u1', updated_at: '2024-01-04T00:00:00Z' }
   ]));
   await writeFile(path.join(source, 'assets.json'), JSON.stringify([{ id: 'asset-1', project_id: 'pub-1', kind: 'cover', sha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', bytes: 3, mime: 'image/png' }]));
   await writeFile(path.join(source, 'project_likes.json'), JSON.stringify([{ project_id: 'pub-1', user_id: 'u2' }]));
@@ -41,6 +42,7 @@ try {
   assert.equal(firstRun.tables.assets[0].sha256.length, 64);
   const draftRevision = firstRun.tables.project_revisions.find(revision => revision.id.includes('draft-1'));
   assert.equal(firstRun.tables.projects[0].working_revision_id, draftRevision.id, 'working pointer follows the current draft');
+  assert.equal(firstRun.tables.project_revisions.filter(revision => revision.id.includes('rej-1')).length, 1, 'only the latest rejected revision is retained');
   assert.equal(firstRun.tables.submissions[0].submitted_by, 'u1', 'submitter id is preserved');
   assert.equal(firstRun.tables.reviews[0].reviewer_id, 'u2', 'reviewer id is preserved');
   assert.equal(firstRun.tables.audit_events[0].actor_id, 'u2', 'audit actor is preserved');

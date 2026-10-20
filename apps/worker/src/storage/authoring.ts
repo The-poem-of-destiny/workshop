@@ -303,25 +303,22 @@ export async function upsertAsset(
   const r2Key = kind === "cover"
     ? `covers/${projectId}/${revisionId}-${sha256}.${ext}`
     : `projects/${projectId}/revisions/${revisionId}/${kind}-${sha256}.${ext}`;
-  const inserted = await db.prepare(`INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime)
-    SELECT ?, ?, ?, ?, ?, ?, ?, ?
-    WHERE EXISTS (SELECT 1 FROM projects WHERE id = ? AND working_revision_id = ?)
-      AND NOT EXISTS (SELECT 1 FROM submissions WHERE revision_id = ?)
-    ON CONFLICT(revision_id, kind) DO UPDATE SET r2_key = excluded.r2_key, sha256 = excluded.sha256,
-      bytes = excluded.bytes, mime = excluded.mime, created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`)
-    .bind(
-      crypto.randomUUID(), projectId, revisionId, kind, r2Key, sha256, body.byteLength, mime,
-      projectId, revisionId, revisionId,
-    ).run();
-  if (inserted.meta.changes === 0) return null;
+  // Content-addressed keys make a pre-insert put safe: a frozen revision never
+  // points at the new key, and identical bytes reuse the same object.
+  await r2.put(r2Key, body, { httpMetadata: { contentType: mime } });
 
-  try {
-    await r2.put(r2Key, body, { httpMetadata: { contentType: mime } });
-  } catch (error) {
-    await db.prepare("DELETE FROM assets WHERE revision_id = ? AND kind = ? AND r2_key = ?")
-      .bind(revisionId, kind, r2Key).run();
-    throw error;
-  }
+  const statements = [
+    db.prepare(`INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?
+      WHERE EXISTS (SELECT 1 FROM projects WHERE id = ? AND working_revision_id = ?)
+        AND NOT EXISTS (SELECT 1 FROM submissions WHERE revision_id = ?)
+      ON CONFLICT(revision_id, kind) DO UPDATE SET r2_key = excluded.r2_key, sha256 = excluded.sha256,
+        bytes = excluded.bytes, mime = excluded.mime, created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`)
+      .bind(
+        crypto.randomUUID(), projectId, revisionId, kind, r2Key, sha256, body.byteLength, mime,
+        projectId, revisionId, revisionId,
+      ),
+  ];
 
   if (kind !== "cover") {
     let count = 0;
@@ -338,13 +335,15 @@ export async function upsertAsset(
       count = 0;
     }
     const column = kind === "worldbook" ? "worldbook_count" : "regex_count";
-    await db.prepare(`UPDATE project_revisions SET ${column} = ?
+    statements.push(db.prepare(`UPDATE project_revisions SET ${column} = ?
       WHERE id = ?
         AND EXISTS (SELECT 1 FROM projects WHERE id = ? AND working_revision_id = ?)
         AND NOT EXISTS (SELECT 1 FROM submissions WHERE revision_id = ?)`)
-      .bind(count, revisionId, projectId, revisionId, revisionId).run();
+      .bind(count, revisionId, projectId, revisionId, revisionId));
   }
 
+  const [inserted] = await db.batch(statements);
+  if (!inserted || inserted.meta.changes === 0) return null;
   return { kind, sha256, bytes: body.byteLength, mime, r2Key };
 }
 
@@ -365,14 +364,9 @@ export async function submitRevision(
 ): Promise<string | null> {
   const project = await getAuthoringProject(db, projectId, session);
   if (!project || project.working_revision_id !== revisionId) return null;
-  const assets = await db.prepare("SELECT kind, sha256 FROM assets WHERE revision_id = ? ORDER BY kind")
-    .bind(revisionId).all<{ kind: string; sha256: string }>();
-  const manifest = assets.results.map(asset => `${asset.kind}:${asset.sha256}`).join("\n");
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(manifest));
-  const manifestHash = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
-  await db.prepare("UPDATE project_revisions SET manifest_hash = ? WHERE id = ?")
-    .bind(manifestHash, revisionId).run();
 
+  // Freeze first: the pending submission makes the upload guard reject any
+  // later asset write, so the asset snapshot read below cannot change.
   const submissionId = crypto.randomUUID();
   const now = new Date().toISOString();
   await db.batch([
@@ -383,5 +377,13 @@ export async function submitRevision(
       VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)`)
       .bind(submissionId, projectId, revisionId, input.gate, input.checkerRevision ?? null, session.userId, now),
   ]);
+
+  const assets = await db.prepare("SELECT kind, sha256 FROM assets WHERE revision_id = ? ORDER BY kind")
+    .bind(revisionId).all<{ kind: string; sha256: string }>();
+  const manifest = assets.results.map(asset => `${asset.kind}:${asset.sha256}`).join("\n");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(manifest));
+  const manifestHash = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+  await db.prepare("UPDATE project_revisions SET manifest_hash = ? WHERE id = ?")
+    .bind(manifestHash, revisionId).run();
   return submissionId;
 }

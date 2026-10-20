@@ -271,6 +271,7 @@ export async function reviewAdminSubmission(
   `).bind(submissionId).first<SubmissionTargetRow>();
   if (!target) return { kind: "not_found" as const };
   if (target.status !== "pending") return { kind: "conflict" as const };
+  if (request.decision === "approve" && !target.manifest_hash) return { kind: "conflict" as const };
 
   const now = new Date().toISOString();
   const nextStatus = request.decision === "approve" ? "approved" : "rejected";
