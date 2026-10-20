@@ -245,47 +245,73 @@ Q05 这个东西是啥？
 
 ### 分层
 
-| 层 | 运行位置 | 作用 | 是否被信任/记录 |
+| 层 | 运行位置 | 作用 | 是否被信任 |
 |---|---|---|---|
-| 上传前检查 | 创作者浏览器 | 即时提示；不通过则前端不发送 | **不信任、不记录**。服务端只做大小/JSON/必填字段的廉价校验 |
-| 自动检查 | Durable Object（30s CPU） | 对提交内容跑完整 checker，给出 pass/fail/timeout | **权威**，记录 checker 版本、内容 hash、耗时、结果摘要 |
-| 人工复核 | 审核者浏览器 + 管理页 | 可自行跑 checker；结果直接作为决定 | **信任审核者提交的结果**，但必须绑定 submission + 内容 hash + checker revision |
-| 人工作为补充 | 管理页 | 处理自动失败、超时、申诉、抽查 | 覆盖自动结果，写审计 |
+| 上传前检查 | 创作者浏览器 | 即时提示；作者可在不通过时确认后继续上传 | **记录但不信任**。只作为路由信号与审计 |
+| 自动检查 | Durable Object（30s CPU） | 对提交内容跑完整 checker | **权威**，记录版本、hash、耗时、结果 |
+| 人工复核 | 审核者浏览器 + 管理页 | 可自行跑 checker；一票通过/拒绝 | **信任审核者**，结果绑定内容与 revision |
+| 人工补充 | 管理页 | 处理 block、超时、申诉、抽查 | 覆盖自动结果，写审计 |
+
+### 客户端检查的记录
+
+上传时写入以下字段（仅路由与审计，不构成授权）：
+
+- `client_gate`: `pass | warn | block`
+- `client_checker_revision`: engine + policy version
+- `client_warning_count`
+- `client_acknowledged`: 作者在不通过时是否确认继续上传
+- `client_checked_at`
+
+恶意客户端伪造 `pass` 不会绕过安全检查，因为自动检查仍会独立执行并决定是否 block；伪造 `block` 只会让自己进入人工队列。
+
+### 路由
+
+| 客户端 | 自动检查 | 结果 |
+|---|---|---|
+| pass / warn | pass | 自动发布 |
+| pass / warn | warn | 自动发布 + 警告标记 |
+| pass / warn | block | 人工队列（附自动检查报告） |
+| block | 不等待 | 人工队列；自动检查仍运行以生成报告 |
+| 任意 | 超时 | 重试；达上限转人工 |
+
+- **没有自动拒绝**：自动检查只决定“发布 / 转人工”。拒绝由人工完成。
+- `warn` 视为通过，但前台必须在项目卡片与详情显示“有警告”，并能展开规则条目。
+- 缺少客户端标记（例如直接调用 API）视为 `block`，进入人工。
 
 ### 状态机
 
 ```text
 draft
-  → submitted（等待自动检查）
-  → checking（被任务领取，租约）
-      → auto_passed → published
-      → auto_failed → rejected（附检查报告，作者可修改后重新提交）
-      → check_timeout（计数 +1）
-          → 重新入队（未达上限）
-          → needs_human（达到上限，不再跳过，转人工）
+  → submitted
+  → checking（租约）
+      → auto_published（pass / warn）
+      → needs_human（block 或超时达上限）
+  → published
+  → rejected（仅人工）
 ```
-
-- 超时不是“跳过”：达到上限后进入 `needs_human`，否则作者会永远卡住。
-- 审核者在任意状态都可以跑浏览器检查：通过则直接发布；失败则拒绝。结果写入 `reviews`，并绑定 `submission_id + content_hash + checker_revision`，防止把 A 文件的结果用到 B 文件。
-- 自动结果与人工结果都写审计；人工可以覆盖自动结果，但必须填写理由。
 
 ### 调度
 
-- **不是“DO 定时任务”**。调度器是 Worker 的 `scheduled`（Cron Trigger）；它从 D1 领取 `submitted` 的提交，按项目调用 `getByName('project:<id>')` 进入 DO 执行检查。
-- DO 只提供 30s CPU 与按项目串行；它本身不负责定时。
-- 领取用条件更新 + 租约（`status='checking', lease_until`），避免重复检查；租约过期自动回收。
-- 每次 cron 限制并发条数；Free 的 DO 额度约 3,300 次 30s 检查/天，足够人工量级。
+- 调度器是 Worker 的 `scheduled`（Cron Trigger），不是 DO 定时任务。
+- cron 从 D1 领取 `submitted`，按项目调用 `getByName('project:<id>')`；DO 提供 30s CPU 与按项目串行。
+- 领取使用条件更新 + 租约，过期回收；每次 cron 限制并发。
+- Free 的 DO 额度约 3,300 次 30 秒检查/天，足够。
 
-### 自动通过的范围
+### 自动发布
 
-- 只对 `gate = pass` 自动发布。
-- `warn` 默认转人工，除非产品明确允许。
-- 元数据（标题/简介/标签/封面展示）不走 checker；由 schema 与轻量规则校验，必要时转人工。
-- 建议对“首次投稿作者 / 超大文件 / 含外链或动态能力”设置人工抽查，避免纯自动发布被滥用。
+- pass / warn 直接发布，无需人工查看。
+- 报告完整入库（引擎/策略版本、content hash、耗时、findings 摘要），供事后审计与 checker 规则回看。
+- 强制人工的规则统一输出 `block`，不要在业务层写“这个类型要人工”的散落判断。
+- 发布后仍保留管理员下架/撤回路径。
+
+### 人工
+
+- 审核者浏览器检查一票生效：通过即发布，失败即拒绝。
+- 审核者结果必须绑定 `submission_id + content_hash + checker_revision`。
+- 自动结果与人工结果都写审计；人工覆盖自动结果需填写理由。
 
 ### 待定
 
-1. `warn` 是否自动通过。
-2. 超时上限次数（建议 3）与转人工后的通知方式。
-3. 自动发布后是否保留“N 天内可撤回”的观察期。
-4. 审核者浏览器检查结果是“一票通过”还是仍需第二人确认。
+1. 超时上限次数（建议 3）。
+2. 警告条目的展示层级（卡片角标 / 详情分组 / 是否可按规则筛选）。
+3. 作者在 `block` 后重新提交时，是否保留上一轮报告供对比。
