@@ -2,14 +2,27 @@
   "name": "@workshop/worker",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "wrangler dev --config wrangler.jsonc --env staging",
     "deploy:staging": "wrangler deploy --config wrangler.jsonc --env staging",
     "deploy:production": "wrangler deploy --config wrangler.jsonc --env production",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts",
+    "check:wrangler": "wrangler deploy --dry-run --config wrangler.jsonc --env staging",
+    "cf-typegen": "wrangler types --config wrangler.jsonc"
+  },
+  "dependencies": {
+    "@workshop/contracts": "workspace:*",
+    "hono": "^4.13.13",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.6",
+    "@cloudflare/workers-types": "^5.20261019.1",
     "typescript": "^5.9.2",
+    "vitest": "^4.1.0",
     "wrangler": "^4.151.3"
   }
 }

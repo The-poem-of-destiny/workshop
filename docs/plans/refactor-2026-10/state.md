@@ -2,54 +2,60 @@
 
 会话交接记录，不是决策源。决策以 [`decisions.md`](decisions.md) 为准，架构与迁移以 [`main.md`](main.md) 为准。
 
+## 当前分支
+
+`refactor/2026-10`（本地，未 push）。
+
 ## 已完成
 
-- 旧仓镜像、路径裁剪、新仓 `The-poem-of-destiny/workshop` 推送完成；旧仓未改。
-- 方案文档：`main.md`、`features.md`、`patch-audit.md`、`decisions.md`、`brief.md`。
-- Cloudflare 资源：
-  - D1 `workshop-staging`、`workshop-prod`
-  - R2 `workshop-client-staging`、`workshop-client-prod`
-- GitHub：
-  - `staging` / `production` environments
-  - `CLOUDFLARE_API_TOKEN` secrets 已填
-  - `STAGING_URL` / `PRODUCTION_URL` 已填
-  - `main` 分支保护、`v*` tag 保护
-- Worker 骨架：
-  - `workshop-staging`
-  - `workshop`（production，已去掉 `-prod` 后缀）
-  - 旧 `workshop-prod` / `workshop-production` 已删除
-- 部署 workflow：
-  - `deploy-staging.yml`：push `main` 自动部署 + smoke
-  - `deploy-production.yml`：tag `v*` + environment 审批
-- staging 首次自动部署已通过（run `39466481870`）。
-- workshop 技能：
-  - `.agents/skills/project-basics/SKILL.md`
-  - `AGENTS.md` 已记录技能路径
-  - omp 通过内置 `agents` provider 发现，无需 `.omp/config.yml`
+### P0 基线
+
+- 旧路由/权限/数据/测试盘点：`p0-baseline.md`。
+- 匿名公开 API 样本：`tests/fixtures/legacy/`（16 个响应 + manifest）。
+- 抓取脚本：`tools/p0-capture.mjs`。
+
+### P1 基础
+
+- pnpm workspace：`apps/*`、`packages/*`。
+- `@workshop/contracts`：zod 错误、health、identity、project 契约。
+- `apps/worker`：
+  - Hono 骨架、`/api/v1/health`、`/api/*` JSON 404、非 API 文本 404。
+  - 统一错误响应、安全头、`private, no-store`。
+  - strict TypeScript、`@cloudflare/vitest-plugin`、workerd D1/R2 冒烟测试。
+  - `wrangler.jsonc`：Static Assets（`web/public`）、D1/R2、staging/production 环境。
+- `packages/contracts` 严格类型检查。
+- 初始 D1 schema：`apps/worker/migrations/0001_initial.sql`，含 FTS trigram + 1–2 字短索引、外键、pending 唯一约束。
+- 单入口 `pnpm check`：workspace、typecheck、test、schema、wrangler dry-run。
+- CI：`.github/workflows/refactor-ci.yml`。
+- 压缩配置：`.omp/config.yml`，50% 阈值，`handoff/shake/soft` 文本路径，关闭 snapcompact 视觉。
 
 ## 当前线上
 
 - staging：`https://workshop-staging.poem-of-destiny.workers.dev`
 - production：`https://workshop.poem-of-destiny.workers.dev`
-- 当前 Worker 只有 `/api/v1/health` 与 JSON 404 骨架。
+- 线上仍是旧系统；本轮未 push、未部署。
 
 ## 待办
 
-- P1：Hono、`packages/contracts`、`0001_initial.sql`、D1/R2 读写、CI 检查。用户要求之后一起做。
-- 数据迁移：旧 D1/R2 导出、转换、对账、一次性切换。
-- 生产首次发布：打 `v*` tag，走 environment 审批。
-- D1/R2 名称仍是 `workshop-prod` / `workshop-client-prod`；是否去后缀待定。
+- P2 读路径：projects list/detail/home/recommendations/reference sets、install manifest/files。
+- P3 写路径：identity/session、revision、upload、submit/review/publish、interactions、admin。
+- P4 迁移：`data_backup` 的 extract/transform/load/verify + 对账（P4 前不读取）。
+- P5 切换：本地/staging 演练 + 生产 runbook；真实生产切换留人工审批。
+- P6 清理：删除清单执行、旧路径零引用。
+- 独立 evaluator：每个切片连续两轮零发现。
+
+## 已知约束
+
+- `data_backup/` 已加入 `.gitignore`；P4 前不读取。
+- 不 push、不部署生产、不操作真实生产 D1/R2/Cloudflare 资源。
+- 每个切片本地 commit；commit 使用 aoo / lxxxaoo@users.noreply.github.com。
+- Q-05、Q-06、Q-10 未定，不自行发明。
 
 ## 新会话先读
 
 1. `AGENTS.md`
-2. `docs/plans/refactor-2026-10/decisions.md`
-3. `docs/plans/refactor-2026-10/main.md`
-4. `docs/plans/refactor-2026-10/features.md`
-5. 本文件
-
-## 注意
-
-- `.env` 含 Cloudflare token，已 gitignore；不要打印或提交。
-- 生产只走 tag + environment 审批，不用本地 token 直接发。
-- 当前会话结束后，新会话不会继承对话上下文；以上文件是交接依据。
+2. `.agents/skills/autonomous-refactor/SKILL.md`
+3. `decisions.md`
+4. `main.md`
+5. `p0-baseline.md`
+6. 本文件

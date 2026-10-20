@@ -1,0 +1,10 @@
+packages:
+  - apps/*
+  - packages/*
+allowBuilds:
+  esbuild: true
+  workerd: true
+minimumReleaseAgeExclude:
+  - miniflare@5.20261019.1-beta
+  - wrangler@4.151.3
+  - '@cloudflare/vitest-plugin@1.4.6'
