@@ -4,13 +4,8 @@ doc/
 node_modules/
 .wrangler/
 worker-configuration.d.ts
-cloudflare/wrangler.master-staging.jsonc
-cloudflare/wrangler.discover-preview.jsonc
-cloudflare/.preview-assets/
 .ai-bridge/
 .cotel/local/
-playwright-report/
-test-results/
 
 # local secrets — never commit
 .env
@@ -28,3 +23,5 @@ data_backup/
 
 # built web assets
 apps/worker/web/dist/
+
+dist/

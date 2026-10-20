@@ -1,5 +1,5 @@
 import { getCreativeWorkshopUrl } from './config';
-import { extractProjectEntries } from '../../../cloudflare/src/utils/project-content';
+import { extractProjectEntries } from '../../../packages/domain/src/project-content';
 
 const CREATIVE_WORKSHOP_CACHE_KEY = 'creative_workshop_cache';
 const PROJECT_DETAIL_CACHE_TTL_MS = 5 * 60 * 1000;

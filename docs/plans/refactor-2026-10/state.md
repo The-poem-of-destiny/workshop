@@ -42,10 +42,12 @@
 - 当前 `load` 只写本地 JSON；真实 D1/R2 适配器等 `data_backup` 与审批。
 - 文档：`p4-migration.md`。
 
-### P5/P6 文档
+### P5/P6
 
+- 本地 P5 演练：`wrangler d1 migrations apply workshop-staging --local` 成功执行 59 条命令；本地 Worker 返回 health 200、空项目列表 200、静态首页 200、无 Origin 的 auth flow 403，安全头与 `private, no-store` 正常。
+- P6 已删除 `cloudflare/`、`tests/e2e/`、`playwright.config.mjs`、`scripts/deployment/`、旧配置检查脚本、`test-bundles/` 与提交的 `dist/`；客户端需要的版本/内容工具移入 `packages/domain`。
 - `p5-cutover.md`：本地/staging 演练 + 生产 runbook + 回滚 + stop conditions。
-- `p6-cleanup.md`：旧代码/表/产物/测试删除顺序与零引用验证。
+- `p6-cleanup.md`：旧代码/表/产物/测试删除顺序与零引用验证；保留项已记录。
 
 ### P2 读路径
 
@@ -63,7 +65,7 @@
   - Hono 骨架、`/api/v1/health`、`/api/*` JSON 404、非 API 文本 404。
   - 统一错误响应、安全头、`private, no-store`。
   - strict TypeScript、`@cloudflare/vitest-plugin`、workerd D1/R2 冒烟测试。
-  - `wrangler.jsonc`：Static Assets（`web/public`）、D1/R2、staging/production 环境。
+  - `wrangler.jsonc`：Static Assets（`web/dist`）、D1/R2、staging/production 环境。
 - `packages/contracts` 严格类型检查。
 - 初始 D1 schema：`apps/worker/migrations/0001_initial.sql`，含 FTS trigram + 1–2 字短索引、外键、pending 唯一约束。
 - 单入口 `pnpm check`：workspace、typecheck、test、schema、wrangler dry-run。
@@ -78,11 +80,11 @@
 
 ## 待办
 
-- 独立 evaluator：P1–P4 连续两轮零发现。
-- P3 缺口：真实 Discord OAuth callback/redeem（当前只有 flow 创建/状态）；内容 checker DO；下载计数。
+- 独立 evaluator：P1–P6 连续两轮零发现。
+- P3 缺口：真实 Discord OAuth callback/redeem（当前只有 flow 创建/状态，PKCE challenge 可选）；内容 checker DO。
 - P4：等 `data_backup` 到位后跑真实 extract/transform/verify + 对账。
-- P5：本地/staging 演练；真实生产切换留人工审批。
-- P6：执行删除清单；旧路径零引用。
+- P5：本地演练已完成；staging 部署与真实生产切换仍留人工审批。
+- P6：`cloudflare/` 已删除；`test-dist` shim 与旧客户端保留到客户端迁移/下架窗口。
 - Web UI：已有最小列表/详情页；登录、上传、审核后台未接入。
 - 真实 SillyTavern / Tavern client 验证未做。
 

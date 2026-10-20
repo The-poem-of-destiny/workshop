@@ -16,7 +16,7 @@ import {
 } from './regex-name';
 import { matchesCreativeWorkshopPayload, findCreativeWorkshopInstallLocations, isCreativeWorkshopProjectEntry } from './worldbook-stage';
 import { getCreativeWorkshopWorldbookMetadataString } from './install-identity';
-import { compareProjectVersions } from '../../../cloudflare/src/utils/version.js';
+import { compareProjectVersions } from '../../../packages/domain/src/version';
 import { readCreativeWorkshopRegexManifest, saveCreativeWorkshopRegexManifest } from './regex-record';
 
 export type CreativeWorkshopPreparedRegexEntry = {

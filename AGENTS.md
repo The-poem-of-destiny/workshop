@@ -22,16 +22,17 @@ Work starts from refreshed `origin/main`, never from the local worktree HEAD alo
 
 Root (pnpm):
 
-- `pnpm build` — stable and staging client bundles plus the legacy-path shim
-- `pnpm check:workshop-config` — manifest, build wiring and documentation consistency
-- `pnpm check:workshop-bundles` — built artifact verification
+- `pnpm build` — Tavern client bundles and the legacy-path shim
+- `pnpm check` — workspace, contracts/domain/worker types, tests, schema, migration tests and Wrangler dry-run
+- `pnpm check:workshop-bundles` — built client artifact verification
 
-Worker (npm, inside `cloudflare/`):
+Worker (`apps/worker`, pnpm workspace):
 
-- `npm run cf-typegen` before `npm run check:types`; the generated types file is not committed
-- `npm run check:home-js-smoke` and the other `check:*` scripts cover page and API contracts
+- `pnpm --filter @workshop/worker dev` — local Worker
+- `pnpm --filter @workshop/worker web:build` — build Static Assets
+- `pnpm --filter @workshop/worker test` — Worker tests
 
-Run the config check and the bundle verification after any build-pipeline change. A rebuilt bundle legitimately differs from the committed one in source-map bytes; regenerate rather than hand-edit.
+Run `pnpm check` and the bundle verification after any build-pipeline change. Built bundles are generated artifacts; never hand-edit them.
 
 ## Agent skills
 
@@ -43,9 +44,10 @@ Read the relevant skill before starting work; do not rely on memory of it.
 
 ## Single sources of truth
 
-- Client version, distribution paths, service endpoints and companion-script dependencies: `config/workshop.json`. Never repeat live values in code, docs, tests or deployment scripts; import the manifest.
-- New-database structure: `cloudflare/schema.sql`. Existing databases evolve only through `cloudflare/migrations/`.
-- Project taxonomy, content policy, ranking parameters and runtime limits: `cloudflare/src/config/` and `cloudflare/src/utils/`.
+- Client version, distribution paths and companion-script dependencies: `config/workshop.json`. Never repeat live values in code, docs, tests or deployment scripts; import the manifest.
+- Worker endpoints and bindings: `apps/worker/wrangler.jsonc`.
+- New-database structure: `apps/worker/migrations/0001_initial.sql`. Existing databases evolve only through `apps/worker/migrations/`.
+- Project taxonomy, content policy and runtime limits: `packages/domain/src/`; ranking parameters: `apps/worker/src/storage/home.ts`.
 - Product and creator-facing wording: plain everyday Chinese, no internal field or implementation names in the UI.
 
 ## Deployment
@@ -56,7 +58,7 @@ Git history and Cloudflare runtime are separate states.
 - Never treat a push as a deployment, and never treat the newest local deploy log as proof of the live version.
 - Secrets go through `wrangler secret put`. Never commit credentials, tokens or D1/R2 dumps.
 - Do not hand-edit production D1. Schema changes need a migration, verified locally first.
-- Deployment helpers and environment configs live in `scripts/deployment/` and `cloudflare/wrangler*.jsonc`.
+- Deployment workflows live in `.github/workflows/`; environment configs live in `apps/worker/wrangler.jsonc`.
 
 ## Session closeout
 

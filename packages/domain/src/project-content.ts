@@ -1,4 +1,5 @@
-export type ProjectEntryKind = 'worldbook' | 'regex';
+import type { ProjectEntryKind } from "./content-policy.js";
+
 
 type EntryRef = {
   entry: Record<string, unknown>;

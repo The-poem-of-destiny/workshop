@@ -8,7 +8,7 @@ import {
 import { CREATIVE_WORKSHOP_NAME_FORMAT_VERSION, formatCreativeWorkshopEntryName } from './project-type';
 import { findCreativeWorkshopInstallLocations, stageAndSwitchCreativeWorkshopWorldbook, verifyCreativeWorkshopWorldbook, isCreativeWorkshopProjectEntry, writeAndReadCreativeWorkshopWorldbook, matchesCreativeWorkshopWorldbookSnapshot } from './worldbook-stage';
 import { assertCreativeWorkshopSharedRegexUpdate } from './regex';
-import { compareProjectVersions } from '../../../cloudflare/src/utils/version.js';
+import { compareProjectVersions } from '../../../packages/domain/src/version';
 import { createCreativeWorkshopRegexIdentityResolver } from './install-registry';
 import { readCreativeWorkshopRegexManifest } from './regex-record';
 import {

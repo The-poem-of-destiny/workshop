@@ -22,11 +22,11 @@ Do not duplicate these values in UI, client, Worker, tests, release docs, or dep
 Do not turn every implementation constant into global config.
 
 Server-only domain configuration already has its own single source:
-- project taxonomy: `cloudflare/src/config/project-taxonomy.ts`
-- project content policy: `cloudflare/src/config/project-content-policy.ts`
-- discovery/ranking parameters: `cloudflare/src/utils/project-ranking.ts`
-- upload/request/banner limits: `cloudflare/src/config/runtime-limits.ts`
-- DLC/project semantic-version helpers and initial machine version: `cloudflare/src/utils/version.js`
+- project taxonomy: `packages/domain/src/taxonomy.ts`
+- project content policy: `packages/domain/src/content-policy.ts`
+- upload/request/banner limits: `packages/domain/src/limits.ts`
+- DLC/project semantic-version helpers: `packages/domain/src/version.ts`
+- discovery/ranking parameters: `apps/worker/src/storage/home.ts`
 
 Implementation constants such as polling intervals, DOM storage keys, protocol namespaces, cache TTLs, and UI timing values stay near the code unless they are duplicated or become operator-tuned settings.
 
