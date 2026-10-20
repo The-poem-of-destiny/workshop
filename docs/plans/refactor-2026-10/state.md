@@ -92,6 +92,14 @@
 - Web UI：已有最小列表/详情页；登录、上传、审核后台未接入。
 - 真实 SillyTavern / Tavern client 验证未做（本机无运行中的 SillyTavern，按 stop condition 记录）。
 
+## 停止条件 / 阻塞
+
+- 真实 Discord OAuth callback/redeem：缺 Discord client secret，当前只有 flow 创建/状态；不伪造登录。
+- `ContentService` DO + 权威 checker：仓库没有 review checker 实现与 revision 语料，无法在不发明规则的情况下补齐 D-31。
+- 真实 SillyTavern 验证：本机无运行中的 SillyTavern；已按 stop condition 停止该项，不用 mock 冒充。
+- R2 对象复制适配器：本地 D1 已完成 load；未实现批量 R2 复制，也未把真实备份导入 staging。
+- `test-dist` shim / 旧客户端：按计划保留下架窗口，不在本轮删除。
+
 ## 已知约束
 
 - `data_backup/` 已加入 `.gitignore`；P4 前不读取。
