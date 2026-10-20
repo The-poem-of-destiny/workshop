@@ -48,7 +48,7 @@
 
 - 本地 P5 演练：本地 D1 migration 59 条命令成功；`pnpm e2e:local` 10/10；实际 Chromium 首页读到 E2E 项目；health/list/root/auth-Origin 冒烟通过。
 - 真实备份 P4：`from_d1_sql.py` 导出 7 表 + 935 资产；全量两次字节一致；verify/reconcile 全过；`--since 2026-09-01` delta 通过（20 项目 / 32 revision / 69 资产 / 134 用户）。`load-local.mjs` 导入隔离本地 D1 后，列表/详情/搜索/首页正常；104 条 worldbook 与 10 likes/9 subscriptions 计数正确。
-- Staging：`workshop-staging` D1 远程 migration 成功；Worker `bda4def5-7fb2-42da-b13b-23821d74759d` 部署成功；health/list/root/Origin 冒烟通过。未导入真实备份；200 次 health/list 冒烟 0 个 5xx；未做回滚演练。
+- Staging：`workshop-staging` D1 远程 migration 成功；Worker `cba07328-3c24-4c70-9cd6-10a162e3ac2d` 部署成功；health/list/root/Origin 冒烟通过。未导入真实备份；200 次 health/list 冒烟 0 个 5xx；回滚/恢复演练已通过。
 - P6 已删除 `cloudflare/`、`tests/e2e/`、`playwright.config.mjs`、`scripts/deployment/`、旧配置检查脚本、`test-bundles/` 与提交的 `dist/`；客户端需要的版本/内容工具移入 `packages/domain`。
 - `p5-cutover.md`：本地/staging 演练 + 生产 runbook + 回滚 + stop conditions。
 - `p6-cleanup.md`：旧代码/表/产物/测试删除顺序与零引用验证；保留项已记录。
@@ -78,7 +78,7 @@
 
 ## 当前线上
 
-- staging：`https://workshop-staging.poem-of-destiny.workers.dev`，已部署新 Worker `bda4def5-7fb2-42da-b13b-23821d74759d`，D1 `0001_initial.sql` 已应用。
+- staging：`https://workshop-staging.poem-of-destiny.workers.dev`，已部署新 Worker `cba07328-3c24-4c70-9cd6-10a162e3ac2d`，D1 `0001_initial.sql` 已应用；已演练回滚到 `4ab78a2`（version `bbd12fac-6dc3-483a-a03f-c74b77bb7714`）并恢复。
 - production：`https://workshop.poem-of-destiny.workers.dev`，未部署；真实生产切换留人工审批。
 - 本轮未 push。
 
@@ -87,7 +87,7 @@
 - 独立 evaluator：Worker 与迁移/E2E 工具链最终复审均 CLEAN；无未解决发现。
 - P3 缺口：真实 Discord OAuth callback/redeem（当前只有 flow 创建/状态，PKCE challenge 可选）；内容 checker DO。
 - P4：真实备份全量/两次/delta/对账与隔离本地 D1 load 已完成；R2 对象复制适配器仍未实现。
-- P5：本地与 staging 部署已完成；staging 回滚/压测、真实生产切换仍留人工审批。
+- P5：本地与 staging 部署已完成；staging 回滚/恢复演练与 5xx 冒烟已完成；真实生产切换仍留人工审批。
 - P6：`cloudflare/` 已删除；`test-dist` shim 与旧客户端保留到客户端迁移/下架窗口。
 - Web UI：已有最小列表/详情页；登录、上传、审核后台未接入。
 - 真实 SillyTavern / Tavern client 验证未做（本机无运行中的 SillyTavern，按 stop condition 记录）。

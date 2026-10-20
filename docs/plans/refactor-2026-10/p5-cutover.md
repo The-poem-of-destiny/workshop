@@ -32,12 +32,12 @@
 已完成（2026-10-21，账户 `ThisAccount`，仅 staging）：
 
 1. 对 `workshop-staging` D1 远程应用 `0001_initial.sql`：59 条命令成功。
-2. `wrangler deploy --env staging` 成功；Worker version `bda4def5-7fb2-42da-b13b-23821d74759d`。
+2. `wrangler deploy --env staging` 成功；回滚演练部署 `4ab78a2` 得到 version `bbd12fac-6dc3-483a-a03f-c74b77bb7714`，health/list 冒烟通过；随后恢复当前版本 `cba07328-3c24-4c70-9cd6-10a162e3ac2d`，health/list/root 冒烟通过。
 3. 冒烟：`/api/v1/health` 200、`/api/v1/projects` 200、`/` 200 HTML、无 Origin 的 auth flow 403。
 4. 动态响应带 `private, no-store`，安全头正常。
 5. 未导入真实备份到 staging；`data_backup` 只在本地演练使用。
 
-未完成：staging 回滚演练、真实登录 OAuth（缺 callback/redeem）。
+未完成：真实登录 OAuth（缺 callback/redeem）。
 
 ## 4. 生产切换（人工审批）
 
