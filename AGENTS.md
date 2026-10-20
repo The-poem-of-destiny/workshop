@@ -33,6 +33,14 @@ Worker (npm, inside `cloudflare/`):
 
 Run the config check and the bundle verification after any build-pipeline change. A rebuilt bundle legitimately differs from the committed one in source-map bytes; regenerate rather than hand-edit.
 
+## Agent skills
+
+Read the relevant skill before starting work; do not rely on memory of it.
+
+- Project engineering basics (format, lint, typecheck, tests, CI, hooks, and what a reasonable test is): `.agents/skills/project-basics/SKILL.md`.
+- Autonomous large refactor (spec freeze, slice loop, parallel delegation, verification, handoff): `.agents/skills/autonomous-refactor/SKILL.md`. Read it before starting or resuming the rewrite under `docs/plans/refactor-2026-10/`.
+- Keep reusable skills one level under `.agents/skills/<name>/SKILL.md`; omp discovers that root by default.
+
 ## Single sources of truth
 
 - Client version, distribution paths, service endpoints and companion-script dependencies: `config/workshop.json`. Never repeat live values in code, docs, tests or deployment scripts; import the manifest.

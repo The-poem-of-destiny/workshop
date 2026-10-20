@@ -1,0 +1,14 @@
+{
+  "errors": [
+    {
+      "code": "unrecognized_keys",
+      "keys": [
+        "query"
+      ],
+      "path": [],
+      "message": "Unrecognized key(s) in object: 'query'"
+    }
+  ],
+  "success": false,
+  "result": {}
+}
