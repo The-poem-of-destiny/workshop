@@ -19,6 +19,7 @@ const expectedTables = [
   "project_likes",
   "project_subscriptions",
   "project_ratings",
+  "download_events",
   "project_metrics_daily",
   "ranking_runs",
   "ranking_entries",
