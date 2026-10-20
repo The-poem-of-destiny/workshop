@@ -105,7 +105,7 @@ workshop/
 - Worker 内 `http` 不写 SQL；`storage` 不接收 `Context`、不返回 `Response`；多表事务由 use case 组织。
 - 全包 strict TypeScript；第三方边界用 `unknown` + schema，不用 `Record<string, any>`。
 
-Free 套餐的资源预算与实现约束见 D-25；前端方向（单屏列表、顶部发现栏、卡片字段、响应式）见 D-26。
+Free 套餐的资源预算与实现约束见 D-25；前端方向（单屏列表、顶部发现栏、卡片字段、响应式）见 D-26，细节定稿见 D-27。
 
 ---
 
