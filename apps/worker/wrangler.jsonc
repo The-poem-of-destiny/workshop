@@ -24,7 +24,7 @@
       ]
     },
     "production": {
-      "name": "workshop-prod",
+      "name": "workshop",
       "d1_databases": [
         {
           "binding": "DB",
