@@ -26,3 +26,39 @@ export const meResponseSchema = z.object({
 });
 
 export type MeResponse = z.infer<typeof meResponseSchema>;
+export const authFlowModeSchema = z.enum(["browser", "embed", "device"]);
+export type AuthFlowMode = z.infer<typeof authFlowModeSchema>;
+
+export const authFlowCreateSchema = z.object({
+  mode: authFlowModeSchema,
+  origin: z.string().url(),
+});
+
+export type AuthFlowCreate = z.infer<typeof authFlowCreateSchema>;
+
+export const authFlowResponseSchema = z.object({
+  id: z.string().min(1),
+  state: z.string().min(1),
+  url: z.string().url(),
+  expiresAt: z.string().datetime(),
+});
+
+export type AuthFlowResponse = z.infer<typeof authFlowResponseSchema>;
+
+export const authFlowStatusSchema = z.object({
+  status: z.enum(["pending", "authorized", "redeemed", "expired"]),
+  expiresAt: z.string().datetime(),
+});
+
+export type AuthFlowStatus = z.infer<typeof authFlowStatusSchema>;
+
+export {
+  interactionStateItemSchema,
+  meStateResponseSchema,
+  ratingInputSchema,
+} from "./interactions.js";
+export type {
+  InteractionStateItem,
+  MeStateResponse,
+  RatingInput,
+} from "./interactions.js";

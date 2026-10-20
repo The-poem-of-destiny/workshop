@@ -2,7 +2,11 @@ import { Hono } from "hono";
 import { healthResponseSchema } from "@workshop/contracts";
 import type { Env } from "./env";
 import { jsonError } from "./http/errors";
+import { adminRoutes } from "./http/routes/admin";
+import { authRoutes, sessionRoutes } from "./http/routes/auth";
+import { authoringRoutes } from "./http/routes/authoring";
 import { homeRoutes } from "./http/routes/home";
+import { meRoutes } from "./http/routes/me";
 import { projectsRoutes } from "./http/routes/projects";
 import { recommendationRoutes } from "./http/routes/recommendations";
 import { referenceRoutes } from "./http/routes/references";
@@ -10,6 +14,11 @@ import { siteRoutes } from "./http/routes/site";
 
 export const app = new Hono<{ Bindings: Env }>();
 
+app.route("/api/v1/auth", authRoutes);
+app.route("/api/v1/sessions", sessionRoutes);
+app.route("/api/v1/me", meRoutes);
+app.route("/api/v1/admin", adminRoutes);
+app.route("/api/v1/projects", authoringRoutes);
 app.route("/api/v1/projects", projectsRoutes);
 app.route("/api/v1/home", homeRoutes);
 app.route("/api/v1/recommendations", recommendationRoutes);

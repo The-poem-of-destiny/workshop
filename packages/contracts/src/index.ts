@@ -1,3 +1,5 @@
+export * from "./admin.js";
+export * from "./authoring.js";
 export * from "./errors.js";
 export * from "./health.js";
 export * from "./identity.js";

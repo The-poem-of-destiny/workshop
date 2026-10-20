@@ -14,6 +14,27 @@
 - 匿名公开 API 样本：`tests/fixtures/legacy/`（16 个响应 + manifest）。
 - 抓取脚本：`tools/p0-capture.mjs`。
 
+### P3 写路径
+
+- identity：`POST /api/v1/auth/flows`（Origin 白名单、D1 flow、无 token 返回）、`GET /api/v1/auth/flows/:id`、`GET /api/v1/me`、`DELETE /api/v1/sessions/current`。
+- interactions：`GET /api/v1/me/state`，`PUT/DELETE /api/v1/me/likes/:id`、`subscriptions/:id`、`ratings/:id`；幂等，评分仅本人可见。
+- authoring：创建项目、CAS 更新、不可变 revision、R2 上传（sha256/大小）、提交；`If-Match` 412、非作者 403/404。
+- admin：提交队列/详情、审批（单 batch 切 published 指针，无 R2 复制）、拒绝、项目/成员列表、角色变更（bump session version、最后 owner 保护）。
+- 新增 `@workshop/domain`：taxonomy、内容策略、上传上限。
+- 新增公开读/写测试通过；P3 路由已接入 `app.ts`。
+
+### P4 迁移工具
+
+- `tools/migrate/`：extract/transform/load/verify/reconcile/all，支持 `--source`、`--target`、`--dry-run`、`--since`。
+- 稳定排序/固定 id 保证幂等；对账检查数量、指针、sha256、FK、重复 id、pending 唯一。
+- 当前 `load` 只写本地 JSON；真实 D1/R2 适配器等 `data_backup` 与审批。
+- 文档：`p4-migration.md`。
+
+### P5/P6 文档
+
+- `p5-cutover.md`：本地/staging 演练 + 生产 runbook + 回滚 + stop conditions。
+- `p6-cleanup.md`：旧代码/表/产物/测试删除顺序与零引用验证。
+
 ### P2 读路径
 
 - 公开读：`GET /api/v1/projects`（limit/cursor/sort/type/search）、`GET /api/v1/projects/:id`、`GET /api/v1/home`、`GET /api/v1/recommendations`、`GET /api/v1/reference-sets`、`GET /api/v1/site`。
@@ -45,11 +66,13 @@
 
 ## 待办
 
-- P3 写路径：identity/session、revision、upload、submit/review/publish、interactions、admin。
-- P4 迁移：`data_backup` 的 extract/transform/load/verify + 对账（P4 前不读取）。
-- P5 切换：本地/staging 演练 + 生产 runbook；真实生产切换留人工审批。
-- P6 清理：删除清单执行、旧路径零引用。
-- 独立 evaluator：每个切片连续两轮零发现。
+- 独立 evaluator：P1–P4 连续两轮零发现。
+- P3 缺口：真实 Discord OAuth callback/redeem（当前只有 flow 创建/状态）；内容 checker DO；下载计数。
+- P4：等 `data_backup` 到位后跑真实 extract/transform/verify + 对账。
+- P5：本地/staging 演练；真实生产切换留人工审批。
+- P6：执行删除清单；旧路径零引用。
+- Web UI：当前只有 `web/public` 占位，尚未接 React/Vite。
+- 真实 SillyTavern / Tavern client 验证未做。
 
 ## 已知约束
 
