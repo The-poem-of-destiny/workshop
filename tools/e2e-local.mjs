@@ -63,6 +63,7 @@ async function waitForWorker() {
 }
 
 async function main() {
+  wrangler(["d1", "migrations", "apply", "workshop-staging", "--local", "--config", "wrangler.jsonc"]);
   const logFile = path.join(tmp, "wrangler.log");
   const log = (await import("node:fs")).createWriteStream(logFile);
   server = spawn("pnpm", ["exec", "wrangler", "dev", "--config", "wrangler.jsonc", "--env", "staging", "--port", String(port), "--log-level", "error"], {
