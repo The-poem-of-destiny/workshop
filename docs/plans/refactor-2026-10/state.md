@@ -20,6 +20,7 @@
 - interactions：`GET /api/v1/me/state`，`PUT/DELETE /api/v1/me/likes/:id`、`subscriptions/:id`、`ratings/:id`；幂等，评分仅本人可见。
 - authoring：创建项目、CAS 更新、不可变 revision、R2 上传（sha256/大小）、提交；`If-Match` 412、非作者 403/404。
 - admin：提交队列/详情、审批（单 batch 切 published 指针，无 R2 复制）、拒绝、项目/成员列表、角色变更（bump session version、最后 owner 保护）。
+- 作者私有详情：`GET /api/v1/projects/:id/draft`，仅作者/owner 可读 working revision 摘要；非作者 404。
 - 新增 `@workshop/domain`：taxonomy、内容策略、上传上限。
 - 新增公开读/写测试通过；P3 路由已接入 `app.ts`。
 

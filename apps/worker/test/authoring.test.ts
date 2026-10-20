@@ -72,9 +72,20 @@ describe("authoring write paths", () => {
 
   it("hides projects from non-authors and permits owners", async () => {
     const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Private" }) });
-    const { project } = await created.json() as { project: { id: string } };
-    const forbidden = await request(`/${project.id}`, { method: "PATCH", headers: { "if-match": "1" }, body: JSON.stringify({ title: "no" }) }, "other-token");
+    const { project, workingRevisionId } = await created.json() as {
+      project: { id: string };
+      workingRevisionId: string;
+    };
+    const forbidden = await request(`/${project.id}`, { method: "PATCH", headers: { "if-match": "1" }, body: JSON.stringify({ title: "Nope" }) }, "other-token");
     expect(forbidden.status).toBe(404);
+    expect((await request(`/${project.id}/draft`, {}, "other-token")).status).toBe(404);
+    const draft = await request(`/${project.id}/draft`);
+    expect(draft.status).toBe(200);
+    await expect(draft.json()).resolves.toMatchObject({
+      project: { id: project.id },
+      rowVersion: 1,
+      workingRevisionId,
+    });
     const allowed = await request(`/${project.id}`, { method: "PATCH", headers: { "if-match": "1" }, body: JSON.stringify({ title: "owner edit" }) }, "owner-token");
     expect(allowed.status).toBe(200);
   });

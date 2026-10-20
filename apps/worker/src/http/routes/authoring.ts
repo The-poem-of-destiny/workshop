@@ -13,6 +13,7 @@ import {
   createProject,
   createRevision,
   getAuthoringProject,
+  getProjectSummary,
   getRevisionForProject,
   patchProject,
   submitRevision,
@@ -56,6 +57,20 @@ authoringRoutes.post("/", async c => {
   } catch {
     return jsonError(c, "internal", "Unable to create project");
   }
+});
+
+authoringRoutes.get("/:id/draft", async c => {
+  const auth = await sessionOrError(c);
+  if (!auth.session) return auth.response;
+  const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
+  if (!project) return jsonError(c, "not_found", "Project not found");
+  const summary = await getProjectSummary(c.env.DB, project.id);
+  if (!summary) return jsonError(c, "not_found", "Project not found");
+  return c.json({
+    project: summary,
+    rowVersion: project.row_version,
+    workingRevisionId: project.working_revision_id,
+  });
 });
 
 authoringRoutes.patch("/:id", async c => {
