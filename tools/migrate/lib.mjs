@@ -224,6 +224,17 @@ export function transform(source) {
       : `projects/${project.id}/revisions/${revisionId}/${kind}-${sha256}.${extensionFor(sourceKey, mime)}`;
     tables.assets.push({ id: text(first(row, ['id']), idFor('asset', project.id, revisionId, kind)), project_id: project.id, revision_id: revisionId, kind, r2_key: r2Key, sha256, bytes: Number(first(row, ['bytes', 'size'], 0)) || 0, mime, created_at: text(first(row, ['created_at', 'createdAt'], project.created_at), project.created_at) });
   }
+  const entryCounts = new Map();
+  for (const asset of tables.assets) {
+    const counts = entryCounts.get(asset.revision_id) ?? { worldbook: 0, regex: 0 };
+    if (asset.kind === 'worldbook' || asset.kind === 'regex') counts[asset.kind] += 1;
+    entryCounts.set(asset.revision_id, counts);
+  }
+  for (const revision of tables.project_revisions) {
+    const counts = entryCounts.get(revision.id);
+    revision.worldbook_count = counts?.worldbook ?? 0;
+    revision.regex_count = counts?.regex ?? 0;
+  }
   const userId = row => roleUser(text(first(row, ['user_id', 'author_id', 'actor_id', 'submitted_by', 'reviewer_id', 'curator_id'])), users);
   for (const row of source.tables.project_likes) { const p = map.get(text(first(row, ['project_id', 'projectId']))); if (p) tables.project_likes.push({ project_id: p.pid, user_id: userId(row), created_at: text(first(row, ['created_at', 'createdAt'], '1970-01-01T00:00:00.000Z')) }); }
   for (const row of source.tables.project_subscriptions) { const p = map.get(text(first(row, ['project_id', 'projectId']))); if (p) tables.project_subscriptions.push({ project_id: p.pid, user_id: userId(row), created_at: text(first(row, ['created_at', 'createdAt'], '1970-01-01T00:00:00.000Z')) }); }
@@ -300,6 +311,18 @@ export function verify(target) {
   for (const [name, rows] of Object.entries(tables)) for (const row of rows ?? []) { if (row.project_id && !ids.has(row.project_id)) mismatches.push({ check: 'fk', table: name, id: row.id }); if (row.user_id && !users.has(row.user_id)) mismatches.push({ check: 'fk', table: name, id: row.id }); }
   for (const row of tables.project_revisions ?? []) { if (!ids.has(row.project_id) || !users.has(row.created_by)) mismatches.push({ check: 'fk', table: 'project_revisions', id: row.id }); }
   for (const row of tables.assets ?? []) { if (!ids.has(row.project_id) || (row.revision_id && !revisions.has(row.revision_id))) mismatches.push({ check: 'fk', table: 'assets', id: row.id }); }
+  const assetCounts = new Map();
+  for (const asset of tables.assets ?? []) {
+    const counts = assetCounts.get(asset.revision_id) ?? { worldbook: 0, regex: 0 };
+    if (asset.kind === 'worldbook' || asset.kind === 'regex') counts[asset.kind] += 1;
+    assetCounts.set(asset.revision_id, counts);
+  }
+  for (const revision of tables.project_revisions ?? []) {
+    const expected = assetCounts.get(revision.id) ?? { worldbook: 0, regex: 0 };
+    if (revision.worldbook_count !== expected.worldbook || revision.regex_count !== expected.regex) {
+      mismatches.push({ check: 'entry_counts', id: revision.id, expected, actual: { worldbook: revision.worldbook_count, regex: revision.regex_count } });
+    }
+  }
   const submissions = new Set((tables.submissions ?? []).map(x => x.id));
   for (const row of tables.submissions ?? []) { if (!ids.has(row.project_id) || !revisions.has(row.revision_id) || !users.has(row.submitted_by)) mismatches.push({ check: 'fk', table: 'submissions', id: row.id }); }
   for (const row of tables.reviews ?? []) { if (!submissions.has(row.submission_id) || !users.has(row.reviewer_id)) mismatches.push({ check: 'fk', table: 'reviews', id: row.id }); }

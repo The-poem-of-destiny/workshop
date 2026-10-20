@@ -12,6 +12,12 @@ python3 tools/migrate/from_d1_sql.py data_backup/d1-export.sql data_backup/r2 /t
 
 Use a disposable directory outside the repository; never commit the dump or generated target.
 
+`load-local.mjs` applies a migrated target to an isolated local D1 state directory (never remote):
+
+```sh
+node tools/migrate/load-local.mjs --target /tmp/migration.json --persist-to /tmp/d1-state
+```
+
 ## Commands
 
 ```sh

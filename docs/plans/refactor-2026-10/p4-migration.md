@@ -33,6 +33,7 @@ For a final delta rehearsal, provide `--since` at the same timestamp used to est
 rm -rf /tmp/workshop-legacy-export
 python3 tools/migrate/from_d1_sql.py data_backup/d1-export.sql data_backup/r2 /tmp/workshop-legacy-export
 node tools/migrate/cli.mjs load --source /tmp/workshop-legacy-export --target /tmp/workshop-migration-load.json
+node tools/migrate/load-local.mjs --target /tmp/workshop-migration-load.json --persist-to /tmp/workshop-d1-load
 node tools/migrate/cli.mjs all --source /tmp/workshop-legacy-export --target /tmp/workshop-migration-a.json
 node tools/migrate/cli.mjs all --source /tmp/workshop-legacy-export --target /tmp/workshop-migration-b.json
 cmp /tmp/workshop-migration-a.json /tmp/workshop-migration-b.json
