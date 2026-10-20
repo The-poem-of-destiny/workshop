@@ -1,0 +1,43 @@
+{
+  "name": "workshop",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-20",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "env": {
+    "staging": {
+      "name": "workshop-staging",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "workshop-staging",
+          "database_id": "7500b5f6-21a0-4dfd-9e16-0d9a4f9de476"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "R2",
+          "bucket_name": "workshop-client-staging"
+        }
+      ]
+    },
+    "production": {
+      "name": "workshop-prod",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "workshop-prod",
+          "database_id": "ebf2963e-dcd7-43db-93b0-4d1cff524656"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "R2",
+          "bucket_name": "workshop-client-prod"
+        }
+      ]
+    }
+  }
+}

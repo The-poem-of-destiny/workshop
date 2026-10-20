@@ -1,0 +1,15 @@
+{
+  "name": "@workshop/worker",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev --config wrangler.jsonc --env staging",
+    "deploy:staging": "wrangler deploy --config wrangler.jsonc --env staging",
+    "deploy:production": "wrangler deploy --config wrangler.jsonc --env production",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "wrangler": "^4.151.3"
+  }
+}
