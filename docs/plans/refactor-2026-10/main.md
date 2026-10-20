@@ -143,10 +143,11 @@ workshop/
 1. 编辑必须带 `If-Match`（row_version）；创建不可变 revision，条件更新 working 指针，返回 412。
 2. 上传一次完成：限流读取 → 校验结构与大小 → 计算 sha256 → 写新 R2 对象 → 登记 asset；不覆盖旧对象。
 3. 提交把 revision 封为 submission；重新提交在同一事务 supersede 旧 pending。
-4. 审核写 `reviews`，绑定 submission、manifest_hash、checker 版本；不签发“创作者本机检查通过”的证明。
-5. 批准：一个 D1 batch 内 CAS submission 状态、校验 base 指针、写 audit、切 `published_revision_id`；竞争者 409。
-6. 下载从 published revision 的 manifest 取 asset；每次检查 session 与项目访问权。
-7. 清理：非 published、非最新 draft、超过 90 天的 revision 与其 R2 前缀由 cron 回收；首次只出 dry-run 报告。
+4. 提交后由 cron 领取，DO 执行完整 checker：`pass/warn` 自动发布，`block` 或超时达上限转人工；客户端 gate 只记录为路由与审计信号，不构成授权。
+5. 审核写 `reviews`，绑定 submission、manifest_hash、checker 版本；人工一票通过/拒绝，结果同样绑定内容 hash 与 checker revision。
+6. 批准：一个 D1 batch 内 CAS submission 状态、校验 base 指针、写 audit、切 `published_revision_id`；竞争者 409。
+7. 下载从 published revision 的 manifest 取 asset；每次检查 session 与项目访问权。
+8. 清理：非 published、非最新 draft、超过 90 天的 revision 与其 R2 前缀由 cron 回收；首次只出 dry-run 报告。
 
 **可见性**：两态。`public` 列表/搜索可见；`private` 仅作者/审核者，列表、详情、文件一律 404。旧 `visibility=0 + approved` 迁移为 `private`；不设 unlisted。
 
