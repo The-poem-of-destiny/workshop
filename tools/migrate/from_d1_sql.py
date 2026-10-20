@@ -36,6 +36,28 @@ def digest(path: Path) -> tuple[str, int]:
     return h.hexdigest(), size
 
 
+def entry_count(path: Path, kind: str) -> int:
+    if kind not in ("worldbook", "regex"):
+        return 0
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return 0
+    if isinstance(parsed, list):
+        return len(parsed)
+    if not isinstance(parsed, dict):
+        return 0
+    if kind == "worldbook":
+        values = parsed.get("entries", parsed)
+    else:
+        values = parsed.get("regexes", parsed.get("entries", parsed))
+    if isinstance(values, list):
+        return len(values)
+    if isinstance(values, dict):
+        return len(values)
+    return 0
+
+
 def url_key(value: str | None) -> str | None:
     if not value:
         return None
@@ -114,6 +136,7 @@ def main() -> int:
                 "sha256": sha256,
                 "bytes": size,
                 "mime": MIME.get(path.suffix.lower(), "application/octet-stream"),
+                "entry_count": entry_count(path, kind),
                 "created_at": row.get("updated_at") or row.get("created_at"),
             })
 
@@ -124,6 +147,7 @@ def main() -> int:
         row = project_rows.get(project_id)
         if row is None or (project_id, "regex") in seen:
             continue
+        seen.add((project_id, "regex"))
         sha256, size = digest(path)
         assets.append({
             "id": f"legacy-asset-{project_id}-regex",
@@ -133,6 +157,7 @@ def main() -> int:
             "sha256": sha256,
             "bytes": size,
             "mime": MIME.get(path.suffix.lower(), "application/octet-stream"),
+            "entry_count": entry_count(path, "regex"),
             "created_at": row.get("updated_at") or row.get("created_at"),
         })
 
