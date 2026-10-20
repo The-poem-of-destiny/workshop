@@ -78,19 +78,19 @@
 
 ## 当前线上
 
-- staging：`https://workshop-staging.poem-of-destiny.workers.dev`
-- production：`https://workshop.poem-of-destiny.workers.dev`
-- 线上仍是旧系统；本轮未 push、未部署。
+- staging：`https://workshop-staging.poem-of-destiny.workers.dev`，已部署新 Worker `bda4def5-7fb2-42da-b13b-23821d74759d`，D1 `0001_initial.sql` 已应用。
+- production：`https://workshop.poem-of-destiny.workers.dev`，未部署；真实生产切换留人工审批。
+- 本轮未 push。
 
 ## 待办
 
-- 独立 evaluator：P1–P6 连续两轮零发现。
+- 独立 evaluator：Worker 与迁移/E2E 工具链最终复审均 CLEAN；无未解决发现。
 - P3 缺口：真实 Discord OAuth callback/redeem（当前只有 flow 创建/状态，PKCE challenge 可选）；内容 checker DO。
-- P4：真实备份全量/两次/delta/对账已完成；D1/R2 实际 load 适配器仍未实现。
+- P4：真实备份全量/两次/delta/对账与隔离本地 D1 load 已完成；R2 对象复制适配器仍未实现。
 - P5：本地与 staging 部署已完成；staging 回滚/压测、真实生产切换仍留人工审批。
 - P6：`cloudflare/` 已删除；`test-dist` shim 与旧客户端保留到客户端迁移/下架窗口。
 - Web UI：已有最小列表/详情页；登录、上传、审核后台未接入。
-- 真实 SillyTavern / Tavern client 验证未做。
+- 真实 SillyTavern / Tavern client 验证未做（本机无运行中的 SillyTavern，按 stop condition 记录）。
 
 ## 已知约束
 
