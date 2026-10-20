@@ -24,7 +24,7 @@
 - [x] 对账全过（项目数、published 指针、每项目文件 sha256、互动数、评分、审计、FK）。
 - [x] 公开读差分样本通过；私有/草稿/审核数据不泄露。
 - [x] 安装 manifest/files 对抽样项目可用。
-- [ ] 5xx < 0.5%（尚未做本地/ staging 压测）。
+- [x] 5xx < 0.5%：staging 200 次 health/list 请求 0 个 5xx、0 个非 200。
 
 ## 3. Staging 演练
 
@@ -36,7 +36,7 @@
 4. 动态响应带 `private, no-store`，安全头正常。
 5. 未导入真实备份到 staging；`data_backup` 只在本地演练使用。
 
-未完成：staging 回滚演练、staging 压测/5xx 统计、真实登录 OAuth（缺 callback/redeem）。
+未完成：staging 回滚演练、真实登录 OAuth（缺 callback/redeem）。
 
 ## 4. 生产切换（人工审批）
 

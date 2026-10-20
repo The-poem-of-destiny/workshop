@@ -48,7 +48,7 @@
 
 - 本地 P5 演练：本地 D1 migration 59 条命令成功；`pnpm e2e:local` 10/10；实际 Chromium 首页读到 E2E 项目；health/list/root/auth-Origin 冒烟通过。
 - 真实备份 P4：`from_d1_sql.py` 导出 7 表 + 935 资产；全量两次字节一致；verify/reconcile 全过；`--since 2026-09-01` delta 通过（20 项目 / 32 revision / 69 资产 / 134 用户）。
-- Staging：`workshop-staging` D1 远程 migration 成功；Worker `bda4def5-7fb2-42da-b13b-23821d74759d` 部署成功；health/list/root/Origin 冒烟通过。未导入真实备份，未做回滚/压测。
+- Staging：`workshop-staging` D1 远程 migration 成功；Worker `bda4def5-7fb2-42da-b13b-23821d74759d` 部署成功；health/list/root/Origin 冒烟通过。未导入真实备份；200 次 health/list 冒烟 0 个 5xx；未做回滚演练。
 - P6 已删除 `cloudflare/`、`tests/e2e/`、`playwright.config.mjs`、`scripts/deployment/`、旧配置检查脚本、`test-bundles/` 与提交的 `dist/`；客户端需要的版本/内容工具移入 `packages/domain`。
 - `p5-cutover.md`：本地/staging 演练 + 生产 runbook + 回滚 + stop conditions。
 - `p6-cleanup.md`：旧代码/表/产物/测试删除顺序与零引用验证；保留项已记录。
