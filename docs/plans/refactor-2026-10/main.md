@@ -86,7 +86,7 @@ workshop/
 │  │  ├ web/                   # React + Vite 源码 → 构建进 Worker Static Assets
 │  │  ├ migrations/            # 0001_initial.sql 起，唯一 schema 来源
 │  │  └ wrangler.jsonc         # 显式 environment bindings
-│  └ tavern-client/            # 产物二：TH 桥接、安装/更新/修复（单文件 IIFE）
+│  └ tavern-client/            # 产物二：TH 桥接；单文件 IIFE，发布到 R2（D-21）
 ├ packages/
 │  ├ contracts/                # zod HTTP/bridge schema、错误码、DTO
 │  ├ content/                  # 解析/规范化/fingerprint/checker
@@ -109,7 +109,7 @@ workshop/
 
 ## 3. 运行时
 
-- **一个 Worker**（D-19，不存在 Pages）：`/api/*` 由 Hono 处理；`/assets/*`、`/`、`/client/*` 交给 Static Assets；未匹配 `/api` 返回 JSON 404，不能被 SPA fallback 吞掉。
+- **一个 Worker**（D-19，不存在 Pages）：`/api/*` 由 Hono 处理；`/`、Web 的 `/assets/*` 交给 Static Assets；未匹配 `/api` 返回 JSON 404，不能被 SPA fallback 吞掉。client 脚本不走 Worker，由 R2 自定义域提供（D-21）。
 - **DO：保留一个。** Free 套餐的 Worker 每请求 10ms，而 DO 每请求 30s；解析 10MB 世界书、服务端 checker 复核必须留在 DO。删除 `contentServiceKey` 正则分发器，由 Hono 显式 `getByName()`。列表/详情是否移出 DO，用真实数据测 CPU 后决定。
 - **KV：新系统不用。** OAuth flow、session 全落 D1，可审计、可原子消费。
 - **认证**：opaque session token（32 字节随机，库中只存 HMAC），30 天滑动过期；每请求查 `sessions → users.role`，撤销即时生效。
@@ -236,7 +236,7 @@ workshop/
 - Vite 构 Web；esbuild 构 TH 单文件；Wrangler 构 Worker。产物不提交（客户端 release 产物按发布流程单独处理）。
 - 发布：PR 跑 typecheck/test/build/契约；`main` 对精确 SHA 构建一次，上传不可变 artifact；staging 部署同一 artifact，审批后提升生产；发布账本记录 SHA、artifact hash、Worker version、migrations。
 - 部署只走 CI，不依赖机器本地 profile；删除全部 PowerShell 部署器。
-- 客户端分发：版本化 URL + manifest；不再依赖 `@main`；`test-dist` shim 在下架窗口后删除。
+- 客户端分发（D-21）：R2 上 `v/<sha>/index.js`（immutable）+ `stable`/`staging` 指针；发布脚本同时更新 D1 里的当前版本记录；不依赖 `@main`；`test-dist` shim 在下架窗口后删除。
 
 ---
 

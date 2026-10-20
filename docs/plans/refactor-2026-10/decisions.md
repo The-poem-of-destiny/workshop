@@ -118,10 +118,22 @@ apps/
 packages/{contracts,content,domain}
 ```
 
-- 一次 Worker 部署同时发布 API、Web 与 client 文件；回滚 Worker 版本即整体回滚。
+- 一次 Worker 部署发布 API 与 Web；client 产物独立发布到 R2（见 D-21），回滚粒度因此不同。
 - client 版本与 Worker 版本独立记录；兼容性由 D-06 的精确匹配门禁保证。
 - 测试与 e2e 分开：Worker 走 workerd/HTTP；client 走真实 SillyTavern。
 - 该条细化 D-18 的目录骨架，不改变依赖方向与运行时拓扑。
+
+### D-21 客户端产物托管在 R2（独立发版）
+
+- **存储**：独立 R2 bucket（例如 `workshop-client`），通过自定义域 `client.<zone>` 公开；不使用 Pages，不额外建 Worker。
+- **路径**：
+  - `/v/<sha>/index.js`：内容哈希，`Cache-Control: public, max-age=31536000, immutable`。
+  - `/stable/index.js`、`/staging/index.js`：稳定指针，`Cache-Control: no-cache` + ETag（或 `max-age=60` 配合 revalidate），保证更新可见。
+- **CORS**：对公开脚本允许 `GET` 任意来源（随机酒馆域名），不带 credentials。
+- **发布**：上传版本化对象 → 更新稳定指针对象。不需要部署 Worker。
+- **版本门禁（D-06 精确匹配）**：Worker 必须在运行时知道当前要求的 client 版本，否则独立发版仍然要改 Worker。做法：当前版本写入 D1 `site_settings`（或同一 R2 的 manifest），Worker 读取并做短缓存（如 60s）；发布脚本同时更新对象与版本记录。
+- **旧路径 shim**：由同一个 bucket 提供，保留一个下架周期后删除。
+- **回滚**：把稳定指针与版本记录指回上一版本对象，不重建 Worker。
 
 ---
 
