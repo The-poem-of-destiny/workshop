@@ -25,3 +25,6 @@ backup*.sql
 
 # local D1/R2 dumps — never commit, only used for P4 migration rehearsal
 data_backup/
+
+# built web assets
+apps/worker/web/dist/

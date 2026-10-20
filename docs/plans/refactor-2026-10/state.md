@@ -23,6 +23,12 @@
 - 新增 `@workshop/domain`：taxonomy、内容策略、上传上限。
 - 新增公开读/写测试通过；P3 路由已接入 `app.ts`。
 
+### Web UI / 下载计数
+
+- React + Vite 最小可用页面：`apps/worker/web`，消费 `/api/v1/home` 与 `/api/v1/projects`；卡片 16:9、4/3/2/1 响应式、搜索/排序/详情侧栏。
+- 构建产物 `web/dist` 不提交；`check:wrangler` 先构建。
+- `POST /api/v1/projects/:id/downloads`：登录后原子增加 `downloads_count` + 日指标；文件 GET 仍 `private, no-store`。
+
 ### P4 迁移工具
 
 - `tools/migrate/`：extract/transform/load/verify/reconcile/all，支持 `--source`、`--target`、`--dry-run`、`--since`。
@@ -71,7 +77,7 @@
 - P4：等 `data_backup` 到位后跑真实 extract/transform/verify + 对账。
 - P5：本地/staging 演练；真实生产切换留人工审批。
 - P6：执行删除清单；旧路径零引用。
-- Web UI：当前只有 `web/public` 占位，尚未接 React/Vite。
+- Web UI：已有最小列表/详情页；登录、上传、审核后台未接入。
 - 真实 SillyTavern / Tavern client 验证未做。
 
 ## 已知约束

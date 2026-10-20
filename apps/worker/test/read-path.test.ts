@@ -154,6 +154,23 @@ describe("public read path", () => {
     expect(hidden.status).toBe(404);
   });
 
+  it("counts an authenticated download atomically", async () => {
+    await seed();
+    const anonymous = await app.request("/api/v1/projects/p1/downloads", { method: "POST" }, bindings);
+    expect(anonymous.status).toBe(401);
+
+    const response = await app.request("/api/v1/projects/p1/downloads", {
+      method: "POST",
+      headers: { authorization: "Bearer test-token" },
+    }, bindings);
+    expect(response.status).toBe(204);
+
+    const project = await bindings.DB.prepare("SELECT downloads_count FROM projects WHERE id = 'p1'").first<{ downloads_count: number }>();
+    expect(project?.downloads_count).toBe(13);
+    const metric = await bindings.DB.prepare("SELECT downloads FROM project_metrics_daily WHERE project_id = 'p1'").first<{ downloads: number }>();
+    expect(metric?.downloads).toBe(1);
+  });
+
   it("requires login for release manifest and files", async () => {
     await seed();
     const anonymous = await app.request("/api/v1/projects/p1/releases/r1/manifest", undefined, bindings);

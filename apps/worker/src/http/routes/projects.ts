@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { projectListQuerySchema, releaseManifestSchema } from "@workshop/contracts";
 import type { Env } from "../../env";
+import { recordDownload } from "../../storage/downloads.js";
 import { getPublishedProject, listPublishedProjects } from "../../storage/projects.js";
 import { getReleaseAssets } from "../../storage/releases.js";
 import { jsonError } from "../errors.js";
@@ -26,6 +27,14 @@ projectsRoutes.get("/:id", async c => {
   const project = await getPublishedProject(c.env.DB, c.req.param("id"));
   if (!project) return jsonError(c, "not_found", "Project not found");
   return c.json(project);
+});
+
+projectsRoutes.post("/:id/downloads", async c => {
+  const session = await requireSession(c);
+  if (!session) return jsonError(c, "unauthorized", "Login required");
+  const recorded = await recordDownload(c.env.DB, c.req.param("id"));
+  if (!recorded) return jsonError(c, "not_found", "Project not found");
+  return c.body(null, 204);
 });
 
 projectsRoutes.get("/:id/releases/:releaseId/manifest", async c => {
