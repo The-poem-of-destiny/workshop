@@ -218,6 +218,19 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
 - **图片与头像**：卡片图 16:9；作者头像用 Discord 头像，加载失败回退首字母。
 - **响应式**：4 / 3 / 2 / 1 列。
 
+### D-28 公开展示数据统一走 Workers Cache
+
+- **范围**：项目列表、项目详情、发现栏、作者资料、标签/分类、首页货架，以及这些响应里的**下载量、订阅量等展示计数**和公开图片/附件，全部作为 viewer-neutral 响应缓存。
+- **公开读必须无凭证**：请求不得带 `Authorization`；响应不得带 `Set-Cookie`。两者都会让 Workers Cache bypass 或拒绝缓存。个人状态（是否已订阅、是否已下载、我的评分）走独立的 `/api/v1/me/*`，客户端合并，禁止写进共享 DTO。
+- **计数分离**：缓存的是“展示值”；真实值由写路径原子增量维护。下载、订阅动作本身是 `POST` + `no-store`，绝不缓存。
+- **计数下载**：会计数的那次请求不能缓存。先 `POST /api/v1/projects/:id/downloads` 增量并返回一次性地址或重定向，响应 `no-store`；公开文件若走缓存，则不计入下载量。
+- **失效**：
+  - 发布、下架、改可见性、删除：`Cache-Tag` purge；
+  - 下载/订阅导致的高频计数变化：不逐次 purge，靠 TTL（30–60s）收敛；必要时按项目去抖 purge。
+- **标签**：`projects`、`project:<id>`、`author:<id>`、`discover:<bucket>`、`taxonomy`。
+- **TTL 基线**：列表 30s、详情 60s、作者 300s、分类 1h、发现 1h；均配 `stale-while-revalidate`。
+- **禁止**：`Vary: Authorization` 代替 bypass；把 viewer 字段塞进共享缓存；对公开 GET 设置 Cookie。
+
 ---
 
 ## 待定
