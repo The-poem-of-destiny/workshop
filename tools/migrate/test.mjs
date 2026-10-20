@@ -28,7 +28,10 @@ try {
     { id: 'rej-1', root_project_id: 'root-1', title: 'One rejected', status: 'rejected', author_id: 'u1', updated_at: '2024-01-04T00:00:00Z' },
     { id: 'rej-0', root_project_id: 'root-1', title: 'Older rejected', status: 'rejected', author_id: 'u1', updated_at: '2023-12-01T00:00:00Z' }
   ]));
-  await writeFile(path.join(source, 'assets.json'), JSON.stringify([{ id: 'asset-1', project_id: 'pub-1', kind: 'cover', sha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', bytes: 3, mime: 'image/png' }]));
+  await writeFile(path.join(source, 'assets.json'), JSON.stringify([
+    { id: 'asset-1', project_id: 'pub-1', kind: 'cover', sha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', bytes: 3, mime: 'image/png' },
+    { id: 'asset-2', project_id: 'pub-1', kind: 'worldbook', sha256: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', bytes: 4, mime: 'application/json' }
+  ]));
   await writeFile(path.join(source, 'project_likes.json'), JSON.stringify([{ project_id: 'pub-1', user_id: 'u2' }]));
   await writeFile(path.join(source, 'submissions.json'), JSON.stringify([{ id: 'submission-1', project_id: 'pub-1', revision_id: 'draft-1', status: 'pending', submitted_by: 'u1' }]));
   await writeFile(path.join(source, 'reviews.json'), JSON.stringify([{ id: 'review-1', submission_id: 'submission-1', reviewer_id: 'u2', decision: 'approve' }]));
@@ -59,6 +62,10 @@ try {
   const changed = structuredClone(firstRun);
   changed.tables.assets[0].sha256 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
   assert.equal(verify(changed).ok, false, 'asset mismatch is detected');
+
+  const duplicateKey = structuredClone(firstRun);
+  duplicateKey.tables.assets[1].r2_key = duplicateKey.tables.assets[0].r2_key;
+  assert.equal(verify(duplicateKey).ok, false, 'duplicate asset r2 keys are rejected');
   assert.equal(reconcile(firstRun, changed).ok, false, 'reconcile reports target mismatch');
 
   const delta = transform(await extract(source, { since: '2024-01-03T00:00:00Z' }));

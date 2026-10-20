@@ -184,6 +184,15 @@ function revisionRows(info) {
   return picked;
 }
 function roleUser(id, users) { return users.some(x => x.id === id) ? id : users[0]?.id ?? idFor('legacy-user', 'unknown'); }
+function extensionFor(value, mime) {
+  const match = /\.([a-z0-9]+)(?:[?#]|$)/i.exec(text(value));
+  if (match) return match[1].toLowerCase();
+  const known = {
+    'application/json': 'json', 'application/zip': 'zip', 'text/plain': 'txt',
+    'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif',
+  };
+  return known[mime] ?? 'bin';
+}
 
 export function transform(source) {
   const users = mergeUsers(source), map = projectMap(source);
@@ -198,7 +207,23 @@ export function transform(source) {
     project.working_revision_id = revByLegacy.get(text(first(currentDraft ?? pub, ['id', 'project_id']))) ?? revisions[0]?.id ?? null;
     tables.projects.push(project); tables.project_revisions.push(...revisions); projectInfo.set(project.id, { project, revisions });
   }
-  for (const row of source.tables.assets) { const oldProject = text(first(row, ['project_id', 'projectId'])); const info = map.get(oldProject); if (!info) continue; const project = projectInfo.get(info.pid)?.project; if (!project) continue; const revisionId = revByLegacy.get(text(first(row, ['revision_id', 'revisionId', 'project_id']))) ?? project.working_revision_id; const kind = text(first(row, ['kind', 'type'], 'worldbook')); if (!['worldbook', 'regex', 'cover', 'avatar', 'banner'].includes(kind)) continue; tables.assets.push({ id: text(first(row, ['id']), idFor('asset', project.id, revisionId, kind)), project_id: project.id, revision_id: revisionId, kind, r2_key: text(first(row, ['r2_key', 'key', 'path']), `projects/${project.id}/revisions/${revisionId}/${kind}`), sha256: text(first(row, ['sha256', 'hash'], hash(`${project.id}:${revisionId}:${kind}`))), bytes: Number(first(row, ['bytes', 'size'], 0)) || 0, mime: text(first(row, ['mime', 'content_type'], kind === 'cover' ? 'image/*' : 'application/json')), created_at: text(first(row, ['created_at', 'createdAt'], project.created_at), project.created_at) }); }
+  for (const row of source.tables.assets) {
+    const oldProject = text(first(row, ['project_id', 'projectId']));
+    const info = map.get(oldProject);
+    if (!info) continue;
+    const project = projectInfo.get(info.pid)?.project;
+    if (!project) continue;
+    const revisionId = revByLegacy.get(text(first(row, ['revision_id', 'revisionId', 'project_id']))) ?? project.working_revision_id;
+    const kind = text(first(row, ['kind', 'type'], 'worldbook'));
+    if (!['worldbook', 'regex', 'cover', 'avatar', 'banner'].includes(kind)) continue;
+    const sourceKey = text(first(row, ['r2_key', 'key', 'path']));
+    const mime = text(first(row, ['mime', 'content_type'], kind === 'cover' ? 'image/*' : 'application/json'));
+    const sha256 = text(first(row, ['sha256', 'hash'], hash(`${project.id}:${revisionId}:${kind}`)));
+    const r2Key = kind === 'cover'
+      ? `covers/${project.id}/${revisionId}-${sha256}.${extensionFor(sourceKey, mime)}`
+      : `projects/${project.id}/revisions/${revisionId}/${kind}-${sha256}.${extensionFor(sourceKey, mime)}`;
+    tables.assets.push({ id: text(first(row, ['id']), idFor('asset', project.id, revisionId, kind)), project_id: project.id, revision_id: revisionId, kind, r2_key: r2Key, sha256, bytes: Number(first(row, ['bytes', 'size'], 0)) || 0, mime, created_at: text(first(row, ['created_at', 'createdAt'], project.created_at), project.created_at) });
+  }
   const userId = row => roleUser(text(first(row, ['user_id', 'author_id', 'actor_id', 'submitted_by', 'reviewer_id', 'curator_id'])), users);
   for (const row of source.tables.project_likes) { const p = map.get(text(first(row, ['project_id', 'projectId']))); if (p) tables.project_likes.push({ project_id: p.pid, user_id: userId(row), created_at: text(first(row, ['created_at', 'createdAt'], '1970-01-01T00:00:00.000Z')) }); }
   for (const row of source.tables.project_subscriptions) { const p = map.get(text(first(row, ['project_id', 'projectId']))); if (p) tables.project_subscriptions.push({ project_id: p.pid, user_id: userId(row), created_at: text(first(row, ['created_at', 'createdAt'], '1970-01-01T00:00:00.000Z')) }); }
@@ -249,10 +274,13 @@ function rowKey(row) {
 function duplicateIds(rows) {
   const seen = new Set(), duplicate = [];
   for (const row of rows) {
-    const key = rowKey(row);
-    if (key == null) continue;
-    if (seen.has(key)) duplicate.push(key);
-    seen.add(key);
+    const keys = [rowKey(row)];
+    if (row?.r2_key != null) keys.push(`r2:${row.r2_key}`);
+    for (const key of keys) {
+      if (key == null) continue;
+      if (seen.has(key)) duplicate.push(key);
+      seen.add(key);
+    }
   }
   return duplicate;
 }

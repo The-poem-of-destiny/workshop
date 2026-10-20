@@ -39,11 +39,20 @@ def digest(path: Path) -> tuple[str, int]:
 def url_key(value: str | None) -> str | None:
     if not value:
         return None
-    path = unquote(urlparse(value).path)
+    parsed = urlparse(value)
+    path = unquote(parsed.path)
     marker = "/api/files/"
     if marker in path:
-        return path.split(marker, 1)[1].lstrip("/")
-    return None
+        key = path.split(marker, 1)[1]
+    elif not parsed.scheme and not parsed.netloc:
+        # Legacy rows also store bare R2 keys such as projects/<id>/cover.png.
+        key = path
+    else:
+        return None
+    key = key.lstrip("/")
+    if not key or ".." in Path(key).parts:
+        return None
+    return key
 
 
 def main() -> int:
@@ -59,9 +68,17 @@ def main() -> int:
     tables = [row[0] for row in db.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
     )]
+    admins = {row[0] for row in db.execute("SELECT user_id FROM admins")} if "admins" in tables else set()
+    super_admins = {row[0] for row in db.execute("SELECT user_id FROM super_admins")} if "super_admins" in tables else set()
     rows_by_table: dict[str, list[dict]] = {}
     for table in tables:
         rows = [dict(row) for row in db.execute(f'SELECT * FROM "{table}"')]
+        if table == "users":
+            for row in rows:
+                if row["id"] in super_admins:
+                    row["role"] = "owner"
+                elif row["id"] in admins or row.get("is_admin"):
+                    row["role"] = "reviewer"
         rows_by_table[table] = rows
         (out_dir / f"{table}.json").write_text(
             json.dumps(rows, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -69,13 +86,17 @@ def main() -> int:
 
     assets: list[dict] = []
     missing: list[str] = []
+    skipped: list[str] = []
     for row in rows_by_table.get("projects", []):
         project_id = row.get("id")
         if not project_id:
             continue
         for kind, field in (("cover", "cover_image"), ("worldbook", "download_url")):
-            key = url_key(row.get(field))
+            value = row.get(field)
+            key = url_key(value)
             if not key:
+                if value:
+                    skipped.append(f"{project_id}:{field}={value}")
                 continue
             name = key.rsplit("/", 1)[-1]
             if kind == "worldbook":
@@ -96,12 +117,36 @@ def main() -> int:
                 "created_at": row.get("updated_at") or row.get("created_at"),
             })
 
+    project_rows = {row["id"]: row for row in rows_by_table.get("projects", []) if row.get("id")}
+    seen = {(asset["project_id"], asset["kind"]) for asset in assets}
+    for path in sorted((r2_root / "projects").glob("*/regex-*.json")):
+        project_id = path.parent.name
+        row = project_rows.get(project_id)
+        if row is None or (project_id, "regex") in seen:
+            continue
+        sha256, size = digest(path)
+        assets.append({
+            "id": f"legacy-asset-{project_id}-regex",
+            "project_id": project_id,
+            "kind": "regex",
+            "r2_key": path.relative_to(r2_root).as_posix(),
+            "sha256": sha256,
+            "bytes": size,
+            "mime": MIME.get(path.suffix.lower(), "application/octet-stream"),
+            "created_at": row.get("updated_at") or row.get("created_at"),
+        })
+
     (out_dir / "assets.json").write_text(
         json.dumps(assets, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    print(f"exported {len(tables)} tables, {len(assets)} assets, {len(missing)} missing R2 objects")
+    print(
+        f"exported {len(tables)} tables, {len(assets)} assets, "
+        f"{len(missing)} missing R2 objects, {len(skipped)} unrecognized fields"
+    )
     for key in missing[:20]:
         print(f"  missing: {key}", file=sys.stderr)
+    for value in skipped[:20]:
+        print(f"  skipped: {value}", file=sys.stderr)
     return 0
 
 

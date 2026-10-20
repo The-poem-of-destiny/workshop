@@ -15,7 +15,7 @@
 已完成（2026-10-21）：
 
 - 本地 D1 应用 `0001_initial.sql`：59 条命令成功。
-- 真实备份：`from_d1_sql.py` 导出 7 张表 + 690 个 R2 资产（0 缺失）；全量跑两次字节一致；verify/reconcile 全过；`--since 2026-09-01` delta 也通过。
+- 真实备份：`from_d1_sql.py` 导出 7 张表 + 935 个 R2 资产（429 封面 / 67 正则 / 439 世界书，0 缺失）；全量跑两次字节一致；verify/reconcile 全过；`--since 2026-09-01` delta 也通过。
 - 本地 HTTP E2E：`pnpm e2e:local` 10/10（health、静态 UI、列表、创建、上传、私有 404、发布提交、审核公开读、下载幂等、Origin 拒绝）。
 - 实际浏览器：本地 Chromium 打开首页，标题「命定创意工坊」，读到 E2E Project 卡片。
 

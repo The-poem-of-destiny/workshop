@@ -43,7 +43,7 @@ node tools/migrate/cli.mjs verify --target /tmp/workshop-delta.json
 node tools/migrate/cli.mjs reconcile --source /tmp/workshop-legacy-export --target /tmp/workshop-delta.json --since 2026-09-01T00:00:00Z
 ```
 
-Rehearsal result (2026-10-21): 2,783 users, 435 projects, 449 revisions, 690 assets, 2,990 likes, 3,477 subscriptions, 1,798 audit events; two full runs were byte-identical; verify and reconcile passed; the `--since 2026-09-01` delta produced 20 projects / 32 revisions / 56 assets / 134 users and also passed. No dump or generated target is tracked.
+Rehearsal result (2026-10-21): 2,783 users, 435 projects, 449 revisions, 935 assets (429 covers, 67 regex, 439 worldbooks), 2,990 likes, 3,477 subscriptions, 1,798 audit events; two full runs were byte-identical; verify and reconcile passed; the `--since 2026-09-01` delta produced 20 projects / 32 revisions / 69 assets / 134 users and also passed. No dump or generated target is tracked.
 
 ## Source contract
 
