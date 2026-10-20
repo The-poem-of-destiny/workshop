@@ -163,7 +163,7 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
 2. **头策略**：`Cache-Control` 给浏览器、`Cloudflare-CDN-Cache-Control` 给边缘，分离设置；在 staging 实测 `no-store` 与 CDN 头的优先级；禁止无缓存头的 200（会被启发式缓存 2 小时）。
 3. **失效**：每个可缓存路由定义 `Cache-Tag`；列出发布、下架、改可见性、审核通过、删除各自的 purge 清单；client 稳定指针单独 tag；评估 Free 的 purge 限额。
 4. **并发**：列表/详情在冷启动与发布瞬间依赖请求合并；检查 SWR 期间是否会返回已下架内容。
-5. **身份**：确认 `Authorization` 自动 bypass 的边界；同一 URL 对匿名与登录返回不同内容时，禁止把 viewer 状态写进共享缓存。
+5. **身份**：确认 `Authorization` 自动 bypass 的边界；个人状态按 D-28 的网关 + `ctx.props` 方案按用户缓存，验证 props 隔离、`Authorization` 剥离与会话撤销。
 6. **测量**：staging 统计 MISS/HIT、`Cf-Cache-Status`、D1 rows read 与 CPU，给出目标命中率与回归阈值。
 7. **额度**：`cache.enabled` 开启后 Static Assets 计入请求；Free 为 100k/天；给出额度模型与超额降级方案。
 
@@ -218,18 +218,28 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
 - **图片与头像**：卡片图 16:9；作者头像用 Discord 头像，加载失败回退首字母。
 - **响应式**：4 / 3 / 2 / 1 列。
 
-### D-28 公开展示数据统一走 Workers Cache
+### D-28 公开展示数据与个人状态的 Workers Cache 策略
 
-- **范围**：项目列表、项目详情、发现栏、作者资料、标签/分类、首页货架，以及这些响应里的**下载量、订阅量等展示计数**和公开图片/附件，全部作为 viewer-neutral 响应缓存。
-- **公开读必须无凭证**：请求不得带 `Authorization`；响应不得带 `Set-Cookie`。两者都会让 Workers Cache bypass 或拒绝缓存。个人状态（是否已订阅、是否已下载、我的评分）走独立的 `/api/v1/me/*`，客户端合并，禁止写进共享 DTO。
-- **计数分离**：缓存的是“展示值”；真实值由写路径原子增量维护。下载、订阅动作本身是 `POST` + `no-store`，绝不缓存。
-- **计数下载**：会计数的那次请求不能缓存。先 `POST /api/v1/projects/:id/downloads` 增量并返回一次性地址或重定向，响应 `no-store`；公开文件若走缓存，则不计入下载量。
+- **入口拆分**（同一个 Worker）：
+  - `default` 网关：`cache.enabled=false`，每个请求都执行鉴权、规范化、路由。
+  - `Public`：`cache.enabled=true`，匿名共享缓存。
+  - `Viewer`：`cache.enabled=true`，网关鉴权后删除 `Authorization`，通过 `ctx.exports.Viewer.fetch(req, { props: { userId, sessionVersion } })` 调用；`ctx.props` 进入缓存键，按用户隔离。
+- **公开范围**：项目列表、详情、发现栏、作者资料、分类、首页，以及其中的下载量/订阅量展示值、公开图片/附件，走 `Public` 共享缓存。
+- **个人状态**：仍走独立 `/api/v1/me/*`，避免每个项目详情按用户分片；响应按 `userId + sessionVersion` 缓存 15–30s。浏览器侧 `no-store`，边缘 TTL 用 `Cloudflare-CDN-Cache-Control`，优先级在 staging 验证（D-24）。
+- **隔离与安全**：
+  - props 只由网关设置；禁止把客户端头当作身份来源。
+  - 转发前删除 `Authorization`（以及 `Cookie`），否则触发 bypass。
+  - `Viewer` 只能经 `ctx.exports` 调用，不可被外部路由直接命中。
+  - props 必须包含所有影响响应的身份维度，至少 `userId` 与 `sessionVersion`。
 - **失效**：
-  - 发布、下架、改可见性、删除：`Cache-Tag` purge；
-  - 下载/订阅导致的高频计数变化：不逐次 purge，靠 TTL（30–60s）收敛；必要时按项目去抖 purge。
-- **标签**：`projects`、`project:<id>`、`author:<id>`、`discover:<bucket>`、`taxonomy`。
-- **TTL 基线**：列表 30s、详情 60s、作者 300s、分类 1h、发现 1h；均配 `stale-while-revalidate`。
-- **禁止**：`Vary: Authorization` 代替 bypass；把 viewer 字段塞进共享缓存；对公开 GET 设置 Cookie。
+  - 登出、会话撤销、角色变化：bump `sessionVersion`，键变化使旧条目自然过期，不依赖 purge。
+  - 订阅/评分等个人写操作：短 TTL（15–30s），不逐次 purge；必要时按 `viewer:<userId>` 强制失效。
+  - 发布、下架、改可见性、删除：`Public` 的 `Cache-Tag` purge。
+- **计数分离**：缓存的是展示值；真实值由写路径原子增量维护。下载、订阅动作是 `POST` + `no-store`。
+- **计数下载**：会计数的那次请求不能缓存。先 `POST /api/v1/projects/:id/downloads` 增量并返回一次性地址或重定向，响应 `no-store`；公开文件若走缓存，则不计入下载量。
+- **标签**：`projects`、`project:<id>`、`author:<id>`、`discover:<bucket>`、`taxonomy`、`viewer:<userId>`。
+- **TTL 基线**：列表 30s、详情 60s、作者 300s、分类/发现 1h；个人状态 15–30s；均配 `stale-while-revalidate`。
+- **禁止**：`Vary: Authorization` 代替 bypass；把 viewer 字段塞进 `Public` 共享缓存；对公开 GET 设置 Cookie；依赖 props 之外的客户端可控头做隔离。
 
 ---
 
