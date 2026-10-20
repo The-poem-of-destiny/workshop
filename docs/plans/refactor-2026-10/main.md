@@ -85,7 +85,7 @@ workshop/
 │  │  │  └ jobs/               # 榜单、过期会话、孤儿对象回收
 │  │  ├ migrations/            # 0001_initial.sql 起，唯一 schema 来源
 │  │  └ wrangler.jsonc         # 显式 environment bindings
-│  ├ web/                      # Vite + React + Tailwind + shadcn（后续专项）
+│  ├ web/                      # React + Vite 源码；产物由同一个 Worker 的 Static Assets 提供（不是 Pages）
 │  └ tavern-client/            # TH 桥接、安装/更新/修复（单文件产物）
 ├ packages/
 │  ├ contracts/                # zod HTTP/bridge schema、错误码、DTO
@@ -109,7 +109,7 @@ workshop/
 
 ## 3. 运行时
 
-- **一个 Worker**：`/api/*` 由 Hono 处理；`/assets/*`、`/`、`/client/*` 交给 Static Assets；未匹配 `/api` 返回 JSON 404，不能被 SPA fallback 吞掉。
+- **一个 Worker**（D-19，不存在 Pages）：`/api/*` 由 Hono 处理；`/assets/*`、`/`、`/client/*` 交给 Static Assets；未匹配 `/api` 返回 JSON 404，不能被 SPA fallback 吞掉。
 - **DO：保留一个。** Free 套餐的 Worker 每请求 10ms，而 DO 每请求 30s；解析 10MB 世界书、服务端 checker 复核必须留在 DO。删除 `contentServiceKey` 正则分发器，由 Hono 显式 `getByName()`。列表/详情是否移出 DO，用真实数据测 CPU 后决定。
 - **KV：新系统不用。** OAuth flow、session 全落 D1，可审计、可原子消费。
 - **认证**：opaque session token（32 字节随机，库中只存 HMAC），30 天滑动过期；每请求查 `sessions → users.role`，撤销即时生效。

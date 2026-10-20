@@ -93,6 +93,14 @@ Cloudflare **Free** 套餐。普通 Worker 每请求 10ms CPU，Durable Object �
 
 pnpm workspace：`apps/{worker,web,tavern-client}` + `packages/{contracts,content,domain}` + `config/` + `data/` + `tools/` + `tests/` + `docs/`。Worker 内 `http → use case → storage`；不设独立 db 包。
 
+### D-19 部署形态：只用 Worker，不用 Pages
+
+- **不存在 Cloudflare Pages 项目**：不创建 Pages 项目、不使用 Pages Functions、不使用 `pages_build_output_dir`、不执行 `wrangler pages deploy`。
+- `apps/web` 只是 React + Vite 的源码与构建目录；产物通过**同一个 Worker** 的 Static Assets（`assets.directory`）随 Worker 一起部署。
+- 对外只有一个入口 Worker：`/api/*` 走 Hono，其余由 Static Assets 提供；`/api` 未匹配返回 JSON 404。
+- 构建产物与 Worker 版本一一对应，回滚 Worker 版本即回滚前端。
+- CI 只跑 `wrangler deploy`（或 versions/deployments 流程），不引入第二套托管平台。
+
 ---
 
 ## 待定
