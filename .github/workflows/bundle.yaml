@@ -8,7 +8,6 @@ on:
       - 'config/**'
       - 'scripts/check-workshop-config.mjs'
       - 'scripts/check-workshop-bundles.mjs'
-      - 'tests/auto-dialogue-beautifier-smoke.mjs'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'webpack.config.cjs'
@@ -17,7 +16,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   bundle:
@@ -50,19 +49,3 @@ jobs:
 
       - name: Verify built Workshop bundles
         run: pnpm check:workshop-bundles
-
-      - name: Verify adaptive regex initialization
-        run: node tests/auto-dialogue-beautifier-smoke.mjs --bundle
-
-      - name: Commit refreshed staging bundle
-        if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- dist/CreativeWorkshop-staging/index.js dist/CreativeWorkshop-staging/index.js.map
-          if git diff --cached --quiet; then
-            echo "Staging bundle already current"
-            exit 0
-          fi
-          git commit -m "build(workshop): refresh staging bundle"
-          git push origin HEAD:staging

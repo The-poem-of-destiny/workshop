@@ -66,11 +66,6 @@ function createClientConfig({ name, publicPath, entryPath, clientVersion, endpoi
 
 module.exports = [
   createClientConfig({
-    name: 'auto-dialogue-beautifier',
-    publicPath: 'dist/AutoDialogueBeautifier/index.js',
-    entryPath: 'src/AutoDialogueBeautifier/index.ts',
-  }),
-  createClientConfig({
     name: 'creative-workshop-stable',
     publicPath: workshopConfig.client.publicPath,
     entryPath: 'src/CreativeWorkshop/index.ts',
