@@ -152,8 +152,22 @@ packages/{contracts,content,domain}
 - 回滚：覆盖稳定对象 + 更新记录 + purge。
 - 取舍：
   - HIT 时不执行 Worker；MISS 时计一次 Worker 请求。
-  - 开启 Workers Cache 后，Web 的 Static Assets 请求也按普通请求计费（金额很小）。
+  - 开启 Workers Cache 后，Web 的 Static Assets 请求也按标准请求计费：Free 上计入 100k/天额度，Paid 上才产生费用。
   - 稳定指针的边缘 TTL 决定“未被 purge 时”的最坏陈旧窗口。
+
+### D-24 Workers Cache 专项设计（重构必做）
+
+Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）；Static Assets 的平台缓存只服务静态文件。重构期间必须完成以下研究，产出写回 main.md 并落成测试：
+
+1. **缓存键**：默认键 = entrypoint + path/query + Worker 版本；确认 `Vary`、`ctx.props`、`cross_version_cache` 是否使用（默认不跨版本，部署即清空）。
+2. **头策略**：`Cache-Control` 给浏览器、`Cloudflare-CDN-Cache-Control` 给边缘，分离设置；在 staging 实测 `no-store` 与 CDN 头的优先级；禁止无缓存头的 200（会被启发式缓存 2 小时）。
+3. **失效**：每个可缓存路由定义 `Cache-Tag`；列出发布、下架、改可见性、审核通过、删除各自的 purge 清单；client 稳定指针单独 tag；评估 Free 的 purge 限额。
+4. **并发**：列表/详情在冷启动与发布瞬间依赖请求合并；检查 SWR 期间是否会返回已下架内容。
+5. **身份**：确认 `Authorization` 自动 bypass 的边界；同一 URL 对匿名与登录返回不同内容时，禁止把 viewer 状态写进共享缓存。
+6. **测量**：staging 统计 MISS/HIT、`Cf-Cache-Status`、D1 rows read 与 CPU，给出目标命中率与回归阈值。
+7. **额度**：`cache.enabled` 开启后 Static Assets 计入请求；Free 为 100k/天；给出额度模型与超额降级方案。
+
+**门禁**：上述清单未完成、staging 未跑通前，不把 `cache.enabled` 开到生产。**验收**：每个可缓存 GET 都有显式头、tag 与失效触发；无隐式缓存；下架后一次 purge 内所有边缘不可见。
 
 ---
 

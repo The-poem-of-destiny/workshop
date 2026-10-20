@@ -186,6 +186,8 @@ workshop/
 
 删除 `caches.default` 三处与客户端全部 TTL Map；客户端只保留请求期 in-flight 去重。
 
+Workers Cache 的键、头、失效、并发、身份、测量与额度模型，以及开启门禁，见 D-24；在 D-24 完成前不开 `cache.enabled`。
+
 ---
 
 ## 7. 迁移与一次性切换
