@@ -10,9 +10,9 @@
 
 - W12 客户端、W13/W14 分发、W16 元数据、W18 cron、W19 生命周期/索引、W20 Web 作者/审核/管理、W17 管理写接口已提交。
 - `pnpm check` 绿；worker 58、domain 17、content 7。
-- `pnpm e2e:local` 14/14，含真实 Chromium：匿名搜索/详情、作者工作台、owner 管理、审核拒绝理由。
+- `pnpm e2e:local` 15/15，含 5 条真实 Chromium 旅程：匿名搜索/排序/详情、作者工作台、owner 管理、审核通过、审核拒绝理由。
 - staging D1 已应用 0002–0006；Worker 版本 `3aa2e185-5926-4d39-8cfb-8decad1d61a9`，commit `92e2f0b`。
-- 本机代理对 `*.workers.dev` 的 HTTPS 不稳定，未取得远程 HTTP smoke；wrangler 已确认 active version。
+- staging 远程 smoke 已通过：health/list/root/reference-sets/site/home 200，Origin 拒绝 403，client compatibility 200；wrangler 确认 active version。
 - W21/W24 仍被 Q-05/Q-06/Q-10 阻塞；W23 R2 复制与真实数据导入未做。
 
 ## 已有实现（不等于验收完成）
@@ -116,7 +116,7 @@
 - P6：`cloudflare/`、旧客户端 `src/`、`util/`、`config/`、`test-dist/` 与旧 webpack 构建链已移出当前工作树；旧版本保存在本地 worktree `../workshop-legacy`（`4fdf71a`）仅作对照。客户端需按 checklist 重写，不再从当前树构建。
 - Web UI：公开列表/详情、Discord 登录、作者工作台、审核台、owner 管理已接入；分页/作者筛选/订阅列表仍缺。
 - 真实 SillyTavern / Tavern client 验证未做（本机无运行中的 SillyTavern，按 stop condition 记录）。
-- W23：R2 批量复制适配器、真实数据导入、staging 远程 HTTP smoke 仍缺。
+- W23：R2 批量复制适配器、真实数据导入仍缺；staging 远程 HTTP smoke 已完成。
 
 ## 停止条件 / 阻塞
 

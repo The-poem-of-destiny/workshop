@@ -161,7 +161,7 @@
 - [x] T3 fingerprint/diff/安装安全测试（单元与 HTTP 覆盖）。
 - [ ] T6 旧公开 API 样本契约测试（fixtures 与契约测试尚未恢复）。
 - [x] Playwright 5 条真实浏览器旅程（本地 Worker + 真实 Chromium）。
-- [ ] staging 远程 HTTP smoke（本机代理对 workers.dev 不稳定，部署版本已由 wrangler 确认）。
+- [x] staging 远程 HTTP smoke：health/list/root/reference-sets/site/home 200，Origin 拒绝 403，client compatibility 200。
 - [ ] 生产切换 runbook 执行与人工审批。
 - [ ] 生产旧库只读保留、回滚窗口、监控指标演练。
 
