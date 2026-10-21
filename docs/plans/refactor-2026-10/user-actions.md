@@ -63,13 +63,13 @@
 4. 对 Q-05、Q-06、Q-10 给出选择；未决前相应代码保持 BLOCKED。
 5. 若要跑真实迁移：提供目标 Cloudflare 账号/D1/R2 与停写窗口授权。
 6. 若要测 purge：提供 zone ID、API token 和公开 URL。
-7. staging CI 已恢复：`main` 的 `refactor-ci` 成功后自动触发 `deploy-staging`。后续部署继续走 `main`，不再从特性分支手动部署。
+7. staging CI 已恢复：`main` 的 `ci` 成功后自动触发 `deploy-staging`。后续部署继续走 `main`，不再从特性分支手动部署。
 
 ### 已执行的 CI 证据
 
 | Run | 结果 |
 |---|---|
-| `refactor-ci` 39593684436 | ✅ `main` 上 check + e2e 成功（commit `f2c419a`） |
+| `ci` 39593684436 | ✅ `main` 上 check + e2e 成功（commit `f2c419a`） |
 | `deploy-staging` 39593544230 | ✅ `workflow_run` 构建并部署成功（commit `7761c32`） |
 | `deploy-staging` 39593837063 | ✅ changes 成功；build/deploy 按 docs-only 规则跳过（commit `f2c419a`） |
 | staging 当前版本 | ✅ Worker `69fa850d-9c6b-40c2-a5d7-e777cb309281`（commit `7761c32`） |

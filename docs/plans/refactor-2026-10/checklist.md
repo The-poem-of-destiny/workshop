@@ -13,7 +13,7 @@
 - [x] `pnpm check` 覆盖 workspace、strict typecheck、worker/domain/content 测试、schema、迁移测试、wrangler dry-run。
 - [x] 删除旧 `cloudflare/`、旧 E2E/Playwright、PowerShell 部署器、提交的 `dist/`/`test-bundles/`。
 - [x] 旧客户端 `src/`、`util/`、`config/`、`test-dist/` 与 webpack 构建链移出当前工作树；旧版本在 `../workshop-legacy`（`4fdf71a`）只读对照。
-- [ ] CI 对精确 SHA 构建一次并逐级提升同一 artifact（workflow 已改；refactor-ci 已跑；deploy-staging build 已跑，deploy 被环境策略拒绝；production 未跑）。
+- [ ] CI 对精确 SHA 构建一次并逐级提升同一 artifact（workflow 已改；ci 已跑；deploy-staging build 已跑，deploy 被环境策略拒绝；production 未跑）。
 - [ ] 部署流水线包含 D1 migration、artifact hash、Worker version 记录（workflow 已改；staging build 成功，deploy 未通过环境门禁；production 未跑）。
 
 ## 1. 平台与数据模型

@@ -2,7 +2,7 @@ name: deploy-staging
 
 on:
   workflow_run:
-    workflows: ["refactor-ci"]
+    workflows: ["ci"]
     types: [completed]
     branches: [main]
 

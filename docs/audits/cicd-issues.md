@@ -7,8 +7,8 @@
 ## 现状基线
 
 - `main` 已包含重构，旧状态保留在 `archive/pre-refactor-2026-10`。
-- `refactor-ci` 在 `main` push 和面向 `main` 的 PR 上运行 `check` / `e2e`。
-- staging 由 `refactor-ci` 成功后的 `workflow_run` 部署；纯 docs/CI 变更跳过部署。
+- `ci` 在 `main` push 和面向 `main` 的 PR 上运行 `check` / `e2e`。
+- staging 由 `ci` 成功后的 `workflow_run` 部署；纯 docs/CI 变更跳过部署。
 - production 由 `v*` tag push 触发，查找同 commit 的 staging 成功记录并下载 Web artifact。
 - 当前没有 `v*` tag，production workflow 尚未实际执行。
 - production D1 当前为空（0 表），staging 约 463 kB；Free 套餐额度足够当前规模。
@@ -114,7 +114,7 @@
 
 ### CI-03 重复的 check/e2e（已修，保留为回归项）
 
-**问题**：`refactor-ci` 同时监听任意 `push` 和 `pull_request`，开 PR 后同一分支产生两套 run。
+**问题**：`ci` 同时监听任意 `push` 和 `pull_request`，开 PR 后同一分支产生两套 run。
 
 **预期路线**：`push` 只监听 `main`，`pull_request` 只面向 `main`；特性分支只跑 PR run。
 
@@ -263,7 +263,7 @@
 
 ### 已确认已修
 
-- `refactor-ci` 已限制 `push`/`pull_request` 到 `main`，重复 check/e2e 已消失。
+- `ci` 已限制 `push`/`pull_request` 到 `main`，重复 check/e2e 已消失。
 - staging 已由 `workflow_run` 在 CI 成功后触发。
 - staging docs-only 已跳过 build/deploy。
 - production 已改为 tag push，并校验 checkout 与 `GITHUB_SHA`。
@@ -282,7 +282,7 @@
 ## 本轮实现（待 PR 检查）
 
 - CI：加入 Biome、`format` / `format:check` / `lint`，根 `pnpm check` 纳入 `biome ci`；Node 版本由 `.nvmrc` 和 `engines.node` 固定。
-- CI：`refactor-ci` 去掉路径过滤，避免 required checks 永久 pending；固定 `ubuntu-24.04`，加入 concurrency、timeout、新 action major。
+- CI：`ci` 去掉路径过滤，避免 required checks 永久 pending；固定 `ubuntu-24.04`，加入 concurrency、timeout、新 action major。
 - staging：CI 成功后触发；增加 main freshness 检查；改动范围按上次成功部署比较，并分页读取 commit 文件。
 - artifact：构建 Web + Worker bundle，生成 `artifact.sha256` 和 `artifact-manifest.json`，staging 和 production 使用同一 release artifact。
 - production：tag push 触发；校验 tag commit 是 `main` 祖先；从 staging 成功记录下载 artifact。

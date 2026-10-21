@@ -6,7 +6,7 @@ This runbook covers staging and production releases, D1 migration safety, backup
 
 | Change | Route |
 |---|---|
-| Pull request | `refactor-ci` runs `check` and `e2e`; both are required on `main` |
+| Pull request | `ci` runs `check` and `e2e`; both are required on `main` |
 | Merge to `main` | Successful CI builds a complete Worker + Web artifact; staging deploys only changed application code |
 | Production | Create a protected `v*` tag on the accepted `main` commit; production environment approval is required |
 | Docs/agent/CI-only change | CI runs, staging build/deploy is skipped |

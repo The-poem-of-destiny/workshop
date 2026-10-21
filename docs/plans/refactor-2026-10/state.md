@@ -13,7 +13,7 @@
 - `pnpm e2e:local` 19/19（上一轮完整运行），含真实 Chromium 旅程：匿名搜索/排序/作者筛选/详情、作者工作台+订阅、owner 管理、审核通过、审核拒绝理由。
 - staging D1 已应用 0001–0011；Worker 版本 `69fa850d-9c6b-40c2-a5d7-e777cb309281`（commit `7761c32`），由 `deploy-staging` Actions 流水线部署。
 - staging 远程 smoke 已通过：health 200；此前覆盖 health/list/discovery/root/reference-sets/site/home、Origin 拒绝 403、client compatibility；`client/stable/index.js` 已发布 `0.1.3`。
-- GitHub Actions：`refactor-ci` run `39593684436`（main，commit `f2c419a`）成功；`deploy-staging` run `39593544230`（commit `7761c32`）部署成功；run `39593837063`（commit `f2c419a`）只跑 changes，build/deploy 按 docs-only 规则跳过。
+- GitHub Actions：`ci` run `39593684436`（main，commit `f2c419a`）成功；`deploy-staging` run `39593544230`（commit `7761c32`）部署成功；run `39593837063`（commit `f2c419a`）只跑 changes，build/deploy 按 docs-only 规则跳过。
 - W21/W24 仍被 Q-05/Q-06/Q-10 阻塞；W23 R2 适配器已完成，真实数据导入与生产 cutover 未做。
 
 ## 已有实现（不等于验收完成）
@@ -82,7 +82,7 @@
 - `packages/contracts` 严格类型检查。
 - 初始 D1 schema：`apps/worker/migrations/0001_initial.sql`，含 FTS trigram + 1–2 字短索引、外键、pending 唯一约束。
 - 单入口 `pnpm check`：workspace、typecheck、test、schema、wrangler dry-run。
-- CI：`.github/workflows/refactor-ci.yml`。
+- CI：`.github/workflows/ci.yml`。
 - 压缩配置：本地 50% 阈值，`handoff/shake/soft` 文本路径，关闭 snapcompact 视觉。
 
 ## 独立完成度审计（2026-10-21）
@@ -129,8 +129,8 @@
 
 ## CI/CD 现状
 
-- `refactor-ci` 只在 `main` push 和面向 `main` 的 PR 上运行；特性分支 push 不再产生第二套 `check` / `e2e`。
-- `deploy-staging` 由 `refactor-ci` 成功后的 `workflow_run` 触发；`main` 分支保护要求 `check` / `e2e`。
+- `ci` 只在 `main` push 和面向 `main` 的 PR 上运行；特性分支 push 不再产生第二套 `check` / `e2e`。
+- `deploy-staging` 由 `ci` 成功后的 `workflow_run` 触发；`main` 分支保护要求 `check` / `e2e`。
 - `deploy-staging` 先检查触发 commit 的改动路径；只有应用代码、packages、tools、tests 或依赖清单变化才构建和部署。纯 docs/AGENTS/CI 变更会跳过 build/deploy。
 - staging build artifact 只包含 `apps/worker/web/dist`；deploy job 仍从同一 commit 重新打包 Worker。当前是“同一 commit + web artifact”，不是完整的 build-once。
 - `deploy-production` 由 `v*` tag push 触发，查找该 commit 的 staging 成功记录并下载 Web artifact；production environment 要求 1 名 reviewer 且只允许 `v*`。
