@@ -8,8 +8,6 @@
 - **Web 站点**：React + Vite 的公开列表、详情与作者/审核界面；
 - **酒馆客户端**：安装、更新、卸载和内容基线桥接。
 
-旧客户端、旧首页、旧 checker bundle、`test-dist` shim 和旧构建链已从本工作树移除。旧实现完整保存在 git 历史与本地只读 legacy worktree `../workshop-legacy`（基于 `4fdf71a`），仅用于对照，不参与构建。迁移状态见 `docs/plans/refactor-2026-10/checklist.md`。
-
 ## 仓库结构
 
 ```text
@@ -42,7 +40,8 @@ workshop/
 - 作者：创建、编辑、上传、提交审核；
 - 审核：待审队列、发布指针切换、成员角色、审计；
 - 互动：点赞、订阅、评分、按用户/项目/日幂等的下载计数；
-- 客户端：版本化分发、安装/更新/卸载与基线校验。
+- 客户端：版本化分发、安装/更新/卸载与基线校验；
+- 缓存：公开 GET（项目列表/详情、推荐、榜单）使用 Workers Cache API，30 秒 TTL，`cache_epoch` 变更即失效；作者、审核、下载等动态接口保持 `private, no-store`。
 
 接口以 `/api/v1` 为前缀。契约在 `packages/contracts`，领域规则在 `packages/domain`，checker 与内容审计在 `packages/content`。
 
