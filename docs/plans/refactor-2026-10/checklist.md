@@ -161,7 +161,7 @@
 - [x] 迁移 synthetic + SQL converter 测试。
 - [x] 真实备份全量两次 + delta + reconcile；隔离本地 D1 load。
 - [x] 本地 HTTP E2E 19/19；真实 Chromium 搜索/排序 DOM、作者工作台+订阅、owner 管理、审核通过/拒绝、拒绝→改稿重提 6 条旅程。
-- [x] staging 部署、D1 migration 0002–0009、Worker `8449a9a9-40d7-4772-81bf-027c1396917b`（commit `78c6799`）。
+- [x] staging 部署、D1 migration 0002–0009、Worker `51e6d6b0-1e07-42be-9de8-4524c7b42a16`（commit `1b6deef`）。
 - [x] R2 批量复制适配器（manifest、SHA/bytes 校验、本地演练、幂等重跑、损坏修复、remote `--apply`）。
 - [ ] staging 真实数据导入与独立 reconcile（需授权目标）。
 - [x] T3 entry-key/fingerprint/玩家修改保留单元测试（tavern-client 4 项）；真实 ST 旅程未验。
