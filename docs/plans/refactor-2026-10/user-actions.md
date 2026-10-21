@@ -70,6 +70,8 @@
 |---|---|
 | `refactor-ci` 39582448150 | ✅ check + e2e 均成功 |
 | `deploy-staging` 39582600843 | ◐ build 成功；deploy 因 environment branch policy 拒绝 |
-| 本地 staging 部署 | ✅ Worker `1b189ef8-82a3-4ef9-84a0-b31261591bb1`（session HMAC） |
+| `refactor-ci` 39584761236 | ✅ check + e2e 成功（含 tavern-client 路径） |
+| 本地 staging 部署 | ✅ Worker `93841ccc-bb4a-4edd-b54a-89e54595da14`（commit `33d1cd3`） |
+| 客户端 staging stable | ✅ 0.1.3 `5e1c4a4a...`，含免责声明/服务地址/基线 fail-closed |
 
 没有这些输入时，代码侧仍可继续做不依赖凭据/决策的部分，但不会把上述旅程标记为已验收。
