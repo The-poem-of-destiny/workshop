@@ -19,11 +19,11 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "acorn": "8.18.0",
+    "acorn": "8.19.0",
     "entities": "8.1.0",
     "parse5": "8.0.1"
   },
   "devDependencies": {
-    "esbuild": "0.28.1"
+    "esbuild": "0.28.2"
   }
 }
