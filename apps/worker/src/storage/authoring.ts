@@ -389,8 +389,14 @@ export async function patchProject(
   const now = new Date().toISOString();
   const meta = metadataSnapshot(values, session.userId, now);
   const tags = JSON.stringify(values.tags);
-  const [updated] = await db.batch([
-    db.prepare(`UPDATE projects
+  const preservePublished = current.published_revision_id !== null
+    && current.published_revision_id !== current.working_revision_id;
+  const projectUpdate = preservePublished
+    ? db.prepare(`UPDATE projects
+      SET row_version = row_version + 1, updated_at = ?
+      WHERE id = ? AND row_version = ? AND working_revision_id = ?`)
+      .bind(now, projectId, expectedVersion, current.working_revision_id)
+    : db.prepare(`UPDATE projects
       SET title = ?, description = ?, author_note = ?, project_type = ?, extension_type = ?,
           search_tags = ?, version_label = ?, precautions = ?, cover_position_x = ?,
           cover_position_y = ?, cover_zoom = ?, metadata_findings = ?,
@@ -402,7 +408,9 @@ export async function patchProject(
         tags, values.versionLabel, values.precautions, values.coverPositionX, values.coverPositionY,
         values.coverZoom, meta.findings, meta.revision, meta.checkedAt, meta.actorId, now,
         projectId, expectedVersion, current.working_revision_id,
-      ),
+      );
+  const [updated] = await db.batch([
+    projectUpdate,
     db.prepare(`UPDATE project_revisions
       SET title = ?, description = ?, author_note = ?, project_type = ?, extension_type = ?,
           tags = ?, schema_version = COALESCE(schema_version, ?), version_label = ?, precautions = ?,

@@ -379,6 +379,10 @@ describe("authoring write paths", () => {
       { id: first.workingRevisionId, title: "Published title", version_label: "v1", precautions: null },
       { id: draft.revisionId, title: "Draft title v2", version_label: "v2", precautions: "draft only" },
     ]);
+    const projectRow = await bindings.DB.prepare(
+      "SELECT title, version_label, precautions FROM projects WHERE id = ?",
+    ).bind(first.project.id).first<Record<string, unknown>>();
+    expect(projectRow).toEqual({ title: "Published title", version_label: "v1", precautions: null });
   });
 
   it("records a missing client gate as human review instead of rejecting the submit", async () => {
