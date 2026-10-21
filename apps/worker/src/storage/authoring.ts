@@ -409,12 +409,12 @@ export async function patchProject(
           cover_position_x = ?, cover_position_y = ?, cover_zoom = ?, metadata_findings = ?,
           metadata_checker_revision = ?, metadata_checked_at = ?, metadata_checked_by = ?,
           discord_thread_url = ?
-      WHERE id IN (?, ?)`)
+      WHERE id = ?`)
       .bind(
         values.title, values.description, values.authorNote, values.projectType, values.extensionType,
         tags, values.schemaVersion, values.versionLabel, values.precautions, values.coverPositionX,
         values.coverPositionY, values.coverZoom, meta.findings, meta.revision, meta.checkedAt,
-        meta.actorId, values.discordThreadUrl, current.working_revision_id, current.published_revision_id,
+        meta.actorId, values.discordThreadUrl, current.working_revision_id,
       ),
     db.prepare(`INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
       SELECT ?, 'project.patch', 'project', ?, ?, ?, ?
@@ -627,11 +627,7 @@ export async function deleteProjectEntry(
   if (!revision) return null;
   const body = new TextEncoder().encode(removed.text).buffer;
   await upsertAsset(db, r2, projectId, revision.revisionId, kind, body, asset.mime, removed.entryCount);
-  await db.prepare(`
-    INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime)
-    SELECT ?, project_id, ?, kind, r2_key, sha256, bytes, mime FROM assets
-    WHERE revision_id = ? AND kind <> ?
-  `).bind(crypto.randomUUID(), revision.revisionId, revisionId, kind).run();
+  if (!await copyRetainedAssets(db, r2, projectId, revisionId, revision.revisionId, kind)) return null;
   return { ...revision, entryCount: removed.entryCount };
 }
 
@@ -693,6 +689,54 @@ export async function getRevisionForProject(
       AND (p.author_id = ? OR ? = 'owner')`).bind(revisionId, projectId, session.userId, session.role).first<RevisionAccess>();
 }
 
+interface RetainedAssetRow {
+  kind: string;
+  r2_key: string;
+  sha256: string;
+  bytes: number;
+  mime: string;
+}
+
+function assetKey(projectId: string, revisionId: string, kind: string, sha256: string, mime: string): string {
+  const ext = extensionForMime(mime);
+  return kind === "cover"
+    ? `covers/${projectId}/${revisionId}-${sha256}.${ext}`
+    : `projects/${projectId}/revisions/${revisionId}/${kind}-${sha256}.${ext}`;
+}
+
+async function copyRetainedAssets(
+  db: D1Database,
+  r2: R2Bucket,
+  projectId: string,
+  fromRevisionId: string,
+  toRevisionId: string,
+  excludedKind: string,
+): Promise<boolean> {
+  const rows = await db.prepare(`
+    SELECT kind, r2_key, sha256, bytes, mime FROM assets
+    WHERE revision_id = ? AND kind <> ?
+  `).bind(fromRevisionId, excludedKind).all<RetainedAssetRow>();
+  if (rows.results.length === 0) return true;
+
+  const statements: D1PreparedStatement[] = [];
+  for (const asset of rows.results) {
+    const object = await r2.get(asset.r2_key);
+    if (!object) throw new Error(`Retained asset is missing: ${asset.r2_key}`);
+    const key = assetKey(projectId, toRevisionId, asset.kind, asset.sha256, asset.mime);
+    await r2.put(key, object.body, { httpMetadata: { contentType: asset.mime } });
+    statements.push(db.prepare(`INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?
+      WHERE EXISTS (SELECT 1 FROM projects WHERE id = ? AND working_revision_id = ?)
+        AND NOT EXISTS (SELECT 1 FROM submissions WHERE revision_id = ?)`)
+      .bind(
+        crypto.randomUUID(), projectId, toRevisionId, asset.kind, key, asset.sha256, asset.bytes, asset.mime,
+        projectId, toRevisionId, toRevisionId,
+      ));
+  }
+  const results = await db.batch(statements);
+  return results.every(result => result.meta.changes === 1);
+}
+
 export async function upsertAsset(
   db: D1Database,
   r2: R2Bucket,
@@ -705,10 +749,7 @@ export async function upsertAsset(
 ): Promise<UploadResult | null> {
   const hash = await crypto.subtle.digest("SHA-256", body);
   const sha256 = [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
-  const ext = extensionForMime(mime);
-  const r2Key = kind === "cover"
-    ? `covers/${projectId}/${revisionId}-${sha256}.${ext}`
-    : `projects/${projectId}/revisions/${revisionId}/${kind}-${sha256}.${ext}`;
+  const r2Key = assetKey(projectId, revisionId, kind, sha256, mime);
   // Content-addressed keys make a pre-insert put safe: a frozen revision never
   // points at the new key, and identical bytes reuse the same object.
   await r2.put(r2Key, body, { httpMetadata: { contentType: mime } });

@@ -139,6 +139,14 @@ describe("authoring write paths", () => {
       body: twoEntries,
       headers: { "content-type": "application/json", "content-length": String(bytes) },
     });
+    const cover = new TextEncoder().encode("cover-bytes").buffer;
+    await upsertAsset(
+      bindings.DB, bindings.R2, first.project.id, first.workingRevisionId, "cover", cover, "image/webp",
+    );
+    const oldCover = await bindings.DB.prepare("SELECT r2_key FROM assets WHERE revision_id = ? AND kind = 'cover'")
+      .bind(first.workingRevisionId).first<{ r2_key: string }>();
+    expect(oldCover).not.toBeNull();
+
     const deleted = await request(
       `/${first.project.id}/revisions/${first.workingRevisionId}/entries/worldbook/${encodeURIComponent("uid:1")}`,
       { method: "DELETE", headers: { "if-match": "1" } },
@@ -160,6 +168,15 @@ describe("authoring write paths", () => {
     const oldAsset = await bindings.DB.prepare("SELECT r2_key FROM assets WHERE revision_id = ? AND kind = 'worldbook'")
       .bind(first.workingRevisionId).first<{ r2_key: string }>();
     expect(oldAsset?.r2_key).not.toBe(asset?.r2_key);
+
+    const retainedCover = await bindings.DB.prepare(
+      "SELECT r2_key FROM assets WHERE revision_id = ? AND kind = 'cover'",
+    ).bind(result.revisionId).first<{ r2_key: string }>();
+    expect(retainedCover?.r2_key).toBeTruthy();
+    expect(retainedCover?.r2_key).not.toBe(oldCover?.r2_key);
+    const retainedObject = await bindings.R2.get(retainedCover!.r2_key);
+    await expect(retainedObject?.text()).resolves.toBe("cover-bytes");
+    await expect(bindings.R2.get(oldCover!.r2_key)).resolves.not.toBeNull();
   });
 
   it("supersedes pending submissions and rejects unsupported/oversized uploads", async () => {
@@ -329,6 +346,39 @@ describe("authoring write paths", () => {
       body: JSON.stringify({ title: "bad\u0000title" }),
     });
     expect(blocked.status).toBe(400);
+  });
+
+  it("keeps published revision metadata immutable while editing a newer draft", async () => {
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Published title", versionLabel: "v1" }),
+    });
+    const first = await created.json() as { project: { id: string }; workingRevisionId: string };
+    await bindings.DB.prepare("UPDATE projects SET published_revision_id = ?, published_at = ? WHERE id = ?")
+      .bind(first.workingRevisionId, now, first.project.id).run();
+
+    const next = await request(`/${first.project.id}/revisions`, {
+      method: "POST",
+      headers: { "if-match": "1" },
+      body: JSON.stringify({ title: "Draft title" }),
+    });
+    expect(next.status).toBe(201);
+    const draft = await next.json() as { revisionId: string; rowVersion: number };
+
+    const patched = await request(`/${first.project.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "if-match": String(draft.rowVersion) },
+      body: JSON.stringify({ title: "Draft title v2", versionLabel: "v2", precautions: "draft only" }),
+    });
+    expect(patched.status).toBe(200);
+
+    const rows = await bindings.DB.prepare(
+      "SELECT id, title, version_label, precautions FROM project_revisions WHERE project_id = ? ORDER BY revision_no",
+    ).bind(first.project.id).all<{ id: string; title: string; version_label: string; precautions: string | null }>();
+    expect(rows.results).toEqual([
+      { id: first.workingRevisionId, title: "Published title", version_label: "v1", precautions: null },
+      { id: draft.revisionId, title: "Draft title v2", version_label: "v2", precautions: "draft only" },
+    ]);
   });
 
   it("records a missing client gate as human review instead of rejecting the submit", async () => {
