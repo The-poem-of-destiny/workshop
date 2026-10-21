@@ -38,6 +38,7 @@
 - [x] PKCE verifier 可兑换；服务端只存 hash。
 - [x] session token 使用 HMAC（配置 `SESSION_HASH_SECRET` 后生效；staging 已设置）。
 - [x] 公会准入 `DISCORD_ALLOWED_GUILD_IDS`（staging 暂为空）。
+- [x] OAuth flow 绑定发起浏览器 cookie；staging 无 cookie 404、带 cookie 200。
 - [x] CORS 允许列表与安全头；严格同源 CORS。
 - [x] `oauth_flows.origin` 与 D-10“不存储请求 Origin”的口径统一。
 - [ ] 真实 Discord 握手（缺 client secret；本地负例已覆盖）。
@@ -157,11 +158,11 @@
 
 ## 12. 测试、迁移与上线
 
-- [x] Worker 75 测试、domain 17、content 7、schema 27 表校验。
+- [x] Worker 76 测试、domain 17、content 7、schema 27 表校验。
 - [x] 迁移 synthetic + SQL converter 测试。
 - [x] 真实备份全量两次 + delta + reconcile；隔离本地 D1 load。
 - [x] 本地 HTTP E2E 19/19；真实 Chromium 搜索/排序 DOM、作者工作台+订阅、owner 管理、审核通过/拒绝、拒绝→改稿重提 6 条旅程。
-- [x] staging 部署、D1 migration 0002–0009、Worker `93841ccc-bb4a-4edd-b54a-89e54595da14`（commit `33d1cd3`）。
+- [x] staging 部署、D1 migration 0002–0011、Worker `44be59cd-3f68-46d8-9366-ef34b5c00beb`（commit `30e8ecc`）。
 - [x] R2 批量复制适配器（manifest、SHA/bytes 校验、本地演练、幂等重跑、损坏修复、remote `--apply`）。
 - [x] 迁移映射覆盖 site_settings、project_metrics_daily、ranking_runs/entries、discovery_exposures；本地测试断言不再被列为 dropped。
 - [ ] staging 真实数据导入与独立 reconcile（需授权目标）。
