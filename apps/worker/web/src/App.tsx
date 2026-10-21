@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   api,
   setSessionToken,
@@ -169,7 +169,14 @@ function Discovery({ home, onOpen }: { home: HomeResponse; onOpen: (project: Pro
     api.discovery().then(result => { if (active) setDiscovery(result); }).catch(() => undefined);
     return () => { active = false; };
   }, []);
-  const discovered = discovery?.items.slice(0, 4) ?? [];
+  const discovered = useMemo(() => {
+    const items = [...(discovery?.items ?? [])];
+    for (let index = items.length - 1; index > 0; index -= 1) {
+      const swap = Math.floor(Math.random() * (index + 1));
+      [items[index], items[swap]] = [items[swap]!, items[index]!];
+    }
+    return items.slice(0, 4);
+  }, [discovery]);
   if (latest.length === 0 && recommendations.length === 0 && ranked.length === 0 && discovered.length === 0) return null;
   return <section className="discovery">
     {discovered.length > 0 ? <><h2>发现</h2><div className="grid">{discovered.map(project => <ProjectCard key={project.id} project={project} onOpen={onOpen} />)}</div></> : null}
