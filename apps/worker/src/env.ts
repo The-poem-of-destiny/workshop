@@ -5,5 +5,8 @@ export interface Env {
   ASSETS?: Fetcher;
   APP_VERSION?: string;
   ALLOWED_ORIGINS?: string;
+  PUBLIC_ORIGIN?: string;
+  DISCORD_CLIENT_ID?: string;
+  DISCORD_CLIENT_SECRET?: string;
   DISCORD_ALLOWED_GUILD_IDS?: string;
 }

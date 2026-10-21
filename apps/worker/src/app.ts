@@ -5,6 +5,8 @@ import { jsonError } from "./http/errors";
 import { adminRoutes } from "./http/routes/admin";
 import { authRoutes, sessionRoutes } from "./http/routes/auth";
 import { authoringRoutes } from "./http/routes/authoring";
+import { clientRoutes } from "./http/routes/client";
+import { clientApiRoutes } from "./http/routes/client-api";
 import { downloadRoutes } from "./http/routes/downloads";
 import { homeRoutes } from "./http/routes/home";
 import { meRoutes } from "./http/routes/me";
@@ -27,6 +29,32 @@ app.use("*", async (c, next) => {
   }
 });
 
+app.use("/api/*", async (c, next) => {
+  const origin = c.req.header("origin");
+  const allowed = (c.env.ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map(value => value.trim())
+    .filter(Boolean);
+  const allowedOrigin = origin && allowed.includes(origin) ? origin : null;
+  if (c.req.method === "OPTIONS") {
+    if (!allowedOrigin) return c.body(null, 403);
+    return c.body(null, 204, {
+      "access-control-allow-origin": allowedOrigin,
+      "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+      "access-control-allow-headers": "authorization,content-type,if-match",
+      "access-control-max-age": "600",
+      vary: "Origin",
+    });
+  }
+  await next();
+  if (allowedOrigin) {
+    c.res.headers.set("access-control-allow-origin", allowedOrigin);
+    c.res.headers.set("vary", "Origin");
+  }
+});
+
+app.route("/client", clientRoutes);
+app.route("/api/v1/client", clientApiRoutes);
 app.route("/api/v1/auth", authRoutes);
 app.route("/api/v1/sessions", sessionRoutes);
 app.route("/api/v1/me", meRoutes);

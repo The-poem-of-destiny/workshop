@@ -5,8 +5,12 @@ interface SessionRow {
   role: Session["role"];
   session_version: number;
   expires_at: string;
+  last_seen_at: string;
   revoked_at: string | null;
 }
+
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const TOUCH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 async function hashToken(token: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
@@ -16,25 +20,27 @@ async function hashToken(token: string): Promise<string> {
 export async function getSessionByToken(db: D1Database, token: string): Promise<Session | null> {
   const tokenHash = await hashToken(token);
   const row = await db.prepare(`
-    SELECT s.user_id, u.role, s.session_version, s.expires_at, s.revoked_at
+    SELECT s.user_id, u.role, s.session_version, s.expires_at, s.last_seen_at, s.revoked_at
     FROM sessions s
     JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = ?
   `).bind(tokenHash).first<SessionRow>();
 
   if (!row || row.revoked_at) return null;
-  if (Date.parse(row.expires_at) <= Date.now()) return null;
+  const now = Date.now();
+  if (Date.parse(row.expires_at) <= now) return null;
+
+  let expiresAt = row.expires_at;
+  if (now - Date.parse(row.last_seen_at) >= TOUCH_INTERVAL_MS) {
+    expiresAt = new Date(now + SESSION_TTL_MS).toISOString();
+    await db.prepare("UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE token_hash = ?")
+      .bind(new Date(now).toISOString(), expiresAt, tokenHash)
+      .run();
+  }
   return {
     userId: row.user_id,
     role: row.role,
     sessionVersion: row.session_version,
-    expiresAt: row.expires_at,
+    expiresAt,
   };
-}
-
-export async function touchSession(db: D1Database, token: string): Promise<void> {
-  const tokenHash = await hashToken(token);
-  await db.prepare("UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?")
-    .bind(new Date().toISOString(), tokenHash)
-    .run();
 }

@@ -12,6 +12,7 @@ interface UserRow {
 interface FlowRow {
   status: AuthFlowStatus["status"];
   expires_at: string;
+  error: string | null;
 }
 
 function avatarUrl(userId: string, avatar: string | null): string | null {
@@ -62,7 +63,7 @@ export async function insertAuthFlow(db: D1Database, flow: NewAuthFlow): Promise
 
 export async function getAuthFlowStatus(db: D1Database, id: string): Promise<AuthFlowStatus | null> {
   const row = await db.prepare(
-    "SELECT status, expires_at FROM oauth_flows WHERE id = ?",
+    "SELECT status, expires_at, error FROM oauth_flows WHERE id = ?",
   ).bind(id).first<FlowRow>();
   if (!row) return null;
   const expired = row.status === "pending" && Date.parse(row.expires_at) <= Date.now();
@@ -70,7 +71,11 @@ export async function getAuthFlowStatus(db: D1Database, id: string): Promise<Aut
     await db.prepare("UPDATE oauth_flows SET status = 'expired' WHERE id = ? AND status = 'pending'")
       .bind(id).run();
   }
-  return { status: expired ? "expired" : row.status, expiresAt: row.expires_at };
+  return {
+    status: expired ? "expired" : row.status,
+    expiresAt: row.expires_at,
+    ...(row.error ? { error: row.error } : {}),
+  };
 }
 
 export async function revokeSessionByToken(db: D1Database, token: string): Promise<void> {

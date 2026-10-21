@@ -8,6 +8,8 @@
   },
   "vars": {
     "ALLOWED_ORIGINS": "http://localhost:8787,http://127.0.0.1:8787",
+    "PUBLIC_ORIGIN": "http://localhost:8787",
+    "DISCORD_CLIENT_ID": "",
     "DISCORD_ALLOWED_GUILD_IDS": ""
   },
   "assets": {
@@ -51,6 +53,8 @@
       "name": "workshop-staging",
       "vars": {
         "ALLOWED_ORIGINS": "https://workshop-staging.poem-of-destiny.workers.dev",
+        "PUBLIC_ORIGIN": "https://workshop-staging.poem-of-destiny.workers.dev",
+        "DISCORD_CLIENT_ID": "",
         "DISCORD_ALLOWED_GUILD_IDS": ""
       },
       "durable_objects": {
@@ -80,6 +84,8 @@
       "name": "workshop",
       "vars": {
         "ALLOWED_ORIGINS": "https://workshop.poem-of-destiny.workers.dev",
+        "PUBLIC_ORIGIN": "https://workshop.poem-of-destiny.workers.dev",
+        "DISCORD_CLIENT_ID": "",
         "DISCORD_ALLOWED_GUILD_IDS": ""
       },
       "durable_objects": {

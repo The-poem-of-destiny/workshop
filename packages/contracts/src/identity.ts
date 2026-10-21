@@ -41,6 +41,8 @@ export const authFlowResponseSchema = z.object({
   state: z.string().min(1),
   url: z.string().url(),
   expiresAt: z.string().datetime(),
+  mode: authFlowModeSchema,
+  deviceCode: z.string().min(1).optional(),
 });
 
 export type AuthFlowResponse = z.infer<typeof authFlowResponseSchema>;
@@ -48,9 +50,24 @@ export type AuthFlowResponse = z.infer<typeof authFlowResponseSchema>;
 export const authFlowStatusSchema = z.object({
   status: z.enum(["pending", "authorized", "redeemed", "expired"]),
   expiresAt: z.string().datetime(),
+  error: z.string().nullable().optional(),
 });
 
 export type AuthFlowStatus = z.infer<typeof authFlowStatusSchema>;
+
+export const authFlowRedeemSchema = z.object({
+  verifier: z.string().min(43).max(200).optional(),
+  deviceCode: z.string().min(16).max(200).optional(),
+  code: z.string().min(16).max(200).optional(),
+});
+export type AuthFlowRedeem = z.infer<typeof authFlowRedeemSchema>;
+
+export const authSessionResponseSchema = z.object({
+  token: z.string().min(1),
+  expiresAt: z.string().datetime(),
+  user: meResponseSchema.shape.user,
+});
+export type AuthSessionResponse = z.infer<typeof authSessionResponseSchema>;
 
 export {
   interactionStateItemSchema,
