@@ -4,10 +4,6 @@
     {
       "cwd": ".",
       "packageManager": "pnpm"
-    },
-    {
-      "cwd": "cloudflare",
-      "packageManager": "npm"
     }
   ]
 }

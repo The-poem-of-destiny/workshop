@@ -6,11 +6,11 @@
 
 `refactor/2026-10`（本地，未 push）。
 
-## 已完成
+## 已有实现（不等于验收完成）
 
 ### P0 基线
 
-- 旧路由/权限/数据/测试盘点：`p0-baseline.md`。
+- 旧路由/权限/数据/测试盘点：`archive/p0-baseline.md`。
 - 匿名公开 API 样本：`tests/fixtures/legacy/`（16 个响应 + manifest）。
 - 抓取脚本：`tools/p0-capture.mjs`。
 
@@ -41,8 +41,8 @@
 
 - `tools/migrate/`：extract/transform/load/verify/reconcile/all，支持 `--source`、`--target`、`--dry-run`、`--since`。
 - 稳定排序/固定 id 保证幂等；对账检查数量、指针、sha256、FK、重复 id、pending 唯一。
-- 当前 `load` 只写本地 JSON；真实 D1/R2 适配器等 `data_backup` 与审批。
-- 文档：`p4-migration.md`。
+- `load-local.mjs` 已把 target 导入隔离本地 D1；R2 对象批量复制仍待实现。
+- 文档：`archive/p4-migration.md`。
 
 ### P5/P6
 
@@ -50,8 +50,8 @@
 - 真实备份 P4：`from_d1_sql.py` 导出 7 表 + 935 资产；全量两次字节一致；verify/reconcile 全过；`--since 2026-09-01` delta 通过（20 项目 / 32 revision / 69 资产 / 134 用户）。`load-local.mjs` 导入隔离本地 D1 后，列表/详情/搜索/首页正常；104 条 worldbook 与 10 likes/9 subscriptions 计数正确。
 - Staging：`workshop-staging` D1 远程 migration 成功；Worker `cba07328-3c24-4c70-9cd6-10a162e3ac2d` 部署成功；health/list/root/Origin 冒烟通过。未导入真实备份；200 次 health/list 冒烟 0 个 5xx；回滚/恢复演练已通过。
 - P6 已删除 `cloudflare/`、`tests/e2e/`、`playwright.config.mjs`、`scripts/deployment/`、旧配置检查脚本、`test-bundles/` 与提交的 `dist/`；客户端需要的版本/内容工具移入 `packages/domain`。
-- `p5-cutover.md`：本地/staging 演练 + 生产 runbook + 回滚 + stop conditions。
-- `p6-cleanup.md`：旧代码/表/产物/测试删除顺序与零引用验证；保留项已记录。
+- `archive/p5-cutover.md`：本地/staging 演练 + 生产 runbook + 回滚 + stop conditions。
+- `archive/p6-cleanup.md`：旧代码/表/产物/测试删除顺序与零引用验证；保留项已记录。
 
 ### P2 读路径
 
@@ -101,7 +101,7 @@
 
 ## 待办
 
-- 独立 evaluator：Worker 与迁移/E2E 工具链最终复审均 CLEAN；无未解决发现。
+- 独立完成度审计：`docs/audits/features-audit-merged.md`；结论非 CLEAN，按 `checklist.md` 继续。
 - P3 缺口：真实 Discord OAuth callback/redeem（当前只有 flow 创建/状态，PKCE challenge 可选）；内容 checker DO。
 - P4：真实备份全量/两次/delta/对账与隔离本地 D1 load 已完成；R2 对象复制适配器仍未实现。
 - P5：本地与 staging 部署已完成；staging 回滚/恢复演练与 5xx 冒烟已完成；真实生产切换仍留人工审批。
@@ -128,7 +128,8 @@
 
 1. `AGENTS.md`
 2. `.agents/skills/autonomous-refactor/SKILL.md`
-3. `decisions.md`
-4. `main.md`
-5. `p0-baseline.md`
-6. 本文件
+3. `checklist.md`
+4. `decisions.md`
+5. `main.md`
+6. `archive/p0-baseline.md`
+7. 本文件
