@@ -1,7 +1,8 @@
-import { Hono } from "hono";
 import { healthResponseSchema } from "@workshop/contracts";
+import { Hono } from "hono";
 import type { Env } from "./env";
 import { jsonError } from "./http/errors";
+import { shouldSampleRequest } from "./http/observability";
 import { adminRoutes } from "./http/routes/admin";
 import { authRoutes, sessionRoutes } from "./http/routes/auth";
 import { authoringRoutes } from "./http/routes/authoring";
@@ -15,7 +16,6 @@ import { recommendationRoutes } from "./http/routes/recommendations";
 import { referenceRoutes } from "./http/routes/references";
 import { siteRoutes } from "./http/routes/site";
 import { requireSession } from "./http/session";
-import { shouldSampleRequest } from "./http/observability";
 
 export const app = new Hono<{ Bindings: Env }>();
 
@@ -47,7 +47,7 @@ app.use("/api/*", async (c, next) => {
   const origin = c.req.header("origin");
   const allowed = (c.env.ALLOWED_ORIGINS ?? "")
     .split(",")
-    .map(value => value.trim())
+    .map((value) => value.trim())
     .filter(Boolean);
   const allowedOrigin = origin && allowed.includes(origin) ? origin : null;
   if (c.req.method === "OPTIONS") {
@@ -81,7 +81,7 @@ app.route("/api/v1/recommendations", recommendationRoutes);
 app.route("/api/v1/reference-sets", referenceRoutes);
 app.route("/api/v1/site", siteRoutes);
 
-app.get("/test-dist/CreativeWorkshop/index.js", c => {
+app.get("/test-dist/CreativeWorkshop/index.js", (c) => {
   const origin = (c.env.PUBLIC_ORIGIN ?? new URL(c.req.url).origin).replace(/\/+$/, "");
   const script = `(() => {
   console.warn("[CreativeWorkshop] 旧导入地址已迁移到 ${origin}/client/stable/index.js，请更新脚本导入地址。");
@@ -97,7 +97,7 @@ app.get("/test-dist/CreativeWorkshop/index.js", c => {
   });
 });
 
-app.get("/assets/*", async c => {
+app.get("/assets/*", async (c) => {
   if (!c.env.ASSETS) return c.text("Not found", 404);
   const response = await c.env.ASSETS.fetch(c.req.raw);
   if (!response.ok) return response;
@@ -107,7 +107,7 @@ app.get("/assets/*", async c => {
   return new Response(response.body, { status: response.status, headers });
 });
 
-app.get("/api/v1/assets/*", async c => {
+app.get("/api/v1/assets/*", async (c) => {
   const key = c.req.path.replace("/api/v1/assets/", "");
   if (!key.startsWith("covers/") && !key.startsWith("banners/")) {
     return jsonError(c, "not_found", "Asset not found");
@@ -124,43 +124,45 @@ app.get("/api/v1/assets/*", async c => {
              ) AS in_review
       FROM assets a JOIN projects p ON p.id = a.project_id
       WHERE a.r2_key = ? AND a.kind = 'cover'
-    `).bind(key).first<{
-      revision_id: string | null;
-      kind: string;
-      author_id: string;
-      visibility: "public" | "private";
-      working_revision_id: string | null;
-      published_revision_id: string | null;
-      deleted_at: string | null;
-      in_review: number;
-    }>();
+    `)
+      .bind(key)
+      .first<{
+        revision_id: string | null;
+        kind: string;
+        author_id: string;
+        visibility: "public" | "private";
+        working_revision_id: string | null;
+        published_revision_id: string | null;
+        deleted_at: string | null;
+        in_review: number;
+      }>();
     if (!asset) return jsonError(c, "not_found", "Asset not found");
 
-    const isPublished = !asset.deleted_at
-      && asset.visibility === "public"
-      && asset.published_revision_id !== null
-      && asset.revision_id === asset.published_revision_id;
+    const isPublished =
+      !asset.deleted_at &&
+      asset.visibility === "public" &&
+      asset.published_revision_id !== null &&
+      asset.revision_id === asset.published_revision_id;
     if (isPublished) {
       publiclyCacheable = true;
     } else {
       const session = await requireSession(c);
       if (!session) return jsonError(c, "not_found", "Asset not found");
-      const isOwnDraft = (session.userId === asset.author_id || session.role === "owner")
-        && asset.revision_id === asset.working_revision_id;
-      const isReviewCover = (session.role === "reviewer" || session.role === "owner")
-        && Boolean(asset.in_review);
+      const isOwnDraft =
+        (session.userId === asset.author_id || session.role === "owner") &&
+        asset.revision_id === asset.working_revision_id;
+      const isReviewCover = (session.role === "reviewer" || session.role === "owner") && Boolean(asset.in_review);
       if (!isOwnDraft && !isReviewCover) return jsonError(c, "not_found", "Asset not found");
     }
   } else {
-    const registered = await c.env.DB.prepare("SELECT value FROM site_settings WHERE key = 'discover_banner'")
-      .first<{ value: string }>();
+    const registered = await c.env.DB.prepare("SELECT value FROM site_settings WHERE key = 'discover_banner'").first<{
+      value: string;
+    }>();
     let registeredKey: string | null = null;
     try {
-      const parsed = registered ? JSON.parse(registered.value) as { imageUrl?: unknown } : null;
+      const parsed = registered ? (JSON.parse(registered.value) as { imageUrl?: unknown }) : null;
       if (typeof parsed?.imageUrl === "string") {
-        const pathname = parsed.imageUrl.startsWith("http")
-          ? new URL(parsed.imageUrl).pathname
-          : parsed.imageUrl;
+        const pathname = parsed.imageUrl.startsWith("http") ? new URL(parsed.imageUrl).pathname : parsed.imageUrl;
         registeredKey = pathname.replace(/^\/api\/v1\/assets\//, "");
       }
     } catch {
@@ -175,15 +177,13 @@ app.get("/api/v1/assets/*", async c => {
     headers: {
       "content-type": object.httpMetadata?.contentType ?? "application/octet-stream",
       "content-length": String(object.size),
-      "cache-control": publiclyCacheable
-        ? "public, max-age=60, must-revalidate"
-        : "private, no-store",
+      "cache-control": publiclyCacheable ? "public, max-age=60, must-revalidate" : "private, no-store",
       vary: "Authorization",
     },
   });
 });
 
-app.get("/api/v1/health", c => {
+app.get("/api/v1/health", (c) => {
   const body = healthResponseSchema.parse({
     ok: true,
     service: "workshop",
@@ -199,11 +199,11 @@ app.get("/api/v1/health", c => {
 
 // Registered before the API catch-all so an unknown /api path is JSON, not the
 // text 404 that non-API routes use.
-app.all("/api/*", c => jsonError(c, "not_found", "Not found"));
+app.all("/api/*", (c) => jsonError(c, "not_found", "Not found"));
 
-app.get("/", c => c.text("workshop", 200, { "content-type": "text/plain; charset=utf-8" }));
+app.get("/", (c) => c.text("workshop", 200, { "content-type": "text/plain; charset=utf-8" }));
 
-app.notFound(c => c.text("Not found", 404));
+app.notFound((c) => c.text("Not found", 404));
 
 app.onError((error, c) => {
   console.error("Unhandled worker error", error);

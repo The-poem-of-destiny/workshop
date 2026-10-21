@@ -265,7 +265,7 @@ Q-05（安装状态权威来源）、Q-06（稳定 cursor 或短期 snapshot）�
 
 ### W23 — CI artifact、迁移适配器与 cutover 演练（P4）
 
-- **目标/触点（发布）**：`.github/workflows/{refactor-ci,deploy-staging,deploy-production}.yml` 由独立重建改为精确 SHA 构建一次、不可变 artifact/hash 逐级提升；固定 lockfile/工具版本，移除部署时 `--no-frozen-lockfile` 与浮动 `npx wrangler@4`。部署前 migration、后验 Worker version/health SHA、发布账本和 environment 审批必须完整。
+- **目标/触点（发布）**：`.github/workflows/{ci,deploy-staging,deploy-production}.yml` 由独立重建改为精确 SHA 构建一次、不可变 artifact/hash 逐级提升；固定 lockfile/工具版本，移除部署时 `--no-frozen-lockfile` 与浮动 `npx wrangler@4`。部署前 migration、后验 Worker version/health SHA、发布账本和 environment 审批必须完整。
 - **验收证据（发布）**：staging 与 production 提升同一 artifact hash，日志可定位 commit SHA、migration 列表、Worker version；回滚指向既有 artifact 而非重建。tag 不等于部署，push 不等于部署；本轮禁止执行这些远程动作。
 - **目标/触点（数据）**：`tools/migrate/{lib,cli,load-local}.mjs` 与 `from_d1_sql.py` 补 D1 目标导入/R2 copy、断点/幂等/失败恢复，逐对象 source→target key、bytes、SHA；本地可先实现，远端必须明确目标与授权。修 §2.4 的跨项目指针/零内容/权限冲突/归属回退/源表遗漏门禁；补 site/banner、参考集、私有评分、精选、审计、曝光历史、可解释日指标的映射/显式不迁清单，抽签等待 Q-10。
 - **验收证据（数据）**：全量两次字节一致仅是第一步；源表独立清点→映射/丢弃及冲突清单→目标实际 D1 导出/R2 回读→独立 reconcile，不能 expected 自比。delta 与完整基线合并后不丢资产/关系，失败中断重跑不重复计数；approved 每项实际内容策略通过，公开 ID、指针归属、全部 FK/hash/互动/评分/历史审计对齐。

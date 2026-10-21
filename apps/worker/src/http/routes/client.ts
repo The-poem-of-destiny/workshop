@@ -11,12 +11,12 @@ function defaultCache(): WorkerCache | null {
   if (typeof caches === "undefined") return null;
   const candidate: unknown = Reflect.get(caches, "default");
   if (
-    candidate
-    && typeof candidate === "object"
-    && "match" in candidate
-    && "put" in candidate
-    && typeof candidate.match === "function"
-    && typeof candidate.put === "function"
+    candidate &&
+    typeof candidate === "object" &&
+    "match" in candidate &&
+    "put" in candidate &&
+    typeof candidate.match === "function" &&
+    typeof candidate.put === "function"
   ) {
     const cache: WorkerCache = candidate as WorkerCache; // match/put checked above
     return cache;
@@ -42,7 +42,7 @@ function assetHeaders(key: string, immutable: boolean): Headers {
   return headers;
 }
 
-clientRoutes.get("/checker/v/:revision/:file", async c => {
+clientRoutes.get("/checker/v/:revision/:file", async (c) => {
   const revision = c.req.param("revision");
   const file = c.req.param("file");
   if (!/^[a-f0-9]{8,64}$/.test(revision)) return jsonError(c, "not_found", "Checker asset not found");
@@ -66,13 +66,13 @@ clientRoutes.get("/checker/v/:revision/:file", async c => {
     "access-control-allow-origin": "*",
     "cross-origin-resource-policy": "cross-origin",
     "x-content-type-options": "nosniff",
-    "etag": object.httpEtag,
+    etag: object.httpEtag,
   });
   if (c.req.header("if-none-match") === object.httpEtag) return new Response(null, { status: 304, headers });
   return new Response(object.body, { headers });
 });
 
-clientRoutes.get("/version", async c => {
+clientRoutes.get("/version", async (c) => {
   const channels = await getClientChannels(c.env.DB);
   const channel = c.req.query("channel") ?? "stable";
   if ((channel !== "stable" && channel !== "staging") || !Object.hasOwn(channels, channel)) {
@@ -84,7 +84,7 @@ clientRoutes.get("/version", async c => {
   });
 });
 
-clientRoutes.get("/*", async c => {
+clientRoutes.get("/*", async (c) => {
   const path = c.req.path.replace(/^\/client\/?/, "");
   const versioned = /^v\/([a-f0-9]{8,64})\/index\.js$/.exec(path);
   const channel = /^(stable|staging)\/index\.js$/.exec(path);

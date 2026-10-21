@@ -1,8 +1,4 @@
-import {
-  analyzeProjectCodeV2,
-  type CheckerFile,
-  type CheckerReport,
-} from "@workshop/content";
+import { analyzeProjectCodeV2, type CheckerFile, type CheckerReport } from "@workshop/content";
 import bundleManifest from "@workshop/content/bundle-manifest";
 
 export const REVIEW_CHECKER_REVISION = bundleManifest.revision;

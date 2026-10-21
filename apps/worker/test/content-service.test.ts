@@ -1,8 +1,8 @@
 import { env } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { REVIEW_CHECKER_REVISION } from "../src/content-checker";
-import { runScheduled } from "../src/scheduler";
 import type { Env } from "../src/env";
+import { runScheduled } from "../src/scheduler";
 import { applySchema } from "./support/schema";
 
 const bindings = env as unknown as Env;
@@ -23,21 +23,29 @@ async function run(submissionId: string) {
 async function seedProject(id: string, content: string) {
   await bindings.DB.prepare(
     "INSERT INTO users (id, username, role, created_at, updated_at) VALUES (?, ?, 'member', ?, ?)",
-  ).bind(`u-${id}`, `u-${id}`, now, now).run();
+  )
+    .bind(`u-${id}`, `u-${id}`, now, now)
+    .run();
   await bindings.DB.prepare(`
     INSERT INTO projects (id, author_id, title, visibility, working_revision_id, created_at, updated_at)
     VALUES (?, ?, ?, 'private', ?, ?, ?)
-  `).bind(id, `u-${id}`, id, `r-${id}`, now, now).run();
+  `)
+    .bind(id, `u-${id}`, id, `r-${id}`, now, now)
+    .run();
   await bindings.DB.prepare(`
     INSERT INTO project_revisions
       (id, project_id, revision_no, title, created_by, created_at)
     VALUES (?, ?, 1, ?, ?, ?)
-  `).bind(`r-${id}`, id, id, `u-${id}`, now).run();
+  `)
+    .bind(`r-${id}`, id, id, `u-${id}`, now)
+    .run();
   const key = `projects/${id}/revisions/r-${id}/worldbook.json`;
   await bindings.DB.prepare(`
     INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
     VALUES (?, ?, ?, 'worldbook', ?, ?, ?, 'application/json', ?)
-  `).bind(`a-${id}`, id, `r-${id}`, key, "hash", content.length, now).run();
+  `)
+    .bind(`a-${id}`, id, `r-${id}`, key, "hash", content.length, now)
+    .run();
   await bindings.R2.put(key, content);
 }
 
@@ -47,10 +55,20 @@ async function seedSubmission(id: string, projectId: string, gate = "warn", chec
       (id, project_id, revision_id, status, gate, checker_revision, submitted_by, submitted_at,
        client_gate, client_checker_revision, client_warning_count, check_status, check_attempts)
     VALUES (?, ?, ?, ?, ?, 'client-1', ?, ?, ?, 'client-1', 1, ?, ?)
-  `).bind(
-    id, projectId, `r-${projectId}`, checkStatus === "queued" ? "checking" : "pending",
-    gate, `u-${projectId}`, now, gate, checkStatus, attempts,
-  ).run();
+  `)
+    .bind(
+      id,
+      projectId,
+      `r-${projectId}`,
+      checkStatus === "queued" ? "checking" : "pending",
+      gate,
+      `u-${projectId}`,
+      now,
+      gate,
+      checkStatus,
+      attempts,
+    )
+    .run();
 }
 
 beforeAll(async () => {
@@ -76,7 +94,7 @@ describe("ContentService", () => {
     await seedSubmission("s1", "p1");
     const response = await run("s1");
     expect(response.status).toBe(200);
-    const result = await response.json() as { routeGate: string; revision: string };
+    const result = (await response.json()) as { routeGate: string; revision: string };
     expect(result).toMatchObject({ routeGate: "pass", revision: REVIEW_CHECKER_REVISION });
 
     const submission = await bindings.DB.prepare(
@@ -91,13 +109,15 @@ describe("ContentService", () => {
     const runs = await bindings.DB.prepare(
       "SELECT review_checker_revision, route_gate FROM submission_check_runs WHERE submission_id = 's1'",
     ).all<{ review_checker_revision: string; route_gate: string }>();
-    expect(runs.results).toEqual([{
-      review_checker_revision: REVIEW_CHECKER_REVISION,
-      route_gate: "pass",
-    }]);
-    const project = await bindings.DB.prepare(
-      "SELECT published_revision_id FROM projects WHERE id = 'p1'",
-    ).first<{ published_revision_id: string | null }>();
+    expect(runs.results).toEqual([
+      {
+        review_checker_revision: REVIEW_CHECKER_REVISION,
+        route_gate: "pass",
+      },
+    ]);
+    const project = await bindings.DB.prepare("SELECT published_revision_id FROM projects WHERE id = 'p1'").first<{
+      published_revision_id: string | null;
+    }>();
     expect(project?.published_revision_id).toBe("r-p1");
   });
 
@@ -114,9 +134,9 @@ describe("ContentService", () => {
     ).first<{ status: string; check_status: string; check_report: string }>();
     expect(submission).toMatchObject({ status: "pending", check_status: "needs_human" });
     expect(JSON.parse(submission!.check_report).routeGate).toBe("block");
-    const project = await bindings.DB.prepare(
-      "SELECT published_revision_id FROM projects WHERE id = 'p2'",
-    ).first<{ published_revision_id: string | null }>();
+    const project = await bindings.DB.prepare("SELECT published_revision_id FROM projects WHERE id = 'p2'").first<{
+      published_revision_id: string | null;
+    }>();
     expect(project?.published_revision_id).toBeNull();
   });
 
@@ -127,13 +147,13 @@ describe("ContentService", () => {
     const response = await run("s4");
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ routeGate: "pass", manual: true });
-    const submission = await bindings.DB.prepare(
-      "SELECT status, check_status FROM submissions WHERE id = 's4'",
-    ).first<Record<string, unknown>>();
+    const submission = await bindings.DB.prepare("SELECT status, check_status FROM submissions WHERE id = 's4'").first<
+      Record<string, unknown>
+    >();
     expect(submission).toMatchObject({ status: "pending", check_status: "needs_human" });
-    const project = await bindings.DB.prepare(
-      "SELECT published_revision_id FROM projects WHERE id = 'p4'",
-    ).first<{ published_revision_id: string | null }>();
+    const project = await bindings.DB.prepare("SELECT published_revision_id FROM projects WHERE id = 'p4'").first<{
+      published_revision_id: string | null;
+    }>();
     expect(project?.published_revision_id).toBeNull();
   });
 
@@ -154,9 +174,9 @@ describe("ContentService", () => {
     await seedProject("p5", content);
     await seedSubmission("s5", "p5");
     await runScheduled(bindings);
-    const submission = await bindings.DB.prepare(
-      "SELECT status, check_status FROM submissions WHERE id = 's5'",
-    ).first<Record<string, unknown>>();
+    const submission = await bindings.DB.prepare("SELECT status, check_status FROM submissions WHERE id = 's5'").first<
+      Record<string, unknown>
+    >();
     expect(submission).toMatchObject({ status: "approved", check_status: "done" });
   });
 

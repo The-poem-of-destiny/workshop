@@ -75,13 +75,15 @@ export type ProjectListResponse = z.infer<typeof projectListResponseSchema>;
 
 export const projectEntryIndexSchema = z.object({
   revisionId: z.string(),
-  entries: z.array(z.object({
-    kind: z.enum(["worldbook", "regex"]),
-    entryKey: z.string(),
-    name: z.string(),
-    contentHash: z.string(),
-    contentLength: z.number().int().nonnegative(),
-  })),
+  entries: z.array(
+    z.object({
+      kind: z.enum(["worldbook", "regex"]),
+      entryKey: z.string(),
+      name: z.string(),
+      contentHash: z.string(),
+      contentLength: z.number().int().nonnegative(),
+    }),
+  ),
 });
 
 export type ProjectEntryIndex = z.infer<typeof projectEntryIndexSchema>;

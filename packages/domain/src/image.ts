@@ -43,8 +43,12 @@ function gif(bytes: Uint8Array): ImageDimensions | null {
 }
 
 function webp(bytes: Uint8Array): ImageDimensions | null {
-  if (bytes.length < 30 || String.fromCharCode(...bytes.slice(0, 4)) !== "RIFF"
-    || String.fromCharCode(...bytes.slice(8, 12)) !== "WEBP") return null;
+  if (
+    bytes.length < 30 ||
+    String.fromCharCode(...bytes.slice(0, 4)) !== "RIFF" ||
+    String.fromCharCode(...bytes.slice(8, 12)) !== "WEBP"
+  )
+    return null;
   const chunk = String.fromCharCode(...bytes.slice(12, 16));
   if (chunk === "VP8X") {
     return {

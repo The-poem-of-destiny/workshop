@@ -1,13 +1,13 @@
-import { Hono } from "hono";
 import { projectListQuerySchema, releaseManifestSchema } from "@workshop/contracts";
 import { WORKSHOP_LIMITS } from "@workshop/domain";
+import { Hono } from "hono";
 import type { Env } from "../../env";
 import { getClientChannel } from "../../storage/client.js";
 import { getProjectEntryIndex } from "../../storage/content-index.js";
-import { getDiscovery } from "../../storage/home.js";
-import { getRankings } from "../../storage/rankings.js";
 import { issueDownloadTickets, recordDownload } from "../../storage/downloads.js";
+import { getDiscovery } from "../../storage/home.js";
 import { getPublishedProject, listPublishedProjects } from "../../storage/projects.js";
+import { getRankings } from "../../storage/rankings.js";
 import { getReleaseAssets } from "../../storage/releases.js";
 import { jsonError } from "../errors.js";
 import { publicJson } from "../public-cache.js";
@@ -15,7 +15,7 @@ import { requireSession } from "../session.js";
 
 export const projectsRoutes = new Hono<{ Bindings: Env }>();
 
-projectsRoutes.get("/", async c => {
+projectsRoutes.get("/", async (c) => {
   const parsed = projectListQuerySchema.safeParse({
     limit: c.req.query("limit"),
     cursor: c.req.query("cursor"),
@@ -31,9 +31,9 @@ projectsRoutes.get("/", async c => {
   return publicJson(c, "projects", () => listPublishedProjects(c.env.DB, parsed.data));
 });
 
-projectsRoutes.get("/discovery", async c => publicJson(c, "discovery", () => getDiscovery(c.env.DB)));
+projectsRoutes.get("/discovery", async (c) => publicJson(c, "discovery", () => getDiscovery(c.env.DB)));
 
-projectsRoutes.get("/rankings", async c => {
+projectsRoutes.get("/rankings", async (c) => {
   const kind = c.req.query("kind") ?? "7d";
   if (kind !== "daily" && kind !== "7d" && kind !== "30d") {
     return jsonError(c, "bad_request", "Unknown ranking kind");
@@ -41,13 +41,13 @@ projectsRoutes.get("/rankings", async c => {
   return publicJson(c, "rankings", () => getRankings(c.env.DB, kind));
 });
 
-projectsRoutes.get("/:id", async c => {
+projectsRoutes.get("/:id", async (c) => {
   const project = await getPublishedProject(c.env.DB, c.req.param("id"));
   if (!project) return jsonError(c, "not_found", "Project not found");
   return publicJson(c, "project", async () => project);
 });
 
-projectsRoutes.post("/:id/downloads", async c => {
+projectsRoutes.post("/:id/downloads", async (c) => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
   const projectId = c.req.param("id");
@@ -66,23 +66,26 @@ projectsRoutes.post("/:id/downloads", async c => {
     release.files,
     WORKSHOP_LIMITS.downloadTicketTtlMs,
   );
-  return c.json({
-    revisionId: release.revisionId,
-    files: tickets.map(ticket => ({
-      kind: ticket.kind,
-      url: `/api/v1/downloads/${ticket.token}`,
-      expiresAt: ticket.expiresAt,
-    })),
-  }, 201);
+  return c.json(
+    {
+      revisionId: release.revisionId,
+      files: tickets.map((ticket) => ({
+        kind: ticket.kind,
+        url: `/api/v1/downloads/${ticket.token}`,
+        expiresAt: ticket.expiresAt,
+      })),
+    },
+    201,
+  );
 });
 
-projectsRoutes.get("/:id/entries", async c => {
+projectsRoutes.get("/:id/entries", async (c) => {
   const index = await getProjectEntryIndex(c.env.DB, c.env.R2, c.req.param("id"));
   if (!index) return jsonError(c, "not_found", "Project not found");
   return c.json(index);
 });
 
-projectsRoutes.get("/:id/install", async c => {
+projectsRoutes.get("/:id/install", async (c) => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
   const projectId = c.req.param("id");
@@ -103,10 +106,17 @@ projectsRoutes.get("/:id/install", async c => {
            r.title AS revision_title, r.tags
     FROM projects p JOIN project_revisions r ON r.id = p.published_revision_id
     WHERE p.id = ? AND p.published_revision_id = ?
-  `).bind(projectId, release.revisionId).first<{
-    id: string; title: string; project_type: string | null; extension_type: string | null;
-    updated_at: string; revision_title: string; tags: string;
-  }>();
+  `)
+    .bind(projectId, release.revisionId)
+    .first<{
+      id: string;
+      title: string;
+      project_type: string | null;
+      extension_type: string | null;
+      updated_at: string;
+      revision_title: string;
+      tags: string;
+    }>();
   if (!project) return jsonError(c, "not_found", "Release not found");
 
   const files: Record<string, string> = {};
@@ -131,19 +141,21 @@ projectsRoutes.get("/:id/install", async c => {
   });
 });
 
-projectsRoutes.get("/:id/releases/:releaseId/manifest", async c => {
+projectsRoutes.get("/:id/releases/:releaseId/manifest", async (c) => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
   const release = await getReleaseAssets(c.env.DB, c.req.param("id"), c.req.param("releaseId"), session);
   if (!release) return jsonError(c, "not_found", "Release not found");
-  return c.json(releaseManifestSchema.parse({
-    revisionId: release.revisionId,
-    manifestHash: release.manifestHash,
-    files: release.files.map(({ kind, sha256, bytes, mime }) => ({ kind, sha256, bytes, mime })),
-  }));
+  return c.json(
+    releaseManifestSchema.parse({
+      revisionId: release.revisionId,
+      manifestHash: release.manifestHash,
+      files: release.files.map(({ kind, sha256, bytes, mime }) => ({ kind, sha256, bytes, mime })),
+    }),
+  );
 });
 
-projectsRoutes.get("/:id/releases/:releaseId/files/:kind", async c => {
+projectsRoutes.get("/:id/releases/:releaseId/files/:kind", async (c) => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
   const kind = c.req.param("kind");
@@ -151,7 +163,7 @@ projectsRoutes.get("/:id/releases/:releaseId/files/:kind", async c => {
     return jsonError(c, "bad_request", "Unsupported file kind");
   }
   const release = await getReleaseAssets(c.env.DB, c.req.param("id"), c.req.param("releaseId"), session);
-  const asset = release?.files.find(file => file.kind === kind);
+  const asset = release?.files.find((file) => file.kind === kind);
   if (!asset) return jsonError(c, "not_found", "File not found");
   const object = await c.env.R2.get(asset.r2Key);
   if (!object) return jsonError(c, "not_found", "File not found");

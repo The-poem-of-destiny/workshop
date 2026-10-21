@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const fixture = name => JSON.parse(readFileSync(path.join(root, "tests", "fixtures", "legacy", name), "utf8"));
+const fixture = (name) => JSON.parse(readFileSync(path.join(root, "tests", "fixtures", "legacy", name), "utf8"));
 
 function publicSummary(project) {
   return {
@@ -32,7 +32,7 @@ function publicSummary(project) {
 }
 
 function entryIndex(preview) {
-  return preview.map(entry => ({
+  return preview.map((entry) => ({
     entryKey: entry.entryKey,
     name: entry.comment ?? entry.entryKey,
     contentLength: Array.from(String(entry.content ?? "")).length,
@@ -40,12 +40,18 @@ function entryIndex(preview) {
   }));
 }
 
-const lists = ["projects-default.json", "projects-downloads.json", "projects-search.json", "projects-type-core.json", "projects-updated.json"];
+const lists = [
+  "projects-default.json",
+  "projects-downloads.json",
+  "projects-search.json",
+  "projects-type-core.json",
+  "projects-updated.json",
+];
 for (const name of lists) {
   const body = fixture(name);
   assert.equal(body.success, true, name);
   assert.ok(Array.isArray(body.projects), `${name} projects`);
-  const ids = body.projects.map(project => project.id);
+  const ids = body.projects.map((project) => project.id);
   assert.equal(new Set(ids).size, ids.length, `${name} unique ids`);
   for (const project of body.projects) {
     const summary = publicSummary(project);
@@ -59,9 +65,9 @@ for (const name of lists) {
 }
 
 const search = fixture("projects-search.json");
-assert.ok(search.projects.some(project => project.name.includes("电子迷宫")));
+assert.ok(search.projects.some((project) => project.name.includes("电子迷宫")));
 const core = fixture("projects-type-core.json");
-assert.ok(core.projects.every(project => project.projectType === "系统核心"));
+assert.ok(core.projects.every((project) => project.projectType === "系统核心"));
 assert.equal(core.projects.length, 2);
 assert.equal(search.page, 0);
 

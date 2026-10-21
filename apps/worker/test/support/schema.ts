@@ -12,7 +12,19 @@ import cacheEpochWriteScope from "../../migrations/0011_cache_epoch_write_scope.
 import { splitSql } from "./sql";
 
 export async function applySchema(db: D1Database): Promise<void> {
-  for (const source of [initial, downloadTokens, checkerRuns, checkRunHistory, oauthExchange, projectMetadata, downloadSessionVersion, likeMetrics, publicCacheEpoch, oauthBrowserBinding, cacheEpochWriteScope]) {
+  for (const source of [
+    initial,
+    downloadTokens,
+    checkerRuns,
+    checkRunHistory,
+    oauthExchange,
+    projectMetadata,
+    downloadSessionVersion,
+    likeMetrics,
+    publicCacheEpoch,
+    oauthBrowserBinding,
+    cacheEpochWriteScope,
+  ]) {
     const sql = source.replace(/^\s*--.*$/gm, "").replace(/^\s*PRAGMA\b.*$/gm, "");
     for (const statement of splitSql(sql)) await db.prepare(statement).run();
   }

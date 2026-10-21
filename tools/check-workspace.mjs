@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 
 const failures = [];
-const read = path => readFileSync(path, "utf8");
+const read = (path) => readFileSync(path, "utf8");
 
 const required = [
   "pnpm-workspace.yaml",
@@ -11,6 +11,8 @@ const required = [
   "apps/worker/migrations/0001_initial.sql",
   "packages/contracts/package.json",
   "packages/contracts/tsconfig.json",
+  ".nvmrc",
+  "biome.json",
   "docs/AGENTS.md",
   ".agents/AGENTS.md",
   ".agents/notes/README.md",
@@ -38,8 +40,11 @@ if (contractsTsconfig.compilerOptions?.strict !== true) {
 }
 
 const rootPackage = JSON.parse(read("package.json"));
-for (const script of ["check", "check:workspace", "check:schema", "worker:test"]) {
+for (const script of ["check", "check:workspace", "check:schema", "worker:test", "lint", "format", "format:check"]) {
   if (!rootPackage.scripts?.[script]) failures.push(`package.json missing script ${script}`);
+}
+if (rootPackage.engines?.node !== ">=22") {
+  failures.push("package.json must set engines.node >=22");
 }
 
 const gitignore = read(".gitignore");

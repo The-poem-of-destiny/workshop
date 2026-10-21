@@ -3,9 +3,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
 const migrations = readdirSync("apps/worker/migrations")
-  .filter(file => file.endsWith(".sql"))
+  .filter((file) => file.endsWith(".sql"))
   .sort();
-const schema = migrations.map(file => readFileSync(`apps/worker/migrations/${file}`, "utf8")).join("\n");
+const schema = migrations.map((file) => readFileSync(`apps/worker/migrations/${file}`, "utf8")).join("\n");
 const db = new DatabaseSync(":memory:");
 db.exec("PRAGMA foreign_keys = ON");
 db.exec(schema);
@@ -41,39 +41,52 @@ const expectedTables = [
 ];
 
 const tables = new Set(
-  db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')").all().map(row => row.name),
+  db
+    .prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')")
+    .all()
+    .map((row) => row.name),
 );
 for (const table of expectedTables) {
   if (!tables.has(table)) throw new Error(`missing table ${table}`);
 }
 
 const now = "2026-10-21T00:00:00.000Z";
-db.prepare("INSERT INTO users (id, username, global_name, role, created_at, updated_at) VALUES (?, ?, ?, 'member', ?, ?)")
-  .run("u1", "author", "作者", now, now);
+db.prepare(
+  "INSERT INTO users (id, username, global_name, role, created_at, updated_at) VALUES (?, ?, ?, 'member', ?, ?)",
+).run("u1", "author", "作者", now, now);
 
 db.prepare(`INSERT INTO projects
   (id, author_id, title, description, project_type, extension_type, visibility, created_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, 'public', ?, ?)`)
-  .run("p1", "u1", "命定之诗测试项目", "描述", "系统核心", "规则", now, now);
+  VALUES (?, ?, ?, ?, ?, ?, 'public', ?, ?)`).run("p1", "u1", "命定之诗测试项目", "描述", "系统核心", "规则", now, now);
 
 db.prepare(`INSERT INTO project_revisions
   (id, project_id, revision_no, title, created_by, created_at)
-  VALUES (?, ?, 1, ?, ?, ?)`)
-  .run("r1", "p1", "命定之诗测试项目", "u1", now);
+  VALUES (?, ?, 1, ?, ?, ?)`).run("r1", "p1", "命定之诗测试项目", "u1", now);
 
 db.prepare(`INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
-  VALUES (?, ?, ?, 'worldbook', ?, ?, 10, 'application/json', ?)`)
-  .run("a1", "p1", "r1", "projects/p1/revisions/r1/worldbook.json", "0".repeat(64), now);
+  VALUES (?, ?, ?, 'worldbook', ?, ?, 10, 'application/json', ?)`).run(
+  "a1",
+  "p1",
+  "r1",
+  "projects/p1/revisions/r1/worldbook.json",
+  "0".repeat(64),
+  now,
+);
 
 db.prepare(`INSERT INTO submissions (id, project_id, revision_id, submitted_by, submitted_at)
-  VALUES (?, ?, ?, ?, ?)`)
-  .run("s1", "p1", "r1", "u1", now);
-const projectColumns = db.prepare("PRAGMA table_info(projects)").all().map(column => column.name);
+  VALUES (?, ?, ?, ?, ?)`).run("s1", "p1", "r1", "u1", now);
+const projectColumns = db
+  .prepare("PRAGMA table_info(projects)")
+  .all()
+  .map((column) => column.name);
 for (const column of ["version_label", "precautions", "cover_position_x", "metadata_findings"]) {
   if (!projectColumns.includes(column)) throw new Error(`projects missing ${column}`);
 }
 
-const flowColumns = db.prepare("PRAGMA table_info(oauth_flows)").all().map(column => column.name);
+const flowColumns = db
+  .prepare("PRAGMA table_info(oauth_flows)")
+  .all()
+  .map((column) => column.name);
 for (const column of ["code_verifier", "code_challenge", "redeem_hash", "guild_id"]) {
   if (!flowColumns.includes(column)) throw new Error(`oauth_flows missing ${column}`);
 }
@@ -99,8 +112,7 @@ if (short.length !== 1) throw new Error(`short search returned ${short.length} r
 let duplicatePendingRejected = false;
 try {
   db.prepare(`INSERT INTO submissions (id, project_id, revision_id, submitted_by, submitted_at)
-    VALUES (?, ?, ?, ?, ?)`)
-    .run("s2", "p1", "r1", "u1", now);
+    VALUES (?, ?, ?, ?, ?)`).run("s2", "p1", "r1", "u1", now);
 } catch {
   duplicatePendingRejected = true;
 }

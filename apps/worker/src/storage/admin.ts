@@ -5,6 +5,7 @@ import type {
   AdminSubmissionListQuery,
 } from "@workshop/contracts";
 import { z } from "zod";
+
 interface SubmissionRow {
   id: string;
   project_id: string;
@@ -35,7 +36,7 @@ interface SubmissionTargetRow {
 
 function reportGate(value: string | null): string | null {
   const parsed = z.object({ routeGate: z.string().optional() }).passthrough().safeParse(parseJson(value));
-  return parsed.success ? parsed.data.routeGate ?? null : null;
+  return parsed.success ? (parsed.data.routeGate ?? null) : null;
 }
 
 interface DetailSubmissionRow extends SubmissionTargetRow {
@@ -153,7 +154,8 @@ export async function listAdminSubmissions(db: D1Database, query: AdminSubmissio
   const offset = decodeCursor(query.cursor);
   const where = query.status ? "WHERE s.status = ?" : "";
   const bindings: unknown[] = query.status ? [query.status] : [];
-  const result = await db.prepare(`
+  const result = await db
+    .prepare(`
     SELECT s.id, s.project_id, s.revision_id, s.status, s.gate,
            s.checker_revision, s.submitted_at, s.check_status,
            p.title AS project_title, u.id AS author_id,
@@ -164,11 +166,13 @@ export async function listAdminSubmissions(db: D1Database, query: AdminSubmissio
     ${where}
     ORDER BY s.submitted_at ASC, s.id ASC
     LIMIT ? OFFSET ?
-  `).bind(...bindings, query.limit + 1, offset).all<SubmissionRow>();
+  `)
+    .bind(...bindings, query.limit + 1, offset)
+    .all<SubmissionRow>();
 
   const rows = result.results.slice(0, query.limit);
   return {
-    items: rows.map(row => ({
+    items: rows.map((row) => ({
       id: row.id,
       projectId: row.project_id,
       projectTitle: row.project_title,
@@ -184,7 +188,8 @@ export async function listAdminSubmissions(db: D1Database, query: AdminSubmissio
 }
 
 export async function getAdminSubmission(db: D1Database, id: string) {
-  const row = await db.prepare(`
+  const row = await db
+    .prepare(`
     SELECT s.id, s.project_id, s.revision_id, s.status, s.gate,
            s.checker_revision, s.submitted_by, s.submitted_at, s.resolved_at,
            s.client_gate, s.client_checker_revision, s.client_warning_count, s.client_acknowledged_at,
@@ -204,31 +209,42 @@ export async function getAdminSubmission(db: D1Database, id: string) {
     JOIN users u ON u.id = p.author_id
     JOIN project_revisions r ON r.id = s.revision_id
     WHERE s.id = ?
-  `).bind(id).first<DetailSubmissionRow>();
+  `)
+    .bind(id)
+    .first<DetailSubmissionRow>();
   if (!row) return null;
 
   const [assets, review, checkRuns] = await Promise.all([
-    db.prepare(`
+    db
+      .prepare(`
       SELECT id, kind, sha256, bytes, mime, r2_key
       FROM assets WHERE revision_id = ? ORDER BY kind ASC, id ASC
-    `).bind(row.revision_id).all<AssetRow>(),
-    db.prepare(`
+    `)
+      .bind(row.revision_id)
+      .all<AssetRow>(),
+    db
+      .prepare(`
       SELECT id, submission_id, reviewer_id, decision, reason, manifest_hash,
              checker_version, report, created_at
       FROM reviews WHERE submission_id = ?
-    `).bind(id).first<ReviewRow>(),
-    db.prepare(`
+    `)
+      .bind(id)
+      .first<ReviewRow>(),
+    db
+      .prepare(`
       SELECT id, review_checker_revision, route_gate, report, report_hash, duration_ms, created_at
       FROM submission_check_runs WHERE submission_id = ? ORDER BY created_at DESC
-    `).bind(id).all<{
-      id: string;
-      review_checker_revision: string;
-      route_gate: string;
-      report: string;
-      report_hash: string;
-      duration_ms: number;
-      created_at: string;
-    }>(),
+    `)
+      .bind(id)
+      .all<{
+        id: string;
+        review_checker_revision: string;
+        route_gate: string;
+        report: string;
+        report_hash: string;
+        duration_ms: number;
+        created_at: string;
+      }>(),
   ]);
 
   return {
@@ -275,7 +291,7 @@ export async function getAdminSubmission(db: D1Database, id: string) {
       manifestHash: row.revision_manifest_hash,
       createdAt: row.revision_created_at,
     },
-    assets: assets.results.map(asset => ({
+    assets: assets.results.map((asset) => ({
       id: asset.id,
       kind: asset.kind,
       sha256: asset.sha256,
@@ -283,7 +299,7 @@ export async function getAdminSubmission(db: D1Database, id: string) {
       mime: asset.mime,
       r2Key: asset.r2_key,
     })),
-    checkRuns: checkRuns.results.map(run => ({
+    checkRuns: checkRuns.results.map((run) => ({
       id: run.id,
       reviewCheckerRevision: run.review_checker_revision,
       routeGate: run.route_gate,
@@ -292,31 +308,32 @@ export async function getAdminSubmission(db: D1Database, id: string) {
       durationMs: run.duration_ms,
       createdAt: run.created_at,
     })),
-    review: review ? {
-      id: review.id,
-      submissionId: review.submission_id,
-      reviewerId: review.reviewer_id,
-      decision: review.decision,
-      reason: review.reason,
-      manifestHash: review.manifest_hash,
-      checkerVersion: review.checker_version,
-      report: parseJson(review.report),
-      createdAt: review.created_at,
-    } : null,
+    review: review
+      ? {
+          id: review.id,
+          submissionId: review.submission_id,
+          reviewerId: review.reviewer_id,
+          decision: review.decision,
+          reason: review.reason,
+          manifestHash: review.manifest_hash,
+          checkerVersion: review.checker_version,
+          report: parseJson(review.report),
+          createdAt: review.created_at,
+        }
+      : null,
   };
 }
 
-export async function getSubmissionAsset(
-  db: D1Database,
-  submissionId: string,
-  kind: "worldbook" | "regex" | "cover",
-) {
-  return db.prepare(`
+export async function getSubmissionAsset(db: D1Database, submissionId: string, kind: "worldbook" | "regex" | "cover") {
+  return db
+    .prepare(`
     SELECT a.r2_key, a.mime, a.bytes
     FROM submissions s
     JOIN assets a ON a.revision_id = s.revision_id
     WHERE s.id = ? AND a.kind = ?
-  `).bind(submissionId, kind).first<{ r2_key: string; mime: string; bytes: number }>();
+  `)
+    .bind(submissionId, kind)
+    .first<{ r2_key: string; mime: string; bytes: number }>();
 }
 
 export async function reviewAdminSubmission(
@@ -325,14 +342,17 @@ export async function reviewAdminSubmission(
   reviewerId: string,
   request: AdminReviewRequest,
 ) {
-  const target = await db.prepare(`
+  const target = await db
+    .prepare(`
     SELECT s.id, s.project_id, s.revision_id, s.status,
            r.manifest_hash, s.checker_revision, s.review_checker_revision,
            s.check_status, s.check_report, s.check_report_hash, s.client_gate
     FROM submissions s
     JOIN project_revisions r ON r.id = s.revision_id
     WHERE s.id = ?
-  `).bind(submissionId).first<SubmissionTargetRow>();
+  `)
+    .bind(submissionId)
+    .first<SubmissionTargetRow>();
   if (!target) return { kind: "not_found" as const };
   if (target.status !== "pending") return { kind: "conflict" as const };
   if (request.revisionId && request.revisionId !== target.revision_id) return { kind: "conflict" as const };
@@ -345,9 +365,11 @@ export async function reviewAdminSubmission(
     return { kind: "invalid_reason" as const };
   }
   const serverGate = reportGate(target.check_report);
-  if (request.decision === "approve"
-    && (target.client_gate === "block" || target.client_gate === "missing" || serverGate === "block")
-    && !request.reason?.trim()) {
+  if (
+    request.decision === "approve" &&
+    (target.client_gate === "block" || target.client_gate === "missing" || serverGate === "block") &&
+    !request.reason?.trim()
+  ) {
     return { kind: "invalid_reason" as const };
   }
   if (request.decision === "approve" && !target.manifest_hash) return { kind: "conflict" as const };
@@ -359,43 +381,60 @@ export async function reviewAdminSubmission(
   const reviewId = crypto.randomUUID();
 
   const statements = [
-    db.prepare(`
+    db
+      .prepare(`
       UPDATE submissions
       SET status = ?, resolved_at = ?
       WHERE id = ? AND status = 'pending'
         AND NOT EXISTS (SELECT 1 FROM reviews WHERE submission_id = ?)
-    `).bind(nextStatus, now, submissionId, submissionId),
-    db.prepare(`
+    `)
+      .bind(nextStatus, now, submissionId, submissionId),
+    db
+      .prepare(`
       INSERT INTO reviews
         (id, submission_id, reviewer_id, decision, reason, manifest_hash, checker_version, report, created_at)
       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
       WHERE EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = ?)
-    `).bind(
-      reviewId, submissionId, reviewerId, request.decision, request.reason ?? null,
-      target.manifest_hash, checkerVersion, report, now, submissionId, nextStatus,
-    ),
-    db.prepare(`
+    `)
+      .bind(
+        reviewId,
+        submissionId,
+        reviewerId,
+        request.decision,
+        request.reason ?? null,
+        target.manifest_hash,
+        checkerVersion,
+        report,
+        now,
+        submissionId,
+        nextStatus,
+      ),
+    db
+      .prepare(`
       INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
       SELECT ?, ?, 'submission', ?, ?, ?, ?
       WHERE EXISTS (SELECT 1 FROM reviews WHERE id = ?)
-    `).bind(
-      crypto.randomUUID(),
-      `review.${request.decision}`,
-      submissionId,
-      reviewerId,
-      JSON.stringify({
-        projectId: target.project_id,
-        revisionId: target.revision_id,
-        checkerVersion,
-        reason: request.reason ?? null,
-      }),
-      now,
-      reviewId,
-    ),
+    `)
+      .bind(
+        crypto.randomUUID(),
+        `review.${request.decision}`,
+        submissionId,
+        reviewerId,
+        JSON.stringify({
+          projectId: target.project_id,
+          revisionId: target.revision_id,
+          checkerVersion,
+          reason: request.reason ?? null,
+        }),
+        now,
+        reviewId,
+      ),
   ];
 
   if (request.decision === "approve") {
-    statements.push(db.prepare(`
+    statements.push(
+      db
+        .prepare(`
       UPDATE projects
       SET published_revision_id = ?, published_at = ?,
           title = r.title, description = r.description, author_note = r.author_note,
@@ -406,7 +445,9 @@ export async function reviewAdminSubmission(
         AND projects.deleted_at IS NULL
         AND EXISTS (SELECT 1 FROM reviews WHERE submission_id = ?)
         AND EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = 'approved')
-    `).bind(target.revision_id, now, now, target.project_id, target.revision_id, submissionId, submissionId));
+    `)
+        .bind(target.revision_id, now, now, target.project_id, target.revision_id, submissionId, submissionId),
+    );
   }
 
   try {
@@ -441,7 +482,8 @@ export async function listAdminProjects(
     const pattern = `%${filters.search}%`;
     bindings.push(pattern, pattern, pattern, pattern);
   }
-  const result = await db.prepare(`
+  const result = await db
+    .prepare(`
     SELECT p.id, p.author_id, COALESCE(u.global_name, u.username) AS author_name,
            p.title, p.description, p.author_note, p.project_type, p.extension_type,
            p.search_tags, p.visibility, p.working_revision_id, p.published_revision_id,
@@ -451,9 +493,11 @@ export async function listAdminProjects(
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
     ORDER BY p.updated_at DESC, p.id DESC
     LIMIT ? OFFSET ?
-  `).bind(...bindings, limit + 1, offset).all<ProjectRow>();
+  `)
+    .bind(...bindings, limit + 1, offset)
+    .all<ProjectRow>();
   return {
-    items: result.results.slice(0, limit).map(row => ({
+    items: result.results.slice(0, limit).map((row) => ({
       id: row.id,
       title: row.title,
       description: row.description,
@@ -478,12 +522,15 @@ export async function listAdminProjects(
 
 export async function listAdminMembers(db: D1Database, limit: number, cursor?: string) {
   const offset = decodeCursor(cursor);
-  const result = await db.prepare(`
+  const result = await db
+    .prepare(`
     SELECT id, username, global_name, avatar, role, created_at, updated_at
     FROM users ORDER BY created_at ASC, id ASC LIMIT ? OFFSET ?
-  `).bind(limit + 1, offset).all<MemberRow>();
+  `)
+    .bind(limit + 1, offset)
+    .all<MemberRow>();
   return {
-    items: result.results.slice(0, limit).map(row => ({
+    items: result.results.slice(0, limit).map((row) => ({
       id: row.id,
       username: row.username,
       globalName: row.global_name,
@@ -502,25 +549,33 @@ export async function changeAdminMemberRole(
   role: "member" | "reviewer" | "owner",
   actorId: string,
 ) {
-  const target = await db.prepare("SELECT id, role FROM users WHERE id = ?").bind(targetUserId)
+  const target = await db
+    .prepare("SELECT id, role FROM users WHERE id = ?")
+    .bind(targetUserId)
     .first<{ id: string; role: "member" | "reviewer" | "owner" }>();
   if (!target) return { kind: "not_found" as const };
 
   const now = new Date().toISOString();
-  const updated = await db.prepare(`
+  const updated = await db
+    .prepare(`
     UPDATE users SET role = ?, updated_at = ?
     WHERE id = ?
       AND (role <> 'owner' OR ? = 'owner' OR (SELECT COUNT(*) FROM users WHERE role = 'owner') > 1)
-  `).bind(role, now, targetUserId, role).run();
+  `)
+    .bind(role, now, targetUserId, role)
+    .run();
   if (updated.meta.changes === 0) return { kind: "last_owner" as const };
 
   await db.batch([
-    db.prepare("UPDATE sessions SET session_version = session_version + 1, revoked_at = ? WHERE user_id = ?")
+    db
+      .prepare("UPDATE sessions SET session_version = session_version + 1, revoked_at = ? WHERE user_id = ?")
       .bind(now, targetUserId),
-    db.prepare(`
+    db
+      .prepare(`
       INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
       VALUES (?, 'member.role_change', 'user', ?, ?, ?, ?)
-    `).bind(crypto.randomUUID(), targetUserId, actorId, JSON.stringify({ from: target.role, to: role }), now),
+    `)
+      .bind(crypto.randomUUID(), targetUserId, actorId, JSON.stringify({ from: target.role, to: role }), now),
   ]);
   return { kind: "ok" as const };
 }
@@ -535,15 +590,11 @@ interface AuditEventRow {
   created_at: string;
 }
 
-export async function listAdminAuditEvents(
-  db: D1Database,
-  limit: number,
-  cursor: string | undefined,
-  action?: string,
-) {
+export async function listAdminAuditEvents(db: D1Database, limit: number, cursor: string | undefined, action?: string) {
   const offset = decodeCursor(cursor);
   const where = action ? "WHERE e.action = ?" : "";
-  const result = await db.prepare(`
+  const result = await db
+    .prepare(`
     SELECT e.id, e.action, e.target_type, e.target_id, e.actor_id, e.detail, e.created_at,
            CASE WHEN u.id IS NULL THEN NULL ELSE COALESCE(u.global_name, u.username) END AS actor_name
     FROM audit_events e
@@ -551,9 +602,11 @@ export async function listAdminAuditEvents(
     ${where}
     ORDER BY e.created_at DESC, e.id DESC
     LIMIT ? OFFSET ?
-  `).bind(...(action ? [action] : []), limit + 1, offset).all<AuditEventRow>();
+  `)
+    .bind(...(action ? [action] : []), limit + 1, offset)
+    .all<AuditEventRow>();
   return {
-    items: result.results.slice(0, limit).map(row => ({
+    items: result.results.slice(0, limit).map((row) => ({
       id: row.id,
       action: row.action,
       targetType: row.target_type,
@@ -573,49 +626,63 @@ export async function updateAdminRecommendation(
   actorId: string,
   update: { comment?: string; reaction?: string },
 ) {
-  const project = await db.prepare("SELECT id FROM projects WHERE id = ?").bind(projectId)
-    .first<{ id: string }>();
+  const project = await db.prepare("SELECT id FROM projects WHERE id = ?").bind(projectId).first<{ id: string }>();
   if (!project) return { kind: "not_found" as const };
-  const existing = await db.prepare(
-    "SELECT comment, reaction FROM recommendations WHERE curator_id = ? AND project_id = ?",
-  ).bind(actorId, projectId).first<{ comment: string; reaction: string }>();
+  const existing = await db
+    .prepare("SELECT comment, reaction FROM recommendations WHERE curator_id = ? AND project_id = ?")
+    .bind(actorId, projectId)
+    .first<{ comment: string; reaction: string }>();
   const comment = update.comment ?? existing?.comment ?? "";
   const reaction = update.reaction ?? existing?.reaction ?? "";
   const now = new Date().toISOString();
   const recommendationId = crypto.randomUUID();
   await db.batch([
-    db.prepare(`
+    db
+      .prepare(`
       INSERT INTO recommendations (id, curator_id, project_id, comment, reaction, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(curator_id, project_id) DO UPDATE SET
         comment = excluded.comment, reaction = excluded.reaction, updated_at = excluded.updated_at
-    `).bind(recommendationId, actorId, projectId, comment, reaction, now, now),
-    db.prepare(`
+    `)
+      .bind(recommendationId, actorId, projectId, comment, reaction, now, now),
+    db
+      .prepare(`
       INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
       VALUES (?, 'recommendation.update', 'project', ?, ?, ?, ?)
-    `).bind(crypto.randomUUID(), projectId, actorId, JSON.stringify({
-      before: existing ? { comment: existing.comment, reaction: existing.reaction } : null,
-      after: { comment, reaction },
-    }), now),
+    `)
+      .bind(
+        crypto.randomUUID(),
+        projectId,
+        actorId,
+        JSON.stringify({
+          before: existing ? { comment: existing.comment, reaction: existing.reaction } : null,
+          after: { comment, reaction },
+        }),
+        now,
+      ),
   ]);
-  const row = await db.prepare(
-    "SELECT id, comment, reaction FROM recommendations WHERE curator_id = ? AND project_id = ?",
-  ).bind(actorId, projectId).first<{ id: string; comment: string; reaction: string }>();
+  const row = await db
+    .prepare("SELECT id, comment, reaction FROM recommendations WHERE curator_id = ? AND project_id = ?")
+    .bind(actorId, projectId)
+    .first<{ id: string; comment: string; reaction: string }>();
   return { kind: "ok" as const, id: row?.id ?? recommendationId, comment, reaction };
 }
 
 export async function deleteAdminRecommendation(db: D1Database, projectId: string, actorId: string) {
-  const existing = await db.prepare(
-    "SELECT id, comment, reaction FROM recommendations WHERE curator_id = ? AND project_id = ?",
-  ).bind(actorId, projectId).first<{ id: string; comment: string; reaction: string }>();
+  const existing = await db
+    .prepare("SELECT id, comment, reaction FROM recommendations WHERE curator_id = ? AND project_id = ?")
+    .bind(actorId, projectId)
+    .first<{ id: string; comment: string; reaction: string }>();
   if (!existing) return { kind: "not_found" as const };
   const now = new Date().toISOString();
   await db.batch([
     db.prepare("DELETE FROM recommendations WHERE id = ?").bind(existing.id),
-    db.prepare(`
+    db
+      .prepare(`
       INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
       VALUES (?, 'recommendation.delete', 'project', ?, ?, ?, ?)
-    `).bind(crypto.randomUUID(), projectId, actorId, JSON.stringify({ before: existing }), now),
+    `)
+      .bind(crypto.randomUUID(), projectId, actorId, JSON.stringify({ before: existing }), now),
   ]);
   return { kind: "ok" as const };
 }
@@ -640,43 +707,75 @@ export async function updateAdminReferenceSet(
     }>;
   },
 ) {
-  const target = await db.prepare(`
+  const target = await db
+    .prepare(`
     SELECT s.name, s.description, v.id AS version_id, v.version_label
     FROM reference_sets s
     JOIN reference_versions v ON v.reference_set_id = s.id
     WHERE s.id = ?
     ORDER BY v.version_ordinal DESC LIMIT 1
-  `).bind(id).first<{ name: string; description: string | null; version_id: string; version_label: string }>();
+  `)
+    .bind(id)
+    .first<{ name: string; description: string | null; version_id: string; version_label: string }>();
   if (!target) return { kind: "not_found" as const };
   const now = new Date().toISOString();
   const statements: D1PreparedStatement[] = [
-    db.prepare("UPDATE reference_sets SET name = ?, description = ?, updated_at = ? WHERE id = ?")
-      .bind(update.name ?? target.name, update.description === undefined ? target.description : update.description, now, id),
-    db.prepare("UPDATE reference_versions SET version_label = ? WHERE id = ?")
+    db
+      .prepare("UPDATE reference_sets SET name = ?, description = ?, updated_at = ? WHERE id = ?")
+      .bind(
+        update.name ?? target.name,
+        update.description === undefined ? target.description : update.description,
+        now,
+        id,
+      ),
+    db
+      .prepare("UPDATE reference_versions SET version_label = ? WHERE id = ?")
       .bind(update.versionLabel ?? target.version_label, target.version_id),
   ];
   if (update.items !== undefined) {
     statements.push(db.prepare("DELETE FROM reference_items WHERE reference_version_id = ?").bind(target.version_id));
     for (const item of update.items) {
-      statements.push(db.prepare(`
+      statements.push(
+        db
+          .prepare(`
         INSERT INTO reference_items
           (id, reference_version_id, kind, source_key, display_name, exact_hash,
            normalized_content_hash, name_hash, keys_hash, structure_hash, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(
-        crypto.randomUUID(), target.version_id, item.kind, item.sourceKey ?? null, item.displayName,
-        item.exactHash ?? "", item.normalizedContentHash ?? "", item.nameHash ?? "",
-        item.keysHash ?? null, item.structureHash ?? "", now,
-      ));
+      `)
+          .bind(
+            crypto.randomUUID(),
+            target.version_id,
+            item.kind,
+            item.sourceKey ?? null,
+            item.displayName,
+            item.exactHash ?? "",
+            item.normalizedContentHash ?? "",
+            item.nameHash ?? "",
+            item.keysHash ?? null,
+            item.structureHash ?? "",
+            now,
+          ),
+      );
     }
   }
-  statements.push(db.prepare(`
+  statements.push(
+    db
+      .prepare(`
     INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
     VALUES (?, 'reference_set.update', 'reference_set', ?, ?, ?, ?)
-  `).bind(crypto.randomUUID(), id, actorId, JSON.stringify({
-    before: { name: target.name, description: target.description, versionLabel: target.version_label },
-    after: update,
-  }), now));
+  `)
+      .bind(
+        crypto.randomUUID(),
+        id,
+        actorId,
+        JSON.stringify({
+          before: { name: target.name, description: target.description, versionLabel: target.version_label },
+          after: update,
+        }),
+        now,
+      ),
+  );
   await db.batch(statements);
   return { kind: "ok" as const };
 }
@@ -684,20 +783,24 @@ export async function updateAdminReferenceSet(
 export async function updateAdminSite(
   db: D1Database,
   actorId: string,
-  banner: {
-    imageUrl: string | null;
-    positionX: number;
-    positionY: number;
-    zoom: number;
-    mobilePositionX: number;
-    mobilePositionY: number;
-    mobileZoom: number;
-  } | undefined,
+  banner:
+    | {
+        imageUrl: string | null;
+        positionX: number;
+        positionY: number;
+        zoom: number;
+        mobilePositionX: number;
+        mobilePositionY: number;
+        mobileZoom: number;
+      }
+    | undefined,
   siteContent: unknown,
 ) {
-  const current = await db.prepare(`
+  const current = await db
+    .prepare(`
     SELECT key, value FROM site_settings WHERE key IN ('discover_banner', 'site_content')
-  `).all<{ key: string; value: string }>();
+  `)
+    .all<{ key: string; value: string }>();
   const before: Record<string, unknown> = {};
   for (const row of current.results) {
     try {
@@ -709,25 +812,37 @@ export async function updateAdminSite(
   const now = new Date().toISOString();
   const statements: D1PreparedStatement[] = [];
   if (banner !== undefined) {
-    statements.push(db.prepare(`
+    statements.push(
+      db
+        .prepare(`
       INSERT INTO site_settings (key, value, updated_at, updated_by) VALUES ('discover_banner', ?, ?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, updated_by = excluded.updated_by
-    `).bind(JSON.stringify(banner), now, actorId));
+    `)
+        .bind(JSON.stringify(banner), now, actorId),
+    );
   }
   if (siteContent !== undefined) {
-    statements.push(db.prepare(`
+    statements.push(
+      db
+        .prepare(`
       INSERT INTO site_settings (key, value, updated_at, updated_by) VALUES ('site_content', ?, ?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at, updated_by = excluded.updated_by
-    `).bind(JSON.stringify(siteContent), now, actorId));
+    `)
+        .bind(JSON.stringify(siteContent), now, actorId),
+    );
   }
   const after = {
     ...(banner === undefined ? {} : { discover_banner: banner }),
     ...(siteContent === undefined ? {} : { site_content: siteContent }),
   };
-  statements.push(db.prepare(`
+  statements.push(
+    db
+      .prepare(`
     INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
     VALUES (?, 'site.update', 'site', 'site', ?, ?, ?)
-  `).bind(crypto.randomUUID(), actorId, JSON.stringify({ before, after }), now));
+  `)
+      .bind(crypto.randomUUID(), actorId, JSON.stringify({ before, after }), now),
+  );
   await db.batch(statements);
   return { banner, siteContent };
 }
@@ -738,37 +853,56 @@ function referenceItemStatements(
   items: AdminReferenceSetCreate["items"] | AdminReferenceVersionCreate["items"],
   now: string,
 ): D1PreparedStatement[] {
-  return items.map(item => db.prepare(`
+  return items.map((item) =>
+    db
+      .prepare(`
     INSERT INTO reference_items
       (id, reference_version_id, kind, source_key, display_name, exact_hash,
        normalized_content_hash, name_hash, keys_hash, structure_hash, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(
-    crypto.randomUUID(), versionId, item.kind, item.sourceKey ?? null, item.displayName,
-    item.exactHash ?? "", item.normalizedContentHash ?? "", item.nameHash ?? "",
-    item.keysHash ?? null, item.structureHash ?? "", now,
-  ));
+  `)
+      .bind(
+        crypto.randomUUID(),
+        versionId,
+        item.kind,
+        item.sourceKey ?? null,
+        item.displayName,
+        item.exactHash ?? "",
+        item.normalizedContentHash ?? "",
+        item.nameHash ?? "",
+        item.keysHash ?? null,
+        item.structureHash ?? "",
+        now,
+      ),
+  );
 }
 
-export async function createAdminReferenceSet(
-  db: D1Database,
-  actorId: string,
-  input: AdminReferenceSetCreate,
-) {
+export async function createAdminReferenceSet(db: D1Database, actorId: string, input: AdminReferenceSetCreate) {
   const now = new Date().toISOString();
   const setId = crypto.randomUUID();
   const versionId = crypto.randomUUID();
   const statements: D1PreparedStatement[] = [
-    db.prepare("INSERT INTO reference_sets (id, name, description, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+    db
+      .prepare(
+        "INSERT INTO reference_sets (id, name, description, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      )
       .bind(setId, input.name, input.description ?? null, actorId, now, now),
-    db.prepare(`INSERT INTO reference_versions
+    db
+      .prepare(`INSERT INTO reference_versions
       (id, reference_set_id, version_label, version_ordinal, grace_until, created_by, created_at)
       VALUES (?, ?, ?, 1, ?, ?, ?)`)
       .bind(versionId, setId, input.versionLabel, input.graceUntil ?? "9999-12-31T00:00:00.000Z", actorId, now),
     ...referenceItemStatements(db, versionId, input.items, now),
-    db.prepare(`INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
+    db
+      .prepare(`INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
       VALUES (?, 'reference_set.create', 'reference_set', ?, ?, ?, ?)`)
-      .bind(crypto.randomUUID(), setId, actorId, JSON.stringify({ name: input.name, versionLabel: input.versionLabel, items: input.items.length }), now),
+      .bind(
+        crypto.randomUUID(),
+        setId,
+        actorId,
+        JSON.stringify({ name: input.name, versionLabel: input.versionLabel, items: input.items.length }),
+        now,
+      ),
   ];
   try {
     await db.batch(statements);
@@ -787,20 +921,38 @@ export async function createAdminReferenceVersion(
 ) {
   const set = await db.prepare("SELECT id FROM reference_sets WHERE id = ?").bind(setId).first<{ id: string }>();
   if (!set) return { kind: "not_found" as const };
-  const latest = await db.prepare("SELECT MAX(version_ordinal) AS ordinal FROM reference_versions WHERE reference_set_id = ?")
-    .bind(setId).first<{ ordinal: number | null }>();
+  const latest = await db
+    .prepare("SELECT MAX(version_ordinal) AS ordinal FROM reference_versions WHERE reference_set_id = ?")
+    .bind(setId)
+    .first<{ ordinal: number | null }>();
   const now = new Date().toISOString();
   const versionId = crypto.randomUUID();
   const ordinal = (latest?.ordinal ?? 0) + 1;
   const statements: D1PreparedStatement[] = [
-    db.prepare(`INSERT INTO reference_versions
+    db
+      .prepare(`INSERT INTO reference_versions
       (id, reference_set_id, version_label, version_ordinal, grace_until, created_by, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .bind(versionId, setId, input.versionLabel, ordinal, input.graceUntil ?? "9999-12-31T00:00:00.000Z", actorId, now),
+      .bind(
+        versionId,
+        setId,
+        input.versionLabel,
+        ordinal,
+        input.graceUntil ?? "9999-12-31T00:00:00.000Z",
+        actorId,
+        now,
+      ),
     ...referenceItemStatements(db, versionId, input.items, now),
-    db.prepare(`INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
+    db
+      .prepare(`INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
       VALUES (?, 'reference_version.create', 'reference_set', ?, ?, ?, ?)`)
-      .bind(crypto.randomUUID(), setId, actorId, JSON.stringify({ versionLabel: input.versionLabel, ordinal, items: input.items.length }), now),
+      .bind(
+        crypto.randomUUID(),
+        setId,
+        actorId,
+        JSON.stringify({ versionLabel: input.versionLabel, ordinal, items: input.items.length }),
+        now,
+      ),
   ];
   try {
     await db.batch(statements);

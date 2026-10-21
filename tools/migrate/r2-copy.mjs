@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
 /**
  * Copy migration assets into the target R2 key space.
  *
@@ -15,14 +16,13 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const hash = value => createHash("sha256").update(value).digest("hex");
+const hash = (value) => createHash("sha256").update(value).digest("hex");
 
 function arg(name, fallback) {
-  const inline = process.argv.find(value => value.startsWith(`--${name}=`));
+  const inline = process.argv.find((value) => value.startsWith(`--${name}=`));
   if (inline) return inline.slice(name.length + 3);
   const index = process.argv.indexOf(`--${name}`);
   return index >= 0 ? process.argv[index + 1] : fallback;
@@ -38,10 +38,14 @@ export function validateManifest(value) {
   }
   const targets = new Set();
   for (const [index, object] of value.objects.entries()) {
-    if (typeof object.sourceKey !== "string" || object.sourceKey.length === 0) throw new Error(`objects[${index}].sourceKey is required`);
-    if (typeof object.targetKey !== "string" || object.targetKey.length === 0) throw new Error(`objects[${index}].targetKey is required`);
-    if (!/^[a-f0-9]{64}$/i.test(String(object.sha256 ?? ""))) throw new Error(`objects[${index}].sha256 must be 64 hex characters`);
-    if (!Number.isInteger(object.bytes) || object.bytes < 0) throw new Error(`objects[${index}].bytes must be a non-negative integer`);
+    if (typeof object.sourceKey !== "string" || object.sourceKey.length === 0)
+      throw new Error(`objects[${index}].sourceKey is required`);
+    if (typeof object.targetKey !== "string" || object.targetKey.length === 0)
+      throw new Error(`objects[${index}].targetKey is required`);
+    if (!/^[a-f0-9]{64}$/i.test(String(object.sha256 ?? "")))
+      throw new Error(`objects[${index}].sha256 must be 64 hex characters`);
+    if (!Number.isInteger(object.bytes) || object.bytes < 0)
+      throw new Error(`objects[${index}].bytes must be a non-negative integer`);
     if (targets.has(object.targetKey)) throw new Error(`duplicate targetKey: ${object.targetKey}`);
     targets.add(object.targetKey);
   }
@@ -49,7 +53,7 @@ export function validateManifest(value) {
 }
 
 export function buildManifest(target) {
-  const objects = (target?.tables?.assets ?? []).map(asset => ({
+  const objects = (target?.tables?.assets ?? []).map((asset) => ({
     sourceKey: asset.source_key ?? asset.r2_key,
     targetKey: asset.r2_key,
     sha256: asset.sha256,
@@ -75,7 +79,8 @@ function wrangler(args, options = {}) {
 
 function verifyFile(file, object) {
   const bytes = readFileSync(file);
-  if (bytes.byteLength !== object.bytes) throw new Error(`${object.sourceKey}: byte mismatch ${bytes.byteLength} != ${object.bytes}`);
+  if (bytes.byteLength !== object.bytes)
+    throw new Error(`${object.sourceKey}: byte mismatch ${bytes.byteLength} != ${object.bytes}`);
   const actual = hash(bytes);
   if (actual !== object.sha256.toLowerCase()) throw new Error(`${object.sourceKey}: sha256 mismatch ${actual}`);
 }
@@ -108,7 +113,9 @@ function remoteCopy(manifest, sourceBucket, targetBucket) {
     const targetFile = join(work, `target-${hash(object.targetKey).slice(0, 16)}`);
     let targetCurrent = false;
     try {
-      wrangler(["r2", "object", "get", `${targetBucket}/${object.targetKey}`, "--file", targetFile, "--remote"], { capture: true });
+      wrangler(["r2", "object", "get", `${targetBucket}/${object.targetKey}`, "--file", targetFile, "--remote"], {
+        capture: true,
+      });
       const bytes = readFileSync(targetFile);
       targetCurrent = bytes.byteLength === object.bytes && hash(bytes) === object.sha256.toLowerCase();
     } catch {
@@ -116,10 +123,14 @@ function remoteCopy(manifest, sourceBucket, targetBucket) {
     }
     if (targetCurrent) continue;
     const sourceFile = join(work, `source-${hash(object.sourceKey).slice(0, 16)}`);
-    wrangler(["r2", "object", "get", `${sourceBucket}/${object.sourceKey}`, "--file", sourceFile, "--remote"], { capture: true });
+    wrangler(["r2", "object", "get", `${sourceBucket}/${object.sourceKey}`, "--file", sourceFile, "--remote"], {
+      capture: true,
+    });
     verifyFile(sourceFile, object);
     wrangler(["r2", "object", "put", `${targetBucket}/${object.targetKey}`, "--file", sourceFile, "--remote"]);
-    wrangler(["r2", "object", "get", `${targetBucket}/${object.targetKey}`, "--file", targetFile, "--remote"], { capture: true });
+    wrangler(["r2", "object", "get", `${targetBucket}/${object.targetKey}`, "--file", targetFile, "--remote"], {
+      capture: true,
+    });
     verifyFile(targetFile, { ...object, sourceKey: object.targetKey });
     copied.push(object.targetKey);
   }
@@ -148,9 +159,12 @@ function main() {
   }
   const sourceBucket = arg("source-bucket");
   const targetBucket = arg("target-bucket");
-  if (!sourceBucket || !targetBucket) throw new Error("--source-bucket and --target-bucket are required for remote copy");
+  if (!sourceBucket || !targetBucket)
+    throw new Error("--source-bucket and --target-bucket are required for remote copy");
   if (!flag("apply")) {
-    console.log(JSON.stringify({ ok: true, mode: "dry-run", objects: manifest.objects.length, sourceBucket, targetBucket }));
+    console.log(
+      JSON.stringify({ ok: true, mode: "dry-run", objects: manifest.objects.length, sourceBucket, targetBucket }),
+    );
     return;
   }
   const copied = remoteCopy(manifest, sourceBucket, targetBucket);

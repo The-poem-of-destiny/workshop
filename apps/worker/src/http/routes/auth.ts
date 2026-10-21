@@ -1,4 +1,3 @@
-import { Hono } from "hono";
 import {
   authFlowCreateSchema,
   authFlowRedeemSchema,
@@ -6,9 +5,11 @@ import {
   authFlowStatusSchema,
   authSessionResponseSchema,
 } from "@workshop/contracts";
+import { Hono } from "hono";
 import type { Env } from "../../env";
 import { getAuthFlowStatus, getMe, revokeSessionByToken, sha256Hex } from "../../storage/identity.js";
 import {
+  type AuthFlowRow,
   createOpaqueSession,
   getFlowById,
   getFlowByState,
@@ -17,7 +18,6 @@ import {
   markFlowError,
   markFlowRedeemed,
   upsertDiscordUser,
-  type AuthFlowRow,
 } from "../../storage/oauth.js";
 import { jsonError } from "../errors.js";
 import { requireSession } from "../session.js";
@@ -42,11 +42,17 @@ async function s256(value: string): Promise<string> {
 }
 
 function allowedOrigins(env: Env): string[] {
-  return (env.ALLOWED_ORIGINS ?? "").split(",").map(value => value.trim()).filter(Boolean);
+  return (env.ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 function allowedGuilds(env: Env): string[] {
-  return (env.DISCORD_ALLOWED_GUILD_IDS ?? "").split(",").map(value => value.trim()).filter(Boolean);
+  return (env.DISCORD_ALLOWED_GUILD_IDS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 function publicOrigin(c: { env: Env; req: { url: string } }): string {
@@ -62,28 +68,46 @@ function cookieValue(c: { req: { header: (name: string) => string | undefined } 
   return "";
 }
 
-async function bindingMatches(c: { req: { header: (name: string) => string | undefined } }, flow: AuthFlowRow): Promise<boolean> {
+async function bindingMatches(
+  c: { req: { header: (name: string) => string | undefined } },
+  flow: AuthFlowRow,
+): Promise<boolean> {
   if (!flow.browser_binding_hash) return false;
   for (const name of ["cw_oauth_binding", "cw_oauth_binding_p"]) {
     const value = cookieValue(c, name);
-    if (value && await sha256Hex(value) === flow.browser_binding_hash) return true;
+    if (value && (await sha256Hex(value)) === flow.browser_binding_hash) return true;
   }
   return false;
 }
 
-function setBindingCookies(c: { req: { url: string }; header: (name: string, value: string, options?: { append?: boolean }) => void }, value: string): void {
+function setBindingCookies(
+  c: { req: { url: string }; header: (name: string, value: string, options?: { append?: boolean }) => void },
+  value: string,
+): void {
   const secure = new URL(c.req.url).protocol === "https:";
   const base = `Path=/api/v1/auth; HttpOnly; Max-Age=600; SameSite=Lax${secure ? "; Secure" : ""}`;
   c.header("set-cookie", `cw_oauth_binding=${value}; ${base}`, { append: true });
   if (secure) {
-    c.header("set-cookie", `cw_oauth_binding_p=${value}; Path=/api/v1/auth; HttpOnly; Max-Age=600; SameSite=None; Secure; Partitioned`, { append: true });
+    c.header(
+      "set-cookie",
+      `cw_oauth_binding_p=${value}; Path=/api/v1/auth; HttpOnly; Max-Age=600; SameSite=None; Secure; Partitioned`,
+      { append: true },
+    );
   }
 }
 
 function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, char => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[char]!));
+  return value.replace(
+    /[&<>"']/g,
+    (char) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[char]!,
+  );
 }
 
 function htmlResponse(body: string, status = 200) {
@@ -92,7 +116,8 @@ function htmlResponse(body: string, status = 200) {
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
-      "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+      "content-security-policy":
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
     },
@@ -140,7 +165,7 @@ async function exchangeDiscord(c: { env: Env; req: { url: string } }, flow: Auth
     body,
   });
   if (!tokenResponse.ok) throw new Error("Discord 授权码兑换失败");
-  const token = await tokenResponse.json() as { access_token?: string };
+  const token = (await tokenResponse.json()) as { access_token?: string };
   if (!token.access_token) throw new Error("Discord 未返回访问令牌");
 
   const headers = { authorization: `Bearer ${token.access_token}` };
@@ -149,25 +174,28 @@ async function exchangeDiscord(c: { env: Env; req: { url: string } }, flow: Auth
     fetch(`${DISCORD_API}/users/@me/guilds`, { headers }),
   ]);
   if (!userResponse.ok || !guildsResponse.ok) throw new Error("无法读取 Discord 账号信息");
-  const user = await userResponse.json() as {
+  const user = (await userResponse.json()) as {
     id?: string;
     username?: string;
     global_name?: string | null;
     avatar?: string | null;
   };
   if (!user.id || !user.username) throw new Error("Discord 账号信息不完整");
-  const guilds = await guildsResponse.json() as Array<{ id?: string }>;
+  const guilds = (await guildsResponse.json()) as Array<{ id?: string }>;
   const allowed = new Set(allowedGuilds(c.env));
   if (allowed.size === 0) throw new Error("服务器未配置允许的 Discord 服务器");
-  const guild = guilds.find(item => item.id && allowed.has(item.id));
+  const guild = guilds.find((item) => item.id && allowed.has(item.id));
   if (!guild?.id) throw new Error("你的账号不在允许的 Discord 服务器中");
-  return { user: { id: user.id, username: user.username, global_name: user.global_name, avatar: user.avatar }, guildId: guild.id };
+  return {
+    user: { id: user.id, username: user.username, global_name: user.global_name, avatar: user.avatar },
+    guildId: guild.id,
+  };
 }
 
 export const authRoutes = new Hono<{ Bindings: Env }>();
 export const sessionRoutes = new Hono<{ Bindings: Env }>();
 
-sessionRoutes.delete("/current", async c => {
+sessionRoutes.delete("/current", async (c) => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
   const authorization = c.req.header("authorization");
@@ -177,7 +205,7 @@ sessionRoutes.delete("/current", async c => {
   return c.body(null, 204);
 });
 
-authRoutes.post("/flows", async c => {
+authRoutes.post("/flows", async (c) => {
   let body: unknown;
   try {
     body = await c.req.json();
@@ -226,20 +254,23 @@ authRoutes.post("/flows", async c => {
     });
     url = `https://discord.com/oauth2/authorize?${query.toString()}`;
   }
-  return c.json(authFlowResponseSchema.parse({
-    id,
-    state,
-    url,
-    expiresAt,
-    mode: parsed.data.mode,
-    ...(deviceCode ? { deviceCode } : {}),
-  }), 201);
+  return c.json(
+    authFlowResponseSchema.parse({
+      id,
+      state,
+      url,
+      expiresAt,
+      mode: parsed.data.mode,
+      ...(deviceCode ? { deviceCode } : {}),
+    }),
+    201,
+  );
 });
 
-authRoutes.get("/flows/:id", async c => {
+authRoutes.get("/flows/:id", async (c) => {
   const deviceSecret = c.req.query("deviceCode") ?? c.req.header("x-device-secret") ?? "";
   const flow = await getFlowById(c.env.DB, c.req.param("id"));
-  if (!flow || (flow.mode !== "browser" && !await bindingMatches(c, flow))) {
+  if (!flow || (flow.mode !== "browser" && !(await bindingMatches(c, flow)))) {
     return jsonError(c, "not_found", "Auth flow not found");
   }
   const status = await getAuthFlowStatus(c.env.DB, c.req.param("id"), deviceSecret);
@@ -247,7 +278,7 @@ authRoutes.get("/flows/:id", async c => {
   return c.json(authFlowStatusSchema.parse(status));
 });
 
-authRoutes.post("/flows/:id/redeem", async c => {
+authRoutes.post("/flows/:id/redeem", async (c) => {
   let body: unknown;
   try {
     body = await c.req.json();
@@ -258,7 +289,7 @@ authRoutes.post("/flows/:id/redeem", async c => {
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid redeem request", parsed.error.flatten());
   const flow = await getFlowById(c.env.DB, c.req.param("id"));
   if (!flow) return jsonError(c, "conflict", "Auth flow is not ready for redemption");
-  if (flow.mode !== "browser" && !await bindingMatches(c, flow)) {
+  if (flow.mode !== "browser" && !(await bindingMatches(c, flow))) {
     return jsonError(c, "forbidden", "Auth flow does not belong to this browser");
   }
   if (flow.status !== "authorized" || !flow.user_id) {
@@ -268,18 +299,21 @@ authRoutes.post("/flows/:id/redeem", async c => {
 
   let secretOk = false;
   if (flow.mode === "device") {
-    secretOk = Boolean(parsed.data.deviceCode && flow.redeem_hash
-      && await sha256Hex(parsed.data.deviceCode) === flow.redeem_hash);
+    secretOk = Boolean(
+      parsed.data.deviceCode && flow.redeem_hash && (await sha256Hex(parsed.data.deviceCode)) === flow.redeem_hash,
+    );
   } else if (flow.mode === "embed") {
-    const codeOk = Boolean(parsed.data.code && flow.redeem_hash
-      && await sha256Hex(parsed.data.code) === flow.redeem_hash);
-    const verifierOk = Boolean(parsed.data.verifier && flow.code_challenge
-      && await s256(parsed.data.verifier) === flow.code_challenge);
+    const codeOk = Boolean(
+      parsed.data.code && flow.redeem_hash && (await sha256Hex(parsed.data.code)) === flow.redeem_hash,
+    );
+    const verifierOk = Boolean(
+      parsed.data.verifier && flow.code_challenge && (await s256(parsed.data.verifier)) === flow.code_challenge,
+    );
     secretOk = codeOk && verifierOk;
   }
   if (!secretOk) return jsonError(c, "forbidden", "Invalid redeem secret");
 
-  if (!await markFlowRedeemed(c.env.DB, flow.id)) {
+  if (!(await markFlowRedeemed(c.env.DB, flow.id))) {
     return jsonError(c, "conflict", "Auth flow was already redeemed");
   }
   const { token, expiresAt } = await createOpaqueSession(c.env.DB, flow.user_id, c.env.SESSION_HASH_SECRET);
@@ -288,13 +322,13 @@ authRoutes.post("/flows/:id/redeem", async c => {
   return c.json(authSessionResponseSchema.parse({ token, expiresAt, user: me.user }));
 });
 
-authRoutes.get("/callback", async c => {
+authRoutes.get("/callback", async (c) => {
   const state = c.req.query("state") ?? "";
   const code = c.req.query("code") ?? "";
   const oauthError = c.req.query("error");
   const flow = state ? await getFlowByState(c.env.DB, state) : null;
   if (!flow) return htmlResponse(errorHtml("登录状态无效或已过期。"), 400);
-  if (flow.mode !== "browser" && !await bindingMatches(c, flow)) {
+  if (flow.mode !== "browser" && !(await bindingMatches(c, flow))) {
     return htmlResponse(errorHtml("登录状态无效或已过期。"), 400);
   }
   if (oauthError) {
@@ -310,39 +344,51 @@ authRoutes.get("/callback", async c => {
     const result = await exchangeDiscord(c, flow, code);
     await upsertDiscordUser(c.env.DB, result.user);
     if (flow.mode === "browser") {
-      if (!await markFlowAuthorized(c.env.DB, flow.id, result.user.id, result.guildId, null)) {
+      if (!(await markFlowAuthorized(c.env.DB, flow.id, result.user.id, result.guildId, null))) {
         return htmlResponse(errorHtml("登录状态已被使用。"), 409);
       }
       const { token } = await createOpaqueSession(c.env.DB, result.user.id, c.env.SESSION_HASH_SECRET);
       await markFlowRedeemed(c.env.DB, flow.id);
-      return htmlResponse(callbackHtml(JSON.stringify({
-        type: "oauth-success",
-        source: "creative-workshop-auth-callback",
-        state,
-        token,
-        targetOrigin: flow.origin,
-      })));
+      return htmlResponse(
+        callbackHtml(
+          JSON.stringify({
+            type: "oauth-success",
+            source: "creative-workshop-auth-callback",
+            state,
+            token,
+            targetOrigin: flow.origin,
+          }),
+        ),
+      );
     }
 
     const redeemCode = flow.mode === "embed" ? randomToken(32) : null;
-    if (!await markFlowAuthorized(c.env.DB, flow.id, result.user.id, result.guildId, redeemCode)) {
+    if (!(await markFlowAuthorized(c.env.DB, flow.id, result.user.id, result.guildId, redeemCode))) {
       return htmlResponse(errorHtml("登录状态已被使用。"), 409);
     }
     if (flow.mode === "embed") {
-      return htmlResponse(callbackHtml(JSON.stringify({
-        type: "oauth-code",
-        source: "creative-workshop-auth-callback",
-        state,
-        code: redeemCode,
-        flowId: flow.id,
-      })));
+      return htmlResponse(
+        callbackHtml(
+          JSON.stringify({
+            type: "oauth-code",
+            source: "creative-workshop-auth-callback",
+            state,
+            code: redeemCode,
+            flowId: flow.id,
+          }),
+        ),
+      );
     }
-    return htmlResponse(callbackHtml(JSON.stringify({
-      type: "oauth-authorized",
-      source: "creative-workshop-auth-callback",
-      state,
-      flowId: flow.id,
-    })));
+    return htmlResponse(
+      callbackHtml(
+        JSON.stringify({
+          type: "oauth-authorized",
+          source: "creative-workshop-auth-callback",
+          state,
+          flowId: flow.id,
+        }),
+      ),
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "登录失败";
     await markFlowError(c.env.DB, flow.id, message);

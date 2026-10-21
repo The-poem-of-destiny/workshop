@@ -1,4 +1,3 @@
-import { Hono } from "hono";
 import {
   adminAuditEventListQuerySchema,
   adminListQuerySchema,
@@ -8,9 +7,9 @@ import {
   adminReferenceVersionCreateSchema,
   adminReviewRequestSchema,
   adminRoleRequestSchema,
-  adminSiteUpdateSchema,
   adminSubmissionListQuerySchema,
 } from "@workshop/contracts";
+import { Hono } from "hono";
 import type { Env } from "../../env.js";
 import { enqueueSubmission } from "../../scheduler.js";
 import {
@@ -27,7 +26,6 @@ import {
   reviewAdminSubmission,
   updateAdminRecommendation,
   updateAdminReferenceSet,
-  updateAdminSite,
 } from "../../storage/admin.js";
 import { getSubmissionDiff } from "../../storage/diff.js";
 import { jsonError } from "../errors.js";
@@ -50,7 +48,7 @@ async function readJson(c: Parameters<typeof requireSession>[0]): Promise<unknow
   }
 }
 
-adminRoutes.get("/submissions", async c => {
+adminRoutes.get("/submissions", async (c) => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false) return jsonError(c, "forbidden", "Reviewer role required");
@@ -63,7 +61,7 @@ adminRoutes.get("/submissions", async c => {
   return c.json(await listAdminSubmissions(c.env.DB, parsed.data));
 });
 
-adminRoutes.get("/submissions/:id", async c => {
+adminRoutes.get("/submissions/:id", async (c) => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false) return jsonError(c, "forbidden", "Reviewer role required");
@@ -72,7 +70,7 @@ adminRoutes.get("/submissions/:id", async c => {
   return c.json(submission);
 });
 
-adminRoutes.get("/submissions/:id/files/:kind", async c => {
+adminRoutes.get("/submissions/:id/files/:kind", async (c) => {
   const auth = await requireReviewer(c);
   if (!auth) return jsonError(c, auth === null ? "unauthorized" : "forbidden", "Reviewer access required");
   const kind = c.req.param("kind");
@@ -92,7 +90,7 @@ adminRoutes.get("/submissions/:id/files/:kind", async c => {
   });
 });
 
-adminRoutes.get("/submissions/:id/diff", async c => {
+adminRoutes.get("/submissions/:id/diff", async (c) => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false) return jsonError(c, "forbidden", "Reviewer role required");
@@ -101,13 +99,15 @@ adminRoutes.get("/submissions/:id/diff", async c => {
   return c.json(diff);
 });
 
-adminRoutes.post("/submissions/:id/recheck", async c => {
+adminRoutes.post("/submissions/:id/recheck", async (c) => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false) return jsonError(c, "forbidden", "Reviewer role required");
   const target = await c.env.DB.prepare(`
     SELECT status, check_status, review_checker_revision FROM submissions WHERE id = ?
-  `).bind(c.req.param("id")).first<{ status: string; check_status: string; review_checker_revision: string | null }>();
+  `)
+    .bind(c.req.param("id"))
+    .first<{ status: string; check_status: string; review_checker_revision: string | null }>();
   if (!target) return jsonError(c, "not_found", "Submission not found");
   if (target.status !== "pending" && target.status !== "checking") {
     return jsonError(c, "conflict", "Submission is already resolved");
@@ -128,13 +128,17 @@ adminRoutes.post("/submissions/:id/recheck", async c => {
       SELECT ?, 'checker.recheck', 'submission', ?, ?, ?, ?
       WHERE EXISTS (SELECT 1 FROM submissions WHERE id = ? AND check_status = 'queued')
     `).bind(
-      crypto.randomUUID(), c.req.param("id"), session.userId,
-      JSON.stringify({ reason: "explicit reviewer recheck", previousRevision: target.review_checker_revision }), now, c.req.param("id"),
+      crypto.randomUUID(),
+      c.req.param("id"),
+      session.userId,
+      JSON.stringify({ reason: "explicit reviewer recheck", previousRevision: target.review_checker_revision }),
+      now,
+      c.req.param("id"),
     ),
   ]);
   try {
     c.executionCtx.waitUntil(
-      enqueueSubmission(c.env, c.req.param("id")).catch(error => {
+      enqueueSubmission(c.env, c.req.param("id")).catch((error) => {
         console.error("ContentService recheck failed", error);
       }),
     );
@@ -144,7 +148,7 @@ adminRoutes.post("/submissions/:id/recheck", async c => {
   return c.json({ ok: true, status: "queued" }, 202);
 });
 
-adminRoutes.post("/submissions/:id/review", async c => {
+adminRoutes.post("/submissions/:id/review", async (c) => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false) return jsonError(c, "forbidden", "Reviewer role required");
@@ -158,7 +162,7 @@ adminRoutes.post("/submissions/:id/review", async c => {
   return c.json({ id: result.id, status: result.status }, 201);
 });
 
-adminRoutes.get("/projects", async c => {
+adminRoutes.get("/projects", async (c) => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false) return jsonError(c, "forbidden", "Reviewer role required");
@@ -170,14 +174,16 @@ adminRoutes.get("/projects", async c => {
     includeDeleted: c.req.query("includeDeleted") === "true",
   });
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid query", parsed.error.flatten());
-  return c.json(await listAdminProjects(c.env.DB, parsed.data.limit, parsed.data.cursor, {
-    search: parsed.data.search,
-    projectType: parsed.data.projectType,
-    includeDeleted: parsed.data.includeDeleted,
-  }));
+  return c.json(
+    await listAdminProjects(c.env.DB, parsed.data.limit, parsed.data.cursor, {
+      search: parsed.data.search,
+      projectType: parsed.data.projectType,
+      includeDeleted: parsed.data.includeDeleted,
+    }),
+  );
 });
 
-adminRoutes.get("/members", async c => {
+adminRoutes.get("/members", async (c) => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false) return jsonError(c, "forbidden", "Reviewer role required");
@@ -189,7 +195,7 @@ adminRoutes.get("/members", async c => {
   return c.json(await listAdminMembers(c.env.DB, parsed.data.limit, parsed.data.cursor));
 });
 
-adminRoutes.put("/members/:id/role", async c => {
+adminRoutes.put("/members/:id/role", async (c) => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false) return jsonError(c, "forbidden", "Reviewer role required");
@@ -203,7 +209,7 @@ adminRoutes.put("/members/:id/role", async c => {
   return c.json({ ok: true });
 });
 
-adminRoutes.get("/audit-events", async c => {
+adminRoutes.get("/audit-events", async (c) => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false) return jsonError(c, "forbidden", "Reviewer role required");
@@ -216,7 +222,7 @@ adminRoutes.get("/audit-events", async c => {
   return c.json(await listAdminAuditEvents(c.env.DB, parsed.data.limit, parsed.data.cursor, parsed.data.action));
 });
 
-adminRoutes.put("/recommendations/:projectId", async c => {
+adminRoutes.put("/recommendations/:projectId", async (c) => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false || session.role !== "owner") return jsonError(c, "forbidden", "Owner role required");
@@ -227,7 +233,7 @@ adminRoutes.put("/recommendations/:projectId", async c => {
   return c.json({ id: result.id, comment: result.comment, reaction: result.reaction });
 });
 
-adminRoutes.delete("/recommendations/:projectId", async c => {
+adminRoutes.delete("/recommendations/:projectId", async (c) => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false || session.role !== "owner") return jsonError(c, "forbidden", "Owner role required");
@@ -236,7 +242,7 @@ adminRoutes.delete("/recommendations/:projectId", async c => {
   return c.body(null, 204);
 });
 
-adminRoutes.post("/reference-sets", async c => {
+adminRoutes.post("/reference-sets", async (c) => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false || session.role !== "owner") return jsonError(c, "forbidden", "Owner role required");
@@ -247,7 +253,7 @@ adminRoutes.post("/reference-sets", async c => {
   return c.json({ id: result.id, versionId: result.versionId }, 201);
 });
 
-adminRoutes.post("/reference-sets/:id/versions", async c => {
+adminRoutes.post("/reference-sets/:id/versions", async (c) => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false || session.role !== "owner") return jsonError(c, "forbidden", "Owner role required");
@@ -259,7 +265,7 @@ adminRoutes.post("/reference-sets/:id/versions", async c => {
   return c.json({ id: result.id, ordinal: result.ordinal }, 201);
 });
 
-adminRoutes.put("/reference-sets/:id", async c => {
+adminRoutes.put("/reference-sets/:id", async (c) => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false || session.role !== "owner") return jsonError(c, "forbidden", "Owner role required");

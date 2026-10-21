@@ -1,4 +1,4 @@
-import { analyzeProjectCodeV2, CHECKER_VERSION } from './index.mjs';
+import { analyzeProjectCodeV2, CHECKER_VERSION } from "./index.mjs";
 
 // Worker-isolate memory only: repeated submissions never create D1 reads/writes.
 const reports = new Map();
@@ -9,15 +9,18 @@ let bytes = 0;
 
 export async function analyzeProjectCodeCached(inputs) {
   const identity = JSON.stringify([CHECKER_VERSION, inputs]);
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(identity));
-  const key = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(identity));
+  const key = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
   const existing = reports.get(key);
   if (existing && existing.expiresAt > Date.now()) {
     reports.delete(key);
     reports.set(key, existing);
     return structuredClone(existing.report);
   }
-  if (existing) { reports.delete(key); bytes -= existing.size; }
+  if (existing) {
+    reports.delete(key);
+    bytes -= existing.size;
+  }
   const report = analyzeProjectCodeV2(inputs);
   const size = new TextEncoder().encode(JSON.stringify(report)).byteLength;
   if (size <= MAX_BYTES) {

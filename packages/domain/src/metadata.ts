@@ -71,21 +71,24 @@ export function inspectProjectMetadata(input: MetadataInput): MetadataInspection
 
   const tags = input.tags ?? [];
   if (tags.length > METADATA_LIMITS.tags) add(findings, "tags", "block", "标签数量过多");
-  if (tags.some(tag => tag.length > METADATA_LIMITS.tagLength)) add(findings, "tags", "block", "单个标签过长");
+  if (tags.some((tag) => tag.length > METADATA_LIMITS.tagLength)) add(findings, "tags", "block", "单个标签过长");
   if (new Set(tags).size !== tags.length) add(findings, "tags", "warn", "存在重复标签");
 
-  for (const [field, value] of [["coverPositionX", input.coverPositionX], ["coverPositionY", input.coverPositionY]] as const) {
+  for (const [field, value] of [
+    ["coverPositionX", input.coverPositionX],
+    ["coverPositionY", input.coverPositionY],
+  ] as const) {
     if (value !== undefined && (!Number.isFinite(value) || value < 0 || value > 100)) {
       add(findings, field, "block", "封面位置必须在 0–100 之间");
     }
   }
-  if (input.coverZoom !== undefined
-    && (!Number.isFinite(input.coverZoom) || input.coverZoom < 1 || input.coverZoom > 3)) {
+  if (
+    input.coverZoom !== undefined &&
+    (!Number.isFinite(input.coverZoom) || input.coverZoom < 1 || input.coverZoom > 3)
+  ) {
     add(findings, "coverZoom", "block", "封面缩放必须在 1–3 之间");
   }
 
-  const gate = findings.some(item => item.severity === "block")
-    ? "block"
-    : findings.length > 0 ? "warn" : "pass";
+  const gate = findings.some((item) => item.severity === "block") ? "block" : findings.length > 0 ? "warn" : "pass";
   return { gate, findings };
 }

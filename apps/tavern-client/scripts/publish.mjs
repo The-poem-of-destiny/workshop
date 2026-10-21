@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
 /**
  * Publish a built Tavern client to a channel.
  *
@@ -9,13 +10,12 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 
 const root = resolve(import.meta.dirname, "..", "..", "..");
 const dist = resolve(import.meta.dirname, "..", "dist", "index.js");
 const manifestPath = resolve(import.meta.dirname, "..", "dist", "manifest.json");
 const args = process.argv.slice(2);
-const value = name => {
+const value = (name) => {
   const index = args.indexOf(`--${name}`);
   return index >= 0 ? args[index + 1] : undefined;
 };
@@ -25,7 +25,8 @@ const dryRun = args.includes("--dry-run");
 
 if (!["staging", "production"].includes(env)) throw new Error("--env must be staging or production");
 if (!["stable", "staging"].includes(channel)) throw new Error("--channel must be stable or staging");
-if (env === "production" && !args.includes("--allow-production")) throw new Error("production publish requires --allow-production");
+if (env === "production" && !args.includes("--allow-production"))
+  throw new Error("production publish requires --allow-production");
 
 const body = readFileSync(dist);
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
@@ -41,26 +42,37 @@ function wrangler(wranglerArgs, capture = false) {
     console.log(`[dry-run] wrangler ${wranglerArgs.join(" ")}`);
     return "";
   }
-  const result = spawnSync(
-    "pnpm",
-    ["--filter", "@workshop/worker", "exec", "wrangler", ...wranglerArgs],
-    { cwd: root, encoding: "utf8", env: { ...process.env, CI: "1" }, stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit" },
-  );
+  const result = spawnSync("pnpm", ["--filter", "@workshop/worker", "exec", "wrangler", ...wranglerArgs], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, CI: "1" },
+    stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit",
+  });
   if (result.status !== 0) throw new Error(`wrangler ${wranglerArgs.join(" ")} failed`);
   return result.stdout;
 }
 
 function upload(key) {
-  wrangler(["r2", "object", "put", `${bucket}/${key}`, "--file", dist, "--content-type", "text/javascript", "--remote"]);
+  wrangler([
+    "r2",
+    "object",
+    "put",
+    `${bucket}/${key}`,
+    "--file",
+    dist,
+    "--content-type",
+    "text/javascript",
+    "--remote",
+  ]);
 }
 
 upload(versionedKey);
 
 const query = `SELECT value FROM site_settings WHERE key = 'client_channels'`;
-const output = wrangler([
-  "d1", "execute", database, "--remote", "--config", "wrangler.jsonc", "--env", env,
-  "--json", "--command", query,
-], true);
+const output = wrangler(
+  ["d1", "execute", database, "--remote", "--config", "wrangler.jsonc", "--env", env, "--json", "--command", query],
+  true,
+);
 let channels = {};
 try {
   const parsed = JSON.parse(output);
@@ -84,7 +96,9 @@ async function purgeChannel() {
   const token = process.env.CLOUDFLARE_API_TOKEN;
   const publicUrl = process.env.WORKSHOP_PUBLIC_URL;
   if (!zone || !token || !publicUrl) {
-    console.log("[purge skipped] set CLOUDFLARE_ZONE_ID, CLOUDFLARE_API_TOKEN and WORKSHOP_PUBLIC_URL to purge the channel");
+    console.log(
+      "[purge skipped] set CLOUDFLARE_ZONE_ID, CLOUDFLARE_API_TOKEN and WORKSHOP_PUBLIC_URL to purge the channel",
+    );
     return;
   }
   if (dryRun) {
@@ -100,4 +114,6 @@ async function purgeChannel() {
 }
 await purgeChannel();
 
-console.log(JSON.stringify({ ok: true, env, channel, version: manifest.version, revision: sha, versionedKey, channelKey }));
+console.log(
+  JSON.stringify({ ok: true, env, channel, version: manifest.version, revision: sha, versionedKey, channelKey }),
+);

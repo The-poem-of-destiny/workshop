@@ -14,12 +14,15 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await bindings.DB.exec("DELETE FROM site_settings;");
-  await bindings.DB.prepare(
-    "INSERT INTO site_settings (key, value, updated_at) VALUES ('client_channels', ?, ?)",
-  ).bind(JSON.stringify({
-    stable: { revision: sha, version: "1.0.0", publishedAt: now },
-    staging: { revision: sha, version: "1.1.0-rc.1", publishedAt: now },
-  }), now).run();
+  await bindings.DB.prepare("INSERT INTO site_settings (key, value, updated_at) VALUES ('client_channels', ?, ?)")
+    .bind(
+      JSON.stringify({
+        stable: { revision: sha, version: "1.0.0", publishedAt: now },
+        staging: { revision: sha, version: "1.1.0-rc.1", publishedAt: now },
+      }),
+      now,
+    )
+    .run();
   await bindings.R2.put(`client/v/${sha}/index.js`, "globalThis.CreativeWorkshop={version:'1.0.0'};");
   await bindings.R2.put("client/stable/index.js", "globalThis.CreativeWorkshop={version:'1.0.0'};");
   await bindings.R2.put("client/staging/index.js", "globalThis.CreativeWorkshop={version:'1.1.0-rc.1'};");
@@ -27,9 +30,13 @@ beforeEach(async () => {
 
 describe("client distribution", () => {
   it("serves versioned artifacts as immutable and stable pointers as revalidating", async () => {
-    const versioned = await app.request(`/client/v/${sha}/index.js`, {
-      headers: { origin: "https://tavern.example" },
-    }, bindings);
+    const versioned = await app.request(
+      `/client/v/${sha}/index.js`,
+      {
+        headers: { origin: "https://tavern.example" },
+      },
+      bindings,
+    );
     expect(versioned.status).toBe(200);
     expect(versioned.headers.get("cache-control")).toContain("immutable");
     expect(versioned.headers.get("cache-tag")).toBe(`client:v:${sha}`);
@@ -75,15 +82,23 @@ describe("client distribution", () => {
     const version = await app.request("/client/version?channel=staging", undefined, bindings);
     expect(version.status).toBe(200);
     await expect(version.json()).resolves.toMatchObject({
-      channel: "staging", revision: sha, version: "1.1.0-rc.1",
+      channel: "staging",
+      revision: sha,
+      version: "1.1.0-rc.1",
     });
 
-    const exact = await app.request(`/api/v1/client/compatibility?version=1.0.0`, {
-      headers: { origin: "https://tavern.example" },
-    }, bindings);
+    const exact = await app.request(
+      `/api/v1/client/compatibility?version=1.0.0`,
+      {
+        headers: { origin: "https://tavern.example" },
+      },
+      bindings,
+    );
     expect(exact.headers.get("access-control-allow-origin")).toBe("*");
     await expect(exact.json()).resolves.toMatchObject({ compatible: true, required: "1.0.0" });
-    expect((await app.request("/api/v1/client/compatibility?channel=constructor", undefined, bindings)).status).toBe(404);
+    expect((await app.request("/api/v1/client/compatibility?channel=constructor", undefined, bindings)).status).toBe(
+      404,
+    );
 
     for (const query of ["version=1.0.1", "version=0.9.0", ""]) {
       const response = await app.request(`/api/v1/client/compatibility?${query}`, undefined, bindings);

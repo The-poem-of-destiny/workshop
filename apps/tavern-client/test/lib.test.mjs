@@ -8,7 +8,14 @@ import { build } from "esbuild";
 
 const dir = await mkdtemp(path.join(os.tmpdir(), "cw-client-lib-"));
 const outfile = path.join(dir, "lib.mjs");
-await build({ entryPoints: [path.resolve("src/lib.ts")], bundle: true, format: "esm", platform: "node", outfile, logLevel: "silent" });
+await build({
+  entryPoints: [path.resolve("src/lib.ts")],
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  outfile,
+  logLevel: "silent",
+});
 const lib = await import(pathToFileURL(outfile).href);
 
 test("entry keys prefer explicit project keys, then uid, then index", () => {
@@ -38,17 +45,39 @@ test("worldbook and regex containers normalize to entry arrays", () => {
 });
 
 test("workshop origins normalize to scheme and host and reject invalid schemes", () => {
-  assert.equal(lib.normalizeWorkshopOrigin("https://workshop.example/path?x=1", "https://fallback.example"), "https://workshop.example");
-  assert.equal(lib.normalizeWorkshopOrigin("http://127.0.0.1:8787/", "https://fallback.example"), "http://127.0.0.1:8787");
-  assert.equal(lib.normalizeWorkshopOrigin("javascript:alert(1)", "https://fallback.example"), "https://fallback.example");
+  assert.equal(
+    lib.normalizeWorkshopOrigin("https://workshop.example/path?x=1", "https://fallback.example"),
+    "https://workshop.example",
+  );
+  assert.equal(
+    lib.normalizeWorkshopOrigin("http://127.0.0.1:8787/", "https://fallback.example"),
+    "http://127.0.0.1:8787",
+  );
+  assert.equal(
+    lib.normalizeWorkshopOrigin("javascript:alert(1)", "https://fallback.example"),
+    "https://fallback.example",
+  );
   assert.equal(lib.normalizeWorkshopOrigin("", "https://fallback.example"), "https://fallback.example");
 });
 
 test("foreign official baseline names fail closed", () => {
   const official = [{ comment: "[DLC][角色]A", content: "official" }];
-  assert.equal(lib.hasForeignBaselineConflict(official, { comment: "[DLC][角色]A", content: "incoming" }, "uid:1"), true);
-  assert.equal(lib.hasForeignBaselineConflict(official, { comment: "[DLC][角色]B", content: "incoming" }, "uid:2"), false);
-  assert.equal(lib.hasForeignBaselineConflict([{ comment: "[DLC][角色]A", extensions: { cw_project_id: "p" } }], { comment: "[DLC][角色]A" }, "uid:1"), false);
+  assert.equal(
+    lib.hasForeignBaselineConflict(official, { comment: "[DLC][角色]A", content: "incoming" }, "uid:1"),
+    true,
+  );
+  assert.equal(
+    lib.hasForeignBaselineConflict(official, { comment: "[DLC][角色]B", content: "incoming" }, "uid:2"),
+    false,
+  );
+  assert.equal(
+    lib.hasForeignBaselineConflict(
+      [{ comment: "[DLC][角色]A", extensions: { cw_project_id: "p" } }],
+      { comment: "[DLC][角色]A" },
+      "uid:1",
+    ),
+    false,
+  );
 });
 
 test("project entries require a project marker string", () => {
@@ -57,4 +86,6 @@ test("project entries require a project marker string", () => {
   assert.equal(lib.projectEntry({}), false);
 });
 
-after(async () => { await rm(dir, { recursive: true, force: true }); });
+after(async () => {
+  await rm(dir, { recursive: true, force: true });
+});

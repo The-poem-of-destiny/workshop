@@ -1,15 +1,21 @@
-import { z } from "zod";
 import { parseDiscordThreadUrl } from "@workshop/domain";
-import { extensionTypeSchema, projectSummarySchema, projectTypeSchema } from "./projects.js";
+import { z } from "zod";
 import { visibilitySchema } from "./identity.js";
+import { extensionTypeSchema, projectSummarySchema, projectTypeSchema } from "./projects.js";
 
-const discordThreadUrlSchema = z.string().trim().max(500).nullable().optional().superRefine((value, ctx) => {
-  if (!value) return;
-  const parsed = parseDiscordThreadUrl(value);
-  if (!parsed.ok) {
-    ctx.addIssue({ code: "custom", message: `Discord 线程地址无效：${parsed.reason}` });
-  }
-});
+const discordThreadUrlSchema = z
+  .string()
+  .trim()
+  .max(500)
+  .nullable()
+  .optional()
+  .superRefine((value, ctx) => {
+    if (!value) return;
+    const parsed = parseDiscordThreadUrl(value);
+    if (!parsed.ok) {
+      ctx.addIssue({ code: "custom", message: `Discord 线程地址无效：${parsed.reason}` });
+    }
+  });
 
 const optionalText = z.string().max(100_000).nullable().optional();
 const tagsSchema = z.array(z.string().min(1).max(100)).max(100).optional();

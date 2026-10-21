@@ -6,10 +6,10 @@ const THREAD = "223456789012345678";
 
 describe("Discord thread URL policy", () => {
   it("accepts only canonical discord.com thread URLs in an allowed guild", () => {
-    expect(normalizeDiscordThreadUrl(
-      `https://www.discord.com/channels/${GUILD}/${THREAD}?x=1#y`,
-      [GUILD],
-    )).toEqual({ ok: true, value: `https://discord.com/channels/${GUILD}/${THREAD}` });
+    expect(normalizeDiscordThreadUrl(`https://www.discord.com/channels/${GUILD}/${THREAD}?x=1#y`, [GUILD])).toEqual({
+      ok: true,
+      value: `https://discord.com/channels/${GUILD}/${THREAD}`,
+    });
     expect(normalizeDiscordThreadUrl("", [GUILD])).toEqual({ ok: true, value: null });
   });
 
@@ -26,13 +26,13 @@ describe("Discord thread URL policy", () => {
   });
 
   it("rejects a well-formed thread from another guild", () => {
-    expect(normalizeDiscordThreadUrl(
-      `https://discord.com/channels/323456789012345678/${THREAD}`,
-      [GUILD],
-    )).toEqual({ ok: false, reason: "guild-not-allowed" });
-    expect(normalizeDiscordThreadUrl(
-      `https://discord.com/channels/${GUILD}/${THREAD}`,
-      [],
-    )).toEqual({ ok: false, reason: "guild-not-allowed" });
+    expect(normalizeDiscordThreadUrl(`https://discord.com/channels/323456789012345678/${THREAD}`, [GUILD])).toEqual({
+      ok: false,
+      reason: "guild-not-allowed",
+    });
+    expect(normalizeDiscordThreadUrl(`https://discord.com/channels/${GUILD}/${THREAD}`, [])).toEqual({
+      ok: false,
+      reason: "guild-not-allowed",
+    });
   });
 });

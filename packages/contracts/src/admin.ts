@@ -1,13 +1,7 @@
 import { z } from "zod";
 import { roleSchema } from "./identity.js";
 
-export const adminSubmissionStatusSchema = z.enum([
-  "pending",
-  "checking",
-  "approved",
-  "rejected",
-  "superseded",
-]);
+export const adminSubmissionStatusSchema = z.enum(["pending", "checking", "approved", "rejected", "superseded"]);
 export type AdminSubmissionStatus = z.infer<typeof adminSubmissionStatusSchema>;
 
 export const adminSubmissionListQuerySchema = z.object({
@@ -17,21 +11,23 @@ export const adminSubmissionListQuerySchema = z.object({
 });
 export type AdminSubmissionListQuery = z.infer<typeof adminSubmissionListQuerySchema>;
 
-export const adminReviewRequestSchema = z.object({
-  decision: z.enum(["approve", "reject"]),
-  reason: z.string().max(4000).optional(),
-  revisionId: z.string().max(80).optional(),
-  manifestHash: z.string().max(128).optional(),
-  reportHash: z.string().max(128).optional(),
-}).superRefine((value, ctx) => {
-  if (value.decision === "reject" && !value.reason?.trim()) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["reason"],
-      message: "拒绝时必须填写理由",
-    });
-  }
-});
+export const adminReviewRequestSchema = z
+  .object({
+    decision: z.enum(["approve", "reject"]),
+    reason: z.string().max(4000).optional(),
+    revisionId: z.string().max(80).optional(),
+    manifestHash: z.string().max(128).optional(),
+    reportHash: z.string().max(128).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.decision === "reject" && !value.reason?.trim()) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["reason"],
+        message: "拒绝时必须填写理由",
+      });
+    }
+  });
 export type AdminReviewRequest = z.infer<typeof adminReviewRequestSchema>;
 
 export const adminRoleRequestSchema = z.object({ role: roleSchema });
@@ -68,17 +64,19 @@ export const adminReviewSchema = z.object({
 });
 
 export const adminSubmissionListResponseSchema = z.object({
-  items: z.array(z.object({
-    id: z.string(),
-    projectId: z.string(),
-    projectTitle: z.string(),
-    author: z.object({ id: z.string(), name: z.string() }),
-    status: adminSubmissionStatusSchema,
-    gate: z.string().nullable(),
-    checkerRevision: z.string().nullable(),
-    checkStatus: z.enum(["queued", "running", "done", "needs_human", "failed"]),
-    submittedAt: z.string(),
-  })),
+  items: z.array(
+    z.object({
+      id: z.string(),
+      projectId: z.string(),
+      projectTitle: z.string(),
+      author: z.object({ id: z.string(), name: z.string() }),
+      status: adminSubmissionStatusSchema,
+      gate: z.string().nullable(),
+      checkerRevision: z.string().nullable(),
+      checkStatus: z.enum(["queued", "running", "done", "needs_human", "failed"]),
+      submittedAt: z.string(),
+    }),
+  ),
   nextCursor: z.string().nullable(),
 });
 

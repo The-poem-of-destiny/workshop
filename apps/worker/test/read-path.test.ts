@@ -2,8 +2,8 @@ import { env } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { app } from "../src/app";
 import type { Env } from "../src/env";
-import { applySchema } from "./support/schema";
 import { listPublishedProjects } from "../src/storage/projects";
+import { applySchema } from "./support/schema";
 
 const bindings = env as unknown as Env;
 const now = "2026-10-21T00:00:00.000Z";
@@ -25,7 +25,9 @@ beforeEach(async () => {
 async function seed() {
   await bindings.DB.prepare(
     "INSERT INTO users (id, username, global_name, avatar, role, created_at, updated_at) VALUES (?, ?, ?, ?, 'member', ?, ?)",
-  ).bind("u1", "author", "作者", "avatar.png", now, now).run();
+  )
+    .bind("u1", "author", "作者", "avatar.png", now, now)
+    .run();
 
   await bindings.DB.prepare(`
     INSERT INTO projects
@@ -33,91 +35,127 @@ async function seed() {
        search_tags, visibility, published_revision_id, published_at, updated_at,
        downloads_count, likes_count, subscriptions_count)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'public', ?, ?, ?, 12, 3, 2)
-  `).bind(
-    "p1", "u1", "命定之诗测试项目", "公开描述", "作者一句话", "系统核心", "规则",
-    '["奇幻","测试"]', "r1", now, now,
-  ).run();
+  `)
+    .bind(
+      "p1",
+      "u1",
+      "命定之诗测试项目",
+      "公开描述",
+      "作者一句话",
+      "系统核心",
+      "规则",
+      '["奇幻","测试"]',
+      "r1",
+      now,
+      now,
+    )
+    .run();
 
   await bindings.DB.prepare(`
     INSERT INTO project_revisions
       (id, project_id, revision_no, title, description, author_note, project_type, extension_type,
        tags, worldbook_count, regex_count, schema_version, discord_thread_url, created_by, created_at)
     VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, 12, 4, '4.3', 'https://discord.com/channels/1/2', ?, ?)
-  `).bind(
-    "r1", "p1", "命定之诗测试项目", "公开描述", "作者一句话", "系统核心", "规则",
-    '["奇幻","测试"]', "u1", now,
-  ).run();
+  `)
+    .bind("r1", "p1", "命定之诗测试项目", "公开描述", "作者一句话", "系统核心", "规则", '["奇幻","测试"]', "u1", now)
+    .run();
 
   await bindings.DB.prepare(`
     INSERT INTO project_revisions (id, project_id, revision_no, title, created_by, created_at)
     VALUES ('r3', 'p1', 2, '草稿', 'u1', ?)
-  `).bind(now).run();
+  `)
+    .bind(now)
+    .run();
   await bindings.DB.prepare("UPDATE projects SET working_revision_id = 'r3' WHERE id = 'p1'").run();
 
   await bindings.DB.prepare(`
     INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
     VALUES ('cover1', 'p1', 'r1', 'cover', 'covers/p1.webp', ?, 100, 'image/webp', ?)
-  `).bind("0".repeat(64), now).run();
+  `)
+    .bind("0".repeat(64), now)
+    .run();
   await bindings.R2.put("covers/p1.webp", new Uint8Array([1, 2, 3]));
   await bindings.DB.prepare(`
     INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
     VALUES ('cover3', 'p1', 'r3', 'cover', 'covers/p1/r3-cover.webp', ?, 3, 'image/webp', ?)
-  `).bind("3".repeat(64), now).run();
+  `)
+    .bind("3".repeat(64), now)
+    .run();
   await bindings.R2.put("covers/p1/r3-cover.webp", new Uint8Array([4, 5, 6]));
 
   await bindings.DB.prepare(`
     INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
     VALUES ('worldbook1', 'p1', 'r1', 'worldbook', 'projects/p1/revisions/r1/worldbook.json', ?, 20, 'application/json', ?)
-  `).bind("1".repeat(64), now).run();
+  `)
+    .bind("1".repeat(64), now)
+    .run();
   await bindings.R2.put("projects/p1/revisions/r1/worldbook.json", '{"entries":[]}');
 
   const tokenHash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("test-token")))]
-    .map(byte => byte.toString(16).padStart(2, "0"))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
   await bindings.DB.prepare(`
     INSERT INTO sessions (token_hash, user_id, session_version, expires_at, created_at, last_seen_at)
     VALUES (?, 'u1', 1, '2099-01-01T00:00:00.000Z', ?, ?)
-  `).bind(tokenHash, now, now).run();
+  `)
+    .bind(tokenHash, now, now)
+    .run();
   await bindings.DB.prepare(
     "INSERT INTO users (id, username, role, created_at, updated_at) VALUES ('u2', 'other', 'member', ?, ?)",
-  ).bind(now, now).run();
+  )
+    .bind(now, now)
+    .run();
   const otherHash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("other-token")))]
-    .map(byte => byte.toString(16).padStart(2, "0"))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
   await bindings.DB.prepare(`
     INSERT INTO sessions (token_hash, user_id, session_version, expires_at, created_at, last_seen_at)
     VALUES (?, 'u2', 1, '2099-01-01T00:00:00.000Z', ?, ?)
-  `).bind(otherHash, now, now).run();
+  `)
+    .bind(otherHash, now, now)
+    .run();
 
   await bindings.DB.prepare(`
     INSERT INTO projects
       (id, author_id, title, visibility, working_revision_id, published_revision_id, published_at, updated_at)
     VALUES ('p2', 'u1', '私有项目', 'private', 'r2', 'r2', ?, ?)
-  `).bind(now, now).run();
+  `)
+    .bind(now, now)
+    .run();
   await bindings.DB.prepare(`
     INSERT INTO project_revisions (id, project_id, revision_no, title, created_by, created_at)
     VALUES ('r2', 'p2', 1, '私有项目', 'u1', ?)
-  `).bind(now).run();
+  `)
+    .bind(now)
+    .run();
   await bindings.DB.prepare(`
     INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
     VALUES ('cover2', 'p2', 'r2', 'cover', 'covers/p2/r2-cover.webp', ?, 3, 'image/webp', ?)
-  `).bind("2".repeat(64), now).run();
+  `)
+    .bind("2".repeat(64), now)
+    .run();
   await bindings.R2.put("covers/p2/r2-cover.webp", new Uint8Array([7, 8, 9]));
 
   await bindings.DB.prepare(`
     INSERT INTO recommendations (id, curator_id, project_id, comment, reaction, created_at, updated_at)
     VALUES ('rec1', 'u1', 'p1', '推荐语', '🔥', ?, ?)
-  `).bind(now, now).run();
+  `)
+    .bind(now, now)
+    .run();
 
   await bindings.DB.prepare(`
     INSERT INTO reference_sets (id, name, description, created_by, created_at, updated_at)
     VALUES ('set1', '官方基准', '基准描述', 'u1', ?, ?)
-  `).bind(now, now).run();
+  `)
+    .bind(now, now)
+    .run();
   await bindings.DB.prepare(`
     INSERT INTO reference_versions
       (id, reference_set_id, version_label, version_ordinal, grace_until, created_by, created_at)
     VALUES ('v1', 'set1', '4.3.3', 1, ?, 'u1', ?)
-  `).bind(now, now).run();
+  `)
+    .bind(now, now)
+    .run();
   await bindings.DB.prepare(`
     INSERT INTO reference_items
       (id, reference_version_id, kind, display_name, exact_hash, normalized_content_hash, name_hash, structure_hash)
@@ -131,10 +169,20 @@ async function seed() {
 
   await bindings.DB.prepare(`
     INSERT INTO site_settings (key, value, updated_at) VALUES ('discover_banner', ?, ?)
-  `).bind(JSON.stringify({
-    imageUrl: null, positionX: 40, positionY: 50, zoom: 1,
-    mobilePositionX: 40, mobilePositionY: 50, mobileZoom: 1,
-  }), now).run();
+  `)
+    .bind(
+      JSON.stringify({
+        imageUrl: null,
+        positionX: 40,
+        positionY: 50,
+        zoom: 1,
+        mobilePositionX: 40,
+        mobilePositionY: 50,
+        mobileZoom: 1,
+      }),
+      now,
+    )
+    .run();
 }
 
 describe("public read path", () => {
@@ -167,7 +215,7 @@ describe("public read path", () => {
   it("keeps the public list within a bounded rows-read budget", async () => {
     await seed();
     const meta = { rows_read: Infinity, rows_written: Infinity };
-    const page = await listPublishedProjects(bindings.DB, { limit: 24, sort: "updated" }, value => {
+    const page = await listPublishedProjects(bindings.DB, { limit: 24, sort: "updated" }, (value) => {
       meta.rows_read = value.rows_read;
       meta.rows_written = value.rows_written;
     });
@@ -191,7 +239,7 @@ describe("public read path", () => {
       const response = await app.request(`/api/v1/projects?search=${encodeURIComponent(query)}`, undefined, bindings);
       expect(response.status).toBe(200);
       const body = (await response.json()) as { items: Array<{ id: string }> };
-      expect(body.items.map(item => item.id)).toEqual(["p1"]);
+      expect(body.items.map((item) => item.id)).toEqual(["p1"]);
     }
     for (const query of ['"', "'", "-"]) {
       const response = await app.request(`/api/v1/projects?search=${encodeURIComponent(query)}`, undefined, bindings);
@@ -201,8 +249,10 @@ describe("public read path", () => {
       EXPLAIN QUERY PLAN
       SELECT p.id FROM projects p
       WHERE p.rowid IN (SELECT rowid FROM project_search_short WHERE project_search_short MATCH ?)
-    `).bind('"命"').all<{ detail: string }>();
-    expect(plan.results.some(row => row.detail.includes("project_search_short"))).toBe(true);
+    `)
+      .bind('"命"')
+      .all<{ detail: string }>();
+    expect(plan.results.some((row) => row.detail.includes("project_search_short"))).toBe(true);
   });
 
   it("returns project detail and hides private projects", async () => {
@@ -227,14 +277,18 @@ describe("public read path", () => {
     const headers = { authorization: "Bearer test-token" };
     const response = await app.request("/api/v1/projects/p1/downloads", { method: "POST", headers }, bindings);
     expect(response.status).toBe(201);
-    const ticket = await response.json() as { files: Array<{ kind: string; url: string; expiresAt: string }> };
+    const ticket = (await response.json()) as { files: Array<{ kind: string; url: string; expiresAt: string }> };
     expect(ticket.files).toHaveLength(1);
     expect(ticket.files[0]).toMatchObject({ kind: "worldbook" });
     expect(ticket.files[0]!.expiresAt).toBeTruthy();
 
-    const otherUser = await app.request(ticket.files[0]!.url, {
-      headers: { authorization: "Bearer other-token" },
-    }, bindings);
+    const otherUser = await app.request(
+      ticket.files[0]!.url,
+      {
+        headers: { authorization: "Bearer other-token" },
+      },
+      bindings,
+    );
     expect(otherUser.status).toBe(404);
     const download = await app.request(ticket.files[0]!.url, { headers }, bindings);
     expect(download.status).toBe(200);
@@ -243,30 +297,37 @@ describe("public read path", () => {
     expect(replay.status).toBe(404);
 
     const concurrentIssue = await app.request("/api/v1/projects/p1/downloads", { method: "POST", headers }, bindings);
-    const concurrentTicket = await concurrentIssue.json() as { files: Array<{ url: string }> };
+    const concurrentTicket = (await concurrentIssue.json()) as { files: Array<{ url: string }> };
     const concurrent = await Promise.all([
       app.request(concurrentTicket.files[0]!.url, { headers }, bindings),
       app.request(concurrentTicket.files[0]!.url, { headers }, bindings),
     ]);
-    expect(concurrent.filter(response => response.status === 200)).toHaveLength(1);
-    expect(concurrent.filter(response => response.status === 404)).toHaveLength(1);
+    expect(concurrent.filter((response) => response.status === 200)).toHaveLength(1);
+    expect(concurrent.filter((response) => response.status === 404)).toHaveLength(1);
 
     const sessionBound = await app.request("/api/v1/projects/p1/downloads", { method: "POST", headers }, bindings);
-    const sessionTicket = await sessionBound.json() as { files: Array<{ url: string }> };
+    const sessionTicket = (await sessionBound.json()) as { files: Array<{ url: string }> };
     await bindings.DB.prepare("UPDATE sessions SET session_version = 2 WHERE user_id = 'u1'").run();
     expect((await app.request(sessionTicket.files[0]!.url, { headers }, bindings)).status).toBe(404);
     await bindings.DB.prepare("UPDATE sessions SET session_version = 1 WHERE user_id = 'u1'").run();
 
     const duplicate = await app.request("/api/v1/projects/p1/downloads", { method: "POST", headers }, bindings);
     expect(duplicate.status).toBe(201);
-    const duplicateTicket = await duplicate.json() as { files: Array<{ url: string }> };
-    await bindings.DB.prepare("UPDATE download_tokens SET expires_at = ? WHERE token_hash IN (SELECT token_hash FROM download_tokens)")
-      .bind("2000-01-01T00:00:00.000Z").run();
+    const duplicateTicket = (await duplicate.json()) as { files: Array<{ url: string }> };
+    await bindings.DB.prepare(
+      "UPDATE download_tokens SET expires_at = ? WHERE token_hash IN (SELECT token_hash FROM download_tokens)",
+    )
+      .bind("2000-01-01T00:00:00.000Z")
+      .run();
     expect((await app.request(duplicateTicket.files[0]!.url, { headers }, bindings)).status).toBe(404);
 
-    const project = await bindings.DB.prepare("SELECT downloads_count FROM projects WHERE id = 'p1'").first<{ downloads_count: number }>();
+    const project = await bindings.DB.prepare("SELECT downloads_count FROM projects WHERE id = 'p1'").first<{
+      downloads_count: number;
+    }>();
     expect(project?.downloads_count).toBe(13);
-    const metric = await bindings.DB.prepare("SELECT downloads FROM project_metrics_daily WHERE project_id = 'p1'").first<{ downloads: number }>();
+    const metric = await bindings.DB.prepare(
+      "SELECT downloads FROM project_metrics_daily WHERE project_id = 'p1'",
+    ).first<{ downloads: number }>();
     expect(metric?.downloads).toBe(1);
   });
 
@@ -282,7 +343,9 @@ describe("public read path", () => {
     expect(privateCover.status).toBe(404);
 
     const headers = { authorization: "Bearer test-token" };
-    await bindings.DB.prepare("UPDATE projects SET deleted_at = ? WHERE id = 'p1'").bind("2026-10-21T00:00:00.000Z").run();
+    await bindings.DB.prepare("UPDATE projects SET deleted_at = ? WHERE id = 'p1'")
+      .bind("2026-10-21T00:00:00.000Z")
+      .run();
     expect((await app.request("/api/v1/assets/covers/p1.webp", undefined, bindings)).status).toBe(404);
     await bindings.DB.prepare("UPDATE projects SET deleted_at = NULL WHERE id = 'p1'").run();
 
@@ -297,7 +360,7 @@ describe("public read path", () => {
     await seed();
     const response = await app.request("/api/v1/projects/p1/entries", undefined, bindings);
     expect(response.status).toBe(200);
-    const body = await response.json() as { revisionId: string; entries: Array<Record<string, unknown>> };
+    const body = (await response.json()) as { revisionId: string; entries: Array<Record<string, unknown>> };
     expect(body.revisionId).toBe("r1");
     expect(Array.isArray(body.entries)).toBe(true);
     expect(JSON.stringify(body)).not.toContain('"content"');
@@ -306,16 +369,24 @@ describe("public read path", () => {
   it("returns an authenticated install payload without exposing it anonymously", async () => {
     await seed();
     expect((await app.request("/api/v1/projects/p1/install", undefined, bindings)).status).toBe(401);
-    await bindings.DB.prepare(
-      "INSERT INTO site_settings (key, value, updated_at) VALUES ('client_channels', ?, ?)",
-    ).bind(JSON.stringify({ stable: { revision: "r1", version: "1.0.0" } }), now).run();
-    const wrong = await app.request("/api/v1/projects/p1/install", {
-      headers: { authorization: "Bearer test-token", "x-client-version": "0.9.0" },
-    }, bindings);
+    await bindings.DB.prepare("INSERT INTO site_settings (key, value, updated_at) VALUES ('client_channels', ?, ?)")
+      .bind(JSON.stringify({ stable: { revision: "r1", version: "1.0.0" } }), now)
+      .run();
+    const wrong = await app.request(
+      "/api/v1/projects/p1/install",
+      {
+        headers: { authorization: "Bearer test-token", "x-client-version": "0.9.0" },
+      },
+      bindings,
+    );
     expect(wrong.status).toBe(426);
-    const response = await app.request("/api/v1/projects/p1/install", {
-      headers: { authorization: "Bearer test-token", "x-client-version": "1.0.0" },
-    }, bindings);
+    const response = await app.request(
+      "/api/v1/projects/p1/install",
+      {
+        headers: { authorization: "Bearer test-token", "x-client-version": "1.0.0" },
+      },
+      bindings,
+    );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       project: { id: "p1", version: "r1" },

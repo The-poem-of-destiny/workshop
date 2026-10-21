@@ -5,8 +5,9 @@
 // returns everything the server needs to bind the trusted reviewer's submitted
 // result: hashes, revisions, gate and the audit snapshot. The server verifies only
 // those bindings afterwards and never re-runs this analysis.
-import { analyzeProjectCodeV2, CHECKER_VERSION } from './index.mjs';
-import { applyAuditBaseline, buildAuditSnapshot } from './audit.mjs';
+
+import { applyAuditBaseline, buildAuditSnapshot } from "./audit.mjs";
+import { analyzeProjectCodeV2, CHECKER_VERSION } from "./index.mjs";
 
 self.onmessage = async ({ data: { files, baseline, projectId, draftRevision } }) => {
   try {
@@ -14,9 +15,7 @@ self.onmessage = async ({ data: { files, baseline, projectId, draftRevision } })
     // Keep a content-bound snapshot even for high-severity findings. The machine
     // result remains reject; authorized humans can explicitly override it.
     const auditSnapshot = await buildAuditSnapshot(files, report);
-    const merged = auditSnapshot
-      ? applyAuditBaseline(report, auditSnapshot, baseline || null)
-      : report;
+    const merged = auditSnapshot ? applyAuditBaseline(report, auditSnapshot, baseline || null) : report;
     self.postMessage({
       success: true,
       gate: report.gate,
@@ -25,14 +24,14 @@ self.onmessage = async ({ data: { files, baseline, projectId, draftRevision } })
       engine: report.engine,
       parserCompatibility: report.parserCompatibility,
       policyVersion: report.policyVersion,
-      checkerRevision: CHECKER_VERSION.engine + ':' + CHECKER_VERSION.policyVersion,
+      checkerRevision: CHECKER_VERSION.engine + ":" + CHECKER_VERSION.policyVersion,
       projectId,
       draftRevision,
-      filesHash: auditSnapshot ? auditSnapshot.filesHash : '',
+      filesHash: auditSnapshot ? auditSnapshot.filesHash : "",
       auditSnapshot,
       report: merged,
     });
   } catch {
-    self.postMessage({ success: false, error: '本机未能完成这条内容检查，请稍后重试或联系维护人员。' });
+    self.postMessage({ success: false, error: "本机未能完成这条内容检查，请稍后重试或联系维护人员。" });
   }
 };

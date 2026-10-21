@@ -10,19 +10,27 @@ const now = "2026-10-21T00:00:00.000Z";
 async function seedProject(id: string, downloads: number) {
   await bindings.DB.prepare(
     "INSERT INTO users (id, username, role, created_at, updated_at) VALUES (?, ?, 'member', ?, ?)",
-  ).bind(`u-${id}`, `u-${id}`, now, now).run();
+  )
+    .bind(`u-${id}`, `u-${id}`, now, now)
+    .run();
   await bindings.DB.prepare(`
     INSERT INTO projects (id, author_id, title, visibility, working_revision_id, published_revision_id,
       published_at, created_at, updated_at)
     VALUES (?, ?, ?, 'public', ?, ?, ?, ?, ?)
-  `).bind(id, `u-${id}`, id, `r-${id}`, `r-${id}`, now, now, now).run();
+  `)
+    .bind(id, `u-${id}`, id, `r-${id}`, `r-${id}`, now, now, now)
+    .run();
   await bindings.DB.prepare(`
     INSERT INTO project_revisions (id, project_id, revision_no, title, created_by, created_at)
     VALUES (?, ?, 1, ?, ?, ?)
-  `).bind(`r-${id}`, id, id, `u-${id}`, now).run();
+  `)
+    .bind(`r-${id}`, id, id, `u-${id}`, now)
+    .run();
   await bindings.DB.prepare(`
     INSERT INTO project_metrics_daily (day_key, project_id, downloads) VALUES (?, ?, ?)
-  `).bind(now.slice(0, 10), id, downloads).run();
+  `)
+    .bind(now.slice(0, 10), id, downloads)
+    .run();
 }
 
 beforeAll(async () => {
@@ -49,9 +57,10 @@ describe("scheduled jobs", () => {
     await seedProject("p2", 3);
     await buildRankings(bindings.DB);
 
-    const runs = await bindings.DB.prepare(
-      "SELECT kind, status FROM ranking_runs ORDER BY kind",
-    ).all<{ kind: string; status: string }>();
+    const runs = await bindings.DB.prepare("SELECT kind, status FROM ranking_runs ORDER BY kind").all<{
+      kind: string;
+      status: string;
+    }>();
     expect(runs.results).toEqual([
       { kind: "30d", status: "complete" },
       { kind: "7d", status: "complete" },
@@ -66,9 +75,10 @@ describe("scheduled jobs", () => {
       { rank: 1, project_id: "p1", score: 10 },
       { rank: 2, project_id: "p2", score: 3 },
     ]);
-    const exposures = await bindings.DB.prepare(
-      "SELECT project_id, rank FROM discovery_exposures ORDER BY rank",
-    ).all<{ project_id: string; rank: number }>();
+    const exposures = await bindings.DB.prepare("SELECT project_id, rank FROM discovery_exposures ORDER BY rank").all<{
+      project_id: string;
+      rank: number;
+    }>();
     expect(exposures.results).toEqual([
       { project_id: "p1", rank: 1 },
       { project_id: "p2", rank: 2 },
@@ -91,9 +101,7 @@ describe("scheduled jobs", () => {
   });
 
   it("removes expired sessions, flows and download tokens", async () => {
-    await bindings.DB.prepare(
-      "INSERT INTO users (id, username) VALUES ('u1', 'u1')",
-    ).run();
+    await bindings.DB.prepare("INSERT INTO users (id, username) VALUES ('u1', 'u1')").run();
     await bindings.DB.prepare(
       "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ('s', 'u1', '2000-01-01T00:00:00.000Z')",
     ).run();
@@ -104,7 +112,9 @@ describe("scheduled jobs", () => {
     await bindings.DB.prepare(`
       INSERT INTO download_tokens (token_hash, user_id, project_id, revision_id, kind, expires_at)
       VALUES ('d', 'u1', 'p', 'r', 'worldbook', '2000-01-01T00:00:00.000Z')
-    `).run().catch(() => undefined);
+    `)
+      .run()
+      .catch(() => undefined);
     await cleanupExpired(bindings.DB);
     const counts = await Promise.all([
       bindings.DB.prepare("SELECT COUNT(*) AS n FROM sessions").first<{ n: number }>(),

@@ -1,6 +1,5 @@
 import type { ProjectEntryKind } from "./content-policy.js";
 
-
 type EntryRef = {
   entry: Record<string, unknown>;
   entryKey: string;
@@ -9,11 +8,13 @@ type EntryRef = {
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function primitiveId(value: unknown): string | null {
-  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  if (typeof value === "string" || typeof value === "number") return String(value);
   return null;
 }
 
@@ -25,7 +26,7 @@ export function getProjectEntryKey(
 ): string {
   if (objectKey !== undefined) return `object:${objectKey}`;
 
-  if (kind === 'worldbook') {
+  if (kind === "worldbook") {
     const extensions = asRecord(entry.extensions);
     const id = primitiveId(entry.uid) ?? primitiveId(extensions?.cw_entry_id);
     return id !== null ? `uid:${id}` : `index:${index}`;
@@ -76,7 +77,7 @@ export function extractProjectEntries(raw: unknown, kind: ProjectEntryKind): Ent
       }));
   }
 
-  if (kind === 'regex') {
+  if (kind === "regex") {
     return [
       {
         entry: record,
@@ -93,7 +94,7 @@ export function parseProjectJson(text: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
-    throw new Error('项目 JSON 无法解析');
+    throw new Error("项目 JSON 无法解析");
   }
 }
 
@@ -117,12 +118,12 @@ function getRegexImportValues(raw: unknown): unknown[] | null {
 }
 
 function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function isSillyTavernWorldbookJson(raw: unknown): boolean {
   const values = getWorldbookImportValues(raw);
-  return values !== null && values.length > 0 && values.every(value => asRecord(value) !== null);
+  return values !== null && values.length > 0 && values.every((value) => asRecord(value) !== null);
 }
 
 function isSillyTavernRegexJson(raw: unknown): boolean {
@@ -130,7 +131,7 @@ function isSillyTavernRegexJson(raw: unknown): boolean {
   return (
     values !== null &&
     values.length > 0 &&
-    values.every(value => {
+    values.every((value) => {
       const record = asRecord(value);
       return Boolean(record && isNonEmptyString(record.scriptName));
     })
@@ -150,7 +151,7 @@ export function isEmptyProjectContentText(text: string, kind: ProjectEntryKind):
     return false;
   }
 
-  if (kind === 'worldbook') {
+  if (kind === "worldbook") {
     const values = getWorldbookImportValues(raw);
     return values !== null && values.length === 0;
   }
@@ -174,47 +175,49 @@ export function validateProjectContentText(text: string, kind: ProjectEntryKind)
     return {
       valid: false,
       entryCount: 0,
-      error: error instanceof Error ? error.message : '项目 JSON 无法解析',
+      error: error instanceof Error ? error.message : "项目 JSON 无法解析",
     };
   }
 
-  if (kind === 'worldbook') {
+  if (kind === "worldbook") {
     const values = getWorldbookImportValues(raw);
     if (values === null) {
       return {
         valid: false,
         entryCount: 0,
         error: isSillyTavernRegexJson(raw)
-          ? '检测到正则 JSON，请上传到正则文件'
-          : '不支持的世界书 JSON 结构：需要 SillyTavern 世界书的顶层 entries',
+          ? "检测到正则 JSON，请上传到正则文件"
+          : "不支持的世界书 JSON 结构：需要 SillyTavern 世界书的顶层 entries",
       };
     }
     if (values.length === 0) {
-      return { valid: false, entryCount: 0, error: '世界书没有可识别的条目' };
+      return { valid: false, entryCount: 0, error: "世界书没有可识别的条目" };
     }
-    if (!values.every(value => asRecord(value) !== null)) {
-      return { valid: false, entryCount: 0, error: '世界书 JSON 格式不正确：entries 必须只包含条目对象' };
+    if (!values.every((value) => asRecord(value) !== null)) {
+      return { valid: false, entryCount: 0, error: "世界书 JSON 格式不正确：entries 必须只包含条目对象" };
     }
     return { valid: true, entryCount: values.length };
   }
 
   const values = getRegexImportValues(raw);
   if (values === null) {
-    return { valid: false, entryCount: 0, error: '不支持的正则 JSON 结构' };
+    return { valid: false, entryCount: 0, error: "不支持的正则 JSON 结构" };
   }
   if (values.length === 0) {
-    return { valid: false, entryCount: 0, error: '正则文件没有可识别的条目' };
+    return { valid: false, entryCount: 0, error: "正则文件没有可识别的条目" };
   }
-  if (!values.every(value => {
-    const record = asRecord(value);
-    return Boolean(record && isNonEmptyString(record.scriptName));
-  })) {
+  if (
+    !values.every((value) => {
+      const record = asRecord(value);
+      return Boolean(record && isNonEmptyString(record.scriptName));
+    })
+  ) {
     return {
       valid: false,
       entryCount: 0,
       error: isSillyTavernWorldbookJson(raw)
-        ? '检测到世界书 JSON，请上传到世界书文件'
-        : '正则 JSON 格式不正确：每个正则必须包含非空 scriptName',
+        ? "检测到世界书 JSON，请上传到世界书文件"
+        : "正则 JSON 格式不正确：每个正则必须包含非空 scriptName",
     };
   }
 
@@ -228,14 +231,14 @@ export function removeProjectEntryFromJson(
 ): { text: string; removed: Record<string, unknown> } {
   const raw = parseProjectJson(text);
   const refs = extractProjectEntries(raw, kind);
-  const target = refs.find(ref => ref.entryKey === entryKey);
-  if (!target) throw new Error('条目不存在，项目可能已被其他人更新');
+  const target = refs.find((ref) => ref.entryKey === entryKey);
+  if (!target) throw new Error("条目不存在，项目可能已被其他人更新");
 
   if (Array.isArray(raw)) {
     raw.splice(target.index, 1);
   } else {
     const record = asRecord(raw);
-    if (!record) throw new Error('项目 JSON 结构无效');
+    if (!record) throw new Error("项目 JSON 结构无效");
 
     if (Array.isArray(record.entries)) {
       record.entries.splice(target.index, 1);
@@ -243,10 +246,10 @@ export function removeProjectEntryFromJson(
       const entriesObject = asRecord(record.entries);
       if (entriesObject && target.objectKey !== undefined) {
         delete entriesObject[target.objectKey];
-      } else if (kind === 'regex') {
-        return { text: '[]', removed: target.entry };
+      } else if (kind === "regex") {
+        return { text: "[]", removed: target.entry };
       } else {
-        throw new Error('项目 JSON 结构不支持删除条目');
+        throw new Error("项目 JSON 结构不支持删除条目");
       }
     }
   }

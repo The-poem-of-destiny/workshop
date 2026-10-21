@@ -69,13 +69,13 @@ export const authSessionResponseSchema = z.object({
 });
 export type AuthSessionResponse = z.infer<typeof authSessionResponseSchema>;
 
-export {
-  interactionStateItemSchema,
-  meStateResponseSchema,
-  ratingInputSchema,
-} from "./interactions.js";
 export type {
   InteractionStateItem,
   MeStateResponse,
   RatingInput,
+} from "./interactions.js";
+export {
+  interactionStateItemSchema,
+  meStateResponseSchema,
+  ratingInputSchema,
 } from "./interactions.js";

@@ -10,17 +10,13 @@ export async function hashSessionToken(token: string, secret?: string): Promise<
     const digest = await crypto.subtle.digest("SHA-256", encoder.encode(token));
     return toHex(digest);
   }
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [
+    "sign",
+  ]);
   const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(token));
   return toHex(signature);
 }
 
 function toHex(value: ArrayBuffer): string {
-  return [...new Uint8Array(value)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+  return [...new Uint8Array(value)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
