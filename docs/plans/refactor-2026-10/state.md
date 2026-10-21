@@ -4,7 +4,7 @@
 
 ## 当前分支
 
-`main` 已合并 `refactor/2026-10`（PR #1，merge commit `9b06f24`），并继续合入文档与 CI 修正（当前 `f2c419a`）。重构前状态保留在 `archive/pre-refactor-2026-10`（`4fdf71a`）。
+`main` 已合并 `refactor/2026-10`（PR #1，merge commit `9b06f24`），并继续合入文档与 CI 修正。重构前状态保留在 `archive/pre-refactor-2026-10`（`4fdf71a`）。
 
 ## 2026-10-21 续作
 
