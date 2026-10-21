@@ -1,12 +1,10 @@
 name: deploy-staging
 
 on:
-  push:
+  workflow_run:
+    workflows: ["refactor-ci"]
+    types: [completed]
     branches: [main]
-    paths:
-      - "apps/worker/**"
-      - ".github/workflows/deploy-staging.yml"
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,7 +14,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  build:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @workshop/worker web:build
+      - name: Record artifact hash
+        run: |
+          set -euo pipefail
+          find apps/worker/web/dist -type f -print0 | sort -z | xargs -0 sha256sum > artifact.sha256
+          cat artifact.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staging-web-${{ github.event.workflow_run.head_sha }}
+          path: |
+            apps/worker/web/dist
+            artifact.sha256
+          if-no-files-found: error
+          retention-days: 30
+
   deploy:
+    needs: build
     environment: staging
     runs-on: ubuntu-latest
     env:
@@ -24,14 +53,27 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
-
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
-      - name: Deploy worker
-        run: npx --yes wrangler@4 deploy --config apps/worker/wrangler.jsonc --env staging
-
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: staging-web-${{ github.event.workflow_run.head_sha }}
+      - name: Verify downloaded artifact hash
+        run: sha256sum -c artifact.sha256
+      - name: Apply staging migrations
+        run: pnpm --filter @workshop/worker exec wrangler d1 migrations apply workshop-staging --remote --config wrangler.jsonc --env staging
+      - name: Deploy staging worker
+        run: pnpm --filter @workshop/worker exec wrangler deploy --config wrangler.jsonc --env staging
+      - name: Record worker version
+        run: pnpm --filter @workshop/worker exec wrangler deployments list --config wrangler.jsonc --env staging | tee deployment.txt
       - name: Smoke test
         run: |
           set -euo pipefail

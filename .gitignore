@@ -4,13 +4,10 @@ doc/
 node_modules/
 .wrangler/
 worker-configuration.d.ts
-cloudflare/wrangler.master-staging.jsonc
-cloudflare/wrangler.discover-preview.jsonc
-cloudflare/.preview-assets/
 .ai-bridge/
-.cotel/local/
-playwright-report/
-test-results/
+
+# machine-local agent context — never commit
+AGENTS.local.md
 
 # local secrets — never commit
 .env
@@ -22,3 +19,19 @@ test-results/
 
 # deployment backups
 backup*.sql
+
+# local D1/R2 dumps — never commit, only used for P4 migration rehearsal
+data_backup/
+
+# built web assets
+apps/worker/web/dist/
+packages/content/dist/
+apps/tavern-client/dist/
+apps/tavern-client/.local/
+
+
+__pycache__/
+*.pyc
+
+# sync conflict copies
+*.sync-conflict-*

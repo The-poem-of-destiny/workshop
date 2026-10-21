@@ -1,0 +1,23 @@
+{
+  "success": true,
+  "references": [
+    {
+      "id": "charref_14b370ed16444f8fae4fe70418e0042f",
+      "name": "命定之诗与黄昏之歌",
+      "description": "官方角色卡版本基准",
+      "createdAt": "2026-09-19T08:33:36.120Z",
+      "updatedAt": "2026-09-19T08:33:38.356Z",
+      "versions": [
+        {
+          "id": "refver_a785c6fa13064b0996786f8c06e4ea2f",
+          "versionLabel": "4.3.3",
+          "versionOrdinal": 1,
+          "graceUntil": "2026-09-26T08:33:38.356Z",
+          "createdAt": "2026-09-19T08:33:38.356Z",
+          "worldbookCount": 537,
+          "regexCount": 11
+        }
+      ]
+    }
+  ]
+}

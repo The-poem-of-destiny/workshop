@@ -1,0 +1,172 @@
+{
+  "base": "https://poemofdestinycreativeworkshop.1528779666.workers.dev",
+  "capturedAt": "2026-10-20T17:58:48.893Z",
+  "note": "Anonymous public reads only. Product semantics oracle; never a security/cache oracle.",
+  "entries": [
+    {
+      "name": "projects-default",
+      "path": "/api/projects",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json;charset=UTF-8",
+        "cache-control": "private, no-store",
+        "vary": "Authorization",
+        "access-control-allow-origin": "*"
+      }
+    },
+    {
+      "name": "project-1-detail",
+      "path": "/api/projects/91324b94-00e1-4f38-a597-2726f054f2a3",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json;charset=UTF-8",
+        "cache-control": "public, max-age=120, s-maxage=300, stale-while-revalidate=600",
+        "vary": "Authorization",
+        "access-control-allow-origin": "*"
+      }
+    },
+    {
+      "name": "project-1-install-info",
+      "path": "/api/projects/91324b94-00e1-4f38-a597-2726f054f2a3/install-info",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "access-control-allow-origin": "*"
+      }
+    },
+    {
+      "name": "project-2-detail",
+      "path": "/api/projects/9b4a8d48-1b4e-46fc-b0be-913f83205a92",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json;charset=UTF-8",
+        "cache-control": "public, max-age=120, s-maxage=300, stale-while-revalidate=600",
+        "vary": "Authorization",
+        "access-control-allow-origin": "*"
+      }
+    },
+    {
+      "name": "project-2-install-info",
+      "path": "/api/projects/9b4a8d48-1b4e-46fc-b0be-913f83205a92/install-info",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "access-control-allow-origin": "*"
+      }
+    },
+    {
+      "name": "project-3-detail",
+      "path": "/api/projects/17121ef6-cb4e-4ed9-b53d-8aed275435ec",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json;charset=UTF-8",
+        "cache-control": "public, max-age=120, s-maxage=300, stale-while-revalidate=600",
+        "vary": "Authorization",
+        "access-control-allow-origin": "*"
+      }
+    },
+    {
+      "name": "project-3-install-info",
+      "path": "/api/projects/17121ef6-cb4e-4ed9-b53d-8aed275435ec/install-info",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json",
+        "access-control-allow-origin": "*"
+      }
+    },
+    {
+      "name": "projects-page-1",
+      "path": "/api/projects?page=1&pageSize=20",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json;charset=UTF-8",
+        "cache-control": "private, no-store",
+        "vary": "Authorization",
+        "access-control-allow-origin": "*"
+      }
+    },
+    {
+      "name": "projects-downloads",
+      "path": "/api/projects?sort=downloads&pageSize=5",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json;charset=UTF-8",
+        "cache-control": "private, no-store",
+        "vary": "Authorization",
+        "access-control-allow-origin": "*"
+      }
+    },
+    {
+      "name": "projects-updated",
+      "path": "/api/projects?sort=updated&pageSize=5",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json;charset=UTF-8",
+        "cache-control": "private, no-store",
+        "vary": "Authorization",
+        "access-control-allow-origin": "*"
+      }
+    },
+    {
+      "name": "projects-search",
+      "path": "/api/projects?search=%E5%91%BD%E5%AE%9A&pageSize=5",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json;charset=UTF-8",
+        "cache-control": "private, no-store",
+        "vary": "Authorization",
+        "access-control-allow-origin": "*"
+      }
+    },
+    {
+      "name": "projects-type-core",
+      "path": "/api/projects?projectType=%E7%B3%BB%E7%BB%9F%E6%A0%B8%E5%BF%83&pageSize=5",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json;charset=UTF-8",
+        "cache-control": "private, no-store",
+        "vary": "Authorization",
+        "access-control-allow-origin": "*"
+      }
+    },
+    {
+      "name": "discover-banner",
+      "path": "/api/site/discover-banner",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json;charset=UTF-8",
+        "cache-control": "public, max-age=0, must-revalidate",
+        "access-control-allow-origin": "*"
+      }
+    },
+    {
+      "name": "recommendations",
+      "path": "/api/devteam-recommendations",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json;charset=UTF-8",
+        "cache-control": "private, no-store",
+        "vary": "Authorization",
+        "access-control-allow-origin": "*"
+      }
+    },
+    {
+      "name": "character-references",
+      "path": "/api/character-references",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json;charset=UTF-8",
+        "access-control-allow-origin": "*"
+      }
+    },
+    {
+      "name": "reference-items",
+      "path": "/api/character-references/versions/refver_a785c6fa13064b0996786f8c06e4ea2f/items?pageSize=5",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json;charset=UTF-8",
+        "access-control-allow-origin": "*"
+      }
+    }
+  ]
+}

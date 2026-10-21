@@ -1,6 +1,6 @@
 # 决策记录（唯一来源）
 
-本文件是重构决策的**唯一事实来源**。其他文档（`main.md`、`features.md`、`patch-audit.md`）只引用 ID，不再维护副本。  
+本文件是重构决策的**唯一事实来源**。其他文档（`main.md`、`features.md`、`archive/patch-audit.md`）只引用 ID，不再维护副本。  
 状态：`生效` / `待定` / `被替代`。新增决策追加编号，不重排历史。
 
 ---
@@ -91,7 +91,7 @@ Cloudflare **Free** 套餐。普通 Worker 每请求 10ms CPU，Durable Object �
 
 ### D-18 架构骨架
 
-pnpm workspace：`apps/worker`（含 `web/`）+ `apps/tavern-client` + `packages/{contracts,content,domain}` + `config/` + `data/` + `tools/` + `tests/` + `docs/`。Worker 内 `http → use case → storage`；不设独立 db 包。
+pnpm workspace：`apps/worker`（含 `web/`）+ `apps/tavern-client`（含 `data/`）+ `packages/{contracts,content,domain}` + `config/` + `tools/` + `tests/` + `docs/`。Worker 内 `http → use case → storage`；不设独立 db 包。
 
 ### D-19 部署形态：只用 Worker，不用 Pages
 

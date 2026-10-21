@@ -1,7 +1,7 @@
 # Creative Workshop 重构方案（综合定稿）
 
 日期：2026-10-20  
-输入：两份独立方案（`model-deepseek.md` 记为 A，`model-gpt.md` 记为 B）+ 本次逐文件复核。  
+输入：历史独立方案 + 本次逐文件复核（原始 model 方案已删除，裁决结论保留在本文件）。  
 性质：**架构与迁移方案**；决策唯一来源是 [`decisions.md`](decisions.md)。冲突项在 §12 裁决，采纳来源逐条标注。
 
 复核方式：A/B 的关键指控都回到代码验过；另外补查了三处会影响裁决的事实——`visibility` 的实际过滤位置、FTS 搜索的真实调用、排行相关表的引用范围（见 §1.3、§12）。
@@ -93,8 +93,7 @@ workshop/
 │  ├ contracts/                # zod HTTP/bridge schema、错误码、DTO
 │  ├ content/                  # 解析/规范化/fingerprint/checker
 │  └ domain/                   # taxonomy、内容策略、排行规则
-├ config/workshop.json        # 发布通道/端点/配套脚本依赖
-├ data/                        # 官方卡基线
+├ apps/tavern-client/data/     # 官方卡基线（客户端实现后使用）
 ├ tools/                       # 构建、发布、数据迁移
 ├ tests/                       # 集成、e2e、迁移样本
 └ docs/

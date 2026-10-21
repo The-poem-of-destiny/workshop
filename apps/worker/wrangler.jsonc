@@ -6,14 +6,71 @@
   "observability": {
     "enabled": true
   },
+  "vars": {
+    "ALLOWED_ORIGINS": "http://localhost:8787,http://127.0.0.1:8787",
+    "PUBLIC_ORIGIN": "http://localhost:8787",
+    "DISCORD_CLIENT_ID": "",
+    "DISCORD_ALLOWED_GUILD_IDS": ""
+  },
+  "assets": {
+    "directory": "./web/dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/client/*", "/assets/*"]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CONTENT_SERVICE",
+        "class_name": "ContentService"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ContentService"]
+    }
+  ],
+  "triggers": {
+    "crons": ["*/1 * * * *"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "workshop-staging",
+      "database_id": "7500b5f6-21a0-4dfd-9e16-0d9a4f9de476",
+      "migrations_dir": "./migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "R2",
+      "bucket_name": "workshop-client-staging"
+    }
+  ],
   "env": {
     "staging": {
       "name": "workshop-staging",
+      "vars": {
+        "ALLOWED_ORIGINS": "https://workshop-staging.poem-of-destiny.workers.dev",
+        "PUBLIC_ORIGIN": "https://workshop-staging.poem-of-destiny.workers.dev",
+        "DISCORD_CLIENT_ID": "",
+        "DISCORD_ALLOWED_GUILD_IDS": ""
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "CONTENT_SERVICE",
+            "class_name": "ContentService"
+          }
+        ]
+      },
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "workshop-staging",
-          "database_id": "7500b5f6-21a0-4dfd-9e16-0d9a4f9de476"
+          "database_id": "7500b5f6-21a0-4dfd-9e16-0d9a4f9de476",
+          "migrations_dir": "./migrations"
         }
       ],
       "r2_buckets": [
@@ -25,11 +82,26 @@
     },
     "production": {
       "name": "workshop",
+      "vars": {
+        "ALLOWED_ORIGINS": "https://workshop.poem-of-destiny.workers.dev",
+        "PUBLIC_ORIGIN": "https://workshop.poem-of-destiny.workers.dev",
+        "DISCORD_CLIENT_ID": "",
+        "DISCORD_ALLOWED_GUILD_IDS": ""
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "CONTENT_SERVICE",
+            "class_name": "ContentService"
+          }
+        ]
+      },
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "workshop-prod",
-          "database_id": "ebf2963e-dcd7-43db-93b0-4d1cff524656"
+          "database_id": "ebf2963e-dcd7-43db-93b0-4d1cff524656",
+          "migrations_dir": "./migrations"
         }
       ],
       "r2_buckets": [
