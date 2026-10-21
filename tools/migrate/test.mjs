@@ -38,6 +38,11 @@ try {
   await writeFile(path.join(source, 'submissions.json'), JSON.stringify([{ id: 'submission-1', project_id: 'pub-1', revision_id: 'draft-1', status: 'pending', submitted_by: 'u1' }]));
   await writeFile(path.join(source, 'reviews.json'), JSON.stringify([{ id: 'review-1', submission_id: 'submission-1', reviewer_id: 'u2', decision: 'approve' }]));
   await writeFile(path.join(source, 'audit_events.json'), JSON.stringify([{ id: 'audit-1', actor_id: 'u2', action: 'review.approve', target_id: 'submission-1' }]));
+  await writeFile(path.join(source, 'site_settings.json'), JSON.stringify([{ key: 'banner', value: '{"imageUrl":null}' }]));
+  await writeFile(path.join(source, 'project_metrics_daily.json'), JSON.stringify([{ day_key: '2024-01-02', project_id: 'pub-1', downloads: 2, likes_delta: 1 }]));
+  await writeFile(path.join(source, 'ranking_runs.json'), JSON.stringify([{ id: 'run-1', kind: 'daily', bucket: '2024-01-02T00' }]));
+  await writeFile(path.join(source, 'ranking_entries.json'), JSON.stringify([{ run_id: 'run-1', rank: 1, project_id: 'pub-1', score: 5 }]));
+  await writeFile(path.join(source, 'discovery_exposures.json'), JSON.stringify([{ bucket: '2024-01-02T00', project_id: 'pub-1', rank: 1 }]));
 
   const firstRun = transform(await extract(source));
   const secondRun = transform(await extract(source));
@@ -54,6 +59,12 @@ try {
   assert.equal(firstRun.tables.submissions[0].submitted_by, 'u1', 'submitter id is preserved');
   assert.equal(firstRun.tables.reviews[0].reviewer_id, 'u2', 'reviewer id is preserved');
   assert.equal(firstRun.tables.audit_events[0].actor_id, 'u2', 'audit actor is preserved');
+  assert.equal(firstRun.tables.site_settings[0].key, 'banner');
+  assert.equal(firstRun.tables.project_metrics_daily[0].project_id, 'pub-1');
+  assert.equal(firstRun.tables.ranking_runs[0].kind, 'daily');
+  assert.equal(firstRun.tables.ranking_entries[0].project_id, 'pub-1');
+  assert.equal(firstRun.tables.discovery_exposures[0].project_id, 'pub-1');
+  assert.equal(firstRun.meta.droppedTables.length, 0, 'supported source tables are mapped, not dropped');
   assert.equal(firstRun.tables.users.some(user => user.id === 'audit-1'), false, 'audit event id does not create a phantom user');
   assert.equal(verify(firstRun).ok, true);
 
