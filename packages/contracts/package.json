@@ -12,6 +12,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@workshop/domain": "workspace:*",
     "zod": "^4.6.7"
   },
   "devDependencies": {

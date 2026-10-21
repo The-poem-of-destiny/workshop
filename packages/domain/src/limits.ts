@@ -4,4 +4,5 @@ export const WORKSHOP_LIMITS = {
   coverRequestOverheadBytes: 1024 * 1024,
   bannerUploadBytes: 8 * 1024 * 1024,
   bannerUploadLabel: "8 MB",
+  downloadTicketTtlMs: 5 * 60 * 1000,
 } as const;

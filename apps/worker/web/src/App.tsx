@@ -61,12 +61,20 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     const timer = setTimeout(() => {
       api.projects({ search: search.trim() || undefined, sort })
-        .then(result => setProjects(result.items))
-        .catch(error => setError(String(error)));
+        .then(result => {
+          if (!cancelled) setProjects(result.items);
+        })
+        .catch(error => {
+          if (!cancelled) setError(String(error));
+        });
     }, 200);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [search, sort]);
 
   return (
@@ -105,7 +113,7 @@ export function App() {
       {error ? <p className="error">{error}</p> : null}
 
       <main className="grid">
-        {(search.trim() ? projects : home?.latest ?? projects).map(project => (
+        {projects.map(project => (
           <ProjectCard key={project.id} project={project} onOpen={setSelected} />
         ))}
       </main>

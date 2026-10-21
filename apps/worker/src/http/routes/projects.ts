@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { projectListQuerySchema, releaseManifestSchema } from "@workshop/contracts";
+import { WORKSHOP_LIMITS } from "@workshop/domain";
 import type { Env } from "../../env";
-import { recordDownload } from "../../storage/downloads.js";
+import { issueDownloadTickets, recordDownload } from "../../storage/downloads.js";
 import { getPublishedProject, listPublishedProjects } from "../../storage/projects.js";
 import { getReleaseAssets } from "../../storage/releases.js";
 import { jsonError } from "../errors.js";
@@ -32,9 +33,29 @@ projectsRoutes.get("/:id", async c => {
 projectsRoutes.post("/:id/downloads", async c => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
-  const recorded = await recordDownload(c.env.DB, c.req.param("id"), session.userId);
+  const projectId = c.req.param("id");
+  const release = await getReleaseAssets(c.env.DB, projectId, null, session);
+  if (!release) return jsonError(c, "not_found", "Release not found");
+
+  const recorded = await recordDownload(c.env.DB, projectId, session.userId);
   if (recorded === "not_found") return jsonError(c, "not_found", "Project not found");
-  return c.body(null, 204);
+
+  const tickets = await issueDownloadTickets(
+    c.env.DB,
+    projectId,
+    release.revisionId,
+    session.userId,
+    release.files,
+    WORKSHOP_LIMITS.downloadTicketTtlMs,
+  );
+  return c.json({
+    revisionId: release.revisionId,
+    files: tickets.map(ticket => ({
+      kind: ticket.kind,
+      url: `/api/v1/downloads/${ticket.token}`,
+      expiresAt: ticket.expiresAt,
+    })),
+  }, 201);
 });
 
 projectsRoutes.get("/:id/releases/:releaseId/manifest", async c => {

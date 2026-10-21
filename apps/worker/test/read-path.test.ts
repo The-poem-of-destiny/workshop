@@ -1,18 +1,14 @@
 import { env } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import schema from "../migrations/0001_initial.sql?raw";
 import { app } from "../src/app";
 import type { Env } from "../src/env";
-import { splitSql } from "./support/sql";
+import { applySchema } from "./support/schema";
 
 const bindings = env as unknown as Env;
 const now = "2026-10-21T00:00:00.000Z";
 
 beforeAll(async () => {
-  const sql = schema.replace(/^\s*--.*$/gm, "").replace(/^\s*PRAGMA\b.*$/gm, "");
-  for (const statement of splitSql(sql)) {
-    await bindings.DB.prepare(statement).run();
-  }
+  await applySchema(bindings.DB);
 });
 
 beforeEach(async () => {
@@ -52,9 +48,21 @@ async function seed() {
   ).run();
 
   await bindings.DB.prepare(`
+    INSERT INTO project_revisions (id, project_id, revision_no, title, created_by, created_at)
+    VALUES ('r3', 'p1', 2, '草稿', 'u1', ?)
+  `).bind(now).run();
+  await bindings.DB.prepare("UPDATE projects SET working_revision_id = 'r3' WHERE id = 'p1'").run();
+
+  await bindings.DB.prepare(`
     INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
     VALUES ('cover1', 'p1', 'r1', 'cover', 'covers/p1.webp', ?, 100, 'image/webp', ?)
   `).bind("0".repeat(64), now).run();
+  await bindings.R2.put("covers/p1.webp", new Uint8Array([1, 2, 3]));
+  await bindings.DB.prepare(`
+    INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
+    VALUES ('cover3', 'p1', 'r3', 'cover', 'covers/p1/r3-cover.webp', ?, 3, 'image/webp', ?)
+  `).bind("3".repeat(64), now).run();
+  await bindings.R2.put("covers/p1/r3-cover.webp", new Uint8Array([4, 5, 6]));
 
   await bindings.DB.prepare(`
     INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
@@ -69,16 +77,31 @@ async function seed() {
     INSERT INTO sessions (token_hash, user_id, session_version, expires_at, created_at, last_seen_at)
     VALUES (?, 'u1', 1, '2099-01-01T00:00:00.000Z', ?, ?)
   `).bind(tokenHash, now, now).run();
+  await bindings.DB.prepare(
+    "INSERT INTO users (id, username, role, created_at, updated_at) VALUES ('u2', 'other', 'member', ?, ?)",
+  ).bind(now, now).run();
+  const otherHash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("other-token")))]
+    .map(byte => byte.toString(16).padStart(2, "0"))
+    .join("");
+  await bindings.DB.prepare(`
+    INSERT INTO sessions (token_hash, user_id, session_version, expires_at, created_at, last_seen_at)
+    VALUES (?, 'u2', 1, '2099-01-01T00:00:00.000Z', ?, ?)
+  `).bind(otherHash, now, now).run();
 
   await bindings.DB.prepare(`
     INSERT INTO projects
-      (id, author_id, title, visibility, published_revision_id, published_at, updated_at)
-    VALUES ('p2', 'u1', '私有项目', 'private', 'r2', ?, ?)
+      (id, author_id, title, visibility, working_revision_id, published_revision_id, published_at, updated_at)
+    VALUES ('p2', 'u1', '私有项目', 'private', 'r2', 'r2', ?, ?)
   `).bind(now, now).run();
   await bindings.DB.prepare(`
     INSERT INTO project_revisions (id, project_id, revision_no, title, created_by, created_at)
     VALUES ('r2', 'p2', 1, '私有项目', 'u1', ?)
   `).bind(now).run();
+  await bindings.DB.prepare(`
+    INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
+    VALUES ('cover2', 'p2', 'r2', 'cover', 'covers/p2/r2-cover.webp', ?, 3, 'image/webp', ?)
+  `).bind("2".repeat(64), now).run();
+  await bindings.R2.put("covers/p2/r2-cover.webp", new Uint8Array([7, 8, 9]));
 
   await bindings.DB.prepare(`
     INSERT INTO recommendations (id, curator_id, project_id, comment, reaction, created_at, updated_at)
@@ -130,13 +153,17 @@ describe("public read path", () => {
     });
   });
 
-  it("supports one- and two-character search", async () => {
+  it("supports one- and two-character search across title, tags and author", async () => {
     await seed();
-    for (const query of ["命定", "命定之"]) {
+    for (const query of ["命", "命定", "奇幻", "作者", "命定之"]) {
       const response = await app.request(`/api/v1/projects?search=${encodeURIComponent(query)}`, undefined, bindings);
       expect(response.status).toBe(200);
       const body = (await response.json()) as { items: Array<{ id: string }> };
       expect(body.items.map(item => item.id)).toEqual(["p1"]);
+    }
+    for (const query of ['"', "'", "-"]) {
+      const response = await app.request(`/api/v1/projects?search=${encodeURIComponent(query)}`, undefined, bindings);
+      expect(response.status).toBe(200);
     }
   });
 
@@ -161,14 +188,52 @@ describe("public read path", () => {
 
     const headers = { authorization: "Bearer test-token" };
     const response = await app.request("/api/v1/projects/p1/downloads", { method: "POST", headers }, bindings);
-    expect(response.status).toBe(204);
+    expect(response.status).toBe(201);
+    const ticket = await response.json() as { files: Array<{ kind: string; url: string; expiresAt: string }> };
+    expect(ticket.files).toHaveLength(1);
+    expect(ticket.files[0]).toMatchObject({ kind: "worldbook" });
+    expect(ticket.files[0]!.expiresAt).toBeTruthy();
+
+    const otherUser = await app.request(ticket.files[0]!.url, {
+      headers: { authorization: "Bearer other-token" },
+    }, bindings);
+    expect(otherUser.status).toBe(404);
+    const download = await app.request(ticket.files[0]!.url, { headers }, bindings);
+    expect(download.status).toBe(200);
+    await expect(download.text()).resolves.toBe('{"entries":[]}');
+    const replay = await app.request(ticket.files[0]!.url, { headers }, bindings);
+    expect(replay.status).toBe(404);
+
     const duplicate = await app.request("/api/v1/projects/p1/downloads", { method: "POST", headers }, bindings);
-    expect(duplicate.status).toBe(204);
+    expect(duplicate.status).toBe(201);
+    const duplicateTicket = await duplicate.json() as { files: Array<{ url: string }> };
+    await bindings.DB.prepare("UPDATE download_tokens SET expires_at = ? WHERE token_hash IN (SELECT token_hash FROM download_tokens)")
+      .bind("2000-01-01T00:00:00.000Z").run();
+    expect((await app.request(duplicateTicket.files[0]!.url, { headers }, bindings)).status).toBe(404);
 
     const project = await bindings.DB.prepare("SELECT downloads_count FROM projects WHERE id = 'p1'").first<{ downloads_count: number }>();
     expect(project?.downloads_count).toBe(13);
     const metric = await bindings.DB.prepare("SELECT downloads FROM project_metrics_daily WHERE project_id = 'p1'").first<{ downloads: number }>();
     expect(metric?.downloads).toBe(1);
+  });
+
+  it("serves only published public covers anonymously", async () => {
+    await seed();
+    const publicCover = await app.request("/api/v1/assets/covers/p1.webp", undefined, bindings);
+    expect(publicCover.status).toBe(200);
+    expect(publicCover.headers.get("cache-control")).toContain("public");
+
+    const unpublished = await app.request("/api/v1/assets/covers/p1/r3-cover.webp", undefined, bindings);
+    expect(unpublished.status).toBe(404);
+    const privateCover = await app.request("/api/v1/assets/covers/p2/r2-cover.webp", undefined, bindings);
+    expect(privateCover.status).toBe(404);
+
+    const headers = { authorization: "Bearer test-token" };
+    const ownDraft = await app.request("/api/v1/assets/covers/p1/r3-cover.webp", { headers }, bindings);
+    expect(ownDraft.status).toBe(200);
+    expect(ownDraft.headers.get("cache-control")).toBe("private, no-store");
+    const ownPrivate = await app.request("/api/v1/assets/covers/p2/r2-cover.webp", { headers }, bindings);
+    expect(ownPrivate.status).toBe(200);
   });
 
   it("requires login for release manifest and files", async () => {

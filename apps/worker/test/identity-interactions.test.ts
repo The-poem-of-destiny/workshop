@@ -1,9 +1,8 @@
 import { env } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import schema from "../migrations/0001_initial.sql?raw";
 import { app } from "../src/app";
 import type { Env } from "../src/env";
-import { splitSql } from "./support/sql";
+import { applySchema } from "./support/schema";
 
 const bindings = env as unknown as Env;
 const now = "2026-10-21T00:00:00.000Z";
@@ -15,8 +14,7 @@ async function tokenHash(value: string): Promise<string> {
 }
 
 beforeAll(async () => {
-  const sql = schema.replace(/^\s*--.*$/gm, "").replace(/^\s*PRAGMA\b.*$/gm, "");
-  for (const statement of splitSql(sql)) await bindings.DB.prepare(statement).run();
+  await applySchema(bindings.DB);
 });
 
 beforeEach(async () => {

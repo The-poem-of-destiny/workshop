@@ -1,4 +1,4 @@
-import { WORKSHOP_LIMITS } from "@workshop/domain";
+import { WORKSHOP_LIMITS, normalizeDiscordThreadUrl, validateProjectContentText } from "@workshop/domain";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import {
@@ -47,11 +47,28 @@ async function sessionOrError(c: Context<{ Bindings: Env }>) {
   return { session };
 }
 
+function allowedGuildIds(c: Context<{ Bindings: Env }>): string[] {
+  return (c.env.DISCORD_ALLOWED_GUILD_IDS ?? "")
+    .split(",")
+    .map(value => value.trim())
+    .filter(Boolean);
+}
+
+function normalizeThreadUrl(
+  c: Context<{ Bindings: Env }>,
+  value: string | null | undefined,
+): { ok: true; value: string | null } | { ok: false; reason: string } {
+  return normalizeDiscordThreadUrl(value, allowedGuildIds(c));
+}
+
 authoringRoutes.post("/", async c => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
   const parsed = createProjectSchema.safeParse(await bodyJson(c));
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid project metadata", parsed.error.flatten());
+  const discord = normalizeThreadUrl(c, parsed.data.discordThreadUrl);
+  if (!discord.ok) return jsonError(c, "bad_request", `Discord 线程地址无效：${discord.reason}`);
+  parsed.data.discordThreadUrl = discord.value;
   try {
     return c.json(await createProject(c.env.DB, auth.session, parsed.data), 201);
   } catch {
@@ -84,6 +101,11 @@ authoringRoutes.patch("/:id", async c => {
   }
   const parsed = patchProjectSchema.safeParse(await bodyJson(c));
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid project metadata", parsed.error.flatten());
+  if (parsed.data.discordThreadUrl !== undefined) {
+    const discord = normalizeThreadUrl(c, parsed.data.discordThreadUrl);
+    if (!discord.ok) return jsonError(c, "bad_request", `Discord 线程地址无效：${discord.reason}`);
+    parsed.data.discordThreadUrl = discord.value;
+  }
   const result = await patchProject(c.env.DB, auth.session, project.id, expectedVersion, parsed.data);
   if (!result) return jsonError(c, "precondition_failed", "Project version does not match");
   return c.json(result);
@@ -116,6 +138,11 @@ authoringRoutes.post("/:id/revisions", async c => {
   }
   const parsed = patchProjectSchema.safeParse(await bodyJson(c));
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid revision metadata", parsed.error.flatten());
+  if (parsed.data.discordThreadUrl !== undefined) {
+    const discord = normalizeThreadUrl(c, parsed.data.discordThreadUrl);
+    if (!discord.ok) return jsonError(c, "bad_request", `Discord 线程地址无效：${discord.reason}`);
+    parsed.data.discordThreadUrl = discord.value;
+  }
   const result = await createRevision(c.env.DB, auth.session, project.id, expectedVersion, parsed.data);
   if (!result) return jsonError(c, "precondition_failed", "Project version does not match");
   return c.json(result, 201);
@@ -146,7 +173,22 @@ authoringRoutes.put("/:id/revisions/:revisionId/files/:kind", async c => {
   }
   const body = await c.req.raw.arrayBuffer();
   if (body.byteLength > MAX_UPLOAD_BYTES) return jsonError(c, "payload_too_large", "File exceeds 10 MiB limit");
-  const result = await upsertAsset(c.env.DB, c.env.R2, c.req.param("id"), revision.id, parsedKind.data, body, mime);
+  let entryCount: number | undefined;
+  if (parsedKind.data !== "cover") {
+    const validation = validateProjectContentText(new TextDecoder().decode(body), parsedKind.data);
+    if (!validation.valid) return jsonError(c, "bad_request", validation.error);
+    entryCount = validation.entryCount;
+  }
+  const result = await upsertAsset(
+    c.env.DB,
+    c.env.R2,
+    c.req.param("id"),
+    revision.id,
+    parsedKind.data,
+    body,
+    mime,
+    entryCount,
+  );
   if (!result) return jsonError(c, "conflict", "Revision is no longer editable");
   return c.json(result);
 });
@@ -156,7 +198,18 @@ authoringRoutes.post("/:id/revisions/:revisionId/submit", async c => {
   if (!auth.session) return auth.response;
   const parsed = submitProjectSchema.safeParse(await bodyJson(c));
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid submission", parsed.error.flatten());
-  const submissionId = await submitRevision(c.env.DB, auth.session, c.req.param("id"), c.req.param("revisionId"), parsed.data);
-  if (!submissionId) return jsonError(c, "not_found", "Working revision not found");
-  return c.json({ submissionId, status: "pending" }, 201);
+  const result = await submitRevision(
+    c.env.DB,
+    c.env.R2,
+    auth.session,
+    c.req.param("id"),
+    c.req.param("revisionId"),
+    parsed.data,
+  );
+  if (!result.ok) {
+    if (result.code === "not_found") return jsonError(c, "not_found", result.message);
+    if (result.code === "conflict") return jsonError(c, "conflict", result.message);
+    return jsonError(c, "bad_request", result.message);
+  }
+  return c.json({ submissionId: result.submissionId, status: "pending" }, 201);
 });

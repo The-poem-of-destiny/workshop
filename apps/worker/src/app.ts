@@ -5,12 +5,14 @@ import { jsonError } from "./http/errors";
 import { adminRoutes } from "./http/routes/admin";
 import { authRoutes, sessionRoutes } from "./http/routes/auth";
 import { authoringRoutes } from "./http/routes/authoring";
+import { downloadRoutes } from "./http/routes/downloads";
 import { homeRoutes } from "./http/routes/home";
 import { meRoutes } from "./http/routes/me";
 import { projectsRoutes } from "./http/routes/projects";
 import { recommendationRoutes } from "./http/routes/recommendations";
 import { referenceRoutes } from "./http/routes/references";
 import { siteRoutes } from "./http/routes/site";
+import { requireSession } from "./http/session";
 
 export const app = new Hono<{ Bindings: Env }>();
 
@@ -31,6 +33,7 @@ app.route("/api/v1/me", meRoutes);
 app.route("/api/v1/admin", adminRoutes);
 app.route("/api/v1/projects", authoringRoutes);
 app.route("/api/v1/projects", projectsRoutes);
+app.route("/api/v1/downloads", downloadRoutes);
 app.route("/api/v1/home", homeRoutes);
 app.route("/api/v1/recommendations", recommendationRoutes);
 app.route("/api/v1/reference-sets", referenceRoutes);
@@ -41,21 +44,73 @@ app.get("/api/v1/assets/*", async c => {
   if (!key.startsWith("covers/") && !key.startsWith("banners/")) {
     return jsonError(c, "not_found", "Asset not found");
   }
+
+  let publiclyCacheable = false;
   if (key.startsWith("covers/")) {
-    const visible = await c.env.DB.prepare(`
-      SELECT 1 AS found FROM assets a
-      JOIN projects p ON p.id = a.project_id
-      WHERE a.r2_key = ? AND p.visibility = 'public' AND p.deleted_at IS NULL
-    `).bind(key).first<{ found: number }>();
-    if (!visible) return jsonError(c, "not_found", "Asset not found");
+    const asset = await c.env.DB.prepare(`
+      SELECT a.revision_id, a.kind, p.author_id, p.visibility,
+             p.working_revision_id, p.published_revision_id, p.deleted_at,
+             EXISTS (
+               SELECT 1 FROM submissions s
+               WHERE s.revision_id = a.revision_id AND s.status IN ('pending', 'checking')
+             ) AS in_review
+      FROM assets a JOIN projects p ON p.id = a.project_id
+      WHERE a.r2_key = ? AND a.kind = 'cover'
+    `).bind(key).first<{
+      revision_id: string | null;
+      kind: string;
+      author_id: string;
+      visibility: "public" | "private";
+      working_revision_id: string | null;
+      published_revision_id: string | null;
+      deleted_at: string | null;
+      in_review: number;
+    }>();
+    if (!asset) return jsonError(c, "not_found", "Asset not found");
+
+    const isPublished = !asset.deleted_at
+      && asset.visibility === "public"
+      && asset.published_revision_id !== null
+      && asset.revision_id === asset.published_revision_id;
+    if (isPublished) {
+      publiclyCacheable = true;
+    } else {
+      const session = await requireSession(c);
+      if (!session) return jsonError(c, "not_found", "Asset not found");
+      const isOwnDraft = session.userId === asset.author_id
+        && asset.revision_id === asset.working_revision_id;
+      const isReviewCover = (session.role === "reviewer" || session.role === "owner")
+        && Boolean(asset.in_review);
+      if (!isOwnDraft && !isReviewCover) return jsonError(c, "not_found", "Asset not found");
+    }
+  } else {
+    const registered = await c.env.DB.prepare("SELECT value FROM site_settings WHERE key = 'discover_banner'")
+      .first<{ value: string }>();
+    let registeredKey: string | null = null;
+    try {
+      const parsed = registered ? JSON.parse(registered.value) as { imageUrl?: unknown } : null;
+      if (typeof parsed?.imageUrl === "string") {
+        const pathname = parsed.imageUrl.startsWith("http")
+          ? new URL(parsed.imageUrl).pathname
+          : parsed.imageUrl;
+        registeredKey = pathname.replace(/^\/api\/v1\/assets\//, "");
+      }
+    } catch {
+      registeredKey = null;
+    }
+    if (registeredKey !== key) return jsonError(c, "not_found", "Asset not found");
   }
+
   const object = await c.env.R2.get(key);
   if (!object) return jsonError(c, "not_found", "Asset not found");
   return new Response(object.body, {
     headers: {
       "content-type": object.httpMetadata?.contentType ?? "application/octet-stream",
       "content-length": String(object.size),
-      "cache-control": "public, max-age=60, must-revalidate",
+      "cache-control": publiclyCacheable
+        ? "public, max-age=60, must-revalidate"
+        : "private, no-store",
+      vary: "Authorization",
     },
   });
 });

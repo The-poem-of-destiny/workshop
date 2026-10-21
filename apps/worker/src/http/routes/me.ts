@@ -1,5 +1,11 @@
 import { Hono } from "hono";
-import { meResponseSchema, meStateResponseSchema, ratingInputSchema } from "@workshop/contracts";
+import {
+  authorProjectListResponseSchema,
+  authorSubmissionListResponseSchema,
+  meResponseSchema,
+  meStateResponseSchema,
+  ratingInputSchema,
+} from "@workshop/contracts";
 import type { Env } from "../../env";
 import {
   getInteractionState,
@@ -11,6 +17,7 @@ import {
   unsetRating,
   unsetSubscription,
 } from "../../storage/interactions.js";
+import { listAuthorProjects, listAuthorSubmissions } from "../../storage/authoring.js";
 import { getMe } from "../../storage/identity.js";
 import { jsonError } from "../errors.js";
 import { requireSession } from "../session.js";
@@ -23,6 +30,21 @@ meRoutes.get("/", async c => {
   const me = await getMe(c.env.DB, session.userId);
   if (!me) return jsonError(c, "unauthorized", "Login required");
   return c.json(meResponseSchema.parse(me));
+});
+
+meRoutes.get("/projects", async c => {
+  const session = await requireSession(c);
+  if (!session) return jsonError(c, "unauthorized", "Login required");
+  const items = await listAuthorProjects(c.env.DB, session);
+  return c.json(authorProjectListResponseSchema.parse({ items }));
+});
+
+meRoutes.get("/projects/:id/submissions", async c => {
+  const session = await requireSession(c);
+  if (!session) return jsonError(c, "unauthorized", "Login required");
+  const items = await listAuthorSubmissions(c.env.DB, session, c.req.param("id"));
+  if (!items) return jsonError(c, "not_found", "Project not found");
+  return c.json(authorSubmissionListResponseSchema.parse({ items }));
 });
 
 meRoutes.get("/state", async c => {

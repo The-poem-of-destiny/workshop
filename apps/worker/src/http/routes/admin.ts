@@ -61,7 +61,7 @@ adminRoutes.get("/submissions/:id/files/:kind", async c => {
   const auth = await requireReviewer(c);
   if (!auth) return jsonError(c, auth === null ? "unauthorized" : "forbidden", "Reviewer access required");
   const kind = c.req.param("kind");
-  if (kind !== "worldbook" && kind !== "regex") {
+  if (kind !== "worldbook" && kind !== "regex" && kind !== "cover") {
     return jsonError(c, "bad_request", "Unsupported file kind");
   }
   const asset = await getSubmissionAsset(c.env.DB, c.req.param("id"), kind);
@@ -86,6 +86,7 @@ adminRoutes.post("/submissions/:id/review", async c => {
 
   const result = await reviewAdminSubmission(c.env.DB, c.req.param("id"), session.userId, parsed.data);
   if (result.kind === "not_found") return jsonError(c, "not_found", "Submission not found");
+  if (result.kind === "invalid_reason") return jsonError(c, "bad_request", "拒绝时必须填写理由");
   if (result.kind === "conflict") return jsonError(c, "conflict", "Submission has already been reviewed");
   return c.json({ id: result.id, status: result.status }, 201);
 });

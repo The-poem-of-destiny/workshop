@@ -20,8 +20,14 @@ export type AdminSubmissionListQuery = z.infer<typeof adminSubmissionListQuerySc
 export const adminReviewRequestSchema = z.object({
   decision: z.enum(["approve", "reject"]),
   reason: z.string().max(4000).optional(),
-  checkerVersion: z.string().max(256).optional(),
-  report: z.unknown().optional(),
+}).superRefine((value, ctx) => {
+  if (value.decision === "reject" && !value.reason?.trim()) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["reason"],
+      message: "拒绝时必须填写理由",
+    });
+  }
 });
 export type AdminReviewRequest = z.infer<typeof adminReviewRequestSchema>;
 

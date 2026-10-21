@@ -1,13 +1,14 @@
 import { env } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import schema from "../migrations/0001_initial.sql?raw";
 import { authoringRoutes } from "../src/http/routes/authoring";
 import { upsertAsset } from "../src/storage/authoring";
 import type { Env } from "../src/env";
-import { splitSql } from "./support/sql";
+import { applySchema } from "./support/schema";
 
 const bindings = env as unknown as Env;
 const now = "2026-10-21T00:00:00.000Z";
+const validWorldbook = JSON.stringify({ entries: [{ uid: 1, name: "Entry", content: "Text" }] });
+const validWorldbookBytes = new TextEncoder().encode(validWorldbook).byteLength;
 
 async function tokenHash(token: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
@@ -28,8 +29,8 @@ async function request(path: string, init: RequestInit = {}, token = "author-tok
 }
 
 beforeAll(async () => {
-  const sql = schema.replace(/^\s*--.*$/gm, "").replace(/^\s*PRAGMA\b.*$/gm, "");
-  for (const statement of splitSql(sql)) await bindings.DB.prepare(statement).run();
+  await applySchema(bindings.DB);
+  bindings.DISCORD_ALLOWED_GUILD_IDS = "123456789012345678";
 });
 
 beforeEach(async () => {
@@ -102,15 +103,19 @@ describe("authoring write paths", () => {
     const second = await revision.json() as { revisionId: string };
     const upload = await request(`/${first.project.id}/revisions/${second.revisionId}/files/worldbook`, {
       method: "PUT",
-      body: '{"entries":[]}',
-      headers: { "content-type": "application/json", "content-length": "14" },
+      body: validWorldbook,
+      headers: { "content-type": "application/json", "content-length": String(validWorldbookBytes) },
     });
     expect(upload.status).toBe(200);
-    await expect(upload.json()).resolves.toMatchObject({ kind: "worldbook", bytes: 14, mime: "application/json" });
+    await expect(upload.json()).resolves.toMatchObject({
+      kind: "worldbook",
+      bytes: validWorldbookBytes,
+      mime: "application/json",
+    });
     const listed = await bindings.R2.list({ prefix: `projects/${first.project.id}/revisions/${second.revisionId}/worldbook-` });
     expect(listed.objects).toHaveLength(1);
     const object = await bindings.R2.get(listed.objects[0]!.key);
-    await expect(object?.text()).resolves.toBe('{"entries":[]}');
+    await expect(object?.text()).resolves.toBe(validWorldbook);
     const rows = await bindings.DB.prepare("SELECT revision_no FROM project_revisions WHERE project_id = ? ORDER BY revision_no")
       .bind(first.project.id).all<{ revision_no: number }>();
     expect(rows.results.map(row => row.revision_no)).toEqual([1, 2]);
@@ -119,6 +124,12 @@ describe("authoring write paths", () => {
   it("supersedes pending submissions and rejects unsupported/oversized uploads", async () => {
     const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Submit" }) });
     const first = await created.json() as { project: { id: string }; workingRevisionId: string };
+    const upload = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`, {
+      method: "PUT",
+      body: validWorldbook,
+      headers: { "content-type": "application/json", "content-length": String(validWorldbookBytes) },
+    });
+    expect(upload.status).toBe(200);
     const submit = async () => request(`/${first.project.id}/revisions/${first.workingRevisionId}/submit`, {
       method: "POST", body: JSON.stringify({ gate: "warn", checkerRevision: "c1" }),
     });
@@ -133,8 +144,8 @@ describe("authoring write paths", () => {
     // A submitted revision is frozen: no post-submit byte replacement.
     const frozen = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`, {
       method: "PUT",
-      body: '{"entries":[]}',
-      headers: { "content-type": "application/json", "content-length": "14" },
+      body: validWorldbook,
+      headers: { "content-type": "application/json", "content-length": String(validWorldbookBytes) },
     });
     expect(frozen.status).toBe(404);
 
@@ -145,8 +156,9 @@ describe("authoring write paths", () => {
       first.project.id,
       first.workingRevisionId,
       "worldbook",
-      new TextEncoder().encode('{"entries":[]}').buffer,
+      new TextEncoder().encode(validWorldbook).buffer,
       "application/json",
+      1,
     );
     expect(raced).toBeNull();
     const manifest = await bindings.DB.prepare("SELECT manifest_hash FROM project_revisions WHERE id = ?")
@@ -167,5 +179,76 @@ describe("authoring write paths", () => {
       headers: { "content-type": "image/png", "content-length": String(10 * 1024 * 1024 + 1) },
     });
     expect(oversized.status).toBe(413);
+  });
+
+  it("rejects Discord thread URLs outside the configured guild", async () => {
+    const create = (discordThreadUrl: string) => request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Discord", discordThreadUrl }),
+      headers: { "content-type": "application/json" },
+    });
+
+    for (const url of [
+      "https://example.com/channels/123456789012345678/223456789012345678",
+      "https://discord.gg/invite",
+      "https://discord.com/channels/123456789012345678/2",
+      "https://discord.com/channels/323456789012345678/223456789012345678",
+    ]) {
+      expect((await create(url)).status).toBe(400);
+    }
+
+    const valid = await create(
+      "https://www.discord.com/channels/123456789012345678/223456789012345678?foo=1",
+    );
+    expect(valid.status).toBe(201);
+    const body = await valid.json() as { project: { id: string } };
+    const revision = await bindings.DB.prepare(
+      "SELECT discord_thread_url FROM project_revisions WHERE project_id = ?",
+    ).bind(body.project.id).first<{ discord_thread_url: string }>();
+    expect(revision?.discord_thread_url).toBe(
+      "https://discord.com/channels/123456789012345678/223456789012345678",
+    );
+  });
+
+  it("rejects invalid uploads and policy-invalid submissions", async () => {
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Validation", projectType: "角色" }),
+    });
+    const project = await created.json() as { project: { id: string }; workingRevisionId: string };
+    const upload = (kind: string, body: string, mime = "application/json") =>
+      request(`/${project.project.id}/revisions/${project.workingRevisionId}/files/${kind}`, {
+        method: "PUT",
+        body,
+        headers: { "content-type": mime, "content-length": String(new TextEncoder().encode(body).byteLength) },
+      });
+
+    expect((await upload("worldbook", "not json")).status).toBe(400);
+    expect((await upload("worldbook", JSON.stringify({ entries: [] }))).status).toBe(400);
+    expect((await upload("regex", validWorldbook)).status).toBe(400);
+
+    const emptySubmit = await request(
+      `/${project.project.id}/revisions/${project.workingRevisionId}/submit`,
+      { method: "POST", body: JSON.stringify({ gate: "pass" }) },
+    );
+    expect(emptySubmit.status).toBe(400);
+    const none = await bindings.DB.prepare("SELECT COUNT(*) AS count FROM submissions WHERE project_id = ?")
+      .bind(project.project.id).first<{ count: number }>();
+    expect(none?.count).toBe(0);
+
+    const regex = JSON.stringify({ scriptName: "Test", findRegex: "/a/g", replaceString: "b" });
+    expect((await upload("regex", regex)).status).toBe(200);
+    const roleWithoutWorldbook = await request(
+      `/${project.project.id}/revisions/${project.workingRevisionId}/submit`,
+      { method: "POST", body: JSON.stringify({ gate: "warn" }) },
+    );
+    expect(roleWithoutWorldbook.status).toBe(400);
+
+    expect((await upload("worldbook", validWorldbook)).status).toBe(200);
+    const validSubmit = await request(
+      `/${project.project.id}/revisions/${project.workingRevisionId}/submit`,
+      { method: "POST", body: JSON.stringify({ gate: "warn" }) },
+    );
+    expect(validSubmit.status).toBe(201);
   });
 });

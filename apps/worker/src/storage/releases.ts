@@ -13,7 +13,7 @@ interface ReleaseRow {
 export async function getReleaseAssets(
   db: D1Database,
   projectId: string,
-  revisionId: string,
+  revisionId: string | null,
   session: Session,
 ) {
   const rows = await db.prepare(`
@@ -23,12 +23,12 @@ export async function getReleaseAssets(
     JOIN project_revisions r ON r.id = p.published_revision_id
     JOIN assets a ON a.revision_id = r.id
     WHERE p.id = ?
-      AND p.published_revision_id = ?
+      AND (? IS NULL OR p.published_revision_id = ?)
       AND p.deleted_at IS NULL
       AND (p.visibility = 'public' OR p.author_id = ? OR ? IN ('reviewer', 'owner'))
       AND a.kind IN ('worldbook', 'regex')
     ORDER BY a.kind
-  `).bind(projectId, revisionId, session.userId, session.role).all<ReleaseRow>();
+  `).bind(projectId, revisionId, revisionId, session.userId, session.role).all<ReleaseRow>();
 
   if (rows.results.length === 0) return null;
   const first = rows.results[0]!;

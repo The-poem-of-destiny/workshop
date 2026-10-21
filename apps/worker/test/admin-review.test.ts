@@ -1,8 +1,9 @@
 import { env } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import schema from "../migrations/0001_initial.sql?raw";
+import { app } from "../src/app";
 import { adminRoutes } from "../src/http/routes/admin";
 import type { Env } from "../src/env";
+import { applySchema } from "./support/schema";
 import { splitSql } from "./support/sql";
 
 const bindings = env as unknown as Env;
@@ -39,11 +40,15 @@ async function seed() {
     INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
     VALUES ('a1', 'p1', 'r1', 'worldbook', 'projects/p1/r1/worldbook.json', 'hash', 12,
       'application/json', '${now}');
+    INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
+    VALUES ('a2', 'p1', 'r1', 'cover', 'covers/p1/r1-cover.webp', 'hash2', 3,
+      'image/webp', '${now}');
     INSERT INTO submissions
       (id, project_id, revision_id, status, gate, checker_revision, submitted_by, submitted_at)
     VALUES ('s1', 'p1', 'r1', 'pending', 'warn', 'checker-1', 'member', '${now}');
   `);
   for (const statement of statements) await bindings.DB.prepare(statement).run();
+  await bindings.R2.put("covers/p1/r1-cover.webp", new Uint8Array([1, 2, 3]));
   await seedSession("owner-token", "owner");
   await seedSession("reviewer-token", "reviewer");
   await seedSession("member-token", "member");
@@ -57,8 +62,7 @@ function request(path: string, token = "reviewer-token", init?: RequestInit) {
 }
 
 beforeAll(async () => {
-  const sql = schema.replace(/^\s*--.*$/gm, "").replace(/^\s*PRAGMA\b.*$/gm, "");
-  for (const statement of splitSql(sql)) await bindings.DB.prepare(statement).run();
+  await applySchema(bindings.DB);
 });
 
 beforeEach(async () => {
@@ -81,21 +85,73 @@ describe("admin review and publishing", () => {
     expect(response.status).toBe(200);
     const body = await response.json() as { revision: Record<string, unknown>; assets: Array<Record<string, unknown>> };
     expect(body.revision).toMatchObject({ id: "r1", manifestHash: "manifest-1" });
-    expect(body.assets).toEqual([expect.objectContaining({ kind: "worldbook", r2Key: "projects/p1/r1/worldbook.json" })]);
+    expect(body.assets).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "worldbook", r2Key: "projects/p1/r1/worldbook.json" }),
+      expect.objectContaining({ kind: "cover", r2Key: "covers/p1/r1-cover.webp" }),
+    ]));
     expect(body.assets[0]).not.toHaveProperty("content");
+  });
+
+  it("serves the submission cover to reviewers but not members", async () => {
+    expect((await request("/submissions/s1/files/cover", "member-token")).status).toBe(403);
+    const response = await request("/submissions/s1/files/cover");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
   });
 
   it("approves atomically and switches the published pointer", async () => {
     const response = await request("/submissions/s1/review", "reviewer-token", {
       method: "POST",
-      body: JSON.stringify({ decision: "approve", checkerVersion: "review-2", report: { warnings: 1 } }),
+      body: JSON.stringify({ decision: "approve" }),
       headers: { "content-type": "application/json" },
     });
     expect(response.status).toBe(201);
     const project = await bindings.DB.prepare("SELECT published_revision_id, title, search_tags, row_version FROM projects WHERE id = 'p1'").first<Record<string, unknown>>();
     expect(project).toMatchObject({ published_revision_id: "r1", title: "Submitted title", search_tags: '["submitted"]', row_version: 2 });
     const review = await bindings.DB.prepare("SELECT manifest_hash, checker_version FROM reviews WHERE submission_id = 's1'").first<Record<string, unknown>>();
-    expect(review).toMatchObject({ manifest_hash: "manifest-1", checker_version: "review-2" });
+    expect(review).toMatchObject({ manifest_hash: "manifest-1", checker_version: "checker-1" });
+  });
+
+  it("ignores client-supplied checker version and report fields", async () => {
+    const response = await request("/submissions/s1/review", "reviewer-token", {
+      method: "POST",
+      body: JSON.stringify({ decision: "approve", checkerVersion: "forged", report: { forged: true } }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(response.status).toBe(201);
+    const review = await bindings.DB.prepare(
+      "SELECT checker_version, report FROM reviews WHERE submission_id = 's1'",
+    ).first<{ checker_version: string | null; report: string | null }>();
+    expect(review).toEqual({ checker_version: "checker-1", report: null });
+  });
+
+  it("requires a reject reason and exposes it to the author", async () => {
+    const missing = await request("/submissions/s1/review", "reviewer-token", {
+      method: "POST", body: JSON.stringify({ decision: "reject" }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(missing.status).toBe(400);
+    const rejected = await request("/submissions/s1/review", "reviewer-token", {
+      method: "POST", body: JSON.stringify({ decision: "reject", reason: "unsafe" }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(rejected.status).toBe(201);
+
+    const headers = { authorization: "Bearer member-token" };
+    const mine = await app.request("/api/v1/me/projects", { headers }, bindings);
+    expect(mine.status).toBe(200);
+    await expect(mine.json()).resolves.toMatchObject({
+      items: [{
+        project: { id: "p1" },
+        latestSubmission: { status: "rejected", decision: "reject", reason: "unsafe" },
+      }],
+    });
+    const history = await app.request("/api/v1/me/projects/p1/submissions", { headers }, bindings);
+    expect(history.status).toBe(200);
+    await expect(history.json()).resolves.toMatchObject({
+      items: [{ status: "rejected", reason: "unsafe" }],
+    });
   });
 
   it("rejects without changing the published pointer and prevents double review", async () => {

@@ -1,8 +1,11 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
-const schema = readFileSync("apps/worker/migrations/0001_initial.sql", "utf8");
+const migrations = readdirSync("apps/worker/migrations")
+  .filter(file => file.endsWith(".sql"))
+  .sort();
+const schema = migrations.map(file => readFileSync(`apps/worker/migrations/${file}`, "utf8")).join("\n");
 const db = new DatabaseSync(":memory:");
 db.exec("PRAGMA foreign_keys = ON");
 db.exec(schema);
@@ -33,6 +36,7 @@ const expectedTables = [
   "project_search",
   "project_search_short",
   "project_search_tags",
+  "download_tokens",
 ];
 
 const tables = new Set(

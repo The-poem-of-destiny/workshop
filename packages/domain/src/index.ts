@@ -1,4 +1,5 @@
 export * from "./content-policy.js";
+export * from "./discord.js";
 export * from "./limits.js";
 export * from "./project-content.js";
 export * from "./taxonomy.js";

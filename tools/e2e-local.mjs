@@ -170,7 +170,7 @@ async function main() {
       const review = await api(`/api/v1/admin/submissions/${submissionId}/review`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ decision: "approve", checkerVersion: "e2e" }),
+        body: JSON.stringify({ decision: "approve" }),
       }, ownerToken);
       assert(review.response.status === 201, `review ${review.response.status}: ${review.body}`);
       const detail = await api(`/api/v1/projects/${project.project.id}`);
@@ -186,10 +186,16 @@ async function main() {
       assert(cover.status === 200 && cover.headers.get("content-type")?.includes("image/png"), "public cover");
     });
 
-    await check("download is idempotent", async () => {
+    await check("download tickets are idempotent and one-time", async () => {
       const first = await api(`/api/v1/projects/${project.project.id}/downloads`, { method: "POST" }, authorToken);
       const second = await api(`/api/v1/projects/${project.project.id}/downloads`, { method: "POST" }, authorToken);
-      assert(first.response.status === 204 && second.response.status === 204, "download status");
+      assert(first.response.status === 201 && second.response.status === 201, "download status");
+      const ticket = JSON.parse(first.body);
+      assert(ticket.files?.length === 1, "download ticket shape");
+      const file = await api(ticket.files[0].url, {}, authorToken);
+      assert(file.response.status === 200 && file.body.includes("hello"), "ticket download");
+      const replay = await api(ticket.files[0].url, {}, authorToken);
+      assert(replay.response.status === 404, "ticket replay");
       const detail = await api(`/api/v1/projects/${project.project.id}`);
       assert(JSON.parse(detail.body).counts.downloads === 1, "download counted exactly once");
     });

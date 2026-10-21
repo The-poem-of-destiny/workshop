@@ -16,3 +16,16 @@ export const releaseManifestSchema = z.object({
 });
 
 export type ReleaseManifest = z.infer<typeof releaseManifestSchema>;
+
+export const downloadTicketFileSchema = z.object({
+  kind: z.enum(["worldbook", "regex"]),
+  url: z.string(),
+  expiresAt: z.string().datetime(),
+});
+
+export const downloadTicketResponseSchema = z.object({
+  revisionId: z.string(),
+  files: z.array(downloadTicketFileSchema),
+});
+
+export type DownloadTicketResponse = z.infer<typeof downloadTicketResponseSchema>;

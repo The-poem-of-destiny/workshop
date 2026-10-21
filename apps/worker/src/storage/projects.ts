@@ -122,19 +122,14 @@ function decodeCursor(cursor: string | undefined): number {
 
 function searchPredicate(search: string): { sql: string; values: unknown[] } {
   const trimmed = search.trim();
-  if (Array.from(trimmed).length <= 2) {
-    const escaped = trimmed.replace(/[\\%_]/g, char => `\\${char}`);
-    const pattern = `%${escaped}%`;
+  const chars = Array.from(trimmed);
+  if (chars.length <= 2) {
+    // The short index stores one token per character, separated by spaces.
+    // A quoted phrase keeps character order and makes FTS operators inert.
+    const phrase = chars.map(char => `"${char.replaceAll('"', '""')}"`).join(" ");
     return {
-      sql: `(p.title LIKE ? ESCAPE '\\'
-        OR p.project_type LIKE ? ESCAPE '\\'
-        OR p.extension_type LIKE ? ESCAPE '\\'
-        OR COALESCE(u.global_name, u.username) LIKE ? ESCAPE '\\'
-        OR EXISTS (
-          SELECT 1 FROM project_search_tags t
-          WHERE t.project_id = p.id AND t.tag LIKE ? ESCAPE '\\'
-        ))`,
-      values: [pattern, pattern, pattern, pattern, pattern],
+      sql: "p.rowid IN (SELECT rowid FROM project_search_short WHERE project_search_short MATCH ?)",
+      values: [phrase],
     };
   }
   return {

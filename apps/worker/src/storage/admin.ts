@@ -246,7 +246,7 @@ export async function getAdminSubmission(db: D1Database, id: string) {
 export async function getSubmissionAsset(
   db: D1Database,
   submissionId: string,
-  kind: "worldbook" | "regex",
+  kind: "worldbook" | "regex" | "cover",
 ) {
   return db.prepare(`
     SELECT a.r2_key, a.mime, a.bytes
@@ -271,12 +271,15 @@ export async function reviewAdminSubmission(
   `).bind(submissionId).first<SubmissionTargetRow>();
   if (!target) return { kind: "not_found" as const };
   if (target.status !== "pending") return { kind: "conflict" as const };
+  if (request.decision === "reject" && !request.reason?.trim()) {
+    return { kind: "invalid_reason" as const };
+  }
   if (request.decision === "approve" && !target.manifest_hash) return { kind: "conflict" as const };
 
   const now = new Date().toISOString();
   const nextStatus = request.decision === "approve" ? "approved" : "rejected";
-  const checkerVersion = request.checkerVersion ?? target.checker_revision;
-  const report = request.report === undefined ? null : JSON.stringify(request.report);
+  const checkerVersion = target.checker_revision;
+  const report = null;
   const reviewId = crypto.randomUUID();
 
   const statements = [
