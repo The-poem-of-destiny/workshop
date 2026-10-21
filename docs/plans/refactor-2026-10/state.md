@@ -9,11 +9,11 @@
 ## 2026-10-21 续作
 
 - W12 客户端、W13/W14 分发、W16 元数据、W18 cron、W19 生命周期/索引、W20 Web 作者/审核/管理、W17 管理写接口已提交。
-- `pnpm check` 绿；worker 76、domain 17、content 7、tavern-client 6。
+- `pnpm check` 绿；worker 81、domain 17、content 7、tavern-client 6。
 - `pnpm e2e:local` 19/19（上一轮完整运行），含真实 Chromium 旅程：匿名搜索/排序/作者筛选/详情、作者工作台+订阅、owner 管理、审核通过、审核拒绝理由。
-- staging D1 已应用 0001–0011；Worker 版本 `69fa850d-9c6b-40c2-a5d7-e777cb309281`（commit `7761c32`），由 `deploy-staging` Actions 流水线部署。
+- staging D1 已应用 0001–0011；Worker 版本 `d43d6b00-ac2d-4ffe-8c21-007edf69e01e`（commit `9455c62`），由 `deploy-staging` Actions 流水线部署。
 - staging 远程 smoke 已通过：health 200；此前覆盖 health/list/discovery/root/reference-sets/site/home、Origin 拒绝 403、client compatibility；`client/stable/index.js` 已发布 `0.1.3`。
-- GitHub Actions：`ci` run `39593684436`（main，commit `f2c419a`）成功；`deploy-staging` run `39593544230`（commit `7761c32`）部署成功；run `39593837063`（commit `f2c419a`）只跑 changes，build/deploy 按 docs-only 规则跳过。
+- GitHub Actions：`ci` run `39619178757`（main，commit `9455c62`）成功；`deploy-staging` run `39619370797`（commit `9455c62`）部署成功。
 - W21/W24 仍被 Q-05/Q-06/Q-10 阻塞；W23 R2 适配器已完成，真实数据导入与生产 cutover 未做。
 
 ## 已有实现（不等于验收完成）
@@ -104,14 +104,14 @@
 
 ## 当前线上
 
-- staging：`https://workshop-staging.poem-of-destiny.workers.dev`，active Worker `69fa850d-9c6b-40c2-a5d7-e777cb309281`（commit `7761c32`；HMAC secret 已设置），D1 0001–0011 已应用；上一版 `555111d5-ed2c-4e6d-b74b-acc00b107faa` 可回滚。该版本由 `deploy-staging` Actions 流水线部署。
-- production：`https://workshop.poem-of-destiny.workers.dev` 仍运行旧版本 `5d2edd06-ac64-43b4-95fc-954fbccb0683`（2026-10-20 部署），当前重构版本未提升；生产切换留人工审批。
+- staging：`https://workshop-staging.poem-of-destiny.workers.dev`，active Worker `d43d6b00-ac2d-4ffe-8c21-007edf69e01e`（commit `9455c62`；HMAC 与 Discord secrets 已设置；公会/身份组已配置），D1 0001–0011 已应用。该版本由 `deploy-staging` Actions 流水线部署。
+- production：`https://workshop.poem-of-destiny.workers.dev` 活跃版本 `c6c81138-dbcf-48aa-b925-4f195e8ef85e`（2026-10-21 secret change；代码仍是旧版 `5d2edd06...`），当前重构版本未提升；生产切换留人工审批。
 - `main` 已包含重构；`archive/pre-refactor-2026-10` 保留旧状态。
 
 ## 待办
 
 - 独立完成度审计：`docs/audits/features-audit-merged.md`；结论非 CLEAN，按 `checklist.md` 继续。
-- P3：OAuth callback/redeem/device/公会校验已实现；真实 Discord 握手仍缺 client secret。
+- P3：OAuth callback/redeem/device/公会/身份组校验已实现；staging 凭据与公会/身份组已配置，真实 Discord 账号授权尚未验收。
 - P4：真实备份全量/两次/delta/对账与隔离本地 D1 load 已完成；R2 复制适配器已实现，真实导入未执行。
 - P5：本地与 staging 部署已完成；staging 回滚/恢复演练与 5xx 冒烟已完成；真实生产切换仍留人工审批。
 - P6：`cloudflare/`、旧客户端 `src/`、`util/`、`config/`、`test-dist/` 与旧 webpack 构建链已移出当前工作树；旧版本保存在本地 worktree `../workshop-legacy`（`4fdf71a`）仅作对照。客户端需按 checklist 重写，不再从当前树构建。
@@ -121,7 +121,7 @@
 
 ## 停止条件 / 阻塞
 
-- 真实 Discord OAuth 握手：callback/redeem/device 代码与本地负例已完成，缺 client secret 与真实公会数据；不伪造登录。
+- 真实 Discord OAuth 授权：callback/redeem/device 代码与本地正/负例已完成；staging 凭据、公会与身份组已配置，缺真实账号验收；不伪造登录。
 - Checker：`ContentService` 与移植规则已完成；真实语料扩充仍可继续，但不是当前阻塞。
 - 真实 SillyTavern 验证：本机无运行中的 SillyTavern；已按 stop condition 停止该项，不用 mock 冒充。
 - R2 真实导入：适配器已完成本地演练；未把真实备份导入 staging，需授权目标桶与源桶。
