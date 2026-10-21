@@ -76,6 +76,22 @@
 - CI：`.github/workflows/refactor-ci.yml`。
 - 压缩配置：`.omp/config.yml`，50% 阈值，`handoff/shake/soft` 文本路径，关闭 snapcompact 视觉。
 
+## 独立完成度审计（2026-10-21）
+
+两份只读审计报告：
+
+- `docs/audits/features-audit-a.md`：features §1–6、§13 与 checker 规则内容。
+- `docs/audits/features-audit-b.md`：features §7–12、decisions、API/schema/cache/ops。
+
+结论：此前的“已完成 P1–P6”表述过强，不能作为交付依据。审计发现：
+
+- features §1–6/§13 只有账号角色/会话撤销、项目创建、两态可见性等少数项真正闭环；checker 规则、DO 权威复核、自动发布、审核绑定整体缺失。
+- features §7–12 为 8 done / 12 partial / 14 missing；decisions 为 6 done / 18 partial / 9 missing。
+- 高优先级缺口：`/client/*` 无处理器与版本门禁；无 cron/榜单；无 Workers Cache；无管理端 site/audit/reference/recommendation 写接口；项目版本标签字段缺失；1–2 字搜索仍走 LIKE；内容策略未接入上传/提交；Web 排序 tab 默认页无效；旧客户端仍指向已删除的 `/api/projects`、`/api/files`。
+- Checker 旧规则内容（L1–L7、M1–M5、U2–U5、API1–API2、AH1–AH4、EJS/JS-PARSE、预算）在当前 `apps/`/`packages/` 中不存在；`util/ejs-checker-v2.js` 只是无法重建的死产物。
+
+在这些缺口关闭前，不应把 P3/P5/P6 视为可生产切换。
+
 ## 当前线上
 
 - staging：`https://workshop-staging.poem-of-destiny.workers.dev`，已部署新 Worker `cba07328-3c24-4c70-9cd6-10a162e3ac2d`，D1 `0001_initial.sql` 已应用；已演练回滚到 `4ab78a2`（version `bbd12fac-6dc3-483a-a03f-c74b77bb7714`）并恢复。
