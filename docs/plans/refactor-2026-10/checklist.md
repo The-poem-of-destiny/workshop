@@ -52,7 +52,7 @@
 - [x] Web 分页/加载更多与“第 X–Y 条”。
 - [x] 发现栏小时桶 + `discovery_exposures`。
 - [x] 7d/30d 周期热度排序与快照写入。
-- [ ] 公开榜单读取 API / UI（当前只读 `discovery_exposures`）。
+- [x] 公开榜单读取 API / UI（`GET /projects/rankings?kind=7d` + 周热度）。
 - [x] reference version items + hash 指纹（B10/C11）。
 - [ ] 每日抽签接口（Q-10 决定后再做）。
 
@@ -146,7 +146,7 @@
 ## 11. 缓存、调度与运维
 
 - [x] 第一阶段动态 API `private, no-store`；文件/审核文件 no-store。
-- [ ] 静态资产 immutable；当前 Workers Assets 对 hashed JS 仍 `max-age=0, must-revalidate`。
+- [x] 静态 hashed 资产 immutable（Worker `/assets/*` 返回 `max-age=31536000, immutable`）。
 - [ ] D-24/D-28 Workers Cache 专项、Cache-Tag/purge、`Cf-Cache-Status` 测量（当前仅客户端版本化对象缓存）。
 - [x] cron：榜单、7d/30d、清理、过期 session、自动审核。
 - [ ] 可观测性采样率；错误不采样。

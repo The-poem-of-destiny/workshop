@@ -67,6 +67,16 @@ app.route("/api/v1/recommendations", recommendationRoutes);
 app.route("/api/v1/reference-sets", referenceRoutes);
 app.route("/api/v1/site", siteRoutes);
 
+app.get("/assets/*", async c => {
+  if (!c.env.ASSETS) return c.text("Not found", 404);
+  const response = await c.env.ASSETS.fetch(c.req.raw);
+  if (!response.ok) return response;
+  const headers = new Headers(response.headers);
+  headers.set("cache-control", "public, max-age=31536000, immutable");
+  headers.set("x-content-type-options", "nosniff");
+  return new Response(response.body, { status: response.status, headers });
+});
+
 app.get("/api/v1/assets/*", async c => {
   const key = c.req.path.replace("/api/v1/assets/", "");
   if (!key.startsWith("covers/") && !key.startsWith("banners/")) {

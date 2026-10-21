@@ -145,6 +145,7 @@ export const api = {
   me: () => requestJson<MeResponse>("/api/v1/me"),
   home: () => requestJson<HomeResponse>("/api/v1/home"),
   project: (id: string) => requestJson<ProjectDetail>(`/api/v1/projects/${encodeURIComponent(id)}`),
+  rankings: (kind: "daily" | "7d" | "30d") => requestJson<{ kind: string; bucket: string | null; items: { rank: number; score: number; project: ProjectSummary }[] }>(`/api/v1/projects/rankings?kind=${kind}`),
   projects: (params: { search?: string; sort?: string; cursor?: string; projectType?: string; authorId?: string; tag?: string }) => {
     const query = new URLSearchParams({ limit: "24" });
     if (params.search) query.set("search", params.search);

@@ -1,3 +1,5 @@
+import { getPublishedProjectsByIds } from "./projects.js";
+
 function dayKey(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
@@ -74,4 +76,26 @@ export async function cleanupExpired(db: D1Database): Promise<void> {
     db.prepare("DELETE FROM discovery_exposures WHERE created_at < ?").bind(ninetyDaysAgo),
     db.prepare("DELETE FROM projects WHERE deleted_at IS NOT NULL AND deleted_at < ?").bind(thirtyDaysAgo),
   ]);
+}
+
+export async function getRankings(db: D1Database, kind: "daily" | "7d" | "30d") {
+  const run = await db.prepare(`
+    SELECT id, bucket FROM ranking_runs
+    WHERE kind = ? AND status = 'complete'
+    ORDER BY created_at DESC LIMIT 1
+  `).bind(kind).first<{ id: string; bucket: string }>();
+  if (!run) return { kind, bucket: null, items: [] };
+  const rows = await db.prepare(`
+    SELECT project_id, rank, score FROM ranking_entries
+    WHERE run_id = ? ORDER BY rank LIMIT 24
+  `).bind(run.id).all<{ project_id: string; rank: number; score: number }>();
+  const projects = await getPublishedProjectsByIds(db, rows.results.map(row => row.project_id));
+  return {
+    kind,
+    bucket: run.bucket,
+    items: rows.results.flatMap(row => {
+      const project = projects.get(row.project_id);
+      return project ? [{ rank: row.rank, score: row.score, project }] : [];
+    }),
+  };
 }

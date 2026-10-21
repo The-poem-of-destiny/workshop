@@ -120,6 +120,11 @@ async function main() {
       const body = await response.text();
       assert(response.status === 200 && response.headers.get("content-type")?.includes("text/html"), "root is not HTML");
       assert(body.includes('id="root"'), "root missing mount");
+      const assetPath = /src="(\/assets\/[^"]+\.js)"/.exec(body)?.[1];
+      assert(assetPath, "hashed asset missing");
+      const asset = await fetch(`${base}${assetPath}`);
+      assert(asset.status === 200, "hashed asset status");
+      assert(asset.headers.get("cache-control")?.includes("immutable"), "hashed asset immutable");
     });
 
     await check("public list", async () => {

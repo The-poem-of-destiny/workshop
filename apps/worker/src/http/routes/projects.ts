@@ -5,6 +5,7 @@ import type { Env } from "../../env";
 import { getClientChannel } from "../../storage/client.js";
 import { getProjectEntryIndex } from "../../storage/content-index.js";
 import { getDiscovery } from "../../storage/home.js";
+import { getRankings } from "../../storage/rankings.js";
 import { issueDownloadTickets, recordDownload } from "../../storage/downloads.js";
 import { getPublishedProject, listPublishedProjects } from "../../storage/projects.js";
 import { getReleaseAssets } from "../../storage/releases.js";
@@ -30,6 +31,14 @@ projectsRoutes.get("/", async c => {
 });
 
 projectsRoutes.get("/discovery", async c => c.json(await getDiscovery(c.env.DB)));
+
+projectsRoutes.get("/rankings", async c => {
+  const kind = c.req.query("kind") ?? "7d";
+  if (kind !== "daily" && kind !== "7d" && kind !== "30d") {
+    return jsonError(c, "bad_request", "Unknown ranking kind");
+  }
+  return c.json(await getRankings(c.env.DB, kind));
+});
 
 projectsRoutes.get("/:id", async c => {
   const project = await getPublishedProject(c.env.DB, c.req.param("id"));

@@ -132,12 +132,19 @@ function ProjectEditor({ entry, onRefresh, onError, onNotice }: { entry: AuthorP
 }
 
 function Discovery({ home, onOpen }: { home: HomeResponse; onOpen: (project: ProjectSummary) => void }) {
+  const [ranked, setRanked] = useState<ProjectSummary[]>([]);
   const latest = home.latest.slice(0, 4);
   const recommendations = home.recommendations.slice(0, 4);
-  if (latest.length === 0 && recommendations.length === 0) return null;
+  useEffect(() => {
+    let active = true;
+    api.rankings("7d").then(result => { if (active) setRanked(result.items.slice(0, 4).map(item => item.project)); }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+  if (latest.length === 0 && recommendations.length === 0 && ranked.length === 0) return null;
   return <section className="discovery">
     {latest.length > 0 ? <><h2>最新上架</h2><div className="grid">{latest.map(project => <ProjectCard key={project.id} project={project} onOpen={onOpen} />)}</div></> : null}
     {recommendations.length > 0 ? <><h2>编辑精选</h2><div className="grid">{recommendations.map(project => <ProjectCard key={project.id} project={project} onOpen={onOpen} />)}</div></> : null}
+    {ranked.length > 0 ? <><h2>周热度</h2><div className="grid">{ranked.map(project => <ProjectCard key={project.id} project={project} onOpen={onOpen} />)}</div></> : null}
   </section>;
 }
 
