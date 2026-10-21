@@ -225,11 +225,9 @@ describe("authoring write paths", () => {
     )
       .bind(result.revisionId)
       .first<{ r2_key: string }>();
-    expect(retainedCover?.r2_key).toBeTruthy();
-    expect(retainedCover?.r2_key).not.toBe(oldCover?.r2_key);
+    expect(retainedCover?.r2_key).toBe(oldCover?.r2_key);
     const retainedObject = await bindings.R2.get(retainedCover!.r2_key);
     await expect(retainedObject?.text()).resolves.toBe("cover-bytes");
-    await expect(bindings.R2.get(oldCover!.r2_key)).resolves.not.toBeNull();
     const counts = await bindings.DB.prepare("SELECT worldbook_count, regex_count FROM project_revisions WHERE id = ?")
       .bind(result.revisionId)
       .first<{ worldbook_count: number; regex_count: number }>();

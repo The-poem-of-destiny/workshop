@@ -37,7 +37,7 @@
 
 - React + Vite 最小可用页面：`apps/worker/web`，消费 `/api/v1/home` 与 `/api/v1/projects`；卡片 16:9、4/3/2/1 响应式、搜索/排序/详情侧栏。
 - 构建产物 `web/dist` 不提交；`check:wrangler` 先构建。
-- `POST /api/v1/projects/:id/downloads`：登录后原子增加 `downloads_count` + 日指标；文件 GET 仍 `private, no-store`。
+- `POST /api/v1/projects/:id/acquisitions`（安装，要求精确 client channel/version）与 `POST /projects/:id/downloads`（通用下载）返回短时票据；只有票据消费成功后才原子增加 `downloads_count` + 日指标；文件 GET 仍 `private, no-store`。
 
 ### 独立复审修复
 

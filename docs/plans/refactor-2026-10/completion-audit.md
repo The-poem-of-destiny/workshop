@@ -23,7 +23,7 @@
 - [x] 审核队列使用 `(submitted_at,id)` keyset cursor。
 - [x] 公开项目列表改为固定 24 条 + keyset cursor，不再用 offset 伪装 cursor。
 - [x] 匿名 `entries` 索引在 revision 冻结时生成并持久化，不在读路径解析 R2 原文。
-- [ ] 删除条目时复用不可变 R2 对象，不复制全部保留资产。
+- [x] 删除条目时复用不可变 R2 对象，不复制全部保留资产。
 - [ ] 所有外部请求/响应进入 `packages/contracts`，Web 不再维护平行 DTO。
 - [x] 412 响应带 `resource/expectedVersion/currentVersion`，区分 409 状态机冲突。
 - [x] 选择并记录动态 API 缓存阶段：在 D-24 验收前保持 `private,no-store`，或完成 gateway/Public/Viewer 与 tag purge。

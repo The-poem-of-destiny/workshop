@@ -841,14 +841,12 @@ export async function deleteProjectEntry(
   const writtenKeys: string[] = [];
   try {
     for (const retainedAsset of retained.results) {
-      const retainedObject = await r2.get(retainedAsset.r2_key);
-      if (!retainedObject) throw new Error(`Retained asset is missing: ${retainedAsset.r2_key}`);
-      const key = assetKey(projectId, nextRevisionId, retainedAsset.kind, retainedAsset.sha256, retainedAsset.mime);
-      await r2.put(key, retainedObject.body, { httpMetadata: { contentType: retainedAsset.mime } });
-      writtenKeys.push(key);
+      // R2 objects are immutable and content-addressed; reuse the same object
+      // instead of copying every retained asset into a new revision prefix.
+      if (!(await r2.head(retainedAsset.r2_key))) throw new Error(`Retained asset is missing: ${retainedAsset.r2_key}`);
       assets.push({
         kind: retainedAsset.kind,
-        r2Key: key,
+        r2Key: retainedAsset.r2_key,
         sha256: retainedAsset.sha256,
         bytes: retainedAsset.bytes,
         mime: retainedAsset.mime,
