@@ -71,7 +71,8 @@ jobs:
             --remote --config wrangler.jsonc --env production --output "$dump" -y \
             2>&1 | sed -E 's#https?://[^ ]+#<redacted>#g'
           test -s "$dump"
-          sha256sum "$dump" > "${dump}.sha256"
+          digest="$(sha256sum "$dump" | cut -d' ' -f1)"
+          printf '%s  workshop-prod.sql\n' "$digest" > "${dump}.sha256"
           pnpm --filter @workshop/worker exec wrangler d1 time-travel info workshop-prod \
             --config wrangler.jsonc --env production \
             --timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --json > "$GITHUB_WORKSPACE/backup/time-travel-${stamp}.json"
@@ -79,7 +80,7 @@ jobs:
             --arg sourceSha "$GITHUB_SHA" \
             --arg tag "$GITHUB_REF_NAME" \
             --arg backupKey "d1/${stamp}/workshop-prod.sql" \
-            --arg backupSha "$(sha256sum "$dump" | cut -d' ' -f1)" \
+            --arg backupSha "$digest" \
             --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             '{sourceSha:$sourceSha,tag:$tag,backupKey:$backupKey,backupSha256:$backupSha,createdAt:$createdAt}' \
             > "$GITHUB_WORKSPACE/backup/manifest.json"
