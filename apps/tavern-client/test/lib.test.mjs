@@ -44,6 +44,13 @@ test("workshop origins normalize to scheme and host and reject invalid schemes",
   assert.equal(lib.normalizeWorkshopOrigin("", "https://fallback.example"), "https://fallback.example");
 });
 
+test("foreign official baseline names fail closed", () => {
+  const official = [{ comment: "[DLC][角色]A", content: "official" }];
+  assert.equal(lib.hasForeignBaselineConflict(official, { comment: "[DLC][角色]A", content: "incoming" }, "uid:1"), true);
+  assert.equal(lib.hasForeignBaselineConflict(official, { comment: "[DLC][角色]B", content: "incoming" }, "uid:2"), false);
+  assert.equal(lib.hasForeignBaselineConflict([{ comment: "[DLC][角色]A", extensions: { cw_project_id: "p" } }], { comment: "[DLC][角色]A" }, "uid:1"), false);
+});
+
 test("project entries require a project marker string", () => {
   assert.equal(lib.projectEntry({ extensions: { cw_project_id: "p1" } }), true);
   assert.equal(lib.projectEntry({ extensions: { cw_project_id: 1 } }), false);

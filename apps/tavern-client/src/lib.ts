@@ -66,3 +66,16 @@ export function normalizeWorkshopOrigin(value: unknown, fallback: string): strin
     return fallback;
   }
 }
+
+export function hasForeignBaselineConflict(
+  current: Record<string, unknown>[],
+  incoming: Record<string, unknown>,
+  incomingKey: string,
+): boolean {
+  const name = entryName(incoming, incomingKey);
+  if (!name.startsWith("[DLC]")) return false;
+  return current.some(entry => {
+    if (projectEntry(entry)) return false;
+    return entryName(entry, incomingKey) === name;
+  });
+}

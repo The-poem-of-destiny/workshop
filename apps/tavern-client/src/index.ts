@@ -29,7 +29,7 @@ declare function updateTavernRegexesWith(
 declare const __CW_CLIENT_VERSION__: string;
 declare const __CW_DEFAULT_ORIGIN__: string;
 
-import { entryKey, entryName, hashText, normalizeWorkshopOrigin, projectEntry, regexEntries, worldbookEntries } from "./lib.js";
+import { entryKey, entryName, hashText, hasForeignBaselineConflict, normalizeWorkshopOrigin, projectEntry, regexEntries, worldbookEntries } from "./lib.js";
 
 const CLIENT_VERSION = __CW_CLIENT_VERSION__;
 const DEFAULT_ORIGIN = __CW_DEFAULT_ORIGIN__;
@@ -139,6 +139,10 @@ async function installProject(project: InstallProject, files: InstallFileSet, ta
     const key = entryKey(raw, index);
     if (desiredKeys.has(key)) throw new Error(`世界书条目身份重复：${key}`);
     desiredKeys.add(key);
+    if (hasForeignBaselineConflict(current, raw, key)) {
+      conflicts.push(`${entryName(raw, key)}（与现有非工坊条目同名，保留原条目）`);
+      continue;
+    }
     const old = oldByKey.get(key);
     const oldHash = old?.extensions?.cw_installed_hash;
     const oldContentHash = old ? await hashText(String(old.content ?? "")) : null;
