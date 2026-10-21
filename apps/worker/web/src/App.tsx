@@ -80,6 +80,22 @@ function ProjectEditor({ entry, onRefresh, onError, onNotice }: { entry: AuthorP
   </section>;
 }
 
+function Discovery({ home, onOpen }: { home: HomeResponse; onOpen: (project: ProjectSummary) => void }) {
+  const latest = home.latest.slice(0, 4);
+  const recommendations = home.recommendations.slice(0, 4);
+  if (latest.length === 0 && recommendations.length === 0) return null;
+  return <section className="discovery">
+    {latest.length > 0 ? <><h2>最新上架</h2><div className="grid">{latest.map(project => <ProjectCard key={project.id} project={project} onOpen={onOpen} />)}</div></> : null}
+    {recommendations.length > 0 ? <><h2>编辑精选</h2><div className="grid">{recommendations.map(project => <ProjectCard key={project.id} project={project} onOpen={onOpen} />)}</div></> : null}
+  </section>;
+}
+
+function Subscriptions({ onOpen, onError }: { onOpen: (project: ProjectSummary) => void; onError: (message: string) => void }) {
+  const [items, setItems] = useState<ProjectSummary[]>([]);
+  useEffect(() => { api.subscriptions().then(result => setItems(result.items)).catch(reason => onError(String(reason))); }, []);
+  return <section className="workspace"><div className="panel-heading"><h2>我的订阅</h2></div>{items.length === 0 ? <p className="hint">还没有订阅项目。</p> : <main className="grid">{items.map(project => <ProjectCard key={project.id} project={project} onOpen={onOpen} />)}</main>}</section>;
+}
+
 function MyProjects({ onError, onNotice }: { onError: (message: string) => void; onNotice: (message: string) => void }) {
   const [items, setItems] = useState<AuthorProject[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -149,7 +165,7 @@ export function App() {
   const [me, setMe] = useState<MeResponse["user"] | null>(null);
   const [context, setContext] = useState<HostContext | null>(null);
   const [installing, setInstalling] = useState(false);
-  const [view, setView] = useState<"browse" | "projects" | "admin" | "tools">("browse");
+  const [view, setView] = useState<"browse" | "projects" | "subs" | "admin" | "tools">("browse");
   const embedded = new URLSearchParams(location.search).get("embed") === "1";
   function postToHost(payload: Record<string, unknown>): void { if (window.parent !== window) window.parent.postMessage(payload, "*"); }
   async function refreshMe(): Promise<void> { if (!api.hasSession()) return; try { const value = await api.me(); setMe(value.user); } catch { setSessionToken(null); setMe(null); } }
@@ -163,8 +179,8 @@ export function App() {
   const installed = selected ? context?.registry?.[selected.id] ?? null : null;
   const reviewer = me?.role === "reviewer" || me?.role === "owner";
   return <div className={`shell${embedded ? " embedded" : ""}`}><header><div><p className="eyebrow">命定之诗与黄昏之歌</p><h1>创意工坊</h1></div><div className="header-tools"><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索项目、作者、标签" aria-label="搜索" />{me ? <div className="account"><span>{me.globalName || me.username}</span><button type="button" onClick={logout}>退出</button></div> : <button type="button" className="login" onClick={login}>Discord 登录</button>}</div></header>
-    {me ? <nav className="main-nav" aria-label="主导航"><button type="button" className={view === "browse" ? "active" : ""} onClick={() => setView("browse")}>工坊</button><button type="button" className={view === "projects" ? "active" : ""} onClick={() => setView("projects")}>我的项目</button>{reviewer ? <button type="button" className={view === "admin" ? "active" : ""} onClick={() => setView("admin")}>审核台</button> : null}{me?.role === "owner" ? <button type="button" className={view === "tools" ? "active" : ""} onClick={() => setView("tools")}>管理</button> : null}</nav> : null}
+    {me ? <nav className="main-nav" aria-label="主导航"><button type="button" className={view === "browse" ? "active" : ""} onClick={() => setView("browse")}>工坊</button><button type="button" className={view === "projects" ? "active" : ""} onClick={() => setView("projects")}>我的项目</button><button type="button" className={view === "subs" ? "active" : ""} onClick={() => setView("subs")}>订阅</button>{reviewer ? <button type="button" className={view === "admin" ? "active" : ""} onClick={() => setView("admin")}>审核台</button> : null}{me?.role === "owner" ? <button type="button" className={view === "tools" ? "active" : ""} onClick={() => setView("tools")}>管理</button> : null}</nav> : null}
     {home?.banner?.imageUrl && view === "browse" ? <div className="banner" style={{ backgroundImage: `url(${home.banner.imageUrl})` }} /> : null}{error ? <p className="error">{error}<button type="button" onClick={() => setError(null)}>×</button></p> : null}{notice ? <p className="notice">{notice}</p> : null}
-    {view === "projects" && me ? <MyProjects onError={message => { setError(message); setNotice(null); }} onNotice={message => { setNotice(message); setError(null); }} /> : view === "admin" && reviewer ? <AdminPanel onError={message => { setError(message); setNotice(null); }} onNotice={message => { setNotice(message); setError(null); }} /> : view === "tools" && me?.role === "owner" ? <AdminTools onError={message => { setError(message); setNotice(null); }} onNotice={message => { setNotice(message); setError(null); }} /> : <><nav className="sorts" aria-label="排序">{SORTS.map(([value, label]) => <button key={value} type="button" className={sort === value ? "active" : ""} onClick={() => setSort(value)}>{label}</button>)}</nav><nav className="sorts filters" aria-label="类型">{["", ...PROJECT_TYPES].map(value => <button key={value || "all"} type="button" className={projectType === value ? "active" : ""} onClick={() => setProjectType(value)}>{value || "全部"}</button>)}</nav>{author ? <p className="active-filter">作者：{author.name}<button type="button" onClick={() => setAuthor(null)}>清除</button></p> : null}<p className="list-range">{projects.length === 0 ? "暂无项目" : `第 1–${projects.length} 条`}</p><main className="grid">{projects.map(project => <ProjectCard key={project.id} project={project} onOpen={setSelected} />)}</main>{nextCursor ? <div className="load-more"><button type="button" onClick={loadMore}>加载更多</button></div> : null}</>}
+    {view === "projects" && me ? <MyProjects onError={message => { setError(message); setNotice(null); }} onNotice={message => { setNotice(message); setError(null); }} /> : view === "subs" && me ? <Subscriptions onOpen={setSelected} onError={message => { setError(message); setNotice(null); }} /> : view === "admin" && reviewer ? <AdminPanel onError={message => { setError(message); setNotice(null); }} onNotice={message => { setNotice(message); setError(null); }} /> : view === "tools" && me?.role === "owner" ? <AdminTools onError={message => { setError(message); setNotice(null); }} onNotice={message => { setNotice(message); setError(null); }} /> : <> {home && !search.trim() && !projectType && !author ? <Discovery home={home} onOpen={setSelected} /> : null}<nav className="sorts" aria-label="排序">{SORTS.map(([value, label]) => <button key={value} type="button" className={sort === value ? "active" : ""} onClick={() => setSort(value)}>{label}</button>)}</nav><nav className="sorts filters" aria-label="类型">{["", ...PROJECT_TYPES].map(value => <button key={value || "all"} type="button" className={projectType === value ? "active" : ""} onClick={() => setProjectType(value)}>{value || "全部"}</button>)}</nav>{author ? <p className="active-filter">作者：{author.name}<button type="button" onClick={() => setAuthor(null)}>清除</button></p> : null}<p className="list-range">{projects.length === 0 ? "暂无项目" : `第 1–${projects.length} 条`}</p><main className="grid">{projects.map(project => <ProjectCard key={project.id} project={project} onOpen={setSelected} />)}</main>{nextCursor ? <div className="load-more"><button type="button" onClick={loadMore}>加载更多</button></div> : null}</>}
     {selected && view === "browse" ? <Detail project={selected} onClose={() => setSelected(null)} onInstall={install} onUninstall={uninstall} onAuthor={value => { setAuthor(value); setSelected(null); }} installedVersion={installed?.version ?? null} loggedIn={Boolean(me)} installing={installing} embedded={embedded} /> : null}</div>;
 }

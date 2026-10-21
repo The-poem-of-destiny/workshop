@@ -214,6 +214,13 @@ async function main() {
       assert(JSON.parse(detail.body).counts.downloads === 1, "download counted exactly once");
     });
 
+    await check("author subscribes to a public project", async () => {
+      const subscribed = await api(`/api/v1/me/subscriptions/${project.project.id}`, { method: "PUT" }, authorToken);
+      assert(subscribed.response.status === 204, `subscribe ${subscribed.response.status}: ${subscribed.body}`);
+      const list = await api("/api/v1/me/subscriptions", {}, authorToken);
+      assert(list.response.status === 200 && JSON.parse(list.body).items.some(item => item.id === project.project.id), "subscription list");
+    });
+
     async function createPending(title, key) {
       const created = await api("/api/v1/projects", {
         method: "POST",
@@ -280,6 +287,8 @@ async function main() {
           await page.getByText("E2E Project", { exact: true }).first().click();
           await page.getByRole("button", { name: "提交当前版本" }).waitFor({ state: "visible" });
           assert((await page.locator(".workspace").textContent())?.includes("提交审核"), "submit box");
+          await page.getByRole("button", { name: "订阅", exact: true }).click();
+          await page.getByText("E2E Project", { exact: true }).first().waitFor({ state: "visible", timeout: 10_000 });
           await context.close();
         });
 

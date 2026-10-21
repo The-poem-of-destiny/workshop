@@ -231,6 +231,9 @@ input[type="search"] {
 .author.link:hover { color: var(--accent); }
 .active-filter { display: inline-flex; align-items: center; gap: 8px; margin: -8px 0 10px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 12px; }
 .active-filter button { border: 0; background: transparent; color: var(--accent); cursor: pointer; }
+.discovery { margin-bottom: 20px; }
+.discovery h2 { margin: 0 0 10px; font-size: 15px; color: var(--accent); }
+.discovery .grid { margin-bottom: 18px; }
 .list-range { margin: -8px 0 12px; color: var(--muted); font-size: 12px; }
 .load-more { display: flex; justify-content: center; margin-top: 20px; }
 .load-more button { padding: 9px 18px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); cursor: pointer; }

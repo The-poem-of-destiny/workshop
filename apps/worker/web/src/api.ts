@@ -124,6 +124,7 @@ export const api = {
     return requestJson<ProjectListResponse>(`/api/v1/projects?${query}`);
   },
   myProjects: () => requestJson<AuthorProjectListResponse>("/api/v1/me/projects"),
+  subscriptions: () => requestJson<{ items: ProjectSummary[] }>("/api/v1/me/subscriptions"),
   createProject: (body: Record<string, unknown>) => requestJson<AuthorProject>("/api/v1/projects", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
   patchProject: (id: string, rowVersion: number, body: Record<string, unknown>) => requestJson<{ rowVersion: number; revisionId: string }>("/api/v1/projects/" + encodeURIComponent(id), { method: "PATCH", headers: { "content-type": "application/json", "if-match": String(rowVersion) }, body: JSON.stringify(body) }),
   deleteProject: (id: string, rowVersion: number) => requestJson<void>("/api/v1/projects/" + encodeURIComponent(id), { method: "DELETE", headers: { "if-match": String(rowVersion) } }),
