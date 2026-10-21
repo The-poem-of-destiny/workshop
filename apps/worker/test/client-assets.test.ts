@@ -48,6 +48,13 @@ describe("client distribution", () => {
     }
   });
 
+  it("serves a one-time legacy shim pointing at the stable client", async () => {
+    const response = await app.request("/test-dist/CreativeWorkshop/index.js", undefined, bindings);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
+    await expect(response.text()).resolves.toContain("/client/stable/index.js");
+  });
+
   it("serves pinned checker bundles immutably and rejects unknown files", async () => {
     const checkerSha = "1234567890abcdef";
     await bindings.R2.put(`checker/v/${checkerSha}/browser-checker.js`, "globalThis.PoemEjsChecker={};");

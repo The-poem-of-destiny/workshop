@@ -36,6 +36,7 @@
 - [x] Discord callback / `POST /auth/flows/:id/redeem` / 设备码。
 - [x] 生产 session 创建、30 天滑动过期（`touchSession`）。
 - [x] PKCE verifier 可兑换；服务端只存 hash。
+- [x] session token 使用 HMAC（配置 `SESSION_HASH_SECRET` 后生效；staging 已设置）。
 - [x] 公会准入 `DISCORD_ALLOWED_GUILD_IDS`（staging 暂为空）。
 - [x] CORS 允许列表与安全头；严格同源 CORS。
 - [x] `oauth_flows.origin` 与 D-10“不存储请求 Origin”的口径统一。
@@ -115,8 +116,8 @@
 - [x] `apps/tavern-client`（D-20）；旧 `src/CreativeWorkshop` 明确停用。
 - [x] `/client/*` Worker 代理 R2、stable/staging 指针、版本化对象。
 - [x] 客户端版本记录 + 精确 channel 门禁（D-06）。
-- [ ] 旧客户端兼容：`/api/projects/:id`、`/api/files/*` 映射到新 release，或迁移提示。
-- [ ] `test-dist` shim 由新 Worker 服务或按窗口删除。
+- [x] 旧客户端兼容提示：`/test-dist/CreativeWorkshop/index.js` 返回迁移提示并加载 stable client（旧 API 映射未做）。
+- [x] `test-dist` shim 由新 Worker 服务（D-33 窗口到期后删除）。
 - [x] D-08：移除配套脚本展示/依赖健康检查（config + bridge + service）。
 - [x] 固定导入 URL、Workers Cache、Cache-Tag/purge（D-22）。
 - [ ] 真实 SillyTavern 安装/更新/修复旅程。

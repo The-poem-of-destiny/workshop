@@ -61,7 +61,8 @@ export async function run(options) {
     return report.ok ? 0 : 1;
   }
   if (!options.dryRun) await writeJson(options.target, expected);
-  const report = { verify: verify(expected), reconcile: reconcile(expected, expected) };
+  const written = options.dryRun ? expected : await readJson(options.target);
+  const report = { verify: verify(written), reconcile: reconcile(expected, written) };
   report.ok = report.verify.ok && report.reconcile.ok;
   console.log(JSON.stringify(report));
   return report.ok ? 0 : 1;

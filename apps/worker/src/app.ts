@@ -67,6 +67,22 @@ app.route("/api/v1/recommendations", recommendationRoutes);
 app.route("/api/v1/reference-sets", referenceRoutes);
 app.route("/api/v1/site", siteRoutes);
 
+app.get("/test-dist/CreativeWorkshop/index.js", c => {
+  const origin = (c.env.PUBLIC_ORIGIN ?? new URL(c.req.url).origin).replace(/\/+$/, "");
+  const script = `(() => {
+  console.warn("[CreativeWorkshop] 旧导入地址已迁移到 ${origin}/client/stable/index.js，请更新脚本导入地址。");
+  import(${JSON.stringify(`${origin}/client/stable/index.js`)}).catch(error => console.error("[CreativeWorkshop] legacy shim load failed", error));
+})();`;
+  return new Response(script, {
+    headers: {
+      "content-type": "text/javascript; charset=utf-8",
+      "cache-control": "public, max-age=0, must-revalidate",
+      "access-control-allow-origin": "*",
+      "x-content-type-options": "nosniff",
+    },
+  });
+});
+
 app.get("/assets/*", async c => {
   if (!c.env.ASSETS) return c.text("Not found", 404);
   const response = await c.env.ASSETS.fetch(c.req.raw);
