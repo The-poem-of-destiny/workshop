@@ -113,7 +113,7 @@ describe("identity and interactions", () => {
         headers: { "content-type": "application/json", origin: "https://workshop.example" },
         body: JSON.stringify({ mode: "device" }),
       },
-      { ...bindings, ALLOWED_ORIGINS: "https://workshop.example" },
+      { ...bindings, ALLOWED_ORIGINS: "https://workshop.example", DISCORD_CLIENT_ID: "" },
     );
     expect(created.status).toBe(201);
     const flow = (await created.json()) as {
