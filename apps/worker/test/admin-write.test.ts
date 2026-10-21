@@ -69,6 +69,28 @@ describe("admin writes", () => {
     await expect((await app.request("/api/v1/site", undefined, bindings)).json()).resolves.toMatchObject({ banner });
   });
 
+  it("uploads a banner and registers its public URL", async () => {
+    const png = Uint8Array.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+      0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89,
+    ]);
+    const uploaded = await request("/api/v1/site/banner", "reviewer-token", {
+      method: "POST", body: png, headers: { "content-type": "image/png" },
+    });
+    expect(uploaded.status).toBe(403);
+    const owner = await request("/api/v1/site/banner", "owner-token", {
+      method: "POST", body: png, headers: { "content-type": "image/png" },
+    });
+    expect(owner.status).toBe(201);
+    const body = await owner.json() as { banner: { imageUrl: string } };
+    expect(body.banner.imageUrl).toMatch(/^\/api\/v1\/assets\/banners\/[a-f0-9]{64}\.png$/);
+    const asset = await app.request(body.banner.imageUrl, undefined, bindings);
+    expect(asset.status).toBe(200);
+    expect(asset.headers.get("content-type")).toContain("image/png");
+  });
+
   it("upserts and deletes recommendations", async () => {
     const put = await request("/api/v1/admin/recommendations/p1", "owner-token", { method: "PUT", body: JSON.stringify({ comment: "Great", reaction: "🔥" }) });
     expect(put.status).toBe(200);

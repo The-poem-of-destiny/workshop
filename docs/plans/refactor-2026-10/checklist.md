@@ -126,7 +126,7 @@
 
 - [x] 项目列表、成员列表、角色修改、审核队列。
 - [x] 站点设置写接口（`PUT /site`）。
-- [ ] Banner 上传与位置/缩放设置（字段已存，上传路径未做）。
+- [x] Banner 上传与位置/缩放设置（owner POST /site/banner + R2 + 公共 URL）。
 - [x] 编辑精选写入/删除。
 - [x] 角色引用 set/version/items 登记。
 - [x] 审计日志读取。

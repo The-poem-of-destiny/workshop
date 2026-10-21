@@ -94,6 +94,18 @@ export function AdminTools({ onError, onNotice }: {
     })) ?? [], null, 2));
   }
 
+  async function uploadBanner(file: File | undefined): Promise<void> {
+    if (!file) return;
+    try {
+      const result = await api.uploadBanner(file);
+      setBanner(result.banner);
+      setSite(previous => previous ? { ...previous, banner: result.banner } : previous);
+      onNotice("Banner 已上传。");
+    } catch (value) {
+      onError(`Banner 上传失败：${String(value)}`);
+    }
+  }
+
   async function saveSite(): Promise<void> {
     try {
       const updated = await api.updateSite({ banner, siteContent: parseJson(siteText) });
@@ -180,6 +192,7 @@ export function AdminTools({ onError, onNotice }: {
       <div className="panel-heading"><h2>站点设置</h2><button type="button" disabled={busy} onClick={() => void refresh()}>刷新</button></div>
       {site ? <p className="hint">Banner 与站点文案写入 `site_settings`，保存即生效。</p> : null}
       <h3>Banner</h3>
+      <label className="file-button">上传 Banner<input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => void uploadBanner(event.target.files?.[0])} /></label>
       <div className="form-grid">
         <label>图片地址<input value={banner.imageUrl ?? ""} onChange={event => setBanner({ ...banner, imageUrl: event.target.value || null })} /></label>
         <label>缩放<input type="number" min="1" max="3" step="0.1" value={banner.zoom} onChange={event => setBanner({ ...banner, zoom: Number(event.target.value) })} /></label>

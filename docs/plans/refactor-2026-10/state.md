@@ -9,7 +9,7 @@
 ## 2026-10-21 续作
 
 - W12 客户端、W13/W14 分发、W16 元数据、W18 cron、W19 生命周期/索引、W20 Web 作者/审核/管理、W17 管理写接口已提交。
-- `pnpm check` 绿；worker 64、domain 17、content 7、tavern-client 4。
+- `pnpm check` 绿；worker 65、domain 17、content 7、tavern-client 4。
 - `pnpm e2e:local` 16/16，含 5 条真实 Chromium 旅程：匿名搜索/排序/作者筛选/详情、作者工作台+订阅、owner 管理、审核通过、审核拒绝理由。
 - staging D1 已应用 0002–0008；Worker 版本 `fccb1483-e62c-4bbc-8a6e-7ca7109958d6`，commit `7cc23a7`。
 - staging 远程 smoke 已通过：health/list/discovery/root/reference-sets/site/home 200，Origin 拒绝 403，client compatibility 200；`client/stable/index.js` 已发布 `0.1.1`（`3eb417a1…`）并可下载。

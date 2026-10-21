@@ -184,6 +184,7 @@ export const api = {
   adminMembers: (cursor?: string) => requestJson<AdminMemberList>(`/api/v1/admin/members${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`),
   adminSetRole: (id: string, role: "member" | "reviewer" | "owner") => requestJson<{ ok: boolean }>(`/api/v1/admin/members/${encodeURIComponent(id)}/role`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ role }) }),
   site: () => requestJson<SiteSettings>("/api/v1/site"),
+  uploadBanner: (file: File) => requestJson<{ banner: SiteBanner }>("/api/v1/site/banner", { method: "POST", headers: { "content-type": file.type }, body: file }),
   updateSite: (body: { banner?: SiteBanner; siteContent?: JsonValue }) => requestJson<SiteSettings>("/api/v1/site", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
   auditEvents: (action?: string) => requestJson<AdminAuditList>(`/api/v1/admin/audit-events?limit=20${action ? `&action=${encodeURIComponent(action)}` : ""}`),
   updateRecommendation: (projectId: string, body: { comment?: string; reaction?: string }) => requestJson<{ id: string; comment: string; reaction: string }>(`/api/v1/admin/recommendations/${encodeURIComponent(projectId)}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
