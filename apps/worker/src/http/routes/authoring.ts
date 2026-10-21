@@ -67,12 +67,12 @@ async function validateContentViaDo(
   return response.json() as Promise<ProjectContentValidation>;
 }
 
-async function validateRevisionViaDo(env: Env, revisionId: string): Promise<PrevalidatedContent> {
+async function validateRevisionViaDo(env: Env, projectId: string, revisionId: string): Promise<PrevalidatedContent> {
   const id = env.CONTENT_SERVICE.idFromName("content-validator");
   const response = await env.CONTENT_SERVICE.get(id).fetch("https://content-service/validate", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ validateRevision: revisionId }),
+    body: JSON.stringify({ validateRevision: revisionId, projectId }),
   });
   if (!response.ok) throw new Error("Content validation service unavailable");
   return response.json() as Promise<PrevalidatedContent>;
@@ -366,7 +366,7 @@ authoringRoutes.post("/:id/revisions/:revisionId/submit", async c => {
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid submission", parsed.error.flatten());
   let prevalidated: PrevalidatedContent;
   try {
-    prevalidated = await validateRevisionViaDo(c.env, c.req.param("revisionId"));
+    prevalidated = await validateRevisionViaDo(c.env, c.req.param("id"), c.req.param("revisionId"));
   } catch {
     return jsonError(c, "internal", "Content validation service unavailable");
   }

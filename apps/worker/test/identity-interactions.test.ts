@@ -97,9 +97,11 @@ describe("identity and interactions", () => {
     const flow = await created.json() as { id: string; state: string; url: string; expiresAt: string; deviceCode: string };
     expect(flow.state).toEqual(expect.any(String));
     expect(flow.url).toContain("/auth/pending");
-    const unauthorized = await app.request(`/api/v1/auth/flows/${flow.id}`, undefined, bindings);
+    const rawCookie = created.headers.get("set-cookie") ?? "";
+    const cookie = /cw_oauth_binding=([^;]+)/.exec(rawCookie)?.[0] ?? "";
+    const unauthorized = await app.request(`/api/v1/auth/flows/${flow.id}`, { headers: { cookie } }, bindings);
     expect(unauthorized.status).toBe(404);
-    const status = await app.request(`/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`, undefined, bindings);
+    const status = await app.request(`/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`, { headers: { cookie } }, bindings);
     expect(status.status).toBe(200);
     await expect(status.json()).resolves.toEqual({ status: "pending", expiresAt: flow.expiresAt });
   });
@@ -116,7 +118,10 @@ describe("identity and interactions", () => {
   });
 
   it("applies idempotent likes and subscriptions and keeps ratings private", async () => {
+    const beforeEpoch = await bindings.DB.prepare("SELECT value FROM site_settings WHERE key = 'cache_epoch'").first<{ value: string }>();
     expect((await request("/api/v1/me/likes/p1", { method: "PUT" })).status).toBe(204);
+    const afterEpoch = await bindings.DB.prepare("SELECT value FROM site_settings WHERE key = 'cache_epoch'").first<{ value: string }>();
+    expect(afterEpoch?.value).toBe(beforeEpoch?.value);
     expect((await request("/api/v1/me/likes/p1", { method: "PUT" })).status).toBe(204);
     expect((await request("/api/v1/me/subscriptions/p1", { method: "PUT" })).status).toBe(204);
     expect((await request("/api/v1/me/subscriptions/p1", { method: "PUT" })).status).toBe(204);

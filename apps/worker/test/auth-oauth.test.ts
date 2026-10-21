@@ -26,16 +26,28 @@ function mockDiscord(guildId = GUILD) {
   }));
 }
 
+let bindingCookie = "";
+
 async function createFlow(body: unknown) {
-  return app.request("/api/v1/auth/flows", {
+  const response = await app.request("/api/v1/auth/flows", {
     method: "POST",
     headers: { "content-type": "application/json", origin: ORIGIN },
     body: JSON.stringify(body),
   }, bindings);
+  const raw = response.headers.get("set-cookie") ?? "";
+  const match = /cw_oauth_binding=([^;]+)/.exec(raw);
+  bindingCookie = match ? `cw_oauth_binding=${match[1]}` : "";
+  return response;
+}
+
+function withBinding(headers: Record<string, string> = {}): Record<string, string> {
+  return bindingCookie ? { ...headers, cookie: bindingCookie } : headers;
 }
 
 async function callback(state: string) {
-  return app.request(`/api/v1/auth/callback?state=${encodeURIComponent(state)}&code=code`, undefined, bindings);
+  return app.request(`/api/v1/auth/callback?state=${encodeURIComponent(state)}&code=code`, {
+    headers: withBinding(),
+  }, bindings);
 }
 
 beforeAll(async () => {
@@ -73,12 +85,12 @@ describe("OAuth flows", () => {
     const code = /"code":"([^"]+)"/.exec(html)?.[1];
     expect(code).toBeTruthy();
 
-    const status = await app.request(`/api/v1/auth/flows/${flow.id}`, undefined, bindings);
+    const status = await app.request(`/api/v1/auth/flows/${flow.id}`, { headers: withBinding() }, bindings);
     await expect(status.json()).resolves.toMatchObject({ status: "authorized" });
 
     const redeemed = await app.request(`/api/v1/auth/flows/${flow.id}/redeem`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: withBinding({ "content-type": "application/json" }),
       body: JSON.stringify({ code, verifier }),
     }, bindings);
     expect(redeemed.status).toBe(200);
@@ -91,7 +103,7 @@ describe("OAuth flows", () => {
 
     const replay = await app.request(`/api/v1/auth/flows/${flow.id}/redeem`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: withBinding({ "content-type": "application/json" }),
       body: JSON.stringify({ code, verifier }),
     }, bindings);
     expect(replay.status).toBe(409);
@@ -105,18 +117,33 @@ describe("OAuth flows", () => {
 
     const wrong = await app.request(`/api/v1/auth/flows/${flow.id}/redeem`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: withBinding({ "content-type": "application/json" }),
       body: JSON.stringify({ deviceCode: "wrong-wrong-wrong-wrong" }),
     }, bindings);
     expect(wrong.status).toBe(403);
 
     const redeemed = await app.request(`/api/v1/auth/flows/${flow.id}/redeem`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: withBinding({ "content-type": "application/json" }),
       body: JSON.stringify({ deviceCode: flow.deviceCode }),
     }, bindings);
     expect(redeemed.status).toBe(200);
     await expect(redeemed.json()).resolves.toMatchObject({ user: { id: "discord-user" } });
+  });
+
+  it("rejects a device flow callback and redemption from another browser", async () => {
+    const created = await createFlow({ mode: "device" });
+    const flow = await created.json() as { id: string; state: string; deviceCode: string };
+    const withoutCookie = await app.request(`/api/v1/auth/callback?state=${encodeURIComponent(flow.state)}&code=code`, undefined, bindings);
+    expect(withoutCookie.status).toBe(400);
+    const status = await app.request(`/api/v1/auth/flows/${flow.id}`, undefined, bindings);
+    expect(status.status).toBe(404);
+    const redeemed = await app.request(`/api/v1/auth/flows/${flow.id}/redeem`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ deviceCode: flow.deviceCode }),
+    }, bindings);
+    expect(redeemed.status).toBe(403);
   });
 
   it("creates a browser session and rejects callback replay", async () => {
@@ -139,7 +166,7 @@ describe("OAuth flows", () => {
     const flow = await created.json() as { id: string; state: string; deviceCode: string };
     const done = await callback(flow.state);
     expect(done.status).toBe(400);
-    const status = await app.request(`/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`, undefined, bindings);
+    const status = await app.request(`/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`, { headers: withBinding() }, bindings);
     await expect(status.json()).resolves.toMatchObject({ status: "pending", error: "你的账号不在允许的 Discord 服务器中" });
   });
 

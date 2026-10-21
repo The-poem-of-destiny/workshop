@@ -17,6 +17,7 @@ export interface AuthFlowRow {
   expires_at: string;
   consumed_at: string | null;
   authorized_at: string | null;
+  browser_binding_hash: string | null;
 }
 
 export interface NewOAuthFlow {
@@ -28,13 +29,14 @@ export interface NewOAuthFlow {
   origin: string;
   mode: AuthFlowMode;
   expiresAt: string;
+  browserBindingHash: string;
 }
 
 export async function insertOAuthFlow(db: D1Database, flow: NewOAuthFlow): Promise<void> {
   await db.prepare(`
     INSERT INTO oauth_flows
-      (id, state_hash, verifier_hash, code_verifier, code_challenge, redeem_hash, origin, mode, expires_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, state_hash, verifier_hash, code_verifier, code_challenge, redeem_hash, origin, mode, expires_at, browser_binding_hash)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     flow.id,
     await sha256Hex(flow.state),
@@ -45,6 +47,7 @@ export async function insertOAuthFlow(db: D1Database, flow: NewOAuthFlow): Promi
     flow.origin,
     flow.mode,
     flow.expiresAt,
+    flow.browserBindingHash,
   ).run();
 }
 

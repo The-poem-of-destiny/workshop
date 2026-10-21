@@ -754,6 +754,7 @@ function extensionForMime(mime: string): string {
 export interface PrevalidatedContent {
   presence: Record<ProjectEntryKind, boolean>;
   counts: Record<ProjectEntryKind, number>;
+  hashes: Partial<Record<ProjectEntryKind, string>>;
   conflict: string | null;
   error: string | null;
 }
@@ -845,6 +846,19 @@ export async function submitRevision(
   let validationError: string | null = null;
 
   if (prevalidated) {
+    for (const asset of assets.results) {
+      if (asset.kind !== "worldbook" && asset.kind !== "regex") continue;
+      if (prevalidated.hashes[asset.kind] !== asset.sha256) {
+        validationError = "内容在检查期间发生变化，请重新提交";
+        break;
+      }
+    }
+    for (const kind of ["worldbook", "regex"] as const) {
+      const present = assets.results.some(asset => asset.kind === kind);
+      if (!validationError && present !== prevalidated.presence[kind]) {
+        validationError = "内容在检查期间发生变化，请重新提交";
+      }
+    }
     presence.worldbook = prevalidated.presence.worldbook;
     presence.regex = prevalidated.presence.regex;
     counts.worldbook = prevalidated.counts.worldbook;

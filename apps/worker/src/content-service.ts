@@ -54,15 +54,18 @@ export class ContentService implements DurableObject {
     if (request.method !== "POST") return Response.json({ error: "method_not_allowed" }, { status: 405 });
     let submissionId = "";
     let validateRevision = "";
+    let validateProjectId = "";
     let validation: { kind?: unknown; text?: unknown } | null = null;
     try {
       const body = await request.json() as {
         submissionId?: unknown;
         validate?: unknown;
         validateRevision?: unknown;
+        projectId?: unknown;
       };
       if (typeof body.submissionId === "string") submissionId = body.submissionId;
       if (typeof body.validateRevision === "string") validateRevision = body.validateRevision;
+      if (typeof body.projectId === "string") validateProjectId = body.projectId;
       if (body.validate && typeof body.validate === "object") {
         validation = body.validate as { kind?: unknown; text?: unknown };
       }
@@ -70,11 +73,13 @@ export class ContentService implements DurableObject {
       return Response.json({ error: "bad_request" }, { status: 400 });
     }
     if (validateRevision) {
+      if (!validateProjectId) return Response.json({ error: "bad_request" }, { status: 400 });
       const assets = await this.env.DB.prepare(
-        "SELECT kind, r2_key FROM assets WHERE revision_id = ? AND kind IN ('worldbook', 'regex')",
-      ).bind(validateRevision).all<{ kind: string; r2_key: string }>();
+        "SELECT kind, r2_key FROM assets WHERE revision_id = ? AND project_id = ? AND kind IN ('worldbook', 'regex')",
+      ).bind(validateRevision, validateProjectId).all<{ kind: string; r2_key: string }>();
       const presence: Record<ProjectEntryKind, boolean> = { worldbook: false, regex: false };
       const counts: Record<ProjectEntryKind, number> = { worldbook: 0, regex: 0 };
+      const hashes: Partial<Record<ProjectEntryKind, string>> = {};
       let conflict: string | null = null;
       let error: string | null = null;
       for (const asset of assets.results) {
@@ -93,12 +98,13 @@ export class ContentService implements DurableObject {
         }
         presence[kind] = true;
         counts[kind] = result.entryCount;
+        hashes[kind] = await sha256(text);
         if (kind === "worldbook") {
           conflict = await baselineConflict(this.env.DB, text);
           if (conflict) break;
         }
       }
-      return Response.json({ presence, counts, conflict, error });
+      return Response.json({ presence, counts, hashes, conflict, error });
     }
     if (validation) {
       if ((validation.kind !== "worldbook" && validation.kind !== "regex") || typeof validation.text !== "string") {

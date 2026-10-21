@@ -53,6 +53,33 @@ function publicOrigin(c: { env: Env; req: { url: string } }): string {
   return (c.env.PUBLIC_ORIGIN ?? new URL(c.req.url).origin).replace(/\/+$/, "");
 }
 
+function cookieValue(c: { req: { header: (name: string) => string | undefined } }, name: string): string {
+  const header = c.req.header("cookie") ?? "";
+  for (const part of header.split(";")) {
+    const [key, ...rest] = part.trim().split("=");
+    if (key === name) return rest.join("=");
+  }
+  return "";
+}
+
+async function bindingMatches(c: { req: { header: (name: string) => string | undefined } }, flow: AuthFlowRow): Promise<boolean> {
+  if (!flow.browser_binding_hash) return false;
+  for (const name of ["cw_oauth_binding", "cw_oauth_binding_p"]) {
+    const value = cookieValue(c, name);
+    if (value && await sha256Hex(value) === flow.browser_binding_hash) return true;
+  }
+  return false;
+}
+
+function setBindingCookies(c: { req: { url: string }; header: (name: string, value: string, options?: { append?: boolean }) => void }, value: string): void {
+  const secure = new URL(c.req.url).protocol === "https:";
+  const base = `Path=/api/v1/auth; HttpOnly; Max-Age=600; SameSite=Lax${secure ? "; Secure" : ""}`;
+  c.header("set-cookie", `cw_oauth_binding=${value}; ${base}`, { append: true });
+  if (secure) {
+    c.header("set-cookie", `cw_oauth_binding_p=${value}; Path=/api/v1/auth; HttpOnly; Max-Age=600; SameSite=None; Secure; Partitioned`, { append: true });
+  }
+}
+
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, char => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -171,6 +198,7 @@ authRoutes.post("/flows", async c => {
   const state = randomToken();
   const verifier = randomToken(48);
   const deviceCode = parsed.data.mode === "device" ? randomToken(32) : null;
+  const binding = randomToken(32);
   const expiresAt = new Date(Date.now() + FLOW_TTL_MS).toISOString();
   await insertOAuthFlow(c.env.DB, {
     id,
@@ -181,7 +209,9 @@ authRoutes.post("/flows", async c => {
     origin: publicOrigin(c),
     mode: parsed.data.mode,
     expiresAt,
+    browserBindingHash: await sha256Hex(binding),
   });
+  setBindingCookies(c, binding);
 
   let url = `${requestOrigin}/auth/pending?flow=${encodeURIComponent(id)}`;
   if (c.env.DISCORD_CLIENT_ID) {
@@ -208,6 +238,10 @@ authRoutes.post("/flows", async c => {
 
 authRoutes.get("/flows/:id", async c => {
   const deviceSecret = c.req.query("deviceCode") ?? c.req.header("x-device-secret") ?? "";
+  const flow = await getFlowById(c.env.DB, c.req.param("id"));
+  if (!flow || (flow.mode !== "browser" && !await bindingMatches(c, flow))) {
+    return jsonError(c, "not_found", "Auth flow not found");
+  }
   const status = await getAuthFlowStatus(c.env.DB, c.req.param("id"), deviceSecret);
   if (!status) return jsonError(c, "not_found", "Auth flow not found");
   return c.json(authFlowStatusSchema.parse(status));
@@ -223,7 +257,11 @@ authRoutes.post("/flows/:id/redeem", async c => {
   const parsed = authFlowRedeemSchema.safeParse(body);
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid redeem request", parsed.error.flatten());
   const flow = await getFlowById(c.env.DB, c.req.param("id"));
-  if (!flow || flow.status !== "authorized" || !flow.user_id) {
+  if (!flow) return jsonError(c, "conflict", "Auth flow is not ready for redemption");
+  if (flow.mode !== "browser" && !await bindingMatches(c, flow)) {
+    return jsonError(c, "forbidden", "Auth flow does not belong to this browser");
+  }
+  if (flow.status !== "authorized" || !flow.user_id) {
     return jsonError(c, "conflict", "Auth flow is not ready for redemption");
   }
   if (Date.parse(flow.expires_at) <= Date.now()) return jsonError(c, "conflict", "Auth flow expired");
@@ -256,6 +294,9 @@ authRoutes.get("/callback", async c => {
   const oauthError = c.req.query("error");
   const flow = state ? await getFlowByState(c.env.DB, state) : null;
   if (!flow) return htmlResponse(errorHtml("登录状态无效或已过期。"), 400);
+  if (flow.mode !== "browser" && !await bindingMatches(c, flow)) {
+    return htmlResponse(errorHtml("登录状态无效或已过期。"), 400);
+  }
   if (oauthError) {
     await markFlowError(c.env.DB, flow.id, `Discord 返回错误：${oauthError}`);
     return htmlResponse(errorHtml("Discord 未完成授权。"), 400);
