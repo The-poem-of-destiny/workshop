@@ -232,20 +232,22 @@ function ProjectEditor({
   onNotice: (message: string) => void;
 }) {
   const [form, setForm] = useState<ProjectForm>(() => projectForm(entry.project, entry));
+  const [workingRevisionId, setWorkingRevisionId] = useState(entry.workingRevisionId);
   const [localFiles, setLocalFiles] = useState<{ worldbook?: File; regex?: File }>({});
   const [busy, setBusy] = useState(false);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [coverNonce, setCoverNonce] = useState(0);
   useEffect(() => setForm(projectForm(entry.project, entry)), [entry.project.id, entry.workingRevisionId]);
+  useEffect(() => setWorkingRevisionId(entry.workingRevisionId), [entry.project.id, entry.workingRevisionId]);
   useEffect(() => {
     let active = true;
     let objectUrl: string | null = null;
-    if (!entry.workingRevisionId) {
+    if (!workingRevisionId) {
       setCoverPreview(null);
       return;
     }
     api
-      .authorCover(entry.project.id, entry.workingRevisionId)
+      .authorCover(entry.project.id, workingRevisionId)
       .then((blob) => {
         if (!active) return;
         objectUrl = URL.createObjectURL(blob);
@@ -258,7 +260,7 @@ function ProjectEditor({
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [entry.project.id, entry.workingRevisionId, coverNonce]);
+  }, [entry.project.id, workingRevisionId, coverNonce]);
   const update = (key: keyof ProjectForm, value: string): void =>
     setForm((previous) => ({ ...previous, [key]: value }));
   async function save(): Promise<void> {
@@ -301,8 +303,9 @@ function ProjectEditor({
           .map((tag) => tag.trim())
           .filter(Boolean),
       });
-      onNotice(`已创建新版本（版本 ${result.rowVersion}），现在可以上传修改后的文件。`);
+      setWorkingRevisionId(result.revisionId);
       await onRefresh();
+      onNotice(`已创建新版本（版本 ${result.rowVersion}），现在可以上传修改后的文件。`);
     } catch (reason) {
       onError(String(reason));
     } finally {
@@ -310,11 +313,11 @@ function ProjectEditor({
     }
   }
   async function upload(kind: "worldbook" | "regex" | "cover", file: File | undefined): Promise<void> {
-    if (!file || !entry.workingRevisionId) return;
+    if (!file || !workingRevisionId) return;
     if (kind !== "cover") setLocalFiles((previous) => ({ ...previous, [kind]: file }));
     setBusy(true);
     try {
-      await api.uploadFile(entry.project.id, entry.workingRevisionId, kind, file);
+      await api.uploadFile(entry.project.id, workingRevisionId, kind, file);
       if (kind === "cover") setCoverNonce((value) => value + 1);
       onNotice(`${kind === "cover" ? "封面" : kind === "worldbook" ? "世界书" : "正则"}已上传。`);
       await onRefresh();
@@ -325,7 +328,7 @@ function ProjectEditor({
     }
   }
   async function submit(): Promise<void> {
-    if (!entry.workingRevisionId) return;
+    if (!workingRevisionId) return;
     setBusy(true);
     try {
       const files = [];
@@ -348,7 +351,7 @@ function ProjectEditor({
       }
       if (gate === "warn" && !window.confirm(`客户端检查有 ${warningCount} 条提示，仍要提交吗？`)) return;
       if (gate === "missing" && !window.confirm("没有可检查的本地文件，提交会转入人工审核，确定继续吗？")) return;
-      await api.submitProject(entry.project.id, entry.workingRevisionId, {
+      await api.submitProject(entry.project.id, workingRevisionId, {
         gate,
         checkerRevision,
         warningCount,
@@ -492,12 +495,7 @@ function ProjectEditor({
       <div className="submit-box">
         <strong>提交审核</strong>
         <p className="hint">当前提交按“无客户端 checker”处理，会明确进入人工审核；请确认文件和元数据已经完整。</p>
-        <button
-          type="button"
-          className="primary"
-          onClick={() => void submit()}
-          disabled={busy || !entry.workingRevisionId}
-        >
+        <button type="button" className="primary" onClick={() => void submit()} disabled={busy || !workingRevisionId}>
           提交当前版本
         </button>
         {entry.latestSubmission ? (
