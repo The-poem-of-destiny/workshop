@@ -14,8 +14,8 @@
 | U-05 | 生产 Cloudflare 账号、D1、R2 目标 | 真实迁移与生产部署 | CI environment / wrangler env | 未授权 |
 | U-06 | `CLOUDFLARE_ZONE_ID`、`CLOUDFLARE_API_TOKEN`、`WORKSHOP_PUBLIC_URL` | 客户端 channel 指针 purge | 发布脚本环境变量 | 未设置；当前 publish 会跳过 purge |
 | U-09 | `SESSION_HASH_SECRET` | session token HMAC | Worker secret | staging 已设置；生产需设置 |
-| U-07 | GitHub Actions secret/variable | 让 staging/production workflow 真正运行 | GitHub repo settings | 未验证 |
-| U-08 | 允许 `main` 部署到 staging 环境 | staging CI 的 deploy job 只允许 `main` | GitHub Environment `staging` branch policy | ✅ 已解决：PR #1 合入 `main`，run 39592325672 部署成功 |
+| U-07 | GitHub Actions secret/variable | 让 staging/production workflow 真正运行 | GitHub repo settings | staging 已验证；production 尚未运行 |
+| U-08 | 允许 `main` 部署到 staging 环境 | staging CI 的 deploy job 只允许 `main` | GitHub Environment `staging` branch policy | ✅ 已解决：PR #1 合入 `main`，run 39593544230 部署成功 |
 | U-10 | 生产发布使用的 `v*` tag | 允许 deploy-production 从 tag 进入 production environment | Git tag + GitHub Environment `production`（只允许 `v*`，1 名 reviewer） | 无 `v*` tag；production Actions 尚未运行 |
 
 注意：凭据不得写入仓库、文档、测试或提交信息；只通过 `wrangler secret put` 或 GitHub Secrets 设置。
@@ -69,9 +69,10 @@
 
 | Run | 结果 |
 |---|---|
-| `refactor-ci` 39592194758 | ✅ `main` 上 check + e2e 成功（commit `9b06f24`） |
-| `deploy-staging` 39592325672 | ✅ `workflow_run` 构建并部署成功（commit `9b06f24`） |
-| staging 当前版本 | ✅ Worker `555111d5-ed2c-4e6d-b74b-acc00b107faa`（commit `9b06f24`） |
+| `refactor-ci` 39593684436 | ✅ `main` 上 check + e2e 成功（commit `f2c419a`） |
+| `deploy-staging` 39593544230 | ✅ `workflow_run` 构建并部署成功（commit `7761c32`） |
+| `deploy-staging` 39593837063 | ✅ changes 成功；build/deploy 按 docs-only 规则跳过（commit `f2c419a`） |
+| staging 当前版本 | ✅ Worker `69fa850d-9c6b-40c2-a5d7-e777cb309281`（commit `7761c32`） |
 | production 当前版本 | ⚠️ 旧 Worker `5d2edd06-ac64-43b4-95fc-954fbccb0683`（2026-10-20），不是当前重构版本 |
 | 客户端 staging stable | ✅ 0.1.3 `5e1c4a4a...`，含免责声明/服务地址/基线 fail-closed |
 | OAuth 浏览器绑定 | ✅ staging：无 cookie 404、带 cookie 200 |

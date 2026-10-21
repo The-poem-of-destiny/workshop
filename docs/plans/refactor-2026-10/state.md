@@ -4,16 +4,16 @@
 
 ## 当前分支
 
-`main` 已合并 `refactor/2026-10`（PR #1，merge commit `9b06f24`）。重构前状态保留在 `archive/pre-refactor-2026-10`（`4fdf71a`）。
+`main` 已合并 `refactor/2026-10`（PR #1，merge commit `9b06f24`），并继续合入文档与 CI 修正（当前 `f2c419a`）。重构前状态保留在 `archive/pre-refactor-2026-10`（`4fdf71a`）。
 
 ## 2026-10-21 续作
 
 - W12 客户端、W13/W14 分发、W16 元数据、W18 cron、W19 生命周期/索引、W20 Web 作者/审核/管理、W17 管理写接口已提交。
 - `pnpm check` 绿；worker 76、domain 17、content 7、tavern-client 6。
 - `pnpm e2e:local` 19/19（上一轮完整运行），含真实 Chromium 旅程：匿名搜索/排序/作者筛选/详情、作者工作台+订阅、owner 管理、审核通过、审核拒绝理由。
-- staging D1 已应用 0001–0011；Worker 版本 `555111d5-ed2c-4e6d-b74b-acc00b107faa`（commit `9b06f24`），由 `deploy-staging` Actions 流水线部署。
+- staging D1 已应用 0001–0011；Worker 版本 `69fa850d-9c6b-40c2-a5d7-e777cb309281`（commit `7761c32`），由 `deploy-staging` Actions 流水线部署。
 - staging 远程 smoke 已通过：health 200；此前覆盖 health/list/discovery/root/reference-sets/site/home、Origin 拒绝 403、client compatibility；`client/stable/index.js` 已发布 `0.1.3`。
-- GitHub Actions：`refactor-ci` run `39592194758`（main，commit `9b06f24`）成功；`deploy-staging` run `39592325672`（workflow_run）成功。
+- GitHub Actions：`refactor-ci` run `39593684436`（main，commit `f2c419a`）成功；`deploy-staging` run `39593544230`（commit `7761c32`）部署成功；run `39593837063`（commit `f2c419a`）只跑 changes，build/deploy 按 docs-only 规则跳过。
 - W21/W24 仍被 Q-05/Q-06/Q-10 阻塞；W23 R2 适配器已完成，真实数据导入与生产 cutover 未做。
 
 ## 已有实现（不等于验收完成）
@@ -104,7 +104,7 @@
 
 ## 当前线上
 
-- staging：`https://workshop-staging.poem-of-destiny.workers.dev`，active Worker `555111d5-ed2c-4e6d-b74b-acc00b107faa`（commit `9b06f24`；HMAC secret 已设置），D1 0001–0011 已应用；上一版 `7625ef0a-5ff6-4c19-9d6a-479ee44c47a1` 可回滚。该版本由 `deploy-staging` Actions 流水线部署。
+- staging：`https://workshop-staging.poem-of-destiny.workers.dev`，active Worker `69fa850d-9c6b-40c2-a5d7-e777cb309281`（commit `7761c32`；HMAC secret 已设置），D1 0001–0011 已应用；上一版 `555111d5-ed2c-4e6d-b74b-acc00b107faa` 可回滚。该版本由 `deploy-staging` Actions 流水线部署。
 - production：`https://workshop.poem-of-destiny.workers.dev` 仍运行旧版本 `5d2edd06-ac64-43b4-95fc-954fbccb0683`（2026-10-20 部署），当前重构版本未提升；生产切换留人工审批。
 - `main` 已包含重构；`archive/pre-refactor-2026-10` 保留旧状态。
 
@@ -129,7 +129,9 @@
 
 ## CI/CD 现状
 
+- `refactor-ci` 只在 `main` push 和面向 `main` 的 PR 上运行；特性分支 push 不再产生第二套 `check` / `e2e`。
 - `deploy-staging` 由 `refactor-ci` 成功后的 `workflow_run` 触发；`main` 分支保护要求 `check` / `e2e`。
+- `deploy-staging` 先检查触发 commit 的改动路径；只有应用代码、packages、tools、tests 或依赖清单变化才构建和部署。纯 docs/AGENTS/CI 变更会跳过 build/deploy。
 - staging build artifact 只包含 `apps/worker/web/dist`；deploy job 仍从同一 commit 重新打包 Worker。当前是“同一 commit + web artifact”，不是完整的 build-once。
 - `deploy-production` 由 `v*` tag push 触发，查找该 commit 的 staging 成功记录并下载 Web artifact；production environment 要求 1 名 reviewer 且只允许 `v*`。
 - 当前没有 `v*` tag，production workflow 没有实际运行过；production 仍为旧版本。
