@@ -11,7 +11,7 @@
 - W12 客户端、W13/W14 分发、W16 元数据、W18 cron、W19 生命周期/索引、W20 Web 作者/审核/管理、W17 管理写接口已提交。
 - `pnpm check` 绿；worker 65、domain 17、content 7、tavern-client 4。
 - `pnpm e2e:local` 16/16，含 5 条真实 Chromium 旅程：匿名搜索/排序/作者筛选/详情、作者工作台+订阅、owner 管理、审核通过、审核拒绝理由。
-- staging D1 已应用 0002–0009；Worker 版本 `a6d2cfa5-a03b-4305-95f6-62d3804d7b4c`，commit `e1a347a`。
+- staging D1 已应用 0002–0009；Worker 版本 `b3a533dc-9c99-4a8a-8fac-ed57f02ff680`，commit `a5e3c1c`。
 - staging 远程 smoke 已通过：health/list/discovery/root/reference-sets/site/home 200，Origin 拒绝 403，client compatibility 200；`client/stable/index.js` 已发布 `0.1.1`（`3eb417a1…`）并可下载。
 - W21/W24 仍被 Q-05/Q-06/Q-10 阻塞；W23 R2 适配器已完成，真实数据导入与生产 cutover 未做。
 
@@ -103,7 +103,7 @@
 
 ## 当前线上
 
-- staging：`https://workshop-staging.poem-of-destiny.workers.dev`，active Worker `a6d2cfa5-a03b-4305-95f6-62d3804d7b4c`（commit `e1a347a`），D1 0001–0009 已应用；上一版 `808cad22-60ec-40a0-a5e7-c45eea334701` 可回滚。
+- staging：`https://workshop-staging.poem-of-destiny.workers.dev`，active Worker `b3a533dc-9c99-4a8a-8fac-ed57f02ff680`（commit `a5e3c1c`），D1 0001–0009 已应用；上一版 `808cad22-60ec-40a0-a5e7-c45eea334701` 可回滚。
 - production：`https://workshop.poem-of-destiny.workers.dev`，未部署；真实生产切换留人工审批。
 - 本轮未 push。
 
