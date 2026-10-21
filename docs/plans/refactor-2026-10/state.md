@@ -9,11 +9,11 @@
 ## 2026-10-21 续作
 
 - W12 客户端、W13/W14 分发、W16 元数据、W18 cron、W19 生命周期/索引、W20 Web 作者/审核/管理、W17 管理写接口已提交。
-- `pnpm check` 绿；worker 58、domain 17、content 7。
-- `pnpm e2e:local` 15/15，含 5 条真实 Chromium 旅程：匿名搜索/排序/详情、作者工作台、owner 管理、审核通过、审核拒绝理由。
-- staging D1 已应用 0002–0006；Worker 版本 `4af244bc-24fa-4769-9710-0beea87720df`，commit `7faa2dd`。
+- `pnpm check` 绿；worker 59、domain 17、content 7。
+- `pnpm e2e:local` 16/16，含 5 条真实 Chromium 旅程：匿名搜索/排序/作者筛选/详情、作者工作台+订阅、owner 管理、审核通过、审核拒绝理由。
+- staging D1 已应用 0002–0006；Worker 版本 `a456be5e-f62a-4c15-9d52-5239e2dc4c20`，commit `1b916f1`。
 - staging 远程 smoke 已通过：health/list/root/reference-sets/site/home 200，Origin 拒绝 403，client compatibility 200；wrangler 确认 active version。
-- W21/W24 仍被 Q-05/Q-06/Q-10 阻塞；W23 R2 复制与真实数据导入未做。
+- W21/W24 仍被 Q-05/Q-06/Q-10 阻塞；W23 R2 适配器已完成，真实数据导入与生产 cutover 未做。
 
 ## 已有实现（不等于验收完成）
 
@@ -103,7 +103,7 @@
 
 ## 当前线上
 
-- staging：`https://workshop-staging.poem-of-destiny.workers.dev`，active Worker `4af244bc-24fa-4769-9710-0beea87720df`（commit `7faa2dd`），D1 0001–0006 已应用；上一版 `9d19382f-282f-4027-8ffd-6e2bd8a3b229` 可回滚。
+- staging：`https://workshop-staging.poem-of-destiny.workers.dev`，active Worker `a456be5e-f62a-4c15-9d52-5239e2dc4c20`（commit `1b916f1`），D1 0001–0006 已应用；上一版 `4af244bc-24fa-4769-9710-0beea87720df` 可回滚。
 - production：`https://workshop.poem-of-destiny.workers.dev`，未部署；真实生产切换留人工审批。
 - 本轮未 push。
 
