@@ -22,6 +22,16 @@ const SORTS = [
   ["likes", "点赞"],
 ] as const;
 const PROJECT_TYPES = ["事件", "系统核心", "角色", "扩展"] as const;
+const DOWNLOAD_LEDGER_KEY = "cw_download_ledger";
+
+function readDownloadLedger(): Record<string, string> {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(DOWNLOAD_LEDGER_KEY) ?? "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
 const EXTENSION_TYPES = ["规则", "内容"] as const;
 
 function clientGate(report: CheckerReport): "pass" | "warn" | "block" {
@@ -29,11 +39,13 @@ function clientGate(report: CheckerReport): "pass" | "warn" | "block" {
   if (report.certification === "fail" || report.certification === "review" || report.audit === "yellow") return "warn";
   return "pass";
 }
+type InstallState = "notInstalled" | "upToDate" | "updateAvailable" | "localChanged" | "scanIncomplete";
 interface HostContext {
   connected: boolean;
   characterName: string | null;
   worldbooks: { primary: string | null; additional: string[]; available: string[] };
   registry: Record<string, { version: string; worldbookName: string; entryCount?: number }>;
+  installStates?: Record<string, "clean" | "localChanged" | "scanIncomplete">;
   clientVersion: string;
   error?: string;
 }
@@ -120,7 +132,9 @@ function Detail({
   onUninstall,
   onDownload,
   onAuthor,
-  installedVersion,
+  onError,
+  downloadedRevision,
+  installState,
   loggedIn,
   installing,
   embedded,
@@ -131,12 +145,15 @@ function Detail({
   onUninstall: (p: ProjectSummary) => void;
   onDownload: (p: ProjectSummary) => void;
   onAuthor: (author: { id: string; name: string }) => void;
-  installedVersion: string | null;
+  onError: (message: string) => void;
+  downloadedRevision: string | null;
+  installState: InstallState;
   loggedIn: boolean;
   installing: boolean;
   embedded: boolean;
 }) {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
+  const [interaction, setInteraction] = useState<{ liked: boolean; subscribed: boolean } | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -153,6 +170,24 @@ function Detail({
       active = false;
     };
   }, [project.id]);
+  useEffect(() => {
+    if (!loggedIn) {
+      setInteraction(null);
+      return;
+    }
+    let active = true;
+    api
+      .meState([project.id])
+      .then((result) => {
+        if (!active) return;
+        const item = result.items.find((value) => value.projectId === project.id);
+        setInteraction(item ? { liked: item.liked, subscribed: item.subscribed } : null);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [loggedIn, project.id]);
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const originalOverflow = document.body.style.overflow;
@@ -204,21 +239,27 @@ function Detail({
           )}
           {project.author.name}
         </button>
-        <p className="meta">
-          更新 {project.updatedAt.slice(0, 10)}
-          {project.publishedAt ? ` · 发布 ${project.publishedAt.slice(0, 10)}` : ""}
-          {project.schemaVersion ? ` · 适配 ${project.schemaVersion}` : ""}
-        </p>
         <p>{project.description}</p>
-        {detail?.authorNote ? <p className="note">作者说明：{detail.authorNote}</p> : null}
-        {detail?.precautions ? <p className="note">注意事项：{detail.precautions}</p> : null}
-        {detail?.discordThreadUrl ? (
-          <p className="note">
-            <a href={detail.discordThreadUrl} target="_blank" rel="noreferrer">
-              Discord 讨论
-            </a>
-          </p>
+        {detail?.authorNote ? (
+          <section className="detail-section">
+            <h3>作者说明</h3>
+            <p>{detail.authorNote}</p>
+          </section>
         ) : null}
+        {detail?.precautions ? (
+          <section className="detail-section detail-warning">
+            <h3>注意事项</h3>
+            <p>{detail.precautions}</p>
+          </section>
+        ) : null}
+        <section className="detail-section">
+          <h3>版本信息</h3>
+          <p className="meta">
+            更新 {project.updatedAt.slice(0, 10)}
+            {project.publishedAt ? ` · 发布 ${project.publishedAt.slice(0, 10)}` : ""}
+            {project.schemaVersion ? ` · 适配 ${project.schemaVersion}` : ""}
+          </p>
+        </section>
         <dl>
           <div>
             <dt>世界书</dt>
@@ -237,17 +278,69 @@ function Detail({
             <dd>{project.counts.likes}</dd>
           </div>
         </dl>
-        {installedVersion ? (
+        {downloadedRevision ? (
           <p className="installed">
-            {detail?.publishedRevisionId && installedVersion === detail.publishedRevisionId
-              ? "已安装，且与当前发布版本一致。"
-              : "已安装；当前发布版本可更新。"}
+            {project.publishedRevisionId && downloadedRevision === project.publishedRevisionId
+              ? "本地已下载当前发布版本。"
+              : "本地下载记录与当前发布版本不同。"}
           </p>
+        ) : null}
+        {installState === "upToDate" ? (
+          <p className="installed">已安装，且与当前发布版本一致。</p>
+        ) : installState === "updateAvailable" ? (
+          <p className="installed">已安装；当前发布版本可更新。</p>
+        ) : installState === "localChanged" ? (
+          <p className="installed">已安装；检测到本地修改，更新会保留这些修改。</p>
+        ) : installState === "scanIncomplete" ? (
+          <p className="installed">已安装；本地扫描不完整，无法确认是否有修改。</p>
+        ) : null}
+        {detail?.discordThreadUrl ? (
+          <div className="actions">
+            <a className="secondary-link" href={detail.discordThreadUrl} target="_blank" rel="noreferrer">
+              Discord 讨论
+            </a>
+          </div>
         ) : null}
         {loggedIn ? (
           <div className="actions">
             <button type="button" disabled={installing} onClick={() => onDownload(project)}>
               下载文件
+            </button>
+            <button
+              type="button"
+              aria-pressed={Boolean(interaction?.liked)}
+              onClick={() => {
+                const next = !interaction?.liked;
+                void api
+                  .setLike(project.id, next)
+                  .then(() =>
+                    setInteraction((value) => ({
+                      liked: next,
+                      subscribed: value?.subscribed ?? false,
+                    })),
+                  )
+                  .catch((reason) => onError(String(reason)));
+              }}
+            >
+              {interaction?.liked ? "已点赞" : "点赞"}
+            </button>
+            <button
+              type="button"
+              aria-pressed={Boolean(interaction?.subscribed)}
+              onClick={() => {
+                const next = !interaction?.subscribed;
+                void api
+                  .setSubscription(project.id, next)
+                  .then(() =>
+                    setInteraction((value) => ({
+                      liked: value?.liked ?? false,
+                      subscribed: next,
+                    })),
+                  )
+                  .catch((reason) => onError(String(reason)));
+              }}
+            >
+              {interaction?.subscribed ? "已订阅" : "订阅"}
             </button>
           </div>
         ) : null}
@@ -260,20 +353,20 @@ function Detail({
             <button
               type="button"
               className="primary"
-              disabled={
-                installing || (Boolean(detail?.publishedRevisionId) && installedVersion === detail?.publishedRevisionId)
-              }
+              disabled={installing || installState === "upToDate"}
               onClick={() => onInstall(project)}
             >
               {installing
                 ? "安装中…"
-                : detail?.publishedRevisionId && installedVersion === detail.publishedRevisionId
+                : installState === "upToDate"
                   ? "已是最新"
-                  : installedVersion
-                    ? "更新"
-                    : "安装"}
+                  : installState === "localChanged"
+                    ? "更新（保留修改）"
+                    : installState === "notInstalled"
+                      ? "安装"
+                      : "更新"}
             </button>
-            {installedVersion ? (
+            {installState !== "notInstalled" ? (
               <button type="button" disabled={installing} onClick={() => onUninstall(project)}>
                 卸载
               </button>
@@ -312,6 +405,10 @@ function ProjectEditor({
   const [form, setForm] = useState<ProjectForm>(() => projectForm(entry.project, entry));
   const [workingRevisionId, setWorkingRevisionId] = useState(entry.workingRevisionId);
   const [localFiles, setLocalFiles] = useState<{ worldbook?: File; regex?: File }>({});
+  const [preflight, setPreflight] = useState<{
+    status: "empty" | "checking" | "pass" | "warn" | "block";
+    warnings: number;
+  }>({ status: "empty", warnings: 0 });
   const [busy, setBusy] = useState(false);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [coverNonce, setCoverNonce] = useState(0);
@@ -339,6 +436,32 @@ function ProjectEditor({
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [entry.project.id, workingRevisionId, coverNonce]);
+  useEffect(() => {
+    if (!localFiles.worldbook && !localFiles.regex) {
+      setPreflight({ status: "empty", warnings: 0 });
+      return;
+    }
+    let active = true;
+    setPreflight({ status: "checking", warnings: 0 });
+    void (async () => {
+      const files = [];
+      if (localFiles.worldbook)
+        files.push({ fileName: "worldbook.json", type: "worldbook" as const, text: await localFiles.worldbook.text() });
+      if (localFiles.regex)
+        files.push({ fileName: "regex.json", type: "regex" as const, text: await localFiles.regex.text() });
+      if (!active) return;
+      const report = analyzeLocalProjectCode(files);
+      setPreflight({
+        status: clientGate(report),
+        warnings: report.findings.filter((finding) => finding.severity !== "info").length,
+      });
+    })().catch(() => {
+      if (active) setPreflight({ status: "empty", warnings: 0 });
+    });
+    return () => {
+      active = false;
+    };
+  }, [localFiles]);
   const update = (key: keyof ProjectForm, value: string): void =>
     setForm((previous) => ({ ...previous, [key]: value }));
   async function save(): Promise<void> {
@@ -382,6 +505,7 @@ function ProjectEditor({
           .filter(Boolean),
       });
       setWorkingRevisionId(result.revisionId);
+      setLocalFiles({});
       await onRefresh();
       onNotice(`已创建新版本（版本 ${result.rowVersion}），现在可以上传修改后的文件。`);
     } catch (reason) {
@@ -525,6 +649,18 @@ function ProjectEditor({
         </label>
         {input("tags", "标签（逗号分隔）")}
       </div>
+      <p className={`preflight ${preflight.status}`} role="status">
+        客户端自检：
+        {preflight.status === "empty"
+          ? "未选择本地文件，提交后进入人工审核。"
+          : preflight.status === "checking"
+            ? "检查中…"
+            : preflight.status === "pass"
+              ? "通过。"
+              : preflight.status === "warn"
+                ? `有 ${preflight.warnings} 条提示，提交前需确认。`
+                : "存在高风险问题，需修复后才能提交。"}
+      </p>
       <div className="actions">
         <button type="button" className="primary" onClick={() => void save()} disabled={busy}>
           保存元数据
@@ -1185,6 +1321,7 @@ export function App() {
   const [me, setMe] = useState<MeResponse["user"] | null>(null);
   const [context, setContext] = useState<HostContext | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [downloaded, setDownloaded] = useState<Record<string, string>>(readDownloadLedger);
   const [loginFallback, setLoginFallback] = useState<string | null>(null);
   const [view, setView] = useState<"browse" | "projects" | "subs" | "admin" | "tools">("browse");
   const listRequest = useRef(0);
@@ -1205,24 +1342,50 @@ export function App() {
   function login(): void {
     setError(null);
     setLoginFallback(null);
+    const mode = embedded ? "device" : "browser";
     void api
-      .createFlow()
-      .then((flow) => {
-        const onMessage = (event: MessageEvent): void => {
-          if (event.origin !== location.origin) return;
-          const data: { type?: unknown; token?: unknown } = event.data;
-          if (data.type !== "oauth-success" || typeof data.token !== "string") return;
-          setSessionToken(data.token);
-          setLoginFallback(null);
-          window.removeEventListener("message", onMessage);
-          void refreshMe();
-        };
-        window.addEventListener("message", onMessage);
+      .createFlow(mode)
+      .then(async (flow) => {
+        if (mode === "browser") {
+          const onMessage = (event: MessageEvent): void => {
+            if (event.origin !== location.origin) return;
+            const data: { type?: unknown; token?: unknown } = event.data;
+            if (data.type !== "oauth-success" || typeof data.token !== "string") return;
+            setSessionToken(data.token);
+            setLoginFallback(null);
+            window.removeEventListener("message", onMessage);
+            void refreshMe();
+          };
+          window.addEventListener("message", onMessage);
+        }
         const popup = window.open(flow.url, "cw-discord-login", "width=520,height=720");
         if (!popup) {
           setLoginFallback(flow.url);
-          setError("登录窗口被拦截。可以点击下方链接打开登录页；完成后本页会自动登录。");
+          setNotice("请在打开的新页面完成 Discord 登录，本页会自动继续。");
         }
+        if (mode !== "device" || !flow.deviceCode) return;
+        const deadline = Date.now() + 10 * 60 * 1000;
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          const status = await api.authFlowStatus(flow.id, flow.deviceCode);
+          if (status.status === "authorized") {
+            const session = await api.redeemFlow(flow.id, flow.deviceCode);
+            setSessionToken(session.token);
+            setLoginFallback(null);
+            setNotice("登录成功。");
+            await refreshMe();
+            return;
+          }
+          if (status.status === "expired") {
+            setError("登录已过期，请重新发起。");
+            return;
+          }
+          if (status.status === "redeemed") {
+            setError("登录凭据已被使用，请重新发起。");
+            return;
+          }
+        }
+        setError("等待登录超时，请重新发起。");
       })
       .catch((reason) => setError(String(reason)));
   }
@@ -1277,6 +1440,15 @@ export function App() {
           link.click();
           URL.revokeObjectURL(url);
         }
+        setDownloaded((previous) => {
+          const next = { ...previous, [project.id]: project.publishedRevisionId ?? "unknown" };
+          try {
+            localStorage.setItem(DOWNLOAD_LEDGER_KEY, JSON.stringify(next));
+          } catch {
+            /* storage may be unavailable */
+          }
+          return next;
+        });
         setNotice("下载已开始。");
       })
       .catch((reason) => setError(`下载失败：${String(reason)}`))
@@ -1363,7 +1535,16 @@ export function App() {
         if (requestId === listRequest.current) setError(String(reason));
       });
   }
-  const installed = selected ? (context?.registry?.[selected.id] ?? null) : null;
+  function installationState(project: ProjectSummary): InstallState {
+    const record = context?.registry?.[project.id];
+    if (!record) return "notInstalled";
+    if (project.publishedRevisionId && record.version !== project.publishedRevisionId) return "updateAvailable";
+    const scan = context?.installStates?.[project.id];
+    if (scan === "localChanged") return "localChanged";
+    if (scan === "scanIncomplete" || !scan) return "scanIncomplete";
+    return "upToDate";
+  }
+  const selectedInstallState = selected ? installationState(selected) : "notInstalled";
   const reviewer = me?.role === "reviewer" || me?.role === "owner";
   return (
     <div className={`shell${embedded ? " embedded" : ""}`}>
@@ -1569,7 +1750,9 @@ export function App() {
             setAuthor(value);
             setSelected(null);
           }}
-          installedVersion={installed?.version ?? null}
+          onError={setError}
+          downloadedRevision={downloaded[selected.id] ?? null}
+          installState={selectedInstallState}
           loggedIn={Boolean(me)}
           installing={installing}
           embedded={embedded}

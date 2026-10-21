@@ -521,6 +521,26 @@ async function main() {
           await page.close();
         });
 
+        await check("browser detail interactions", async () => {
+          const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+          await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), authorToken);
+          const page = await context.newPage();
+          await page.goto(`${base}/`, { waitUntil: "networkidle" });
+          await page.locator(".card", { hasText: "E2E Project" }).first().locator(".card-title").click();
+          await page.locator(".detail").waitFor({ state: "visible" });
+          const subscribe = page.locator(".detail").getByRole("button", { name: /订阅/ });
+          if ((await subscribe.textContent())?.trim() === "订阅") {
+            await subscribe.click();
+            await page.locator(".detail").getByRole("button", { name: "已订阅", exact: true }).waitFor();
+          }
+          const like = page.locator(".detail").getByRole("button", { name: "点赞", exact: true });
+          await like.click();
+          await page.locator(".detail").getByRole("button", { name: "已点赞", exact: true }).waitFor();
+          await page.locator(".detail").getByRole("button", { name: "已点赞", exact: true }).click();
+          await page.locator(".detail").getByRole("button", { name: "点赞", exact: true }).waitFor();
+          await context.close();
+        });
+
         await check("browser author workspace", async () => {
           const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), authorToken);

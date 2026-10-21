@@ -113,6 +113,7 @@ function toSummary(row: ProjectRow): ProjectSummary {
     visibility: row.visibility,
     publishedAt: row.published_at,
     updatedAt: row.updated_at,
+    publishedRevisionId: row.published_revision_id,
   };
 }
 
@@ -122,7 +123,6 @@ function toDetail(row: ProjectRow): ProjectDetail {
     authorNote: row.author_note,
     precautions: row.precautions,
     discordThreadUrl: row.discord_thread_url,
-    publishedRevisionId: row.published_revision_id,
   };
 }
 

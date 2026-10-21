@@ -42,6 +42,7 @@ export const projectSummarySchema = z.object({
   visibility: visibilitySchema,
   publishedAt: z.string().nullable(),
   updatedAt: z.string(),
+  publishedRevisionId: z.string().nullable().optional(),
 });
 
 export type ProjectSummary = z.infer<typeof projectSummarySchema>;
@@ -50,7 +51,6 @@ export const projectDetailSchema = projectSummarySchema.extend({
   authorNote: z.string().nullable(),
   precautions: z.string().nullable().optional(),
   discordThreadUrl: z.string().nullable(),
-  publishedRevisionId: z.string().nullable().optional(),
 });
 
 export type ProjectDetail = z.infer<typeof projectDetailSchema>;

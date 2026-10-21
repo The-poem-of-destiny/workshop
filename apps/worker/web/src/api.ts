@@ -19,13 +19,13 @@ export interface ProjectSummary {
   visibility: "public" | "private";
   publishedAt: string | null;
   updatedAt: string;
+  publishedRevisionId?: string | null;
 }
 
 export interface ProjectDetail extends ProjectSummary {
   authorNote: string | null;
   precautions: string | null;
   discordThreadUrl: string | null;
-  publishedRevisionId?: string | null;
 }
 
 export interface HomeResponse {
@@ -363,6 +363,16 @@ export const api = {
   },
   myProjects: () => requestJson<AuthorProjectListResponse>("/api/v1/me/projects"),
   subscriptions: () => requestJson<{ items: ProjectSummary[] }>("/api/v1/me/subscriptions"),
+  meState: (ids: string[]) =>
+    requestJson<{ items: { projectId: string; liked: boolean; subscribed: boolean; rating: number | null }[] }>(
+      `/api/v1/me/state?ids=${encodeURIComponent(ids.join(","))}`,
+    ),
+  setLike: (id: string, liked: boolean) =>
+    requestJson<null>(`/api/v1/me/likes/${encodeURIComponent(id)}`, { method: liked ? "PUT" : "DELETE" }),
+  setSubscription: (id: string, subscribed: boolean) =>
+    requestJson<null>(`/api/v1/me/subscriptions/${encodeURIComponent(id)}`, {
+      method: subscribed ? "PUT" : "DELETE",
+    }),
   createProject: (body: Record<string, unknown>) =>
     requestJson<AuthorProject>("/api/v1/projects", {
       method: "POST",
@@ -435,11 +445,25 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ decision, reason }),
     }),
-  createFlow: async () =>
-    requestJson<{ id: string; url: string; expiresAt: string }>("/api/v1/auth/flows", {
+  createFlow: async (mode: "browser" | "device" = "browser") =>
+    requestJson<{ id: string; url: string; expiresAt: string; deviceCode?: string }>("/api/v1/auth/flows", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mode: "browser" }),
+      body: JSON.stringify({ mode }),
+    }),
+  authFlowStatus: (id: string, deviceCode?: string) =>
+    requestJson<{
+      status: "pending" | "authorized" | "redeemed" | "expired";
+      expiresAt: string;
+      error?: string | null;
+    }>(
+      `/api/v1/auth/flows/${encodeURIComponent(id)}${deviceCode ? `?deviceCode=${encodeURIComponent(deviceCode)}` : ""}`,
+    ),
+  redeemFlow: (id: string, deviceCode: string) =>
+    requestJson<{ token: string; expiresAt: string }>(`/api/v1/auth/flows/${encodeURIComponent(id)}/redeem`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ deviceCode }),
     }),
   acquisitions: (projectId: string) => {
     const params = new URLSearchParams(location.search);

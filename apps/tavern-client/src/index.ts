@@ -60,6 +60,7 @@ type InstallRegistryEntry = {
   updatedAt: string;
 };
 type InstallRegistry = Record<string, InstallRegistryEntry>;
+type InstallScanState = "clean" | "localChanged" | "scanIncomplete";
 
 let activeFrame: HTMLIFrameElement | null = null;
 
@@ -331,9 +332,57 @@ async function uninstallProject(projectId: string) {
   return { removed: Boolean(record), preservedEntries, preservedRegexes };
 }
 
-function contextPayload() {
+async function scanInstallStates(registry: InstallRegistry): Promise<Record<string, InstallScanState>> {
+  const states: Record<string, InstallScanState> = {};
+  const regexes = getTavernRegexes({ scope: "character", enable_state: "all" });
+  const regexById = new Map(regexes.map((regex) => [String(regex.id ?? ""), regex]));
+  for (const [projectId, record] of Object.entries(registry)) {
+    try {
+      if (!record.worldbookName || !getWorldbookNames().includes(record.worldbookName)) {
+        states[projectId] = "scanIncomplete";
+        continue;
+      }
+      const entries = await getWorldbook(record.worldbookName);
+      const entryByKey = new Map<string, Record<string, unknown>>();
+      for (const [index, entry] of entries.entries()) entryByKey.set(entryKey(entry, index), entry);
+      let changed = false;
+      for (const [key, expected] of Object.entries(record.entries)) {
+        const entry = entryByKey.get(key);
+        if (!entry) {
+          changed = true;
+          break;
+        }
+        if ((await hashText(String(entry.content ?? ""))) !== expected.hash) {
+          changed = true;
+          break;
+        }
+      }
+      for (const id of record.regexIds) {
+        if (changed) break;
+        const regex = regexById.get(id);
+        const expected = record.regexHashes?.[id];
+        if (!regex || !expected) {
+          states[projectId] = "scanIncomplete";
+          break;
+        }
+        if ((await hashText(regexFingerprint(regex))) !== expected) {
+          changed = true;
+          break;
+        }
+      }
+      if (states[projectId]) continue;
+      states[projectId] = changed ? "localChanged" : "clean";
+    } catch {
+      states[projectId] = "scanIncomplete";
+    }
+  }
+  return states;
+}
+
+async function contextPayload() {
   try {
     const bindings = getCharWorldbookNames("current");
+    const registry = readRegistry();
     return {
       connected: true,
       characterName: typeof SillyTavern !== "undefined" ? (SillyTavern.getCurrentCharacterName?.() ?? null) : null,
@@ -342,7 +391,8 @@ function contextPayload() {
         additional: bindings.additional || [],
         available: getWorldbookNames(),
       },
-      registry: readRegistry(),
+      registry,
+      installStates: await scanInstallStates(registry),
       clientVersion: CLIENT_VERSION,
     };
   } catch {
@@ -465,7 +515,9 @@ function onMessage(event: MessageEvent) {
   if (!data || typeof data !== "object" || typeof data.type !== "string") return;
 
   if (data.type === "cw:ready" || data.type === "cw:request-context") {
-    send({ type: "cw:context", ...contextPayload() });
+    void contextPayload()
+      .then((payload) => send({ type: "cw:context", ...payload }))
+      .catch((error) => send({ type: "cw:context", connected: false, error: String(error?.message ?? error) }));
     return;
   }
   if (data.type === "cw:close") {
@@ -474,7 +526,10 @@ function onMessage(event: MessageEvent) {
     return;
   }
   if (data.type === "cw:scan") {
-    send({ type: "cw:scan-result", ok: true, registry: readRegistry() });
+    const registry = readRegistry();
+    void scanInstallStates(registry)
+      .then((installStates) => send({ type: "cw:scan-result", ok: true, registry, installStates }))
+      .catch((error) => send({ type: "cw:scan-result", ok: false, message: String(error?.message ?? error) }));
     return;
   }
   if (data.type === "cw:uninstall") {

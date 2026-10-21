@@ -7,7 +7,7 @@
 
 - [x] `pnpm check` 退出码 0。
 - [x] `pnpm --filter @workshop/worker test` 全绿（83/83）。
-- [x] `pnpm e2e:local` 全绿（20/20）。
+- [x] `pnpm e2e:local` 全绿（21/21）。
 - [~] 关键前端页面有截图（`screenshots/`）；截图已生成，需人工视觉签收。
 - [~] 其余代码可执行项见未勾选项；本轮未完成项已列在第 7 节。
 - [x] 不进行 production 部署，不创建 `v*` tag。
@@ -49,7 +49,7 @@
 
 - [x] 详情为 dialog：`role=dialog`、`aria-modal`、`aria-labelledby`、Escape、焦点陷阱、关闭后焦点回到触发卡片。
 - [x] 桌面为右侧 sheet + backdrop；移动为全屏 dialog。
-- [ ] 详情展示分组警告、作者说明、注意事项、更新时间、schema/版本和安装状态。
+- [x] 详情按作者说明、注意事项、版本信息分组，并展示安装/下载状态。
 - [x] 全局 toast 使用 `role=status`/`role=alert`，可关闭，不占 header 流。
 
 ### 2.3 视觉语言
@@ -62,18 +62,18 @@
 
 ### 2.4 功能旅程
 
-- [ ] 安装状态区分 `notInstalled / upToDate / updateAvailable / localChanged / scanIncomplete`，不再只按 registry 存在判断。
-- [ ] 详情提供幂等点赞/订阅；个人状态不进入公共 DTO。
-- [ ] 登录支持 browser popup / embedded code redeem / device code，不假设总有 opener。
-- [ ] 创作 preflight 显示真实状态（未检查/检查中/pass/warn/block/无本地文件），提交文案由状态派生。
+- [x] 安装状态区分 `notInstalled / upToDate / updateAvailable / localChanged / scanIncomplete`；客户端上下文上报扫描状态。
+- [x] 详情提供幂等点赞/订阅；个人状态通过 `/me/state` 单独读取。
+- [x] 登录支持 browser popup；嵌入模式使用 device flow 轮询/兑换，不依赖 opener。
+- [x] 创作 preflight 显示真实状态（无本地文件/检查中/pass/warn/block），提交仍按同一结果派生。
 - [x] 审核详情结构化展示 report/gate/findings/diff，原始 JSON 折叠。
 
 ## 3. 客户端与本地状态
 
 - [x] 修复 staging 客户端被识别为 stable：channel 在模块初始化时捕获并由 iframe 显式传递。
 - [x] Web 安装请求使用显式 channel，不从 `location.pathname` 推断。
-- [ ] 本地记录 subscribed/downloaded/installed/updateAvailable；与服务端订阅合并展示。
-- [ ] 更新/修复旅程：比较本地 revision/hash 与公开 release，保留玩家修改。
+- [x] 本地记录 downloaded/installed/updateAvailable；服务端订阅与本地扫描状态在详情合并展示。
+- [~] 更新旅程已比较本地 revision/hash 并保留修改；独立“修复”入口未实现，需真实 ST 验收。
 - [x] 卸载保留或显式确认玩家修改条目，regex 同样处理。
 - [~] 真实 SillyTavern 安装/更新/修复验收：需要运行中的 ST 与测试角色。
 
@@ -103,7 +103,7 @@
 
 - `pnpm check`：通过（workspace、Biome、类型、单测、schema、迁移/备份、wrangler dry-run）。
 - `pnpm --filter @workshop/worker test`：83/83。
-- `pnpm e2e:local`：20/20；含桌面/移动浏览、详情、作者工作区、审核、管理。
+- `pnpm e2e:local`：21/21；含桌面/移动浏览、详情、详情互动、作者工作区、审核、管理。
 - 截图：`docs/plans/refactor-2026-10/screenshots/`。
 - 获取协议：`POST /api/v1/projects/:id/acquisitions`；`GET /projects/:id/install` 已删除；票据消费时计数。
 - 公开目录：固定 24 + keyset；无效 cursor 返回 400。
