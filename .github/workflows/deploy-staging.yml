@@ -14,8 +14,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy: ${{ steps.filter.outputs.deploy }}
+    steps:
+      - name: Detect deployable changes
+        id: filter
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          sha="${{ github.event.workflow_run.head_sha }}"
+          files="$(gh api "repos/${{ github.repository }}/commits/${sha}" --jq '.files[]?.filename')"
+          if printf '%s\n' "$files" | grep -Eq '^(apps/worker/|apps/tavern-client/|packages/|tools/|tests/|pnpm-workspace.yaml|pnpm-lock.yaml|package.json)'; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
-    if: github.event.workflow_run.conclusion == 'success'
+    needs: changes
+    if: github.event.workflow_run.conclusion == 'success' && needs.changes.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
