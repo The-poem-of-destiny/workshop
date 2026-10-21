@@ -389,8 +389,14 @@ export async function patchProject(
   const now = new Date().toISOString();
   const meta = metadataSnapshot(values, session.userId, now);
   const tags = JSON.stringify(values.tags);
-  const [updated] = await db.batch([
-    db.prepare(`UPDATE projects
+  const preservePublished = current.published_revision_id !== null
+    && current.published_revision_id !== current.working_revision_id;
+  const projectUpdate = preservePublished
+    ? db.prepare(`UPDATE projects
+      SET row_version = row_version + 1
+      WHERE id = ? AND row_version = ? AND working_revision_id = ?`)
+      .bind(projectId, expectedVersion, current.working_revision_id)
+    : db.prepare(`UPDATE projects
       SET title = ?, description = ?, author_note = ?, project_type = ?, extension_type = ?,
           search_tags = ?, version_label = ?, precautions = ?, cover_position_x = ?,
           cover_position_y = ?, cover_zoom = ?, metadata_findings = ?,
@@ -402,19 +408,21 @@ export async function patchProject(
         tags, values.versionLabel, values.precautions, values.coverPositionX, values.coverPositionY,
         values.coverZoom, meta.findings, meta.revision, meta.checkedAt, meta.actorId, now,
         projectId, expectedVersion, current.working_revision_id,
-      ),
+      );
+  const [updated] = await db.batch([
+    projectUpdate,
     db.prepare(`UPDATE project_revisions
       SET title = ?, description = ?, author_note = ?, project_type = ?, extension_type = ?,
           tags = ?, schema_version = COALESCE(schema_version, ?), version_label = ?, precautions = ?,
           cover_position_x = ?, cover_position_y = ?, cover_zoom = ?, metadata_findings = ?,
           metadata_checker_revision = ?, metadata_checked_at = ?, metadata_checked_by = ?,
           discord_thread_url = ?
-      WHERE id IN (?, ?)`)
+      WHERE id = ?`)
       .bind(
         values.title, values.description, values.authorNote, values.projectType, values.extensionType,
         tags, values.schemaVersion, values.versionLabel, values.precautions, values.coverPositionX,
         values.coverPositionY, values.coverZoom, meta.findings, meta.revision, meta.checkedAt,
-        meta.actorId, values.discordThreadUrl, current.working_revision_id, current.published_revision_id,
+        meta.actorId, values.discordThreadUrl, current.working_revision_id,
       ),
     db.prepare(`INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
       SELECT ?, 'project.patch', 'project', ?, ?, ?, ?
@@ -485,28 +493,50 @@ function metadataSnapshot(values: RevisionValues, actorId: string, now: string) 
   };
 }
 
+interface RevisionCounts {
+  worldbook: number;
+  regex: number;
+}
+
+interface RevisionAssetInput {
+  kind: string;
+  r2Key: string;
+  sha256: string;
+  bytes: number;
+  mime: string;
+}
+
+interface RevisionOptions {
+  revisionId?: string;
+  counts?: RevisionCounts;
+  assets?: RevisionAssetInput[];
+}
+
 async function addRevision(
   db: D1Database,
   session: Session,
   current: WorkingRevisionRow,
   expectedVersion: number,
   values: RevisionValues,
+  options: RevisionOptions = {},
 ): Promise<RevisionResult | null> {
-  const revisionId = crypto.randomUUID();
+  const revisionId = options.revisionId ?? crypto.randomUUID();
+  const counts = options.counts ?? { worldbook: 0, regex: 0 };
   const now = new Date().toISOString();
   const nextNo = current.revision_no + 1;
   const tags = JSON.stringify(values.tags);
   const meta = metadataSnapshot(values, session.userId, now);
-  const [updated] = await db.batch([
-    db.prepare(`UPDATE projects SET working_revision_id = ?, row_version = row_version + 1, updated_at = ?
+  const statements: D1PreparedStatement[] = [
+    db.prepare(`UPDATE projects SET working_revision_id = ?, row_version = row_version + 1,
+        updated_at = CASE WHEN published_revision_id IS NULL OR published_revision_id = ? THEN ? ELSE updated_at END
       WHERE id = ? AND row_version = ? AND working_revision_id = ?`)
-      .bind(revisionId, now, current.id, expectedVersion, current.working_revision_id),
+      .bind(revisionId, revisionId, now, current.id, expectedVersion, current.working_revision_id),
     db.prepare(`INSERT INTO project_revisions
       (id, project_id, revision_no, title, description, author_note, project_type, extension_type,
        schema_version, version_label, precautions, cover_position_x, cover_position_y, cover_zoom,
        metadata_findings, metadata_checker_revision, metadata_checked_at, metadata_checked_by,
-       discord_thread_url, tags, created_by, created_at)
-      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       discord_thread_url, tags, worldbook_count, regex_count, created_by, created_at)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       WHERE EXISTS (
         SELECT 1 FROM projects
         WHERE id = ? AND row_version = ? AND working_revision_id = ?
@@ -516,9 +546,23 @@ async function addRevision(
         values.projectType, values.extensionType, values.schemaVersion, values.versionLabel,
         values.precautions, values.coverPositionX, values.coverPositionY, values.coverZoom,
         meta.findings, meta.revision, meta.checkedAt, meta.actorId, values.discordThreadUrl,
-        tags, session.userId, now, current.id, expectedVersion + 1, revisionId,
+        tags, counts.worldbook, counts.regex, session.userId, now,
+        current.id, expectedVersion + 1, revisionId,
       ),
-  ]);
+  ];
+  for (const asset of options.assets ?? []) {
+    statements.push(
+      db.prepare(`INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime)
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?
+        WHERE EXISTS (SELECT 1 FROM projects WHERE id = ? AND working_revision_id = ?)
+          AND NOT EXISTS (SELECT 1 FROM submissions WHERE revision_id = ?)`)
+        .bind(
+          crypto.randomUUID(), current.id, revisionId, asset.kind, asset.r2Key, asset.sha256,
+          asset.bytes, asset.mime, current.id, revisionId, revisionId,
+        ),
+    );
+  }
+  const [updated] = await db.batch(statements);
   if (!updated || updated.meta.changes === 0) return null;
   return { rowVersion: expectedVersion + 1, revisionId };
 }
@@ -623,16 +667,60 @@ export async function deleteProjectEntry(
     );
     if (!policy.valid) return null;
   }
-  const revision = await addRevision(db, session, current, expectedVersion, revisionValues(current, {}));
-  if (!revision) return null;
-  const body = new TextEncoder().encode(removed.text).buffer;
-  await upsertAsset(db, r2, projectId, revision.revisionId, kind, body, asset.mime, removed.entryCount);
-  await db.prepare(`
-    INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime)
-    SELECT ?, project_id, ?, kind, r2_key, sha256, bytes, mime FROM assets
+
+  const sourceCounts = await db.prepare(
+    "SELECT worldbook_count, regex_count FROM project_revisions WHERE id = ?",
+  ).bind(revisionId).first<{ worldbook_count: number; regex_count: number }>();
+  if (!sourceCounts) return null;
+  const retained = await db.prepare(`
+    SELECT kind, r2_key, sha256, bytes, mime FROM assets
     WHERE revision_id = ? AND kind <> ?
-  `).bind(crypto.randomUUID(), revision.revisionId, revisionId, kind).run();
-  return { ...revision, entryCount: removed.entryCount };
+  `).bind(revisionId, kind).all<RetainedAssetRow>();
+
+  const nextRevisionId = crypto.randomUUID();
+  const body = new TextEncoder().encode(removed.text).buffer;
+  const sha256 = await sha256Hex(body);
+  const contentKey = assetKey(projectId, nextRevisionId, kind, sha256, asset.mime);
+  const assets: RevisionAssetInput[] = [];
+  const writtenKeys: string[] = [];
+  try {
+    for (const retainedAsset of retained.results) {
+      const retainedObject = await r2.get(retainedAsset.r2_key);
+      if (!retainedObject) throw new Error(`Retained asset is missing: ${retainedAsset.r2_key}`);
+      const key = assetKey(
+        projectId, nextRevisionId, retainedAsset.kind, retainedAsset.sha256, retainedAsset.mime,
+      );
+      await r2.put(key, retainedObject.body, { httpMetadata: { contentType: retainedAsset.mime } });
+      writtenKeys.push(key);
+      assets.push({
+        kind: retainedAsset.kind,
+        r2Key: key,
+        sha256: retainedAsset.sha256,
+        bytes: retainedAsset.bytes,
+        mime: retainedAsset.mime,
+      });
+    }
+    await r2.put(contentKey, body, { httpMetadata: { contentType: asset.mime } });
+    writtenKeys.push(contentKey);
+    assets.push({ kind, r2Key: contentKey, sha256, bytes: body.byteLength, mime: asset.mime });
+
+    const revision = await addRevision(db, session, current, expectedVersion, revisionValues(current, {}), {
+      revisionId: nextRevisionId,
+      counts: {
+        worldbook: kind === "worldbook" ? removed.entryCount : sourceCounts.worldbook_count,
+        regex: kind === "regex" ? removed.entryCount : sourceCounts.regex_count,
+      },
+      assets,
+    });
+    if (!revision) {
+      if (writtenKeys.length > 0) await r2.delete(writtenKeys);
+      return null;
+    }
+    return { ...revision, entryCount: removed.entryCount };
+  } catch (error) {
+    if (writtenKeys.length > 0) await r2.delete(writtenKeys).catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function softDeleteProject(
@@ -693,6 +781,26 @@ export async function getRevisionForProject(
       AND (p.author_id = ? OR ? = 'owner')`).bind(revisionId, projectId, session.userId, session.role).first<RevisionAccess>();
 }
 
+interface RetainedAssetRow {
+  kind: string;
+  r2_key: string;
+  sha256: string;
+  bytes: number;
+  mime: string;
+}
+
+function assetKey(projectId: string, revisionId: string, kind: string, sha256: string, mime: string): string {
+  const ext = extensionForMime(mime);
+  return kind === "cover"
+    ? `covers/${projectId}/${revisionId}-${sha256}.${ext}`
+    : `projects/${projectId}/revisions/${revisionId}/${kind}-${sha256}.${ext}`;
+}
+
+async function sha256Hex(body: ArrayBuffer): Promise<string> {
+  const hash = await crypto.subtle.digest("SHA-256", body);
+  return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export async function upsertAsset(
   db: D1Database,
   r2: R2Bucket,
@@ -703,12 +811,8 @@ export async function upsertAsset(
   mime: string,
   entryCount?: number,
 ): Promise<UploadResult | null> {
-  const hash = await crypto.subtle.digest("SHA-256", body);
-  const sha256 = [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
-  const ext = extensionForMime(mime);
-  const r2Key = kind === "cover"
-    ? `covers/${projectId}/${revisionId}-${sha256}.${ext}`
-    : `projects/${projectId}/revisions/${revisionId}/${kind}-${sha256}.${ext}`;
+  const sha256 = await sha256Hex(body);
+  const r2Key = assetKey(projectId, revisionId, kind, sha256, mime);
   // Content-addressed keys make a pre-insert put safe: a frozen revision never
   // points at the new key, and identical bytes reuse the same object.
   await r2.put(r2Key, body, { httpMetadata: { contentType: mime } });
