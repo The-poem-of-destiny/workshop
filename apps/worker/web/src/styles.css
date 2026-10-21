@@ -227,6 +227,9 @@ input[type="search"] {
 .diff-grid p, .diff-grid ul { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
 .diff-grid ul { padding-left: 18px; }
 .empty-panel { min-height: 180px; display: grid; place-items: center; }
+.load-more { display: flex; justify-content: center; margin-top: 20px; }
+.load-more button { padding: 9px 18px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); cursor: pointer; }
+.load-more button:hover { border-color: var(--accent); color: var(--accent); }
 .admin-tools { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
 .member-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
 .member-row strong, .member-row small { display: block; }
