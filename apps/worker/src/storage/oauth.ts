@@ -1,5 +1,6 @@
 import type { AuthFlowMode, Session } from "@workshop/contracts";
 import { sha256Hex } from "./identity.js";
+import { hashSessionToken } from "./session-hash.js";
 
 export interface AuthFlowRow {
   id: string;
@@ -108,6 +109,7 @@ export async function upsertDiscordUser(
 export async function createOpaqueSession(
   db: D1Database,
   userId: string,
+  sessionSecret?: string,
   ttlMs = 30 * 24 * 60 * 60 * 1000,
 ): Promise<{ token: string; expiresAt: string; session: Session }> {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -120,7 +122,7 @@ export async function createOpaqueSession(
   await db.prepare(`
     INSERT INTO sessions (token_hash, user_id, session_version, created_at, last_seen_at, expires_at)
     VALUES (?, ?, 1, ?, ?, ?)
-  `).bind(await sha256Hex(token), userId, now, now, expiresAt).run();
+  `).bind(await hashSessionToken(token, sessionSecret), userId, now, now, expiresAt).run();
   const role = await db.prepare("SELECT role FROM users WHERE id = ?").bind(userId)
     .first<{ role: Session["role"] }>();
   if (!role) throw new Error("Session user not found");

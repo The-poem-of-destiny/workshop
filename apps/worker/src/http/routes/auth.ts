@@ -146,7 +146,7 @@ sessionRoutes.delete("/current", async c => {
   const authorization = c.req.header("authorization");
   const token = authorization?.slice("Bearer ".length);
   if (!token) return jsonError(c, "unauthorized", "Login required");
-  await revokeSessionByToken(c.env.DB, token);
+  await revokeSessionByToken(c.env.DB, token, c.env.SESSION_HASH_SECRET);
   return c.body(null, 204);
 });
 
@@ -244,7 +244,7 @@ authRoutes.post("/flows/:id/redeem", async c => {
   if (!await markFlowRedeemed(c.env.DB, flow.id)) {
     return jsonError(c, "conflict", "Auth flow was already redeemed");
   }
-  const { token, expiresAt } = await createOpaqueSession(c.env.DB, flow.user_id);
+  const { token, expiresAt } = await createOpaqueSession(c.env.DB, flow.user_id, c.env.SESSION_HASH_SECRET);
   const me = await getMe(c.env.DB, flow.user_id);
   if (!me) return jsonError(c, "internal", "User not found");
   return c.json(authSessionResponseSchema.parse({ token, expiresAt, user: me.user }));
@@ -272,7 +272,7 @@ authRoutes.get("/callback", async c => {
       if (!await markFlowAuthorized(c.env.DB, flow.id, result.user.id, result.guildId, null)) {
         return htmlResponse(errorHtml("登录状态已被使用。"), 409);
       }
-      const { token } = await createOpaqueSession(c.env.DB, result.user.id);
+      const { token } = await createOpaqueSession(c.env.DB, result.user.id, c.env.SESSION_HASH_SECRET);
       await markFlowRedeemed(c.env.DB, flow.id);
       return htmlResponse(callbackHtml(JSON.stringify({
         type: "oauth-success",

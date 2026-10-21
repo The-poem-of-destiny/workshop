@@ -1,4 +1,5 @@
 import type { MeResponse, Role } from "@workshop/contracts";
+import { hashSessionToken } from "./session-hash.js";
 import type { AuthFlowMode, AuthFlowStatus } from "@workshop/contracts";
 
 interface UserRow {
@@ -87,8 +88,12 @@ export async function getAuthFlowStatus(
   };
 }
 
-export async function revokeSessionByToken(db: D1Database, token: string): Promise<void> {
-  const tokenHash = await sha256Hex(token);
+export async function revokeSessionByToken(
+  db: D1Database,
+  token: string,
+  secret?: string,
+): Promise<void> {
+  const tokenHash = await hashSessionToken(token, secret);
   await db.prepare(
     "UPDATE sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL",
   ).bind(new Date().toISOString(), tokenHash).run();

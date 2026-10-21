@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { app } from "../src/app";
 import type { Env } from "../src/env";
 import { applySchema } from "./support/schema";
+import { hashSessionToken } from "../src/storage/session-hash";
 
 const bindings = env as unknown as Env;
 const now = "2026-10-21T00:00:00.000Z";
@@ -101,6 +102,17 @@ describe("identity and interactions", () => {
     const status = await app.request(`/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`, undefined, bindings);
     expect(status.status).toBe(200);
     await expect(status.json()).resolves.toEqual({ status: "pending", expiresAt: flow.expiresAt });
+  });
+
+  it("uses HMAC session hashes when a secret is configured", async () => {
+    const tokenValue = "hmac-session-token";
+    await bindings.DB.prepare("DELETE FROM sessions").run();
+    await bindings.DB.prepare(
+      "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, 'u1', '2099-01-01T00:00:00.000Z')",
+    ).bind(await hashSessionToken(tokenValue, "staging-secret")).run();
+    const headers = { authorization: `Bearer ${tokenValue}` };
+    expect((await app.request("/api/v1/me", { headers }, { ...bindings, SESSION_HASH_SECRET: "staging-secret" })).status).toBe(200);
+    expect((await app.request("/api/v1/me", { headers }, { ...bindings, SESSION_HASH_SECRET: "wrong-secret" })).status).toBe(401);
   });
 
   it("applies idempotent likes and subscriptions and keeps ratings private", async () => {

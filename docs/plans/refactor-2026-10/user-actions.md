@@ -13,6 +13,7 @@
 | U-04 | 允许的工坊 Origin 列表 | `/auth/flows` Origin 白名单 | `ALLOWED_ORIGINS` | staging 已配置 |
 | U-05 | 生产 Cloudflare 账号、D1、R2 目标 | 真实迁移与生产部署 | CI environment / wrangler env | 未授权 |
 | U-06 | `CLOUDFLARE_ZONE_ID`、`CLOUDFLARE_API_TOKEN`、`WORKSHOP_PUBLIC_URL` | 客户端 channel 指针 purge | 发布脚本环境变量 | 未设置；当前 publish 会跳过 purge |
+| U-09 | `SESSION_HASH_SECRET` | session token HMAC | Worker secret | staging 已设置；生产需设置 |
 | U-07 | GitHub Actions secret/variable | 让 staging/production workflow 真正运行 | GitHub repo settings | 未验证 |
 | U-08 | 允许 `refactor/2026-10` 部署到 staging 环境 | staging CI 的 deploy job 当前只允许 `main` | GitHub Environment `staging` branch policy | **阻塞**：run 39582600843 build 成功，deploy 被拒绝 |
 
@@ -69,6 +70,6 @@
 |---|---|
 | `refactor-ci` 39582448150 | ✅ check + e2e 均成功 |
 | `deploy-staging` 39582600843 | ◐ build 成功；deploy 因 environment branch policy 拒绝 |
-| 本地 staging 部署 | ✅ Worker `b3a533dc-9c99-4a8a-8fac-ed57f02ff680`（commit `a5e3c1c`） |
+| 本地 staging 部署 | ✅ Worker `1b189ef8-82a3-4ef9-84a0-b31261591bb1`（session HMAC） |
 
 没有这些输入时，代码侧仍可继续做不依赖凭据/决策的部分，但不会把上述旅程标记为已验收。

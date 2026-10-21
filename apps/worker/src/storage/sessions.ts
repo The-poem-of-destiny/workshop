@@ -1,4 +1,5 @@
 import type { Session } from "@workshop/contracts";
+import { hashSessionToken } from "./session-hash.js";
 
 interface SessionRow {
   user_id: string;
@@ -12,13 +13,12 @@ interface SessionRow {
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const TOUCH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-async function hashToken(token: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
-  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
-}
-
-export async function getSessionByToken(db: D1Database, token: string): Promise<Session | null> {
-  const tokenHash = await hashToken(token);
+export async function getSessionByToken(
+  db: D1Database,
+  token: string,
+  secret?: string,
+): Promise<Session | null> {
+  const tokenHash = await hashSessionToken(token, secret);
   const row = await db.prepare(`
     SELECT s.user_id, u.role, s.session_version, s.expires_at, s.last_seen_at, s.revoked_at
     FROM sessions s
