@@ -1,4 +1,10 @@
-import { WORKSHOP_LIMITS, normalizeDiscordThreadUrl, validateProjectContentText } from "@workshop/domain";
+import {
+  WORKSHOP_LIMITS,
+  detectImageDimensions,
+  inspectProjectMetadata,
+  normalizeDiscordThreadUrl,
+  validateProjectContentText,
+} from "@workshop/domain";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import {
@@ -14,8 +20,10 @@ import {
   createRevision,
   getAuthoringProject,
   getProjectSummary,
+  deleteProjectEntry,
   getRevisionForProject,
   patchProject,
+  softDeleteProject,
   submitRevision,
   updateVisibility,
   upsertAsset,
@@ -70,6 +78,10 @@ authoringRoutes.post("/", async c => {
   const discord = normalizeThreadUrl(c, parsed.data.discordThreadUrl);
   if (!discord.ok) return jsonError(c, "bad_request", `Discord 线程地址无效：${discord.reason}`);
   parsed.data.discordThreadUrl = discord.value;
+  const metadata = inspectProjectMetadata(parsed.data);
+  if (metadata.gate === "block") {
+    return jsonError(c, "bad_request", "Project metadata failed validation", metadata.findings);
+  }
   try {
     return c.json(await createProject(c.env.DB, auth.session, parsed.data), 201);
   } catch {
@@ -107,9 +119,58 @@ authoringRoutes.patch("/:id", async c => {
     if (!discord.ok) return jsonError(c, "bad_request", `Discord 线程地址无效：${discord.reason}`);
     parsed.data.discordThreadUrl = discord.value;
   }
+  const metadata = inspectProjectMetadata({
+    title: parsed.data.title ?? project.title,
+    description: parsed.data.description !== undefined ? parsed.data.description : project.description,
+    authorNote: parsed.data.authorNote !== undefined ? parsed.data.authorNote : project.author_note,
+    precautions: parsed.data.precautions !== undefined ? parsed.data.precautions : project.precautions,
+    versionLabel: parsed.data.versionLabel !== undefined ? parsed.data.versionLabel : project.version_label,
+    tags: parsed.data.tags,
+    coverPositionX: parsed.data.coverPositionX ?? project.cover_position_x,
+    coverPositionY: parsed.data.coverPositionY ?? project.cover_position_y,
+    coverZoom: parsed.data.coverZoom ?? project.cover_zoom,
+  });
+  if (metadata.gate === "block") {
+    return jsonError(c, "bad_request", "Project metadata failed validation", metadata.findings);
+  }
   const result = await patchProject(c.env.DB, auth.session, project.id, expectedVersion, parsed.data);
   if (!result) return jsonError(c, "precondition_failed", "Project version does not match");
   return c.json(result);
+});
+
+authoringRoutes.delete("/:id/revisions/:revisionId/entries/:kind/:entryKey", async c => {
+  const auth = await sessionOrError(c);
+  if (!auth.session) return auth.response;
+  const kind = c.req.param("kind");
+  if (kind !== "worldbook" && kind !== "regex") return jsonError(c, "bad_request", "Unknown file kind");
+  const expectedVersion = ifMatchVersion(c.req.header("if-match"));
+  if (expectedVersion === null) return jsonError(c, "precondition_failed", "If-Match is required");
+  let entryKey: string;
+  try {
+    entryKey = decodeURIComponent(c.req.param("entryKey"));
+  } catch {
+    return jsonError(c, "bad_request", "Invalid entry key");
+  }
+  const result = await deleteProjectEntry(
+    c.env.DB, c.env.R2, auth.session, c.req.param("id"), c.req.param("revisionId"),
+    kind, entryKey, expectedVersion,
+  );
+  if (!result) return jsonError(c, "conflict", "Entry cannot be deleted from this revision");
+  return c.json(result);
+});
+
+authoringRoutes.delete("/:id", async c => {
+  const auth = await sessionOrError(c);
+  if (!auth.session) return auth.response;
+  const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
+  if (!project) return jsonError(c, "not_found", "Project not found");
+  const expectedVersion = ifMatchVersion(c.req.header("if-match"));
+  if (expectedVersion !== null && expectedVersion !== project.row_version) {
+    return jsonError(c, "precondition_failed", "Project version does not match");
+  }
+  const deleted = await softDeleteProject(c.env.DB, auth.session, project.id, expectedVersion ?? undefined);
+  if (!deleted) return jsonError(c, "conflict", "Project cannot be deleted");
+  return c.body(null, 204);
 });
 
 authoringRoutes.patch("/:id/visibility", async c => {
@@ -143,6 +204,20 @@ authoringRoutes.post("/:id/revisions", async c => {
     const discord = normalizeThreadUrl(c, parsed.data.discordThreadUrl);
     if (!discord.ok) return jsonError(c, "bad_request", `Discord 线程地址无效：${discord.reason}`);
     parsed.data.discordThreadUrl = discord.value;
+  }
+  const metadata = inspectProjectMetadata({
+    title: parsed.data.title ?? project.title,
+    description: parsed.data.description !== undefined ? parsed.data.description : project.description,
+    authorNote: parsed.data.authorNote !== undefined ? parsed.data.authorNote : project.author_note,
+    precautions: parsed.data.precautions !== undefined ? parsed.data.precautions : project.precautions,
+    versionLabel: parsed.data.versionLabel !== undefined ? parsed.data.versionLabel : project.version_label,
+    tags: parsed.data.tags,
+    coverPositionX: parsed.data.coverPositionX ?? project.cover_position_x,
+    coverPositionY: parsed.data.coverPositionY ?? project.cover_position_y,
+    coverZoom: parsed.data.coverZoom ?? project.cover_zoom,
+  });
+  if (metadata.gate === "block") {
+    return jsonError(c, "bad_request", "Project metadata failed validation", metadata.findings);
   }
   const result = await createRevision(c.env.DB, auth.session, project.id, expectedVersion, parsed.data);
   if (!result) return jsonError(c, "precondition_failed", "Project version does not match");
@@ -179,6 +254,13 @@ authoringRoutes.put("/:id/revisions/:revisionId/files/:kind", async c => {
     const validation = validateProjectContentText(new TextDecoder().decode(body), parsedKind.data);
     if (!validation.valid) return jsonError(c, "bad_request", validation.error);
     entryCount = validation.entryCount;
+  } else {
+    const dimensions = detectImageDimensions(new Uint8Array(body));
+    if (!dimensions) return jsonError(c, "bad_request", "无法识别封面图片尺寸");
+    if (dimensions.width > WORKSHOP_LIMITS.coverMaxDimension
+      || dimensions.height > WORKSHOP_LIMITS.coverMaxDimension) {
+      return jsonError(c, "payload_too_large", "封面尺寸不能超过 4096×4096");
+    }
   }
   const result = await upsertAsset(
     c.env.DB,

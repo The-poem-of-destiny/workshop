@@ -8,10 +8,11 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { chromium } from "playwright";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workerDir = path.join(root, "apps/worker");
@@ -46,6 +47,19 @@ async function api(pathname, init = {}, token) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function chromiumExecutable() {
+  if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE) return process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE;
+  const cache = path.join(os.homedir(), ".cache", "ms-playwright");
+  if (!existsSync(cache)) return null;
+  for (const name of readdirSync(cache).filter(value => value.startsWith("chromium-")).sort().reverse()) {
+    for (const candidate of ["chrome-linux64/chrome", "chrome-linux/chrome"]) {
+      const full = path.join(cache, name, candidate);
+      if (existsSync(full)) return full;
+    }
+  }
+  return null;
 }
 
 async function waitForWorker() {
@@ -199,6 +213,101 @@ async function main() {
       const detail = await api(`/api/v1/projects/${project.project.id}`);
       assert(JSON.parse(detail.body).counts.downloads === 1, "download counted exactly once");
     });
+
+    let pending;
+    await check("author submits without client checker", async () => {
+      const created = await api("/api/v1/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "E2E Pending", description: "manual review", projectType: "事件" }),
+      }, authorToken);
+      assert(created.response.status === 201, `pending create ${created.response.status}: ${created.body}`);
+      pending = JSON.parse(created.body);
+      const worldbook = '{"entries":[{"uid":1,"key":["pending"],"content":"pending"}]}';
+      const upload = await api(`/api/v1/projects/${pending.project.id}/revisions/${pending.workingRevisionId}/files/worldbook`, {
+        method: "PUT",
+        headers: { "content-type": "application/json", "content-length": String(Buffer.byteLength(worldbook)) },
+        body: worldbook,
+      }, authorToken);
+      assert(upload.response.status === 200, `pending upload ${upload.response.status}: ${upload.body}`);
+      const visibility = await api(`/api/v1/projects/${pending.project.id}/visibility`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "if-match": "1" },
+        body: JSON.stringify({ visibility: "public" }),
+      }, authorToken);
+      assert(visibility.response.status === 200, `pending visibility ${visibility.response.status}: ${visibility.body}`);
+      const submit = await api(`/api/v1/projects/${pending.project.id}/revisions/${pending.workingRevisionId}/submit`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ gate: "missing", acknowledged: true }),
+      }, authorToken);
+      assert(submit.response.status === 201, `pending submit ${submit.response.status}: ${submit.body}`);
+    });
+
+    const executablePath = chromiumExecutable();
+    if (executablePath) {
+      const browser = await chromium.launch({ headless: true, executablePath });
+      try {
+        await check("browser anonymous search and detail", async () => {
+          const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+          await page.goto(`${base}/`, { waitUntil: "networkidle" });
+          await page.locator(".card").first().waitFor({ state: "visible", timeout: 10_000 });
+          await page.locator('input[type="search"]').fill("E2E Project");
+          await page.locator(".card", { hasText: "E2E Project" }).first().waitFor({ state: "visible", timeout: 10_000 });
+          await page.locator(".card", { hasText: "E2E Project" }).first().click();
+          await page.locator(".detail").waitFor({ state: "visible" });
+          assert((await page.locator(".detail").textContent())?.includes("E2E Project"), "detail content");
+          await page.close();
+        });
+
+        await check("browser author workspace", async () => {
+          const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+          await context.addInitScript(token => sessionStorage.setItem("cw_session_token", token), authorToken);
+          const page = await context.newPage();
+          await page.goto(`${base}/`, { waitUntil: "networkidle" });
+          await page.getByRole("button", { name: "我的项目" }).click();
+          await page.getByText("E2E Project", { exact: true }).first().waitFor({ state: "visible", timeout: 10_000 });
+          await page.getByText("E2E Project", { exact: true }).first().click();
+          await page.getByRole("button", { name: "提交当前版本" }).waitFor({ state: "visible" });
+          assert((await page.locator(".workspace").textContent())?.includes("提交审核"), "submit box");
+          await context.close();
+        });
+
+        await check("browser owner admin tools", async () => {
+          const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+          await context.addInitScript(token => sessionStorage.setItem("cw_session_token", token), ownerToken);
+          const page = await context.newPage();
+          await page.goto(`${base}/`, { waitUntil: "networkidle" });
+          await page.getByRole("button", { name: "管理" }).click();
+          await page.getByText("站点设置", { exact: true }).waitFor({ state: "visible", timeout: 10_000 });
+          await page.getByText("成员", { exact: true }).waitFor({ state: "visible" });
+          await page.getByText("审计", { exact: true }).waitFor({ state: "visible" });
+          await page.getByRole("button", { name: "保存站点设置" }).click();
+          await page.getByText("站点设置已保存").waitFor({ state: "visible", timeout: 10_000 });
+          await context.close();
+        });
+
+        await check("browser admin queue rejects without reason", async () => {
+          const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+          await context.addInitScript(token => sessionStorage.setItem("cw_session_token", token), ownerToken);
+          const page = await context.newPage();
+          await page.goto(`${base}/`, { waitUntil: "networkidle" });
+          await page.getByRole("button", { name: "审核台" }).click();
+          await page.getByText("E2E Pending", { exact: true }).first().waitFor({ state: "visible", timeout: 10_000 });
+          await page.getByText("E2E Pending", { exact: true }).first().click();
+          await page.getByRole("button", { name: "拒绝" }).click();
+          await page.getByText("拒绝审核必须填写理由").waitFor({ state: "visible" });
+          await page.locator("textarea").fill("e2e rejection reason");
+          await page.getByRole("button", { name: "拒绝" }).click();
+          await page.getByText("已拒绝审核").waitFor({ state: "visible", timeout: 10_000 });
+          await context.close();
+        });
+      } finally {
+        await browser.close();
+      }
+    } else {
+      console.log("skip browser journeys: no cached Chromium");
+    }
 
     await check("origin allowlist", async () => {
       const { response } = await api("/api/v1/auth/flows", {

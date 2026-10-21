@@ -12,5 +12,8 @@
     "worker:test": "pnpm --filter @workshop/worker test",
     "e2e:local": "node tools/e2e-local.mjs",
     "load:local": "node tools/migrate/load-local.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
   }
 }

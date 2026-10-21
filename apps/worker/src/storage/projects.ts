@@ -26,6 +26,11 @@ interface ProjectRow {
   worldbook_count: number;
   regex_count: number;
   schema_version: string | null;
+  version_label: string | null;
+  precautions: string | null;
+  cover_position_x: number;
+  cover_position_y: number;
+  cover_zoom: number;
   discord_thread_url: string | null;
   cover_key: string | null;
 }
@@ -38,7 +43,13 @@ const SELECT_PROJECT = `
     u.id AS author_id,
     COALESCE(u.global_name, u.username) AS author_name,
     u.avatar AS author_avatar,
-    r.tags, r.worldbook_count, r.regex_count, r.schema_version, r.discord_thread_url,
+    r.tags, r.worldbook_count, r.regex_count, r.schema_version,
+    COALESCE(r.version_label, p.version_label) AS version_label,
+    COALESCE(r.precautions, p.precautions) AS precautions,
+    COALESCE(r.cover_position_x, p.cover_position_x) AS cover_position_x,
+    COALESCE(r.cover_position_y, p.cover_position_y) AS cover_position_y,
+    COALESCE(r.cover_zoom, p.cover_zoom) AS cover_zoom,
+    r.discord_thread_url,
     (SELECT a.r2_key FROM assets a
       WHERE a.revision_id = p.published_revision_id AND a.kind = 'cover'
       LIMIT 1) AS cover_key
@@ -86,6 +97,10 @@ function toSummary(row: ProjectRow): ProjectSummary {
       regex: row.regex_count,
     },
     schemaVersion: row.schema_version,
+    versionLabel: row.version_label,
+    coverPositionX: row.cover_position_x,
+    coverPositionY: row.cover_position_y,
+    coverZoom: row.cover_zoom,
     counts: {
       downloads: row.downloads_count,
       likes: row.likes_count,
@@ -102,6 +117,7 @@ function toDetail(row: ProjectRow): ProjectDetail {
   return {
     ...toSummary(row),
     authorNote: row.author_note,
+    precautions: row.precautions,
     discordThreadUrl: row.discord_thread_url,
   };
 }

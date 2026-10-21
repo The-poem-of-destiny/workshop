@@ -1,8 +1,14 @@
 import type { AuthorProject, AuthorSubmission, ProjectSummary, Session } from "@workshop/contracts";
 import type { CreateProject, PatchProject, SubmitProject, VisibilityUpdate } from "@workshop/contracts";
+import { z } from "zod";
 import {
+  extractProjectEntries,
+  getProjectEntryKey,
+  inspectProjectMetadata,
+  METADATA_CHECKER_REVISION,
   validateProjectContentPolicy,
   validateProjectContentText,
+  type MetadataInput,
   type ProjectEntryKind,
 } from "@workshop/domain";
 import { REVIEW_CHECKER_REVISION } from "../content-checker.js";
@@ -18,7 +24,13 @@ interface ProjectAccessRow {
   search_tags: string;
   visibility: "public" | "private";
   working_revision_id: string | null;
+  published_revision_id: string | null;
   row_version: number;
+  version_label: string | null;
+  precautions: string | null;
+  cover_position_x: number;
+  cover_position_y: number;
+  cover_zoom: number;
 }
 
 interface WorkingRevisionRow extends ProjectAccessRow {
@@ -31,6 +43,11 @@ interface WorkingRevisionRow extends ProjectAccessRow {
   revision_tags: string;
   revision_schema_version: string | null;
   revision_discord_thread_url: string | null;
+  revision_version_label: string | null;
+  revision_precautions: string | null;
+  revision_cover_position_x: number;
+  revision_cover_position_y: number;
+  revision_cover_zoom: number;
 }
 
 interface SummaryRow {
@@ -52,6 +69,10 @@ interface SummaryRow {
   worldbook_count: number;
   regex_count: number;
   schema_version: string | null;
+  version_label: string | null;
+  cover_position_x: number;
+  cover_position_y: number;
+  cover_zoom: number;
   cover_key: string | null;
 }
 
@@ -99,6 +120,10 @@ function toSummary(row: SummaryRow): ProjectSummary {
     tags: parseTags(row.tags),
     entries: { worldbook: row.worldbook_count, regex: row.regex_count },
     schemaVersion: row.schema_version,
+    versionLabel: row.version_label,
+    coverPositionX: row.cover_position_x,
+    coverPositionY: row.cover_position_y,
+    coverZoom: row.cover_zoom,
     counts: { downloads: row.downloads_count, likes: row.likes_count, subscriptions: row.subscriptions_count },
     coverUrl: row.cover_key ? `/api/v1/assets/${row.cover_key}` : null,
     visibility: row.visibility,
@@ -116,7 +141,10 @@ const summarySql = `
     p.subscriptions_count, u.id AS author_id, COALESCE(u.global_name, u.username) AS author_name,
     u.avatar AS author_avatar, COALESCE(r.tags, p.search_tags) AS tags,
     COALESCE(r.worldbook_count, 0) AS worldbook_count, COALESCE(r.regex_count, 0) AS regex_count,
-    r.schema_version,
+    r.schema_version, COALESCE(r.version_label, p.version_label) AS version_label,
+    COALESCE(r.cover_position_x, p.cover_position_x) AS cover_position_x,
+    COALESCE(r.cover_position_y, p.cover_position_y) AS cover_position_y,
+    COALESCE(r.cover_zoom, p.cover_zoom) AS cover_zoom,
     (SELECT a.r2_key FROM assets a WHERE a.revision_id = p.working_revision_id AND a.kind = 'cover' LIMIT 1) AS cover_key
   FROM projects p JOIN users u ON u.id = p.author_id
   LEFT JOIN project_revisions r ON r.id = p.working_revision_id
@@ -130,7 +158,8 @@ export async function getAuthoringProject(
 ): Promise<ProjectAccessRow | null> {
   return db.prepare(`
     SELECT id, author_id, title, description, author_note, project_type, extension_type,
-      search_tags, visibility, working_revision_id, row_version
+      search_tags, visibility, working_revision_id, published_revision_id, row_version,
+      version_label, precautions, cover_position_x, cover_position_y, cover_zoom
     FROM projects
     WHERE id = ? AND deleted_at IS NULL AND (author_id = ? OR ? = 'owner')
   `).bind(projectId, session.userId, session.role).first<ProjectAccessRow>();
@@ -139,11 +168,15 @@ export async function getAuthoringProject(
 async function getWorkingRevision(db: D1Database, projectId: string, session: Session): Promise<WorkingRevisionRow | null> {
   return db.prepare(`
     SELECT p.id, p.author_id, p.title, p.description, p.author_note, p.project_type, p.extension_type,
-      p.search_tags, p.visibility, p.working_revision_id, p.row_version,
+      p.search_tags, p.visibility, p.working_revision_id, p.published_revision_id, p.row_version,
+      p.version_label, p.precautions, p.cover_position_x, p.cover_position_y, p.cover_zoom,
       r.revision_no, r.title AS revision_title, r.description AS revision_description,
       r.author_note AS revision_author_note, r.project_type AS revision_project_type,
       r.extension_type AS revision_extension_type, r.tags AS revision_tags,
-      r.schema_version AS revision_schema_version, r.discord_thread_url AS revision_discord_thread_url
+      r.schema_version AS revision_schema_version, r.discord_thread_url AS revision_discord_thread_url,
+      r.version_label AS revision_version_label, r.precautions AS revision_precautions,
+      r.cover_position_x AS revision_cover_position_x, r.cover_position_y AS revision_cover_position_y,
+      r.cover_zoom AS revision_cover_zoom
     FROM projects p LEFT JOIN project_revisions r ON r.id = p.working_revision_id
     WHERE p.id = ? AND p.deleted_at IS NULL AND (p.author_id = ? OR ? = 'owner')
   `).bind(projectId, session.userId, session.role).first<WorkingRevisionRow>();
@@ -203,7 +236,10 @@ export async function listAuthorProjects(db: D1Database, session: Session): Prom
       p.subscriptions_count, u.id AS author_id, COALESCE(u.global_name, u.username) AS author_name,
       u.avatar AS author_avatar, COALESCE(r.tags, p.search_tags) AS tags,
       COALESCE(r.worldbook_count, 0) AS worldbook_count, COALESCE(r.regex_count, 0) AS regex_count,
-      r.schema_version,
+      r.schema_version, COALESCE(r.version_label, p.version_label) AS version_label,
+      COALESCE(r.cover_position_x, p.cover_position_x) AS cover_position_x,
+      COALESCE(r.cover_position_y, p.cover_position_y) AS cover_position_y,
+      COALESCE(r.cover_zoom, p.cover_zoom) AS cover_zoom,
       (SELECT a.r2_key FROM assets a WHERE a.revision_id = p.working_revision_id AND a.kind = 'cover' LIMIT 1) AS cover_key,
       p.row_version, p.working_revision_id,
       s.id AS submission_id, s.revision_id AS submission_revision_id, s.status AS submission_status,
@@ -281,20 +317,44 @@ export async function createProject(db: D1Database, session: Session, input: Cre
   const revisionId = crypto.randomUUID();
   const now = new Date().toISOString();
   const tags = JSON.stringify(input.tags ?? []);
+  const values: RevisionValues = {
+    title: input.title,
+    description: input.description ?? null,
+    authorNote: input.authorNote ?? null,
+    projectType: input.projectType ?? null,
+    extensionType: input.extensionType ?? null,
+    schemaVersion: input.schemaVersion ?? null,
+    versionLabel: input.versionLabel ?? null,
+    precautions: input.precautions ?? null,
+    coverPositionX: input.coverPositionX ?? 50,
+    coverPositionY: input.coverPositionY ?? 50,
+    coverZoom: input.coverZoom ?? 1,
+    discordThreadUrl: input.discordThreadUrl ?? null,
+    tags: input.tags ?? [],
+  };
+  const meta = metadataSnapshot(values, session.userId, now);
   await db.batch([
     db.prepare(`INSERT INTO projects
       (id, author_id, title, description, author_note, project_type, extension_type, search_tags,
-       visibility, working_revision_id, row_version, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'private', ?, 1, ?, ?)`)
-      .bind(projectId, session.userId, input.title, input.description ?? null, input.authorNote ?? null,
-        input.projectType ?? null, input.extensionType ?? null, tags, revisionId, now, now),
+       visibility, working_revision_id, row_version, created_at, updated_at,
+       version_label, precautions, cover_position_x, cover_position_y, cover_zoom,
+       metadata_findings, metadata_checker_revision, metadata_checked_at, metadata_checked_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'private', ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(projectId, session.userId, values.title, values.description, values.authorNote,
+        values.projectType, values.extensionType, tags, revisionId, now, now,
+        values.versionLabel, values.precautions, values.coverPositionX, values.coverPositionY, values.coverZoom,
+        meta.findings, meta.revision, meta.checkedAt, meta.actorId),
     db.prepare(`INSERT INTO project_revisions
       (id, project_id, revision_no, title, description, author_note, project_type, extension_type,
-       schema_version, discord_thread_url, tags, created_by, created_at)
-      VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(revisionId, projectId, input.title, input.description ?? null, input.authorNote ?? null,
-        input.projectType ?? null, input.extensionType ?? null, input.schemaVersion ?? null,
-        input.discordThreadUrl ?? null, tags, session.userId, now),
+       schema_version, version_label, precautions, cover_position_x, cover_position_y, cover_zoom,
+       metadata_findings, metadata_checker_revision, metadata_checked_at, metadata_checked_by,
+       discord_thread_url, tags, created_by, created_at)
+      VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(revisionId, projectId, values.title, values.description, values.authorNote,
+        values.projectType, values.extensionType, values.schemaVersion, values.versionLabel,
+        values.precautions, values.coverPositionX, values.coverPositionY, values.coverZoom,
+        meta.findings, meta.revision, meta.checkedAt, meta.actorId,
+        values.discordThreadUrl, tags, session.userId, now),
   ]);
   const project = await getProjectSummary(db, projectId);
   if (!project) throw new Error("Created project not found");
@@ -310,8 +370,41 @@ export async function patchProject(
   input: PatchProject,
 ): Promise<RevisionResult | null> {
   const current = await getWorkingRevision(db, projectId, session);
-  if (!current || current.row_version !== expectedVersion) return null;
-  return addRevision(db, session, current, expectedVersion, revisionValues(current, input));
+  if (!current || current.row_version !== expectedVersion || !current.working_revision_id) return null;
+  const values = revisionValues(current, input);
+  const now = new Date().toISOString();
+  const meta = metadataSnapshot(values, session.userId, now);
+  const tags = JSON.stringify(values.tags);
+  const [updated] = await db.batch([
+    db.prepare(`UPDATE projects
+      SET title = ?, description = ?, author_note = ?, project_type = ?, extension_type = ?,
+          search_tags = ?, version_label = ?, precautions = ?, cover_position_x = ?,
+          cover_position_y = ?, cover_zoom = ?, metadata_findings = ?,
+          metadata_checker_revision = ?, metadata_checked_at = ?, metadata_checked_by = ?,
+          row_version = row_version + 1, updated_at = ?
+      WHERE id = ? AND row_version = ? AND working_revision_id = ?`)
+      .bind(
+        values.title, values.description, values.authorNote, values.projectType, values.extensionType,
+        tags, values.versionLabel, values.precautions, values.coverPositionX, values.coverPositionY,
+        values.coverZoom, meta.findings, meta.revision, meta.checkedAt, meta.actorId, now,
+        projectId, expectedVersion, current.working_revision_id,
+      ),
+    db.prepare(`UPDATE project_revisions
+      SET title = ?, description = ?, author_note = ?, project_type = ?, extension_type = ?,
+          tags = ?, schema_version = ?, version_label = ?, precautions = ?,
+          cover_position_x = ?, cover_position_y = ?, cover_zoom = ?, metadata_findings = ?,
+          metadata_checker_revision = ?, metadata_checked_at = ?, metadata_checked_by = ?,
+          discord_thread_url = ?
+      WHERE id IN (?, ?)`)
+      .bind(
+        values.title, values.description, values.authorNote, values.projectType, values.extensionType,
+        tags, values.schemaVersion, values.versionLabel, values.precautions, values.coverPositionX,
+        values.coverPositionY, values.coverZoom, meta.findings, meta.revision, meta.checkedAt,
+        meta.actorId, values.discordThreadUrl, current.working_revision_id, current.published_revision_id,
+      ),
+  ]);
+  if (!updated || updated.meta.changes === 0) return null;
+  return { rowVersion: expectedVersion + 1, revisionId: current.working_revision_id };
 }
 
 export interface RevisionValues {
@@ -321,6 +414,11 @@ export interface RevisionValues {
   projectType: string | null;
   extensionType: string | null;
   schemaVersion: string | null;
+  versionLabel: string | null;
+  precautions: string | null;
+  coverPositionX: number;
+  coverPositionY: number;
+  coverZoom: number;
   discordThreadUrl: string | null;
   tags: string[];
 }
@@ -333,8 +431,35 @@ function revisionValues(current: WorkingRevisionRow, patch: PatchProject): Revis
     projectType: patch.projectType !== undefined ? patch.projectType : current.revision_project_type ?? current.project_type,
     extensionType: patch.extensionType !== undefined ? patch.extensionType : current.revision_extension_type ?? current.extension_type,
     schemaVersion: patch.schemaVersion !== undefined ? patch.schemaVersion : current.revision_schema_version,
+    versionLabel: patch.versionLabel !== undefined ? patch.versionLabel : current.revision_version_label ?? current.version_label,
+    precautions: patch.precautions !== undefined ? patch.precautions : current.revision_precautions ?? current.precautions,
+    coverPositionX: patch.coverPositionX ?? current.revision_cover_position_x ?? current.cover_position_x,
+    coverPositionY: patch.coverPositionY ?? current.revision_cover_position_y ?? current.cover_position_y,
+    coverZoom: patch.coverZoom ?? current.revision_cover_zoom ?? current.cover_zoom,
     discordThreadUrl: patch.discordThreadUrl !== undefined ? patch.discordThreadUrl : current.revision_discord_thread_url,
     tags: patch.tags !== undefined ? patch.tags : parseTags(current.revision_tags || current.search_tags),
+  };
+}
+
+function metadataSnapshot(values: RevisionValues, actorId: string, now: string) {
+  const input: MetadataInput = {
+    title: values.title,
+    description: values.description,
+    authorNote: values.authorNote,
+    precautions: values.precautions,
+    versionLabel: values.versionLabel,
+    tags: values.tags,
+    coverPositionX: values.coverPositionX,
+    coverPositionY: values.coverPositionY,
+    coverZoom: values.coverZoom,
+  };
+  const inspection = inspectProjectMetadata(input);
+  return {
+    gate: inspection.gate,
+    findings: JSON.stringify(inspection.findings),
+    revision: METADATA_CHECKER_REVISION,
+    checkedAt: now,
+    actorId,
   };
 }
 
@@ -349,21 +474,28 @@ async function addRevision(
   const now = new Date().toISOString();
   const nextNo = current.revision_no + 1;
   const tags = JSON.stringify(values.tags);
+  const meta = metadataSnapshot(values, session.userId, now);
   const [updated] = await db.batch([
     db.prepare(`UPDATE projects SET working_revision_id = ?, row_version = row_version + 1, updated_at = ?
       WHERE id = ? AND row_version = ? AND working_revision_id = ?`)
       .bind(revisionId, now, current.id, expectedVersion, current.working_revision_id),
     db.prepare(`INSERT INTO project_revisions
       (id, project_id, revision_no, title, description, author_note, project_type, extension_type,
-       schema_version, discord_thread_url, tags, created_by, created_at)
-      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       schema_version, version_label, precautions, cover_position_x, cover_position_y, cover_zoom,
+       metadata_findings, metadata_checker_revision, metadata_checked_at, metadata_checked_by,
+       discord_thread_url, tags, created_by, created_at)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       WHERE EXISTS (
         SELECT 1 FROM projects
         WHERE id = ? AND row_version = ? AND working_revision_id = ?
       )`)
-      .bind(revisionId, current.id, nextNo, values.title, values.description ?? null, values.authorNote ?? null,
-        values.projectType ?? null, values.extensionType ?? null, values.schemaVersion, values.discordThreadUrl,
-        tags, session.userId, now, current.id, expectedVersion + 1, revisionId),
+      .bind(
+        revisionId, current.id, nextNo, values.title, values.description, values.authorNote,
+        values.projectType, values.extensionType, values.schemaVersion, values.versionLabel,
+        values.precautions, values.coverPositionX, values.coverPositionY, values.coverZoom,
+        meta.findings, meta.revision, meta.checkedAt, meta.actorId, values.discordThreadUrl,
+        tags, session.userId, now, current.id, expectedVersion + 1, revisionId,
+      ),
   ]);
   if (!updated || updated.meta.changes === 0) return null;
   return { rowVersion: expectedVersion + 1, revisionId };
@@ -380,6 +512,115 @@ export async function createRevision(
   if (!current || current.row_version !== expectedVersion) return null;
   return addRevision(db, session, current, expectedVersion, revisionValues(current, input));
 }
+function removeSerializedEntry(
+  raw: unknown,
+  kind: ProjectEntryKind,
+  entryKey: string,
+): { text: string; entryCount: number } | null {
+  const array = z.array(z.record(z.string(), z.unknown())).safeParse(raw);
+  if (array.success) {
+    const next = array.data.filter((value, index) => getProjectEntryKey(kind, value, index) !== entryKey);
+    if (next.length === array.data.length) return null;
+    return { text: JSON.stringify(next), entryCount: extractProjectEntries(next, kind).length };
+  }
+
+  const container = z.object({
+    entries: z.union([
+      z.array(z.record(z.string(), z.unknown())),
+      z.record(z.string(), z.record(z.string(), z.unknown())),
+    ]),
+  }).passthrough().safeParse(raw);
+  if (container.success) {
+    if (Array.isArray(container.data.entries)) {
+      const next = container.data.entries.filter((value, index) => getProjectEntryKey(kind, value, index) !== entryKey);
+      if (next.length === container.data.entries.length) return null;
+      return {
+        text: JSON.stringify({ ...container.data, entries: next }),
+        entryCount: extractProjectEntries(next, kind).length,
+      };
+    }
+    const next = { ...container.data.entries };
+    let removed = false;
+    for (const [key, value] of Object.entries(next)) {
+      if (getProjectEntryKey(kind, value, 0, key) !== entryKey) continue;
+      delete next[key];
+      removed = true;
+    }
+    if (!removed) return null;
+    return {
+      text: JSON.stringify({ ...container.data, entries: next }),
+      entryCount: extractProjectEntries(next, kind).length,
+    };
+  }
+
+  const single = z.record(z.string(), z.unknown()).safeParse(raw);
+  if (!single.success || kind !== "regex" || getProjectEntryKey(kind, single.data, 0) !== entryKey) return null;
+  return { text: "[]", entryCount: 0 };
+}
+
+export async function deleteProjectEntry(
+  db: D1Database,
+  r2: R2Bucket,
+  session: Session,
+  projectId: string,
+  revisionId: string,
+  kind: ProjectEntryKind,
+  entryKey: string,
+  expectedVersion: number,
+): Promise<{ rowVersion: number; revisionId: string; entryCount: number } | null> {
+  const current = await getWorkingRevision(db, projectId, session);
+  if (!current || current.row_version !== expectedVersion || current.working_revision_id !== revisionId) return null;
+  const submitted = await db.prepare("SELECT 1 AS present FROM submissions WHERE revision_id = ?")
+    .bind(revisionId).first<{ present: number }>();
+  if (submitted) return null;
+  const asset = await db.prepare(`
+    SELECT r2_key, mime FROM assets WHERE revision_id = ? AND kind = ?
+  `).bind(revisionId, kind).first<{ r2_key: string; mime: string }>();
+  if (!asset) return null;
+  const object = await r2.get(asset.r2_key);
+  if (!object) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await object.text());
+  } catch {
+    return null;
+  }
+  const removed = removeSerializedEntry(raw, kind, entryKey);
+  if (!removed) return null;
+  const revision = await addRevision(db, session, current, expectedVersion, revisionValues(current, {}));
+  if (!revision) return null;
+  const body = new TextEncoder().encode(removed.text).buffer;
+  await upsertAsset(db, r2, projectId, revision.revisionId, kind, body, asset.mime, removed.entryCount);
+  await db.prepare(`
+    INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime)
+    SELECT ?, project_id, ?, kind, r2_key, sha256, bytes, mime FROM assets
+    WHERE revision_id = ? AND kind <> ?
+  `).bind(crypto.randomUUID(), revision.revisionId, revisionId, kind).run();
+  return { ...revision, entryCount: removed.entryCount };
+}
+
+export async function softDeleteProject(
+  db: D1Database,
+  session: Session,
+  projectId: string,
+  expectedVersion?: number,
+): Promise<boolean> {
+  const now = new Date().toISOString();
+  const result = await db.prepare(`
+    UPDATE projects
+    SET deleted_at = ?, row_version = row_version + 1, updated_at = ?
+    WHERE id = ? AND deleted_at IS NULL
+      AND (author_id = ? OR ? = 'owner')
+      AND (? IS NULL OR row_version = ?)
+  `).bind(now, now, projectId, session.userId, session.role, expectedVersion ?? null, expectedVersion ?? null).run();
+  if (result.meta.changes === 0) return false;
+  await db.prepare(`
+    INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
+    VALUES (?, 'project.delete', 'project', ?, ?, ?, ?)
+  `).bind(crypto.randomUUID(), projectId, session.userId, JSON.stringify({ soft: true }), now).run();
+  return true;
+}
+
 export async function updateVisibility(
   db: D1Database,
   session: Session,
@@ -450,7 +691,7 @@ export async function upsertAsset(
   ];
 
   if (kind !== "cover") {
-    if (!Number.isInteger(entryCount) || (entryCount ?? 0) < 1) {
+    if (!Number.isInteger(entryCount) || (entryCount ?? 0) < 0) {
       throw new Error("Validated entry count is required for content uploads");
     }
     const column = kind === "worldbook" ? "worldbook_count" : "regex_count";

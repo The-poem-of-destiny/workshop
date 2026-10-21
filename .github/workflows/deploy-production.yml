@@ -1,18 +1,22 @@
 name: deploy-production
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      artifact_run_id:
+        description: Staging build run id whose artifact is promoted
+        required: true
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: deploy-production
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  promote:
     environment: production
     runs-on: ubuntu-latest
     env:
@@ -20,23 +24,27 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
       - uses: pnpm/action-setup@v4
         with:
           version: 11.24.0
-
-      - name: Install and build assets
-        run: |
-          pnpm install --no-frozen-lockfile
-          pnpm --filter @workshop/worker web:build
-
-      - name: Deploy worker
-        run: npx --yes wrangler@4 deploy --config apps/worker/wrangler.jsonc --env production
-
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: staging-web-${{ inputs.artifact_run_id }}
+          run-id: ${{ inputs.artifact_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify promoted artifact hash
+        run: sha256sum -c artifact.sha256
+      - name: Apply production migrations
+        run: pnpm --filter @workshop/worker exec wrangler d1 migrations apply workshop-production --remote --config wrangler.jsonc --env production
+      - name: Deploy production worker
+        run: pnpm --filter @workshop/worker exec wrangler deploy --config wrangler.jsonc --env production
+      - name: Record worker version
+        run: pnpm --filter @workshop/worker exec wrangler deployments list --config wrangler.jsonc --env production | tee deployment.txt
       - name: Smoke test
         run: |
           set -euo pipefail

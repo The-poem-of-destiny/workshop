@@ -25,6 +25,38 @@ export async function listReferenceSets(db: D1Database): Promise<ReferenceSet[]>
     ORDER BY s.name, v.version_ordinal DESC
   `).all<ReferenceRow>();
 
+  const versionIds = [...new Set(rows.results.map(row => row.version_id))];
+  const itemRows = versionIds.length === 0 ? null : await db.prepare(`
+    SELECT id, reference_version_id, kind, display_name, exact_hash,
+           normalized_content_hash, name_hash, structure_hash
+    FROM reference_items
+    WHERE reference_version_id IN (${versionIds.map(() => "?").join(", ")})
+    ORDER BY kind, display_name
+  `).bind(...versionIds).all<{
+    id: string;
+    reference_version_id: string;
+    kind: "worldbook" | "regex";
+    display_name: string;
+    exact_hash: string;
+    normalized_content_hash: string;
+    name_hash: string;
+    structure_hash: string;
+  }>();
+  const itemsByVersion = new Map<string, ReferenceSet["versions"][number]["items"]>();
+  for (const item of itemRows?.results ?? []) {
+    const list = itemsByVersion.get(item.reference_version_id) ?? [];
+    list.push({
+      id: item.id,
+      kind: item.kind,
+      displayName: item.display_name,
+      exactHash: item.exact_hash,
+      normalizedContentHash: item.normalized_content_hash,
+      nameHash: item.name_hash,
+      structureHash: item.structure_hash,
+    });
+    itemsByVersion.set(item.reference_version_id, list);
+  }
+
   const sets = new Map<string, ReferenceSet>();
   for (const row of rows.results) {
     let set = sets.get(row.id);
@@ -44,6 +76,7 @@ export async function listReferenceSets(db: D1Database): Promise<ReferenceSet[]>
       graceUntil: row.grace_until,
       worldbookCount: row.worldbook_count,
       regexCount: row.regex_count,
+      items: itemsByVersion.get(row.version_id) ?? [],
     });
   }
   return [...sets.values()];

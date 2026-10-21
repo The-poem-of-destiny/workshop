@@ -106,6 +106,9 @@ describe("identity and interactions", () => {
     expect((await request("/api/v1/me/likes/p1", { method: "PUT" })).status).toBe(204);
     expect((await request("/api/v1/me/subscriptions/p1", { method: "PUT" })).status).toBe(204);
     expect((await request("/api/v1/me/subscriptions/p1", { method: "PUT" })).status).toBe(204);
+    const subscribed = await request("/api/v1/me/subscriptions");
+    expect(subscribed.status).toBe(200);
+    await expect(subscribed.json()).resolves.toMatchObject({ items: [{ id: "p1" }] });
     const invalid = await request("/api/v1/me/ratings/p1", {
       method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ rating: 6 }),
     });

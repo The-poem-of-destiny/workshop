@@ -8,7 +8,7 @@ export default {
   fetch(request, env, ctx) {
     return app.fetch(request, env, ctx);
   },
-  scheduled(_event, env, ctx) {
-    ctx.waitUntil(runScheduled(env));
+  scheduled(event, env, ctx) {
+    ctx.waitUntil(runScheduled(env, event.scheduledTime));
   },
 } satisfies ExportedHandler<Env>;

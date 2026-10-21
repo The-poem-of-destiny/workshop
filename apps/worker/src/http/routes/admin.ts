@@ -1,20 +1,29 @@
 import { Hono } from "hono";
 import {
+  adminAuditEventListQuerySchema,
   adminListQuerySchema,
+  adminRecommendationUpdateSchema,
+  adminReferenceSetUpdateSchema,
   adminReviewRequestSchema,
   adminRoleRequestSchema,
+  adminSiteUpdateSchema,
   adminSubmissionListQuerySchema,
 } from "@workshop/contracts";
 import type { Env } from "../../env.js";
 import { enqueueSubmission } from "../../scheduler.js";
 import {
   changeAdminMemberRole,
+  deleteAdminRecommendation,
   getAdminSubmission,
   getSubmissionAsset,
+  listAdminAuditEvents,
   listAdminMembers,
   listAdminProjects,
   listAdminSubmissions,
   reviewAdminSubmission,
+  updateAdminRecommendation,
+  updateAdminReferenceSet,
+  updateAdminSite,
 } from "../../storage/admin.js";
 import { getSubmissionDiff } from "../../storage/diff.js";
 import { jsonError } from "../errors.js";
@@ -180,5 +189,49 @@ adminRoutes.put("/members/:id/role", async c => {
   const result = await changeAdminMemberRole(c.env.DB, c.req.param("id"), parsed.data.role, session.userId);
   if (result.kind === "not_found") return jsonError(c, "not_found", "Member not found");
   if (result.kind === "last_owner") return jsonError(c, "conflict", "Cannot demote the last owner");
+  return c.json({ ok: true });
+});
+
+adminRoutes.get("/audit-events", async c => {
+  const session = await requireReviewer(c);
+  if (session === null) return jsonError(c, "unauthorized", "Login required");
+  if (session === false) return jsonError(c, "forbidden", "Reviewer role required");
+  const parsed = adminAuditEventListQuerySchema.safeParse({
+    limit: c.req.query("limit"),
+    cursor: c.req.query("cursor"),
+    action: c.req.query("action"),
+  });
+  if (!parsed.success) return jsonError(c, "bad_request", "Invalid query", parsed.error.flatten());
+  return c.json(await listAdminAuditEvents(c.env.DB, parsed.data.limit, parsed.data.cursor, parsed.data.action));
+});
+
+adminRoutes.put("/recommendations/:projectId", async c => {
+  const session = await requireReviewer(c);
+  if (session === null) return jsonError(c, "unauthorized", "Login required");
+  if (session === false || session.role !== "owner") return jsonError(c, "forbidden", "Owner role required");
+  const parsed = adminRecommendationUpdateSchema.safeParse(await readJson(c));
+  if (!parsed.success) return jsonError(c, "bad_request", "Invalid recommendation", parsed.error.flatten());
+  const result = await updateAdminRecommendation(c.env.DB, c.req.param("projectId"), session.userId, parsed.data);
+  if (result.kind === "not_found") return jsonError(c, "not_found", "Project not found");
+  return c.json({ id: result.id, comment: result.comment, reaction: result.reaction });
+});
+
+adminRoutes.delete("/recommendations/:projectId", async c => {
+  const session = await requireReviewer(c);
+  if (session === null) return jsonError(c, "unauthorized", "Login required");
+  if (session === false || session.role !== "owner") return jsonError(c, "forbidden", "Owner role required");
+  const result = await deleteAdminRecommendation(c.env.DB, c.req.param("projectId"), session.userId);
+  if (result.kind === "not_found") return jsonError(c, "not_found", "Recommendation not found");
+  return c.body(null, 204);
+});
+
+adminRoutes.put("/reference-sets/:id", async c => {
+  const session = await requireReviewer(c);
+  if (session === null) return jsonError(c, "unauthorized", "Login required");
+  if (session === false || session.role !== "owner") return jsonError(c, "forbidden", "Owner role required");
+  const parsed = adminReferenceSetUpdateSchema.safeParse(await readJson(c));
+  if (!parsed.success) return jsonError(c, "bad_request", "Invalid reference set", parsed.error.flatten());
+  const result = await updateAdminReferenceSet(c.env.DB, c.req.param("id"), session.userId, parsed.data);
+  if (result.kind === "not_found") return jsonError(c, "not_found", "Reference set not found");
   return c.json({ ok: true });
 });

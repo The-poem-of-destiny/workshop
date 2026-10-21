@@ -1,8 +1,14 @@
 import type { Env } from "./env";
+import { buildRankings, cleanupExpired } from "./storage/rankings.js";
 
 const MAX_ATTEMPTS = 3;
 
-export async function runScheduled(env: Env): Promise<void> {
+export async function runScheduled(env: Env, scheduledTime?: number): Promise<void> {
+  const scheduled = new Date(scheduledTime ?? Date.now());
+  if (scheduled.getUTCHours() === 0 && scheduled.getUTCMinutes() === 5) {
+    await buildRankings(env.DB);
+    await cleanupExpired(env.DB);
+  }
   const now = new Date().toISOString();
 
   await env.DB.prepare(`

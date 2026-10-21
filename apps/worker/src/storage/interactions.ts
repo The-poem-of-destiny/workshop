@@ -1,4 +1,5 @@
-import type { InteractionStateItem, MeStateResponse, RatingInput } from "@workshop/contracts";
+import type { InteractionStateItem, MeStateResponse, ProjectSummary, RatingInput } from "@workshop/contracts";
+import { getPublishedProjectsByIds } from "./projects.js";
 
 interface StateRow {
   project_id: string;
@@ -32,6 +33,21 @@ export async function getInteractionState(
     if (row) items.push({ projectId, liked: Boolean(row.liked), subscribed: Boolean(row.subscribed), rating: row.rating });
   }
   return { items };
+}
+
+export async function listSubscribedProjects(db: D1Database, userId: string): Promise<ProjectSummary[]> {
+  const rows = await db.prepare(`
+    SELECT s.project_id FROM project_subscriptions s
+    JOIN projects p ON p.id = s.project_id
+    WHERE s.user_id = ? AND p.deleted_at IS NULL
+      AND p.visibility = 'public' AND p.published_revision_id IS NOT NULL
+    ORDER BY s.created_at DESC
+  `).bind(userId).all<{ project_id: string }>();
+  const projects = await getPublishedProjectsByIds(db, rows.results.map(row => row.project_id));
+  return rows.results.flatMap(row => {
+    const project = projects.get(row.project_id);
+    return project ? [project] : [];
+  });
 }
 
 export async function interactionProjectExists(db: D1Database, projectId: string): Promise<boolean> {

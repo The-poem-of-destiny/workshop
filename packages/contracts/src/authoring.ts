@@ -21,6 +21,11 @@ export const projectMetadataSchema = z.object({
   projectType: projectTypeSchema.nullable().optional(),
   extensionType: extensionTypeSchema.nullable().optional(),
   schemaVersion: z.string().trim().max(32).nullable().optional(),
+  versionLabel: z.string().trim().max(80).nullable().optional(),
+  precautions: z.string().max(2_000).nullable().optional(),
+  coverPositionX: z.number().min(0).max(100).optional(),
+  coverPositionY: z.number().min(0).max(100).optional(),
+  coverZoom: z.number().min(1).max(3).optional(),
   discordThreadUrl: discordThreadUrlSchema,
   tags: tagsSchema,
 });

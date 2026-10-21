@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { projectListQuerySchema, releaseManifestSchema } from "@workshop/contracts";
 import { WORKSHOP_LIMITS } from "@workshop/domain";
 import type { Env } from "../../env";
+import { getClientChannel } from "../../storage/client.js";
+import { getProjectEntryIndex } from "../../storage/content-index.js";
 import { issueDownloadTickets, recordDownload } from "../../storage/downloads.js";
 import { getPublishedProject, listPublishedProjects } from "../../storage/projects.js";
 import { getReleaseAssets } from "../../storage/releases.js";
@@ -56,6 +58,61 @@ projectsRoutes.post("/:id/downloads", async c => {
       expiresAt: ticket.expiresAt,
     })),
   }, 201);
+});
+
+projectsRoutes.get("/:id/entries", async c => {
+  const index = await getProjectEntryIndex(c.env.DB, c.env.R2, c.req.param("id"));
+  if (!index) return jsonError(c, "not_found", "Project not found");
+  return c.json(index);
+});
+
+projectsRoutes.get("/:id/install", async c => {
+  const session = await requireSession(c);
+  if (!session) return jsonError(c, "unauthorized", "Login required");
+  const projectId = c.req.param("id");
+  const clientVersion = c.req.header("x-client-version");
+  if (clientVersion) {
+    const current = await getClientChannel(c.env.DB, c.req.header("x-client-channel") ?? "stable");
+    if (current && current.version !== clientVersion) {
+      return jsonError(c, "upgrade_required", "Client version does not match the current channel", {
+        required: current.version,
+        received: clientVersion,
+      });
+    }
+  }
+  const release = await getReleaseAssets(c.env.DB, projectId, null, session);
+  if (!release) return jsonError(c, "not_found", "Release not found");
+  const project = await c.env.DB.prepare(`
+    SELECT p.id, p.title, p.project_type, p.extension_type, p.updated_at,
+           r.title AS revision_title, r.tags
+    FROM projects p JOIN project_revisions r ON r.id = p.published_revision_id
+    WHERE p.id = ? AND p.published_revision_id = ?
+  `).bind(projectId, release.revisionId).first<{
+    id: string; title: string; project_type: string | null; extension_type: string | null;
+    updated_at: string; revision_title: string; tags: string;
+  }>();
+  if (!project) return jsonError(c, "not_found", "Release not found");
+
+  const files: Record<string, string> = {};
+  for (const file of release.files) {
+    const object = await c.env.R2.get(file.r2Key);
+    if (!object) return jsonError(c, "not_found", `Missing ${file.kind} file`);
+    files[file.kind] = await object.text();
+  }
+  await recordDownload(c.env.DB, projectId, session.userId).catch(() => undefined);
+  return c.json({
+    project: {
+      id: project.id,
+      title: project.revision_title || project.title,
+      projectType: project.project_type,
+      extensionType: project.extension_type,
+      version: release.revisionId,
+      manifestHash: release.manifestHash,
+      updatedAt: project.updated_at,
+      tags: JSON.parse(project.tags) as unknown,
+    },
+    files,
+  });
 });
 
 projectsRoutes.get("/:id/releases/:releaseId/manifest", async c => {

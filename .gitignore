@@ -23,6 +23,7 @@ data_backup/
 # built web assets
 apps/worker/web/dist/
 packages/content/dist/
+apps/tavern-client/dist/
 apps/tavern-client/.local/
 
 

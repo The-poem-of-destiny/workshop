@@ -10,6 +10,7 @@ import type { Env } from "../../env";
 import {
   getInteractionState,
   interactionProjectExists,
+  listSubscribedProjects,
   setLike,
   setRating,
   setSubscription,
@@ -45,6 +46,12 @@ meRoutes.get("/projects/:id/submissions", async c => {
   const items = await listAuthorSubmissions(c.env.DB, session, c.req.param("id"));
   if (!items) return jsonError(c, "not_found", "Project not found");
   return c.json(authorSubmissionListResponseSchema.parse({ items }));
+});
+
+meRoutes.get("/subscriptions", async c => {
+  const session = await requireSession(c);
+  if (!session) return jsonError(c, "unauthorized", "Login required");
+  return c.json({ items: await listSubscribedProjects(c.env.DB, session.userId) });
 });
 
 meRoutes.get("/state", async c => {

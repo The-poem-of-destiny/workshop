@@ -10,6 +10,7 @@ export const errorCodeSchema = z.enum([
   "payload_too_large",
   "unsupported_media_type",
   "rate_limited",
+  "upgrade_required",
   "internal",
 ]);
 
@@ -35,5 +36,6 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   payload_too_large: 413,
   unsupported_media_type: 415,
   rate_limited: 429,
+  upgrade_required: 426,
   internal: 500,
 };

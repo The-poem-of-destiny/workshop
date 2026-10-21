@@ -37,6 +37,17 @@ export async function getBanner(db: D1Database): Promise<Banner> {
   }
 }
 
+export async function getSiteContent(db: D1Database): Promise<unknown> {
+  const row = await db.prepare("SELECT value FROM site_settings WHERE key = ?")
+    .bind("site_content").first<{ value: string }>();
+  if (!row) return null;
+  try {
+    return JSON.parse(row.value) as unknown;
+  } catch {
+    return null;
+  }
+}
+
 export async function listRecommendations(db: D1Database): Promise<Recommendation[]> {
   const rows = await db.prepare(`
     SELECT r.id, r.curator_id, r.project_id, r.comment, r.reaction,

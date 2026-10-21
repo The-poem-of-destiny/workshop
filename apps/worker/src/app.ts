@@ -41,7 +41,7 @@ app.use("/api/*", async (c, next) => {
     return c.body(null, 204, {
       "access-control-allow-origin": allowedOrigin,
       "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-      "access-control-allow-headers": "authorization,content-type,if-match",
+      "access-control-allow-headers": "authorization,content-type,if-match,x-client-version,x-client-channel",
       "access-control-max-age": "600",
       vary: "Origin",
     });

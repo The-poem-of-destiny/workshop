@@ -236,6 +236,36 @@ describe("public read path", () => {
     expect(ownPrivate.status).toBe(200);
   });
 
+  it("returns an anonymous entry index without content", async () => {
+    await seed();
+    const response = await app.request("/api/v1/projects/p1/entries", undefined, bindings);
+    expect(response.status).toBe(200);
+    const body = await response.json() as { revisionId: string; entries: Array<Record<string, unknown>> };
+    expect(body.revisionId).toBe("r1");
+    expect(Array.isArray(body.entries)).toBe(true);
+    expect(JSON.stringify(body)).not.toContain('"content"');
+  });
+
+  it("returns an authenticated install payload without exposing it anonymously", async () => {
+    await seed();
+    expect((await app.request("/api/v1/projects/p1/install", undefined, bindings)).status).toBe(401);
+    await bindings.DB.prepare(
+      "INSERT INTO site_settings (key, value, updated_at) VALUES ('client_channels', ?, ?)",
+    ).bind(JSON.stringify({ stable: { revision: "r1", version: "1.0.0" } }), now).run();
+    const wrong = await app.request("/api/v1/projects/p1/install", {
+      headers: { authorization: "Bearer test-token", "x-client-version": "0.9.0" },
+    }, bindings);
+    expect(wrong.status).toBe(426);
+    const response = await app.request("/api/v1/projects/p1/install", {
+      headers: { authorization: "Bearer test-token", "x-client-version": "1.0.0" },
+    }, bindings);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      project: { id: "p1", version: "r1" },
+      files: { worldbook: '{"entries":[]}' },
+    });
+  });
+
   it("requires login for release manifest and files", async () => {
     await seed();
     const anonymous = await app.request("/api/v1/projects/p1/releases/r1/manifest", undefined, bindings);

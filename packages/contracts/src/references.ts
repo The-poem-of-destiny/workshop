@@ -1,5 +1,15 @@
 import { z } from "zod";
 
+export const referenceItemSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["worldbook", "regex"]),
+  displayName: z.string(),
+  exactHash: z.string(),
+  normalizedContentHash: z.string(),
+  nameHash: z.string(),
+  structureHash: z.string(),
+});
+
 export const referenceVersionSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -7,6 +17,7 @@ export const referenceVersionSchema = z.object({
   graceUntil: z.string(),
   worldbookCount: z.number().int().nonnegative(),
   regexCount: z.number().int().nonnegative(),
+  items: z.array(referenceItemSchema).optional(),
 });
 
 export const referenceSetSchema = z.object({

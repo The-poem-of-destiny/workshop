@@ -27,6 +27,10 @@ export const projectSummarySchema = z.object({
     regex: z.number().int().nonnegative(),
   }),
   schemaVersion: z.string().nullable(),
+  versionLabel: z.string().nullable().optional(),
+  coverPositionX: z.number().nullable().optional(),
+  coverPositionY: z.number().nullable().optional(),
+  coverZoom: z.number().nullable().optional(),
   counts: z.object({
     downloads: z.number().int().nonnegative(),
     likes: z.number().int().nonnegative(),
@@ -42,6 +46,7 @@ export type ProjectSummary = z.infer<typeof projectSummarySchema>;
 
 export const projectDetailSchema = projectSummarySchema.extend({
   authorNote: z.string().nullable(),
+  precautions: z.string().nullable().optional(),
   discordThreadUrl: z.string().nullable(),
 });
 
@@ -63,3 +68,16 @@ export const projectListResponseSchema = z.object({
 });
 
 export type ProjectListResponse = z.infer<typeof projectListResponseSchema>;
+
+export const projectEntryIndexSchema = z.object({
+  revisionId: z.string(),
+  entries: z.array(z.object({
+    kind: z.enum(["worldbook", "regex"]),
+    entryKey: z.string(),
+    name: z.string(),
+    contentHash: z.string(),
+    contentLength: z.number().int().nonnegative(),
+  })),
+});
+
+export type ProjectEntryIndex = z.infer<typeof projectEntryIndexSchema>;
