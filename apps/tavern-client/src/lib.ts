@@ -55,3 +55,14 @@ export function projectEntry(entry: Record<string, unknown>): boolean {
   const values: Record<string, unknown> = extensions as Record<string, unknown>;
   return typeof values.cw_project_id === "string";
 }
+
+export function normalizeWorkshopOrigin(value: unknown, fallback: string): string {
+  const raw = typeof value === "string" && value.trim() ? value.trim() : fallback;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return fallback;
+    return url.origin;
+  } catch {
+    return fallback;
+  }
+}

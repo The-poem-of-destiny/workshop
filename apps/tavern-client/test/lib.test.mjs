@@ -37,6 +37,13 @@ test("worldbook and regex containers normalize to entry arrays", () => {
   assert.equal(lib.regexEntries({ scriptName: "single" }).length, 1);
 });
 
+test("workshop origins normalize to scheme and host and reject invalid schemes", () => {
+  assert.equal(lib.normalizeWorkshopOrigin("https://workshop.example/path?x=1", "https://fallback.example"), "https://workshop.example");
+  assert.equal(lib.normalizeWorkshopOrigin("http://127.0.0.1:8787/", "https://fallback.example"), "http://127.0.0.1:8787");
+  assert.equal(lib.normalizeWorkshopOrigin("javascript:alert(1)", "https://fallback.example"), "https://fallback.example");
+  assert.equal(lib.normalizeWorkshopOrigin("", "https://fallback.example"), "https://fallback.example");
+});
+
 test("project entries require a project marker string", () => {
   assert.equal(lib.projectEntry({ extensions: { cw_project_id: "p1" } }), true);
   assert.equal(lib.projectEntry({ extensions: { cw_project_id: 1 } }), false);
