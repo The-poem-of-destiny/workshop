@@ -163,6 +163,7 @@
 - [x] 本地 HTTP E2E 19/19；真实 Chromium 搜索/排序 DOM、作者工作台+订阅、owner 管理、审核通过/拒绝、拒绝→改稿重提 6 条旅程。
 - [x] staging 部署、D1 migration 0002–0009、Worker `51e6d6b0-1e07-42be-9de8-4524c7b42a16`（commit `1b6deef`）。
 - [x] R2 批量复制适配器（manifest、SHA/bytes 校验、本地演练、幂等重跑、损坏修复、remote `--apply`）。
+- [x] 迁移映射覆盖 site_settings、project_metrics_daily、ranking_runs/entries、discovery_exposures；本地测试断言不再被列为 dropped。
 - [ ] staging 真实数据导入与独立 reconcile（需授权目标）。
 - [x] T3 entry-key/fingerprint/玩家修改保留单元测试（tavern-client 4 项）；真实 ST 旅程未验。
 - [x] T6 旧公开 API 样本契约测试（17 个 fixtures 已恢复，`tests/legacy-contracts.test.mjs` 防泄露/搜索/类型/分页/条目摘要）。
