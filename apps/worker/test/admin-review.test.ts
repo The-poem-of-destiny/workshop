@@ -70,7 +70,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await bindings.DB.exec("DELETE FROM reviews; DELETE FROM submissions; DELETE FROM assets; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;");
+  await bindings.DB.exec("DELETE FROM audit_events; DELETE FROM reviews; DELETE FROM submissions; DELETE FROM assets; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;");
   await seed();
 });
 
@@ -115,6 +115,44 @@ describe("admin review and publishing", () => {
     expect(project).toMatchObject({ published_revision_id: "r1", title: "Submitted title", search_tags: '["submitted"]', row_version: 2 });
     const review = await bindings.DB.prepare("SELECT manifest_hash, checker_version FROM reviews WHERE submission_id = 's1'").first<Record<string, unknown>>();
     expect(review).toMatchObject({ manifest_hash: "manifest-1", checker_version: "checker-1" });
+  });
+
+  it("requires a reason when the server checker blocked even if the client gate passed", async () => {
+    await bindings.DB.prepare(`
+      UPDATE submissions SET check_report = ?, check_status = 'needs_human' WHERE id = 's1'
+    `).bind(JSON.stringify({ routeGate: "block", findings: [] })).run();
+    const missing = await request("/submissions/s1/review", "reviewer-token", {
+      method: "POST",
+      body: JSON.stringify({ decision: "approve" }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(missing.status).toBe(400);
+    const approved = await request("/submissions/s1/review", "reviewer-token", {
+      method: "POST",
+      body: JSON.stringify({ decision: "approve", reason: "人工复核通过" }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(approved.status).toBe(201);
+    const audit = await bindings.DB.prepare(
+      "SELECT detail FROM audit_events WHERE target_id = 's1' AND action = 'review.approve'",
+    ).first<{ detail: string }>();
+    expect(audit?.detail).toContain("人工复核通过");
+  });
+
+  it("stores the server review checker revision instead of the client value", async () => {
+    await bindings.DB.prepare(
+      "UPDATE submissions SET review_checker_revision = 'server-review-1' WHERE id = 's1'",
+    ).run();
+    const response = await request("/submissions/s1/review", "reviewer-token", {
+      method: "POST",
+      body: JSON.stringify({ decision: "approve" }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(response.status).toBe(201);
+    const review = await bindings.DB.prepare(
+      "SELECT checker_version FROM reviews WHERE submission_id = 's1'",
+    ).first<{ checker_version: string }>();
+    expect(review?.checker_version).toBe("server-review-1");
   });
 
   it("ignores client-supplied checker version and report fields", async () => {

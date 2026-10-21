@@ -188,6 +188,8 @@ export async function getProjectSummary(db: D1Database, projectId: string): Prom
 }
 
 interface AuthorProjectRow extends SummaryRow {
+  author_note: string | null;
+  precautions: string | null;
   row_version: number;
   working_revision_id: string | null;
   submission_id: string | null;
@@ -237,6 +239,8 @@ export async function listAuthorProjects(db: D1Database, session: Session): Prom
       u.avatar AS author_avatar, COALESCE(r.tags, p.search_tags) AS tags,
       COALESCE(r.worldbook_count, 0) AS worldbook_count, COALESCE(r.regex_count, 0) AS regex_count,
       r.schema_version, COALESCE(r.version_label, p.version_label) AS version_label,
+      COALESCE(r.author_note, p.author_note) AS author_note,
+      COALESCE(r.precautions, p.precautions) AS precautions,
       COALESCE(r.cover_position_x, p.cover_position_x) AS cover_position_x,
       COALESCE(r.cover_position_y, p.cover_position_y) AS cover_position_y,
       COALESCE(r.cover_zoom, p.cover_zoom) AS cover_zoom,
@@ -262,6 +266,8 @@ export async function listAuthorProjects(db: D1Database, session: Session): Prom
     rowVersion: row.row_version,
     workingRevisionId: row.working_revision_id,
     latestSubmission: toAuthorSubmission(row),
+    authorNote: row.author_note ?? null,
+    precautions: row.precautions ?? null,
   }));
 }
 
@@ -772,21 +778,25 @@ export async function submitRevision(
   const counts: Record<ProjectEntryKind, number> = { worldbook: 0, regex: 0 };
   let validationError: string | null = null;
 
-  for (const asset of assets.results) {
-    if (asset.kind !== "worldbook" && asset.kind !== "regex") continue;
-    const kind = asset.kind as ProjectEntryKind;
-    const object = await r2.get(asset.r2_key);
-    if (!object) {
-      validationError = "项目文件缺失，请重新上传";
-      break;
+  try {
+    for (const asset of assets.results) {
+      if (asset.kind !== "worldbook" && asset.kind !== "regex") continue;
+      const kind = asset.kind as ProjectEntryKind;
+      const object = await r2.get(asset.r2_key);
+      if (!object) {
+        validationError = "项目文件缺失，请重新上传";
+        break;
+      }
+      const validation = validateProjectContentText(await object.text(), kind);
+      if (!validation.valid) {
+        validationError = validation.error;
+        break;
+      }
+      presence[kind] = true;
+      counts[kind] = validation.entryCount;
     }
-    const validation = validateProjectContentText(await object.text(), kind);
-    if (!validation.valid) {
-      validationError = validation.error;
-      break;
-    }
-    presence[kind] = true;
-    counts[kind] = validation.entryCount;
+  } catch (error) {
+    validationError = error instanceof Error ? `项目文件读取失败：${error.message}` : "项目文件读取失败";
   }
 
   if (!validationError) {

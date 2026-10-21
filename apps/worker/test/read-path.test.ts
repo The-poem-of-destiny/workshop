@@ -163,6 +163,15 @@ describe("public read path", () => {
     await expect(other.json()).resolves.toMatchObject({ items: [], nextCursor: null });
   });
 
+  it("filters by exact tag", async () => {
+    await seed();
+    const tagged = await app.request(`/api/v1/projects?tag=${encodeURIComponent("奇幻")}`, undefined, bindings);
+    expect(tagged.status).toBe(200);
+    await expect(tagged.json()).resolves.toMatchObject({ items: [{ id: "p1" }] });
+    const missing = await app.request(`/api/v1/projects?tag=${encodeURIComponent("不存在")}`, undefined, bindings);
+    await expect(missing.json()).resolves.toMatchObject({ items: [] });
+  });
+
   it("supports one- and two-character search across title, tags and author", async () => {
     await seed();
     for (const query of ["命", "命定", "奇幻", "作者", "命定之"]) {
@@ -213,6 +222,12 @@ describe("public read path", () => {
     await expect(download.text()).resolves.toBe('{"entries":[]}');
     const replay = await app.request(ticket.files[0]!.url, { headers }, bindings);
     expect(replay.status).toBe(404);
+
+    const sessionBound = await app.request("/api/v1/projects/p1/downloads", { method: "POST", headers }, bindings);
+    const sessionTicket = await sessionBound.json() as { files: Array<{ url: string }> };
+    await bindings.DB.prepare("UPDATE sessions SET session_version = 2 WHERE user_id = 'u1'").run();
+    expect((await app.request(sessionTicket.files[0]!.url, { headers }, bindings)).status).toBe(404);
+    await bindings.DB.prepare("UPDATE sessions SET session_version = 1 WHERE user_id = 'u1'").run();
 
     const duplicate = await app.request("/api/v1/projects/p1/downloads", { method: "POST", headers }, bindings);
     expect(duplicate.status).toBe(201);

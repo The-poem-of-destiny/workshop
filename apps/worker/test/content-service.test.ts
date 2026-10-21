@@ -120,6 +120,23 @@ describe("ContentService", () => {
     expect(project?.published_revision_id).toBeNull();
   });
 
+  it("keeps a requeued client-blocked submission manual after a server pass", async () => {
+    const content = JSON.stringify({ entries: [{ uid: 1, name: "Entry", content: "plain" }] });
+    await seedProject("p4", content);
+    await seedSubmission("s4", "p4", "block", "queued");
+    const response = await run("s4");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ routeGate: "pass", manual: true });
+    const submission = await bindings.DB.prepare(
+      "SELECT status, check_status FROM submissions WHERE id = 's4'",
+    ).first<Record<string, unknown>>();
+    expect(submission).toMatchObject({ status: "pending", check_status: "needs_human" });
+    const project = await bindings.DB.prepare(
+      "SELECT published_revision_id FROM projects WHERE id = 'p4'",
+    ).first<{ published_revision_id: string | null }>();
+    expect(project?.published_revision_id).toBeNull();
+  });
+
   it("does not run for missing client gates", async () => {
     const content = JSON.stringify({ entries: [{ uid: 1, name: "Entry", content: "plain" }] });
     await seedProject("p3", content);

@@ -1,7 +1,10 @@
 import type {
+  AdminReferenceSetCreate,
+  AdminReferenceVersionCreate,
   AdminReviewRequest,
   AdminSubmissionListQuery,
 } from "@workshop/contracts";
+import { z } from "zod";
 interface SubmissionRow {
   id: string;
   project_id: string;
@@ -23,8 +26,15 @@ interface SubmissionTargetRow {
   status: SubmissionRow["status"];
   manifest_hash: string | null;
   checker_revision: string | null;
+  review_checker_revision: string | null;
   check_status: string;
+  check_report: string | null;
   client_gate: string | null;
+}
+
+function reportGate(value: string | null): string | null {
+  const parsed = z.object({ routeGate: z.string().optional() }).passthrough().safeParse(parseJson(value));
+  return parsed.success ? parsed.data.routeGate ?? null : null;
 }
 
 interface DetailSubmissionRow extends SubmissionTargetRow {
@@ -316,7 +326,8 @@ export async function reviewAdminSubmission(
 ) {
   const target = await db.prepare(`
     SELECT s.id, s.project_id, s.revision_id, s.status,
-           r.manifest_hash, s.checker_revision, s.check_status, s.client_gate
+           r.manifest_hash, s.checker_revision, s.review_checker_revision,
+           s.check_status, s.check_report, s.client_gate
     FROM submissions s
     JOIN project_revisions r ON r.id = s.revision_id
     WHERE s.id = ?
@@ -329,8 +340,9 @@ export async function reviewAdminSubmission(
   if (request.decision === "reject" && !request.reason?.trim()) {
     return { kind: "invalid_reason" as const };
   }
+  const serverGate = reportGate(target.check_report);
   if (request.decision === "approve"
-    && (target.client_gate === "block" || target.client_gate === "missing")
+    && (target.client_gate === "block" || target.client_gate === "missing" || serverGate === "block")
     && !request.reason?.trim()) {
     return { kind: "invalid_reason" as const };
   }
@@ -338,7 +350,7 @@ export async function reviewAdminSubmission(
 
   const now = new Date().toISOString();
   const nextStatus = request.decision === "approve" ? "approved" : "rejected";
-  const checkerVersion = target.checker_revision;
+  const checkerVersion = target.review_checker_revision ?? target.checker_revision;
   const report = null;
   const reviewId = crypto.randomUUID();
 
@@ -367,7 +379,12 @@ export async function reviewAdminSubmission(
       `review.${request.decision}`,
       submissionId,
       reviewerId,
-      JSON.stringify({ projectId: target.project_id, revisionId: target.revision_id, checkerVersion }),
+      JSON.stringify({
+        projectId: target.project_id,
+        revisionId: target.revision_id,
+        checkerVersion,
+        reason: request.reason ?? null,
+      }),
       now,
       reviewId,
     ),
@@ -382,6 +399,7 @@ export async function reviewAdminSubmission(
           search_tags = r.tags, row_version = row_version + 1, updated_at = ?
       FROM project_revisions r
       WHERE projects.id = ? AND r.id = ?
+        AND projects.deleted_at IS NULL
         AND EXISTS (SELECT 1 FROM reviews WHERE submission_id = ?)
         AND EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = 'approved')
     `).bind(target.revision_id, now, now, target.project_id, target.revision_id, submissionId, submissionId));
@@ -400,8 +418,25 @@ export async function reviewAdminSubmission(
   return { kind: "ok" as const, id: reviewId, status: nextStatus };
 }
 
-export async function listAdminProjects(db: D1Database, limit: number, cursor?: string) {
+export async function listAdminProjects(
+  db: D1Database,
+  limit: number,
+  cursor?: string,
+  filters: { search?: string; projectType?: string; includeDeleted?: boolean } = {},
+) {
   const offset = decodeCursor(cursor);
+  const where: string[] = [];
+  const bindings: unknown[] = [];
+  if (!filters.includeDeleted) where.push("p.deleted_at IS NULL");
+  if (filters.projectType) {
+    where.push("p.project_type = ?");
+    bindings.push(filters.projectType);
+  }
+  if (filters.search) {
+    where.push("(p.title LIKE ? OR p.description LIKE ? OR u.global_name LIKE ? OR u.username LIKE ?)");
+    const pattern = `%${filters.search}%`;
+    bindings.push(pattern, pattern, pattern, pattern);
+  }
   const result = await db.prepare(`
     SELECT p.id, p.author_id, COALESCE(u.global_name, u.username) AS author_name,
            p.title, p.description, p.author_note, p.project_type, p.extension_type,
@@ -409,9 +444,10 @@ export async function listAdminProjects(db: D1Database, limit: number, cursor?: 
            p.published_at, p.downloads_count, p.likes_count, p.subscriptions_count,
            p.row_version, p.created_at, p.updated_at, p.deleted_at
     FROM projects p JOIN users u ON u.id = p.author_id
+    ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
     ORDER BY p.updated_at DESC, p.id DESC
     LIMIT ? OFFSET ?
-  `).bind(limit + 1, offset).all<ProjectRow>();
+  `).bind(...bindings, limit + 1, offset).all<ProjectRow>();
   return {
     items: result.results.slice(0, limit).map(row => ({
       id: row.id,
@@ -690,4 +726,83 @@ export async function updateAdminSite(
   `).bind(crypto.randomUUID(), actorId, JSON.stringify({ before, after }), now));
   await db.batch(statements);
   return { banner, siteContent };
+}
+
+function referenceItemStatements(
+  db: D1Database,
+  versionId: string,
+  items: AdminReferenceSetCreate["items"] | AdminReferenceVersionCreate["items"],
+  now: string,
+): D1PreparedStatement[] {
+  return items.map(item => db.prepare(`
+    INSERT INTO reference_items
+      (id, reference_version_id, kind, source_key, display_name, exact_hash,
+       normalized_content_hash, name_hash, keys_hash, structure_hash, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    crypto.randomUUID(), versionId, item.kind, item.sourceKey ?? null, item.displayName,
+    item.exactHash ?? "", item.normalizedContentHash ?? "", item.nameHash ?? "",
+    item.keysHash ?? null, item.structureHash ?? "", now,
+  ));
+}
+
+export async function createAdminReferenceSet(
+  db: D1Database,
+  actorId: string,
+  input: AdminReferenceSetCreate,
+) {
+  const now = new Date().toISOString();
+  const setId = crypto.randomUUID();
+  const versionId = crypto.randomUUID();
+  const statements: D1PreparedStatement[] = [
+    db.prepare("INSERT INTO reference_sets (id, name, description, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .bind(setId, input.name, input.description ?? null, actorId, now, now),
+    db.prepare(`INSERT INTO reference_versions
+      (id, reference_set_id, version_label, version_ordinal, grace_until, created_by, created_at)
+      VALUES (?, ?, ?, 1, ?, ?, ?)`)
+      .bind(versionId, setId, input.versionLabel, input.graceUntil ?? "9999-12-31T00:00:00.000Z", actorId, now),
+    ...referenceItemStatements(db, versionId, input.items, now),
+    db.prepare(`INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
+      VALUES (?, 'reference_set.create', 'reference_set', ?, ?, ?, ?)`)
+      .bind(crypto.randomUUID(), setId, actorId, JSON.stringify({ name: input.name, versionLabel: input.versionLabel, items: input.items.length }), now),
+  ];
+  try {
+    await db.batch(statements);
+  } catch (error) {
+    if (error instanceof Error && /unique|constraint/i.test(error.message)) return { kind: "conflict" as const };
+    throw error;
+  }
+  return { kind: "ok" as const, id: setId, versionId };
+}
+
+export async function createAdminReferenceVersion(
+  db: D1Database,
+  actorId: string,
+  setId: string,
+  input: AdminReferenceVersionCreate,
+) {
+  const set = await db.prepare("SELECT id FROM reference_sets WHERE id = ?").bind(setId).first<{ id: string }>();
+  if (!set) return { kind: "not_found" as const };
+  const latest = await db.prepare("SELECT MAX(version_ordinal) AS ordinal FROM reference_versions WHERE reference_set_id = ?")
+    .bind(setId).first<{ ordinal: number | null }>();
+  const now = new Date().toISOString();
+  const versionId = crypto.randomUUID();
+  const ordinal = (latest?.ordinal ?? 0) + 1;
+  const statements: D1PreparedStatement[] = [
+    db.prepare(`INSERT INTO reference_versions
+      (id, reference_set_id, version_label, version_ordinal, grace_until, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .bind(versionId, setId, input.versionLabel, ordinal, input.graceUntil ?? "9999-12-31T00:00:00.000Z", actorId, now),
+    ...referenceItemStatements(db, versionId, input.items, now),
+    db.prepare(`INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
+      VALUES (?, 'reference_version.create', 'reference_set', ?, ?, ?, ?)`)
+      .bind(crypto.randomUUID(), setId, actorId, JSON.stringify({ versionLabel: input.versionLabel, ordinal, items: input.items.length }), now),
+  ];
+  try {
+    await db.batch(statements);
+  } catch (error) {
+    if (error instanceof Error && /unique|constraint/i.test(error.message)) return { kind: "conflict" as const };
+    throw error;
+  }
+  return { kind: "ok" as const, id: versionId, ordinal };
 }

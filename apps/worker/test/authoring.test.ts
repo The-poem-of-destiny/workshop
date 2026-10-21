@@ -1,7 +1,8 @@
 import { env } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { authoringRoutes } from "../src/http/routes/authoring";
-import { upsertAsset } from "../src/storage/authoring";
+import { listAuthorProjects, upsertAsset } from "../src/storage/authoring";
+import type { Session } from "@workshop/contracts";
 import type { Env } from "../src/env";
 import { applySchema } from "./support/schema";
 
@@ -264,6 +265,14 @@ describe("authoring write paths", () => {
     const count = await bindings.DB.prepare("SELECT COUNT(*) AS count FROM project_revisions WHERE project_id = ?")
       .bind(project.project.id).first<{ count: number }>();
     expect(count?.count).toBe(1);
+    const session: Session = {
+      userId: "author", role: "member", sessionVersion: 1, expiresAt: "2099-01-01T00:00:00.000Z",
+    };
+    const mine = await listAuthorProjects(bindings.DB, session);
+    expect(mine.find(item => item.project.id === project.project.id)).toMatchObject({
+      precautions: "注意",
+      authorNote: null,
+    });
 
     const blocked = await request(`/${project.project.id}`, {
       method: "PATCH",

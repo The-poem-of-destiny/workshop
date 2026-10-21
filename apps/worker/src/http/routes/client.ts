@@ -45,8 +45,10 @@ function assetHeaders(key: string, immutable: boolean): Headers {
 clientRoutes.get("/version", async c => {
   const channels = await getClientChannels(c.env.DB);
   const channel = c.req.query("channel") ?? "stable";
+  if ((channel !== "stable" && channel !== "staging") || !Object.hasOwn(channels, channel)) {
+    return jsonError(c, "not_found", "Client channel not found");
+  }
   const record = channels[channel];
-  if (!record) return jsonError(c, "not_found", "Client channel not found");
   return c.json({ channel, ...record }, 200, {
     "cache-control": "private, no-store",
   });
@@ -59,7 +61,9 @@ clientRoutes.get("/*", async c => {
   if (!versioned && !channel) return jsonError(c, "not_found", "Client asset not found");
 
   const key = `client/${path}`;
-  const cache = defaultCache();
+  // Versioned objects are immutable; channel pointers must always reflect the
+  // latest record and never serve a cached failure.
+  const cache = versioned ? defaultCache() : null;
   const cacheKey = new Request(c.req.url, { method: "GET" });
   if (cache) {
     const hit = await cache.match(cacheKey);

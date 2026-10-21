@@ -101,6 +101,8 @@ export const authorProjectSchema = z.object({
   rowVersion: z.number().int().positive(),
   workingRevisionId: z.string().nullable(),
   latestSubmission: authorSubmissionSchema.nullable(),
+  authorNote: z.string().nullable().optional(),
+  precautions: z.string().nullable().optional(),
 });
 export type AuthorProject = z.infer<typeof authorProjectSchema>;
 

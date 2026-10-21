@@ -174,6 +174,10 @@ export async function listPublishedProjects(db: D1Database, query: ProjectListQu
     where.push("p.author_id = ?");
     bindings.push(query.authorId);
   }
+  if (query.tag) {
+    where.push("EXISTS (SELECT 1 FROM json_each(p.search_tags) WHERE json_each.value = ?)");
+    bindings.push(query.tag);
+  }
   if (query.search) {
     const predicate = searchPredicate(query.search);
     where.push(predicate.sql);

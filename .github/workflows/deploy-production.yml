@@ -4,7 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       artifact_run_id:
-        description: Staging build run id whose artifact is promoted
+        description: Numeric staging build run id
+        required: true
+      commit_sha:
+        description: Full commit SHA produced by that staging build
         required: true
 
 permissions:
@@ -34,7 +37,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@v4
         with:
-          name: staging-web-${{ inputs.artifact_run_id }}
+          name: staging-web-${{ inputs.commit_sha }}
           run-id: ${{ inputs.artifact_run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Verify promoted artifact hash

@@ -11,13 +11,30 @@ export interface ProjectSummary {
   versionLabel?: string | null;
   counts: { downloads: number; likes: number; subscriptions: number };
   coverUrl: string | null;
+  coverPositionX: number;
+  coverPositionY: number;
+  coverZoom: number;
   visibility: "public" | "private";
   publishedAt: string | null;
   updatedAt: string;
 }
 
+export interface ProjectDetail extends ProjectSummary {
+  authorNote: string | null;
+  precautions: string | null;
+  discordThreadUrl: string | null;
+}
+
 export interface HomeResponse {
-  banner: { imageUrl: string | null; positionX: number; positionY: number; zoom: number } | null;
+  banner: {
+    imageUrl: string | null;
+    positionX: number;
+    positionY: number;
+    zoom: number;
+    mobilePositionX?: number;
+    mobilePositionY?: number;
+    mobileZoom?: number;
+  } | null;
   latest: ProjectSummary[];
   recommendations: ProjectSummary[];
 }
@@ -45,7 +62,14 @@ export interface AuthorSubmission {
   checkError: string | null;
   checkedAt: string | null;
 }
-export interface AuthorProject { project: ProjectSummary; rowVersion: number; workingRevisionId: string | null; latestSubmission: AuthorSubmission | null; }
+export interface AuthorProject {
+  project: ProjectSummary;
+  rowVersion: number;
+  workingRevisionId: string | null;
+  latestSubmission: AuthorSubmission | null;
+  authorNote?: string | null;
+  precautions?: string | null;
+}
 export interface AuthorProjectListResponse { items: AuthorProject[]; }
 export interface AdminSubmissionListItem {
   id: string; projectId: string; projectTitle: string; author: { id: string; name: string };
@@ -76,6 +100,12 @@ export interface SubmissionDiff {
 
 export interface AdminMember { id: string; username: string; globalName: string | null; avatarUrl: string | null; role: string; }
 export interface AdminMemberList { items: AdminMember[]; nextCursor: string | null; }
+export interface AdminProject {
+  id: string; title: string; description: string | null; projectType: string | null;
+  visibility: "public" | "private"; author: { id: string; name: string };
+  publishedRevisionId: string | null; deletedAt: string | null; updatedAt: string;
+}
+export interface AdminProjectList { items: AdminProject[]; nextCursor: string | null; }
 export interface AdminAuditEvent { id: string; action: string; targetType: string; targetId: string | null; actorId: string | null; actorName: string | null; detail: JsonValue; createdAt: string; }
 export interface AdminAuditList { items: AdminAuditEvent[]; nextCursor: string | null; }
 export interface SiteBanner { imageUrl: string | null; positionX: number; positionY: number; zoom: number; mobilePositionX: number; mobilePositionY: number; mobileZoom: number; }
@@ -114,19 +144,22 @@ export const api = {
   hasSession: () => Boolean(token()),
   me: () => requestJson<MeResponse>("/api/v1/me"),
   home: () => requestJson<HomeResponse>("/api/v1/home"),
-  projects: (params: { search?: string; sort?: string; cursor?: string; projectType?: string; authorId?: string }) => {
+  project: (id: string) => requestJson<ProjectDetail>(`/api/v1/projects/${encodeURIComponent(id)}`),
+  projects: (params: { search?: string; sort?: string; cursor?: string; projectType?: string; authorId?: string; tag?: string }) => {
     const query = new URLSearchParams({ limit: "24" });
     if (params.search) query.set("search", params.search);
     if (params.sort) query.set("sort", params.sort);
     if (params.cursor) query.set("cursor", params.cursor);
     if (params.projectType) query.set("projectType", params.projectType);
     if (params.authorId) query.set("authorId", params.authorId);
+    if (params.tag) query.set("tag", params.tag);
     return requestJson<ProjectListResponse>(`/api/v1/projects?${query}`);
   },
   myProjects: () => requestJson<AuthorProjectListResponse>("/api/v1/me/projects"),
   subscriptions: () => requestJson<{ items: ProjectSummary[] }>("/api/v1/me/subscriptions"),
   createProject: (body: Record<string, unknown>) => requestJson<AuthorProject>("/api/v1/projects", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
   patchProject: (id: string, rowVersion: number, body: Record<string, unknown>) => requestJson<{ rowVersion: number; revisionId: string }>("/api/v1/projects/" + encodeURIComponent(id), { method: "PATCH", headers: { "content-type": "application/json", "if-match": String(rowVersion) }, body: JSON.stringify(body) }),
+  createRevision: (id: string, rowVersion: number, body: Record<string, unknown>) => requestJson<{ rowVersion: number; revisionId: string }>("/api/v1/projects/" + encodeURIComponent(id) + "/revisions", { method: "POST", headers: { "content-type": "application/json", "if-match": String(rowVersion) }, body: JSON.stringify(body) }),
   deleteProject: (id: string, rowVersion: number) => requestJson<void>("/api/v1/projects/" + encodeURIComponent(id), { method: "DELETE", headers: { "if-match": String(rowVersion) } }),
   uploadFile: (id: string, revisionId: string, kind: "worldbook" | "regex" | "cover", file: File) => requestJson<{ kind: string; bytes: number; mime: string }>(`/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/files/${kind}`, { method: "PUT", headers: { "content-type": file.type || "application/octet-stream" }, body: file }),
   submitProject: (id: string, revisionId: string, body: { gate?: string; checkerRevision?: string; warningCount?: number; acknowledged?: boolean }) => requestJson<{ submissionId: string; status: string }>(`/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
@@ -141,6 +174,13 @@ export const api = {
     const version = new URLSearchParams(location.search).get("clientVersion");
     return requestJson<InstallPayload>(`/api/v1/projects/${encodeURIComponent(projectId)}/install`, version ? { headers: { "x-client-version": version, "x-client-channel": location.pathname.includes("staging") ? "staging" : "stable" } } : {});
   },
+  downloadTickets: (projectId: string) => requestJson<{ revisionId: string; files: { kind: string; url: string; expiresAt: string }[] }>(`/api/v1/projects/${encodeURIComponent(projectId)}/downloads`, { method: "POST" }),
+  downloadTicket: async (url: string) => {
+    const response = await fetch(url, { headers: authHeaders() });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    return response.blob();
+  },
+  adminProjects: (search?: string) => requestJson<AdminProjectList>(`/api/v1/admin/projects?limit=50${search ? `&search=${encodeURIComponent(search)}` : ""}`),
   adminMembers: (cursor?: string) => requestJson<AdminMemberList>(`/api/v1/admin/members${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`),
   adminSetRole: (id: string, role: "member" | "reviewer" | "owner") => requestJson<{ ok: boolean }>(`/api/v1/admin/members/${encodeURIComponent(id)}/role`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ role }) }),
   site: () => requestJson<SiteSettings>("/api/v1/site"),
@@ -149,6 +189,8 @@ export const api = {
   updateRecommendation: (projectId: string, body: { comment?: string; reaction?: string }) => requestJson<{ id: string; comment: string; reaction: string }>(`/api/v1/admin/recommendations/${encodeURIComponent(projectId)}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
   deleteRecommendation: (projectId: string) => requestJson<void>(`/api/v1/admin/recommendations/${encodeURIComponent(projectId)}`, { method: "DELETE" }),
   referenceSets: () => requestJson<{ items: ReferenceSet[] }>("/api/v1/reference-sets"),
+  createReferenceSet: (body: { name: string; versionLabel: string; description?: string | null }) => requestJson<{ id: string; versionId: string }>("/api/v1/admin/reference-sets", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+  createReferenceVersion: (id: string, body: { versionLabel: string; items?: unknown[] }) => requestJson<{ id: string; ordinal: number }>(`/api/v1/admin/reference-sets/${encodeURIComponent(id)}/versions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
   updateReferenceSet: (id: string, body: { name?: string; description?: string | null; versionLabel?: string; items?: unknown[] }) => requestJson<{ ok: boolean }>(`/api/v1/admin/reference-sets/${encodeURIComponent(id)}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
   logout: async () => { await fetch("/api/v1/sessions/current", { method: "DELETE", headers: authHeaders() }); setSessionToken(null); },
 };

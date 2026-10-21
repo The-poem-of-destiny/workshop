@@ -4,6 +4,7 @@ import { WORKSHOP_LIMITS } from "@workshop/domain";
 import type { Env } from "../../env";
 import { getClientChannel } from "../../storage/client.js";
 import { getProjectEntryIndex } from "../../storage/content-index.js";
+import { getDiscovery } from "../../storage/home.js";
 import { issueDownloadTickets, recordDownload } from "../../storage/downloads.js";
 import { getPublishedProject, listPublishedProjects } from "../../storage/projects.js";
 import { getReleaseAssets } from "../../storage/releases.js";
@@ -19,6 +20,7 @@ projectsRoutes.get("/", async c => {
     sort: c.req.query("sort"),
     projectType: c.req.query("projectType"),
     authorId: c.req.query("authorId"),
+    tag: c.req.query("tag"),
     search: c.req.query("search"),
   });
   if (!parsed.success) {
@@ -26,6 +28,8 @@ projectsRoutes.get("/", async c => {
   }
   return c.json(await listPublishedProjects(c.env.DB, parsed.data));
 });
+
+projectsRoutes.get("/discovery", async c => c.json(await getDiscovery(c.env.DB)));
 
 projectsRoutes.get("/:id", async c => {
   const project = await getPublishedProject(c.env.DB, c.req.param("id"));
@@ -48,6 +52,7 @@ projectsRoutes.post("/:id/downloads", async c => {
     projectId,
     release.revisionId,
     session.userId,
+    session.sessionVersion,
     release.files,
     WORKSHOP_LIMITS.downloadTicketTtlMs,
   );

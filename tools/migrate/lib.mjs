@@ -112,10 +112,11 @@ export async function extract(sourceDir, options = {}) {
       }
     }
     for (const name of TABLES) tables[name] = tables[name].filter(row => {
+      if (name === 'projects') return changedProjects.has(text(first(row, ['id', 'project_id'])));
+      const projectId = text(first(row, ['project_id', 'projectId']));
+      if (projectId && changedProjects.has(projectId)) return true;
       const stamp = dateOf(row);
-      const changed = stamp && !Number.isNaN(new Date(stamp).valueOf()) && new Date(stamp) >= since;
-      if (name !== 'projects') return Boolean(changed);
-      return changedProjects.has(text(first(row, ['id', 'project_id'])));
+      return Boolean(stamp && !Number.isNaN(new Date(stamp).valueOf()) && new Date(stamp) >= since);
     });
   }
   for (const name of TABLES) tables[name] = stableRows(tables[name]);
@@ -275,7 +276,17 @@ export function transform(source) {
   const publishedCount = publishedGroups.length;
   const expectedProjectIds = sourceGroups.map(info => info.pid).sort();
   const expectedPublishedProjectIds = publishedGroups.map(info => info.pid).sort();
-  return { format: 'workshop-migration-v1', meta: { expectedProjectCount: projectCount, expectedProjectIds, expectedPublishedPointerCount: publishedCount, expectedPublishedProjectIds, assetSha256, sourceCounts: { projects: projectCount, users: users.length } }, tables };
+  const roleById = new Map(), roleConflicts = [];
+  for (const row of source.tables.users) {
+    const id = text(first(row, ['id', 'user_id', 'discord_id', 'discordId']));
+    const role = text(first(row, ['role'], (row.is_owner || row.is_super_admin || row.super_admin ? 'owner' : row.is_admin || row.admin ? 'reviewer' : 'member')));
+    if (!id) continue;
+    if (roleById.has(id) && roleById.get(id) !== role) roleConflicts.push({ id, roles: [roleById.get(id), role] });
+    else roleById.set(id, role);
+  }
+  const supported = new Set(['users', 'projects', 'project_revisions', 'assets', 'submissions', 'reviews', 'project_likes', 'project_subscriptions', 'project_ratings', 'recommendations', 'reference_sets', 'reference_versions', 'reference_items', 'audit_events']);
+  const droppedTables = TABLES.filter(name => !supported.has(name) && (source.tables[name] ?? []).length > 0);
+  return { format: 'workshop-migration-v1', meta: { expectedProjectCount: projectCount, expectedProjectIds, expectedPublishedPointerCount: publishedCount, expectedPublishedProjectIds, assetSha256, sourceCounts: { projects: projectCount, users: users.length }, roleConflicts, droppedTables }, tables };
 }
 
 function rowKey(row) {
@@ -300,6 +311,8 @@ function duplicateIds(rows) {
 export function verify(target) {
   const mismatches = [], tables = target?.tables ?? {};
   const projects = Array.isArray(tables.projects) ? tables.projects : [];
+  if ((target?.meta?.roleConflicts ?? []).length > 0) mismatches.push({ check: 'role_conflict', conflicts: target.meta.roleConflicts });
+  if ((target?.meta?.droppedTables ?? []).length > 0) mismatches.push({ check: 'source_not_migrated', tables: target.meta.droppedTables });
   if (target?.meta?.expectedProjectCount !== projects.length) mismatches.push({ check: 'project_count', expected: target?.meta?.expectedProjectCount, actual: projects.length });
   const published = projects.filter(x => x.published_revision_id).length;
   if (target?.meta?.expectedPublishedPointerCount !== published) mismatches.push({ check: 'published_pointer_count', expected: target?.meta?.expectedPublishedPointerCount, actual: published });
@@ -309,7 +322,22 @@ export function verify(target) {
   if (Array.isArray(target?.meta?.expectedPublishedProjectIds) && stableStringify(target.meta.expectedPublishedProjectIds) !== stableStringify(actualPublishedProjectIds)) mismatches.push({ check: 'published_project_identity', expected: target.meta.expectedPublishedProjectIds, actual: actualPublishedProjectIds });
   for (const name of TABLES) { const dup = duplicateIds(tables[name] ?? []); if (dup.length) mismatches.push({ check: 'duplicate_ids', table: name, ids: dup }); }
   const ids = new Set(projects.map(x => x.id)), revisions = new Set((tables.project_revisions ?? []).map(x => x.id)), users = new Set((tables.users ?? []).map(x => x.id));
-  for (const row of projects) { if (!users.has(row.author_id)) mismatches.push({ check: 'fk', table: 'projects', id: row.id, field: 'author_id' }); for (const key of ['working_revision_id', 'published_revision_id']) if (row[key] && !revisions.has(row[key])) mismatches.push({ check: 'fk', table: 'projects', id: row.id, field: key }); }
+  const revisionProject = new Map((tables.project_revisions ?? []).map(row => [row.id, row.project_id]));
+  const revisionById = new Map((tables.project_revisions ?? []).map(row => [row.id, row]));
+  for (const row of projects) {
+    if (!users.has(row.author_id)) mismatches.push({ check: 'fk', table: 'projects', id: row.id, field: 'author_id' });
+    for (const key of ['working_revision_id', 'published_revision_id']) {
+      if (!row[key]) continue;
+      if (!revisions.has(row[key])) mismatches.push({ check: 'fk', table: 'projects', id: row.id, field: key });
+      else if (revisionProject.get(row[key]) !== row.id) mismatches.push({ check: 'pointer_owner', table: 'projects', id: row.id, field: key, revisionId: row[key], revisionProject: revisionProject.get(row[key]) });
+    }
+    if (row.published_revision_id) {
+      const revision = revisionById.get(row.published_revision_id);
+      if (revision && Number(revision.worldbook_count ?? 0) + Number(revision.regex_count ?? 0) === 0) {
+        mismatches.push({ check: 'published_empty_content', table: 'projects', id: row.id, revisionId: row.published_revision_id });
+      }
+    }
+  }
   for (const [name, rows] of Object.entries(tables)) for (const row of rows ?? []) { if (row.project_id && !ids.has(row.project_id)) mismatches.push({ check: 'fk', table: name, id: row.id }); if (row.user_id && !users.has(row.user_id)) mismatches.push({ check: 'fk', table: name, id: row.id }); }
   for (const row of tables.project_revisions ?? []) { if (!ids.has(row.project_id) || !users.has(row.created_by)) mismatches.push({ check: 'fk', table: 'project_revisions', id: row.id }); }
   for (const row of tables.assets ?? []) { if (!ids.has(row.project_id) || (row.revision_id && !revisions.has(row.revision_id))) mismatches.push({ check: 'fk', table: 'assets', id: row.id }); }

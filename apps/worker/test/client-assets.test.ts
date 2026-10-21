@@ -42,7 +42,10 @@ describe("client distribution", () => {
     expect(stable.headers.get("cloudflare-cdn-cache-control")).toBe("public, max-age=300");
     expect(stable.headers.get("cache-tag")).toBe("client:stable");
 
-    expect((await app.request("/client/other/index.js", undefined, bindings)).status).toBe(404);
+    for (const channel of ["other", "__proto__", "constructor"]) {
+      expect((await app.request(`/client/${channel}/index.js`, undefined, bindings)).status).toBe(404);
+      expect((await app.request(`/client/version?channel=${channel}`, undefined, bindings)).status).toBe(404);
+    }
   });
 
   it("returns channel records and enforces exact version compatibility", async () => {
@@ -52,8 +55,12 @@ describe("client distribution", () => {
       channel: "staging", revision: sha, version: "1.1.0-rc.1",
     });
 
-    const exact = await app.request(`/api/v1/client/compatibility?version=1.0.0`, undefined, bindings);
+    const exact = await app.request(`/api/v1/client/compatibility?version=1.0.0`, {
+      headers: { origin: "https://tavern.example" },
+    }, bindings);
+    expect(exact.headers.get("access-control-allow-origin")).toBe("*");
     await expect(exact.json()).resolves.toMatchObject({ compatible: true, required: "1.0.0" });
+    expect((await app.request("/api/v1/client/compatibility?channel=constructor", undefined, bindings)).status).toBe(404);
 
     for (const query of ["version=1.0.1", "version=0.9.0", ""]) {
       const response = await app.request(`/api/v1/client/compatibility?${query}`, undefined, bindings);

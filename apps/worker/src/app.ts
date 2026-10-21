@@ -105,7 +105,7 @@ app.get("/api/v1/assets/*", async c => {
     } else {
       const session = await requireSession(c);
       if (!session) return jsonError(c, "not_found", "Asset not found");
-      const isOwnDraft = session.userId === asset.author_id
+      const isOwnDraft = (session.userId === asset.author_id || session.role === "owner")
         && asset.revision_id === asset.working_revision_id;
       const isReviewCover = (session.role === "reviewer" || session.role === "owner")
         && Boolean(asset.in_review);

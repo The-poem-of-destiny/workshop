@@ -37,6 +37,9 @@ export type AdminRoleRequest = z.infer<typeof adminRoleRequestSchema>;
 export const adminListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   cursor: z.string().max(512).optional(),
+  search: z.string().trim().min(1).max(80).optional(),
+  projectType: z.string().max(40).optional(),
+  includeDeleted: z.boolean().optional(),
 });
 export type AdminListQuery = z.infer<typeof adminListQuerySchema>;
 
@@ -126,3 +129,19 @@ export const adminReferenceSetUpdateSchema = z.object({
   items: z.array(adminReferenceItemSchema).optional(),
 });
 export type AdminReferenceSetUpdate = z.infer<typeof adminReferenceSetUpdateSchema>;
+
+export const adminReferenceSetCreateSchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().max(4000).nullable().optional(),
+  versionLabel: z.string().min(1).max(200),
+  graceUntil: z.string().datetime().optional(),
+  items: z.array(adminReferenceItemSchema).default([]),
+});
+export type AdminReferenceSetCreate = z.infer<typeof adminReferenceSetCreateSchema>;
+
+export const adminReferenceVersionCreateSchema = z.object({
+  versionLabel: z.string().min(1).max(200),
+  graceUntil: z.string().datetime().optional(),
+  items: z.array(adminReferenceItemSchema).default([]),
+});
+export type AdminReferenceVersionCreate = z.infer<typeof adminReferenceVersionCreateSchema>;

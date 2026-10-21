@@ -29,9 +29,12 @@ declare function updateTavernRegexesWith(
 declare const __CW_CLIENT_VERSION__: string;
 declare const __CW_DEFAULT_ORIGIN__: string;
 
+import { entryKey, entryName, hashText, projectEntry, regexEntries, worldbookEntries } from "./lib.js";
+
 const CLIENT_VERSION = __CW_CLIENT_VERSION__;
 const DEFAULT_ORIGIN = __CW_DEFAULT_ORIGIN__;
 const ORIGIN_VARIABLE = "cw_worker_origin";
+
 const REGISTRY_VARIABLE = "cw_install_registry";
 const BUTTON_ID = "cw-open-button";
 const OVERLAY_ID = "cw-overlay";
@@ -90,19 +93,6 @@ function currentChannel(): "stable" | "staging" {
   }
 }
 
-async function hashText(value: string): Promise<string> {
-  try {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-    return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
-  } catch {
-    let hash = 0;
-    for (let index = 0; index < value.length; index += 1) {
-      hash = (hash * 31 + value.charCodeAt(index)) | 0;
-    }
-    return `fallback-${hash}`;
-  }
-}
-
 function readRegistry(): InstallRegistry {
   const raw = scriptVariables()[REGISTRY_VARIABLE];
   return raw && typeof raw === "object" && !Array.isArray(raw) ? raw as InstallRegistry : {};
@@ -112,44 +102,6 @@ async function writeRegistry(registry: InstallRegistry): Promise<void> {
   await saveScriptVariables(variables => {
     variables[REGISTRY_VARIABLE] = registry;
   });
-}
-
-function worldbookEntries(raw: unknown): Record<string, unknown>[] {
-  if (Array.isArray(raw)) return raw.filter(item => item && typeof item === "object");
-  if (!raw || typeof raw !== "object") return [];
-  const record = raw as Record<string, unknown>;
-  if (Array.isArray(record.entries)) return record.entries.filter(item => item && typeof item === "object");
-  if (record.entries && typeof record.entries === "object") {
-    return Object.values(record.entries as Record<string, unknown>).filter(item => item && typeof item === "object") as Record<string, unknown>[];
-  }
-  return [];
-}
-
-function regexEntries(raw: unknown): Record<string, unknown>[] {
-  if (Array.isArray(raw)) return raw.filter(item => item && typeof item === "object");
-  if (!raw || typeof raw !== "object") return [];
-  for (const key of ["regex_scripts", "regexScripts", "scripts", "entries"]) {
-    const value = (raw as Record<string, unknown>)[key];
-    if (Array.isArray(value)) return value.filter(item => item && typeof item === "object") as Record<string, unknown>[];
-  }
-  return [raw as Record<string, unknown>];
-}
-
-function entryKey(entry: Record<string, unknown>, index: number): string {
-  const extension = entry.extensions && typeof entry.extensions === "object" ? entry.extensions : {};
-  const marker = extension.cw_entry_key ?? entry.uid ?? extension.cw_entry_id;
-  return marker !== undefined && marker !== null ? `uid:${String(marker)}` : `index:${index}`;
-}
-
-function entryName(entry: Record<string, unknown>, key: string): string {
-  for (const value of [entry.comment, entry.name]) {
-    if (typeof value === "string" && value.trim()) return value;
-  }
-  return key;
-}
-
-function projectEntry(entry: Record<string, unknown>): boolean {
-  return Boolean(entry?.extensions && typeof entry.extensions.cw_project_id === "string");
 }
 
 async function ensureTargetWorldbook(requested?: string | null): Promise<string> {

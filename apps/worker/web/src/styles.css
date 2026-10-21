@@ -57,8 +57,8 @@ input[type="search"] {
   margin-bottom: 20px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background-position: center;
-  background-size: cover;
+  background-position: var(--banner-x, 50%) var(--banner-y, 50%);
+  background-size: var(--banner-size, cover);
 }
 
 .sorts {
@@ -81,6 +81,7 @@ input[type="search"] {
   border-color: var(--accent);
   color: var(--accent);
 }
+.tag-filter { min-width: 130px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--fg); }
 
 .grid {
   display: grid;
@@ -229,6 +230,8 @@ input[type="search"] {
 .empty-panel { min-height: 180px; display: grid; place-items: center; }
 .author.link { padding: 0; border: 0; background: transparent; color: var(--muted); text-align: left; cursor: pointer; }
 .author.link:hover { color: var(--accent); }
+.detail .note { margin: 8px 0; color: var(--muted); font-size: 13px; }
+.detail .note a { color: var(--accent); }
 .active-filter { display: inline-flex; align-items: center; gap: 8px; margin: -8px 0 10px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 12px; }
 .active-filter button { border: 0; background: transparent; color: var(--accent); cursor: pointer; }
 .discovery { margin-bottom: 20px; }
@@ -251,6 +254,7 @@ input[type="search"] {
 .audit-list pre { max-height: 120px; overflow: auto; margin: 8px 0 0; color: var(--muted); font-size: 11px; white-space: pre-wrap; }
 .error button { margin-left: 8px; border: 0; background: transparent; color: inherit; cursor: pointer; }
 @media (max-width: 760px) {
+  .banner { background-position: var(--banner-mobile-x, var(--banner-x, 50%)) var(--banner-mobile-y, var(--banner-y, 50%)); background-size: var(--banner-mobile-size, var(--banner-size, cover)); }
   .admin-layout, .admin-tools { grid-template-columns: 1fr; }
   .form-grid, .diff-grid { grid-template-columns: 1fr; }
 }

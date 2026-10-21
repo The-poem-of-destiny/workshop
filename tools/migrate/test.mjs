@@ -32,7 +32,7 @@ try {
   ]));
   await writeFile(path.join(source, 'assets.json'), JSON.stringify([
     { id: 'asset-1', project_id: 'pub-1', kind: 'cover', sha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', bytes: 3, mime: 'image/png' },
-    { id: 'asset-2', project_id: 'pub-1', kind: 'worldbook', sha256: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', bytes: 4, mime: 'application/json' }
+    { id: 'asset-2', project_id: 'pub-1', kind: 'worldbook', sha256: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', bytes: 4, entry_count: 10, mime: 'application/json' }
   ]));
   await writeFile(path.join(source, 'project_likes.json'), JSON.stringify([{ project_id: 'pub-1', user_id: 'u2' }]));
   await writeFile(path.join(source, 'submissions.json'), JSON.stringify([{ id: 'submission-1', project_id: 'pub-1', revision_id: 'draft-1', status: 'pending', submitted_by: 'u1' }]));
@@ -64,6 +64,23 @@ try {
   const changed = structuredClone(firstRun);
   changed.tables.assets[0].sha256 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
   assert.equal(verify(changed).ok, false, 'asset mismatch is detected');
+
+  const crossPointer = structuredClone(firstRun);
+  crossPointer.tables.project_revisions.push({
+    ...crossPointer.tables.project_revisions[0], id: 'other-revision', project_id: 'other-project',
+  });
+  crossPointer.tables.projects[0].published_revision_id = 'other-revision';
+  const crossReport = verify(crossPointer);
+  assert.equal(crossReport.ok, false, 'cross-project published pointer is rejected');
+  assert.ok(crossReport.mismatches.some(item => item.check === 'pointer_owner'));
+
+  const emptyRelease = structuredClone(firstRun);
+  const publishedRevision = emptyRelease.tables.project_revisions.find(
+    revision => revision.id === emptyRelease.tables.projects[0].published_revision_id,
+  );
+  publishedRevision.worldbook_count = 0;
+  publishedRevision.regex_count = 0;
+  assert.ok(verify(emptyRelease).mismatches.some(item => item.check === 'published_empty_content'));
 
   const duplicateKey = structuredClone(firstRun);
   duplicateKey.tables.assets[1].r2_key = duplicateKey.tables.assets[0].r2_key;
@@ -98,7 +115,7 @@ try {
   const delta = transform(await extract(source, { since: '2024-01-03T00:00:00Z' }));
   assert.equal(delta.tables.projects[0].id, firstRun.tables.projects[0].id, 'delta retains published project identity');
   assert.equal(delta.tables.projects[0].published_revision_id, firstRun.tables.projects[0].published_revision_id, 'delta retains published pointer');
-  assert.equal(verify(delta).ok, true, 'delta output verifies');
+  assert.equal(verify(delta).ok, true, `delta output verifies: ${JSON.stringify(verify(delta).mismatches)}`);
   console.log('migration tests passed');
 } finally {
   await rm(dir, { recursive: true, force: true });

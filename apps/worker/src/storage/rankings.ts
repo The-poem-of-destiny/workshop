@@ -15,7 +15,8 @@ export async function buildRankings(db: D1Database): Promise<void> {
   ];
 
   for (const { kind, days } of kinds) {
-    const bucket = kind === "daily" ? today : `${today}:${days}d`;
+    const hour = new Date().toISOString().slice(11, 13);
+    const bucket = kind === "daily" ? `${today}T${hour}` : `${today}:${days}d`;
     const runId = crypto.randomUUID();
     await db.prepare(`
       INSERT INTO ranking_runs (id, kind, bucket, status, created_at)
@@ -28,7 +29,7 @@ export async function buildRankings(db: D1Database): Promise<void> {
     await db.prepare("DELETE FROM ranking_entries WHERE run_id = ?").bind(run.id).run();
 
     const rows = await db.prepare(`
-      SELECT p.id AS project_id, COALESCE(SUM(m.downloads), 0) AS score
+      SELECT p.id AS project_id, COALESCE(SUM(m.downloads + m.likes_delta * 3), 0) AS score
       FROM projects p
       LEFT JOIN project_metrics_daily m
         ON m.project_id = p.id AND m.day_key >= ?
@@ -61,6 +62,7 @@ export async function cleanupExpired(db: D1Database): Promise<void> {
   const weekAgo = new Date(now - 7 * 86_400_000).toISOString();
   const dayAgo = new Date(now - 86_400_000).toISOString();
   const ninetyDaysAgo = new Date(now - 90 * 86_400_000).toISOString();
+  const thirtyDaysAgo = new Date(now - 30 * 86_400_000).toISOString();
   await db.batch([
     db.prepare("DELETE FROM sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)")
       .bind(iso, weekAgo),
@@ -70,5 +72,6 @@ export async function cleanupExpired(db: D1Database): Promise<void> {
       .bind(dayAgo, weekAgo),
     db.prepare("DELETE FROM ranking_runs WHERE created_at < ?").bind(ninetyDaysAgo),
     db.prepare("DELETE FROM discovery_exposures WHERE created_at < ?").bind(ninetyDaysAgo),
+    db.prepare("DELETE FROM projects WHERE deleted_at IS NOT NULL AND deleted_at < ?").bind(thirtyDaysAgo),
   ]);
 }

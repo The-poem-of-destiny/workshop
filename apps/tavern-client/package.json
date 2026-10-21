@@ -1,10 +1,11 @@
 {
   "name": "@workshop/tavern-client",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "publish:client": "node scripts/publish.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "devDependencies": {

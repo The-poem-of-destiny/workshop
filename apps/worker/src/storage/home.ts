@@ -78,6 +78,23 @@ export async function listRecommendations(db: D1Database): Promise<Recommendatio
   });
 }
 
+export async function getDiscovery(db: D1Database) {
+  const bucket = await db.prepare("SELECT MAX(bucket) AS bucket FROM discovery_exposures")
+    .first<{ bucket: string | null }>();
+  if (!bucket?.bucket) return { items: [] };
+  const rows = await db.prepare(`
+    SELECT project_id FROM discovery_exposures WHERE bucket = ? ORDER BY rank LIMIT 12
+  `).bind(bucket.bucket).all<{ project_id: string }>();
+  const projects = await getPublishedProjectsByIds(db, rows.results.map(row => row.project_id));
+  return {
+    bucket: bucket.bucket,
+    items: rows.results.flatMap(row => {
+      const project = projects.get(row.project_id);
+      return project ? [project] : [];
+    }),
+  };
+}
+
 export async function getHome(db: D1Database) {
   const [banner, latest, recommendations] = await Promise.all([
     getBanner(db),

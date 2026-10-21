@@ -111,6 +111,14 @@ export class ContentService implements DurableObject {
         });
         return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_REVISION });
       }
+      if (target.client_gate === "block" || target.client_gate === "missing") {
+        await this.needsHuman(submissionId, "客户端检查未通过或缺失，转人工审核。", {
+          report: storedReport,
+          hash: reportHash,
+          checkedAt,
+        });
+        return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_REVISION, manual: true });
+      }
 
       await this.autoPublish(target, storedReport, reportHash, checkedAt);
       return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_REVISION });
@@ -171,6 +179,7 @@ export class ContentService implements DurableObject {
             search_tags = r.tags, row_version = row_version + 1, updated_at = ?
         FROM project_revisions r
         WHERE projects.id = ? AND r.id = ?
+          AND projects.deleted_at IS NULL
           AND EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = 'approved')
       `).bind(target.revision_id, now, now, target.project_id, target.revision_id, target.id),
       this.env.DB.prepare(`

@@ -25,6 +25,7 @@ export async function getClientChannel(
   db: D1Database,
   channel: string,
 ): Promise<ClientChannel | null> {
+  if (channel !== "stable" && channel !== "staging") return null;
   const channels = await getClientChannels(db);
-  return channels[channel] ?? null;
+  return Object.hasOwn(channels, channel) ? channels[channel] ?? null : null;
 }

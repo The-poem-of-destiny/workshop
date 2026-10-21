@@ -3,6 +3,7 @@ import {
   api,
   type AdminAuditEvent,
   type AdminMember,
+  type AdminProject,
   type JsonValue,
   type ReferenceSet,
   type SiteBanner,
@@ -29,6 +30,8 @@ export function AdminTools({ onError, onNotice }: {
   onError: (message: string) => void;
   onNotice: (message: string) => void;
 }) {
+  const [projects, setProjects] = useState<AdminProject[]>([]);
+  const [projectSearch, setProjectSearch] = useState("");
   const [members, setMembers] = useState<AdminMember[]>([]);
   const [audit, setAudit] = useState<AdminAuditEvent[]>([]);
   const [sets, setSets] = useState<ReferenceSet[]>([]);
@@ -40,6 +43,8 @@ export function AdminTools({ onError, onNotice }: {
   const [setDescription, setSetDescription] = useState("");
   const [setVersion, setSetVersion] = useState("");
   const [setItems, setSetItems] = useState("[]");
+  const [newSetName, setNewSetName] = useState("");
+  const [newSetVersion, setNewSetVersion] = useState("1");
   const [projectId, setProjectId] = useState("");
   const [comment, setComment] = useState("");
   const [reaction, setReaction] = useState("");
@@ -48,12 +53,14 @@ export function AdminTools({ onError, onNotice }: {
   async function refresh(): Promise<void> {
     setBusy(true);
     try {
-      const [memberList, auditList, referenceList, siteValue] = await Promise.all([
+      const [projectList, memberList, auditList, referenceList, siteValue] = await Promise.all([
+        api.adminProjects(projectSearch || undefined),
         api.adminMembers(),
         api.auditEvents(),
         api.referenceSets(),
         api.site(),
       ]);
+      setProjects(projectList.items);
       setMembers(memberList.items);
       setAudit(auditList.items);
       setSets(referenceList.items);
@@ -125,6 +132,29 @@ export function AdminTools({ onError, onNotice }: {
     }
   }
 
+  async function createSet(): Promise<void> {
+    if (!newSetName.trim() || !newSetVersion.trim()) return;
+    try {
+      await api.createReferenceSet({ name: newSetName.trim(), versionLabel: newSetVersion.trim() });
+      setNewSetName("");
+      onNotice("基线已创建。");
+      await refresh();
+    } catch (value) {
+      onError(`基线创建失败：${String(value)}`);
+    }
+  }
+
+  async function createVersion(): Promise<void> {
+    if (!setId || !setVersion.trim()) return;
+    try {
+      await api.createReferenceVersion(setId, { versionLabel: setVersion.trim() });
+      onNotice("新基线版本已创建。");
+      await refresh();
+    } catch (value) {
+      onError(`版本创建失败：${String(value)}`);
+    }
+  }
+
   async function saveRecommendation(): Promise<void> {
     if (!projectId.trim()) return;
     try {
@@ -164,6 +194,15 @@ export function AdminTools({ onError, onNotice }: {
     </section>
 
     <section className="panel">
+      <div className="panel-heading"><h2>项目</h2><span className="hint">{projects.length} 个</span></div>
+      <label>搜索<input value={projectSearch} onChange={event => setProjectSearch(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void refresh(); }} /></label>
+      <div className="project-list">{projects.map(project => <div className="member-row" key={project.id}>
+        <span><strong>{project.title}</strong><small>{project.author.name} · {project.visibility === "public" ? "公开" : "私有"} · {project.publishedRevisionId ? "已发布" : "未发布"}</small></span>
+        <span className="status">{project.deletedAt ? "已删除" : project.projectType ?? "未分类"}</span>
+      </div>)}</div>
+    </section>
+
+    <section className="panel">
       <div className="panel-heading"><h2>成员</h2><span className="hint">{members.length} 人</span></div>
       <div className="project-list">{members.map(member => <div className="member-row" key={member.id}>
         <span><strong>{member.globalName || member.username}</strong><small>{member.id}</small></span>
@@ -187,6 +226,11 @@ export function AdminTools({ onError, onNotice }: {
 
     <section className="panel">
       <div className="panel-heading"><h2>角色基线</h2><button type="button" disabled={busy} onClick={() => void refresh()}>刷新</button></div>
+      <div className="form-grid">
+        <label>新参考集名称<input value={newSetName} onChange={event => setNewSetName(event.target.value)} /></label>
+        <label>初始版本<input value={newSetVersion} onChange={event => setNewSetVersion(event.target.value)} /></label>
+      </div>
+      <button type="button" onClick={() => void createSet()}>创建参考集</button>
       <label>参考集<select value={setId} onChange={event => selectSet(event.target.value)}><option value="">选择参考集</option>{sets.map(set => <option key={set.id} value={set.id}>{set.name}</option>)}</select></label>
       {setId ? <>
         <div className="form-grid">
@@ -195,7 +239,7 @@ export function AdminTools({ onError, onNotice }: {
         </div>
         <label>说明<textarea value={setDescription} onChange={event => setSetDescription(event.target.value)} /></label>
         <label>items JSON<textarea value={setItems} onChange={event => setSetItems(event.target.value)} rows={10} /></label>
-        <button type="button" className="primary" onClick={() => void saveSet()}>保存基线</button>
+        <div className="button-row"><button type="button" className="primary" onClick={() => void saveSet()}>保存基线</button><button type="button" onClick={() => void createVersion()}>用当前版本号新建版本</button></div>
       </> : <p className="hint">选择参考集后编辑名称、版本和 items；items 全量替换。</p>}
     </section>
 

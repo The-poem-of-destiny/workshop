@@ -6,10 +6,11 @@ export async function recordDownload(
   userId: string,
 ): Promise<DownloadResult> {
   const project = await db.prepare(`
-    SELECT 1 AS found FROM projects
-    WHERE id = ? AND visibility = 'public' AND published_revision_id IS NOT NULL AND deleted_at IS NULL
-  `).bind(projectId).first<{ found: number }>();
+    SELECT visibility FROM projects
+    WHERE id = ? AND published_revision_id IS NOT NULL AND deleted_at IS NULL
+  `).bind(projectId).first<{ visibility: "public" | "private" }>();
   if (!project) return "not_found";
+  if (project.visibility !== "public") return "duplicate";
 
   const dayKey = new Date().toISOString().slice(0, 10);
   const inserted = await db.prepare(`
@@ -43,6 +44,7 @@ export async function issueDownloadTickets(
   projectId: string,
   revisionId: string,
   userId: string,
+  sessionVersion: number,
   files: ReadonlyArray<{ kind: "worldbook" | "regex" }>,
   ttlMs: number,
 ): Promise<DownloadTicket[]> {
@@ -53,9 +55,9 @@ export async function issueDownloadTickets(
   const hashes = await Promise.all(tickets.map(ticket => tokenHash(ticket.token)));
   await db.batch(tickets.map((ticket, index) =>
     db.prepare(`
-      INSERT INTO download_tokens (token_hash, user_id, project_id, revision_id, kind, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).bind(hashes[index]!, userId, projectId, revisionId, ticket.kind, expiresAt),
+      INSERT INTO download_tokens (token_hash, user_id, project_id, revision_id, kind, expires_at, session_version)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).bind(hashes[index]!, userId, projectId, revisionId, ticket.kind, expiresAt, sessionVersion),
   ));
   return tickets;
 }
@@ -71,7 +73,7 @@ export async function consumeDownloadToken(
   db: D1Database,
   r2: R2Bucket,
   token: string,
-  session: { userId: string; role: string },
+  session: { userId: string; role: string; sessionVersion: number },
 ): Promise<"not_found" | "expired" | ConsumedDownload> {
   const hash = await tokenHash(token);
   const now = new Date().toISOString();
@@ -83,12 +85,13 @@ export async function consumeDownloadToken(
     JOIN projects p ON p.id = t.project_id
     WHERE t.token_hash = ?
       AND t.user_id = ?
+      AND t.session_version = ?
       AND t.consumed_at IS NULL
       AND t.expires_at > ?
       AND p.deleted_at IS NULL
       AND p.published_revision_id = t.revision_id
       AND (p.visibility = 'public' OR p.author_id = ? OR ? IN ('reviewer', 'owner'))
-  `).bind(hash, session.userId, now, session.userId, session.role)
+  `).bind(hash, session.userId, session.sessionVersion, now, session.userId, session.role)
     .first<{ user_id: string; expires_at: string; consumed_at: string | null; r2_key: string; mime: string; bytes: number }>();
   if (!row) {
     const expired = await db.prepare("SELECT expires_at, consumed_at FROM download_tokens WHERE token_hash = ? AND user_id = ?")

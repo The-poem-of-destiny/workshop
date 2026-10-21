@@ -3,7 +3,9 @@ import {
   adminAuditEventListQuerySchema,
   adminListQuerySchema,
   adminRecommendationUpdateSchema,
+  adminReferenceSetCreateSchema,
   adminReferenceSetUpdateSchema,
+  adminReferenceVersionCreateSchema,
   adminReviewRequestSchema,
   adminRoleRequestSchema,
   adminSiteUpdateSchema,
@@ -13,6 +15,8 @@ import type { Env } from "../../env.js";
 import { enqueueSubmission } from "../../scheduler.js";
 import {
   changeAdminMemberRole,
+  createAdminReferenceSet,
+  createAdminReferenceVersion,
   deleteAdminRecommendation,
   getAdminSubmission,
   getSubmissionAsset,
@@ -161,9 +165,16 @@ adminRoutes.get("/projects", async c => {
   const parsed = adminListQuerySchema.safeParse({
     limit: c.req.query("limit"),
     cursor: c.req.query("cursor"),
+    search: c.req.query("search"),
+    projectType: c.req.query("projectType"),
+    includeDeleted: c.req.query("includeDeleted") === "true",
   });
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid query", parsed.error.flatten());
-  return c.json(await listAdminProjects(c.env.DB, parsed.data.limit, parsed.data.cursor));
+  return c.json(await listAdminProjects(c.env.DB, parsed.data.limit, parsed.data.cursor, {
+    search: parsed.data.search,
+    projectType: parsed.data.projectType,
+    includeDeleted: parsed.data.includeDeleted,
+  }));
 });
 
 adminRoutes.get("/members", async c => {
@@ -223,6 +234,29 @@ adminRoutes.delete("/recommendations/:projectId", async c => {
   const result = await deleteAdminRecommendation(c.env.DB, c.req.param("projectId"), session.userId);
   if (result.kind === "not_found") return jsonError(c, "not_found", "Recommendation not found");
   return c.body(null, 204);
+});
+
+adminRoutes.post("/reference-sets", async c => {
+  const session = await requireReviewer(c);
+  if (session === null) return jsonError(c, "unauthorized", "Login required");
+  if (session === false || session.role !== "owner") return jsonError(c, "forbidden", "Owner role required");
+  const parsed = adminReferenceSetCreateSchema.safeParse(await readJson(c));
+  if (!parsed.success) return jsonError(c, "bad_request", "Invalid reference set", parsed.error.flatten());
+  const result = await createAdminReferenceSet(c.env.DB, session.userId, parsed.data);
+  if (result.kind === "conflict") return jsonError(c, "conflict", "Reference set name or version already exists");
+  return c.json({ id: result.id, versionId: result.versionId }, 201);
+});
+
+adminRoutes.post("/reference-sets/:id/versions", async c => {
+  const session = await requireReviewer(c);
+  if (session === null) return jsonError(c, "unauthorized", "Login required");
+  if (session === false || session.role !== "owner") return jsonError(c, "forbidden", "Owner role required");
+  const parsed = adminReferenceVersionCreateSchema.safeParse(await readJson(c));
+  if (!parsed.success) return jsonError(c, "bad_request", "Invalid reference version", parsed.error.flatten());
+  const result = await createAdminReferenceVersion(c.env.DB, session.userId, c.req.param("id"), parsed.data);
+  if (result.kind === "not_found") return jsonError(c, "not_found", "Reference set not found");
+  if (result.kind === "conflict") return jsonError(c, "conflict", "Reference version already exists");
+  return c.json({ id: result.id, ordinal: result.ordinal }, 201);
 });
 
 adminRoutes.put("/reference-sets/:id", async c => {
