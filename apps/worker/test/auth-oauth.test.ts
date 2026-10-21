@@ -16,7 +16,7 @@ async function s256(value: string): Promise<string> {
     .replace(/=+$/, "");
 }
 
-function mockDiscord(guildId = GUILD) {
+function mockDiscord(guilds: string[] = [GUILD], rolesByGuild: Record<string, string[]> = {}) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -25,7 +25,9 @@ function mockDiscord(guildId = GUILD) {
       if (url.endsWith("/users/@me")) {
         return Response.json({ id: "discord-user", username: "tester", global_name: "Tester", avatar: null });
       }
-      if (url.endsWith("/users/@me/guilds")) return Response.json([{ id: guildId }]);
+      if (url.endsWith("/users/@me/guilds")) return Response.json(guilds.map((id) => ({ id })));
+      const member = /\/users\/@me\/guilds\/(\d+)\/member$/.exec(url);
+      if (member) return Response.json({ roles: rolesByGuild[member[1] ?? ""] ?? [] });
       throw new Error(`unexpected fetch ${url}`);
     }),
   );
@@ -71,6 +73,7 @@ beforeAll(async () => {
     DISCORD_CLIENT_ID: "client-id",
     DISCORD_CLIENT_SECRET: "client-secret",
     DISCORD_ALLOWED_GUILD_IDS: GUILD,
+    DISCORD_GUILD_ROLE_IDS: "",
   });
 });
 
@@ -81,6 +84,8 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  bindings.DISCORD_ALLOWED_GUILD_IDS = GUILD;
+  bindings.DISCORD_GUILD_ROLE_IDS = "";
 });
 
 describe("OAuth flows", () => {
@@ -211,7 +216,7 @@ describe("OAuth flows", () => {
   });
 
   it("rejects a Discord account outside the allowed guild", async () => {
-    mockDiscord("323456789012345678");
+    mockDiscord(["323456789012345678"]);
     const created = await createFlow({ mode: "device" });
     const flow = (await created.json()) as { id: string; state: string; deviceCode: string };
     const done = await callback(flow.state);
@@ -225,6 +230,52 @@ describe("OAuth flows", () => {
       status: "pending",
       error: "你的账号不在允许的 Discord 服务器中",
     });
+  });
+
+  it("requires a configured role in the matching guild", async () => {
+    const role = "423456789012345678";
+    bindings.DISCORD_GUILD_ROLE_IDS = `${GUILD}:${role}`;
+    mockDiscord([GUILD], { [GUILD]: [] });
+
+    const deniedCreated = await createFlow({ mode: "device" });
+    const deniedFlow = (await deniedCreated.json()) as { id: string; state: string; deviceCode: string; url: string };
+    expect(deniedFlow.url).toContain("guilds.members.read");
+    expect((await callback(deniedFlow.state)).status).toBe(400);
+    const deniedStatus = await app.request(
+      `/api/v1/auth/flows/${deniedFlow.id}?deviceCode=${deniedFlow.deviceCode}`,
+      { headers: withBinding() },
+      bindings,
+    );
+    await expect(deniedStatus.json()).resolves.toMatchObject({
+      status: "pending",
+      error: "你的账号缺少允许的 Discord 身份组",
+    });
+
+    mockDiscord([GUILD], { [GUILD]: [role] });
+    const allowedCreated = await createFlow({ mode: "device" });
+    const allowedFlow = (await allowedCreated.json()) as { state: string };
+    expect((await callback(allowedFlow.state)).status).toBe(200);
+  });
+
+  it("checks every allowed guild that belongs to the user", async () => {
+    const otherGuild = "323456789012345678";
+    const role = "423456789012345678";
+    bindings.DISCORD_ALLOWED_GUILD_IDS = `${GUILD},${otherGuild}`;
+    bindings.DISCORD_GUILD_ROLE_IDS = `${GUILD}:${role};${otherGuild}:${role}`;
+    mockDiscord([GUILD, otherGuild], { [GUILD]: [], [otherGuild]: [role] });
+
+    const created = await createFlow({ mode: "device" });
+    const flow = (await created.json()) as { state: string };
+    expect((await callback(flow.state)).status).toBe(200);
+  });
+
+  it("keeps guild-only admission for guilds without a role rule", async () => {
+    bindings.DISCORD_GUILD_ROLE_IDS = `323456789012345678:423456789012345678`;
+    mockDiscord([GUILD], { [GUILD]: [] });
+
+    const created = await createFlow({ mode: "device" });
+    const flow = (await created.json()) as { state: string };
+    expect((await callback(flow.state)).status).toBe(200);
   });
 
   it("only allows configured origins for auth and CORS preflight", async () => {

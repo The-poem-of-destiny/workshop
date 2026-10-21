@@ -55,6 +55,30 @@ function allowedGuilds(env: Env): string[] {
     .filter(Boolean);
 }
 
+function roleRequirements(env: Env): Map<string, Set<string>> | null {
+  const raw = (env.DISCORD_GUILD_ROLE_IDS ?? "").trim();
+  if (!raw) return new Map();
+  const requirements = new Map<string, Set<string>>();
+  for (const entry of raw.split(";")) {
+    const item = entry.trim();
+    if (!item) continue;
+    const separator = item.indexOf(":");
+    if (separator <= 0) return null;
+    const guildId = item.slice(0, separator).trim();
+    const roleIds = item
+      .slice(separator + 1)
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    if (!/^\d{17,20}$/.test(guildId) || roleIds.length === 0) return null;
+    if (roleIds.some((roleId) => !/^\d{17,20}$/.test(roleId))) return null;
+    const merged = requirements.get(guildId) ?? new Set<string>();
+    for (const roleId of roleIds) merged.add(roleId);
+    requirements.set(guildId, merged);
+  }
+  return requirements.size > 0 ? requirements : null;
+}
+
 function publicOrigin(c: { env: Env; req: { url: string } }): string {
   return (c.env.PUBLIC_ORIGIN ?? new URL(c.req.url).origin).replace(/\/+$/, "");
 }
@@ -184,12 +208,25 @@ async function exchangeDiscord(c: { env: Env; req: { url: string } }, flow: Auth
   const guilds = (await guildsResponse.json()) as Array<{ id?: string }>;
   const allowed = new Set(allowedGuilds(c.env));
   if (allowed.size === 0) throw new Error("服务器未配置允许的 Discord 服务器");
-  const guild = guilds.find((item) => item.id && allowed.has(item.id));
-  if (!guild?.id) throw new Error("你的账号不在允许的 Discord 服务器中");
-  return {
+  const requiredRoles = roleRequirements(c.env);
+  if (!requiredRoles) throw new Error("服务器 Discord 身份组配置无效");
+  const candidates = guilds.filter((item): item is { id: string } => Boolean(item.id && allowed.has(item.id)));
+  if (candidates.length === 0) throw new Error("你的账号不在允许的 Discord 服务器中");
+  const identity = {
     user: { id: user.id, username: user.username, global_name: user.global_name, avatar: user.avatar },
-    guildId: guild.id,
   };
+
+  for (const guild of candidates) {
+    const roles = requiredRoles.get(guild.id);
+    if (!roles) return { ...identity, guildId: guild.id };
+    const memberResponse = await fetch(`${DISCORD_API}/users/@me/guilds/${guild.id}/member`, { headers });
+    if (memberResponse.status === 404) continue;
+    if (!memberResponse.ok) throw new Error("无法读取 Discord 身份组");
+    const member = (await memberResponse.json()) as { roles?: string[] };
+    if (member.roles?.some((roleId) => roles.has(roleId))) return { ...identity, guildId: guild.id };
+  }
+
+  throw new Error("你的账号缺少允许的 Discord 身份组");
 }
 
 export const authRoutes = new Hono<{ Bindings: Env }>();
@@ -221,6 +258,8 @@ authRoutes.post("/flows", async (c) => {
   if (parsed.data.mode === "embed" && !parsed.data.codeChallenge) {
     return jsonError(c, "bad_request", "Embed flow requires a PKCE challenge");
   }
+  const requiredRoles = roleRequirements(c.env);
+  if (!requiredRoles) return jsonError(c, "internal", "服务器 Discord 身份组配置无效");
 
   const id = crypto.randomUUID();
   const state = randomToken();
@@ -241,13 +280,15 @@ authRoutes.post("/flows", async (c) => {
   });
   setBindingCookies(c, binding);
 
+  const scopes = ["identify", "guilds"];
+  if (requiredRoles.size > 0) scopes.push("guilds.members.read");
   let url = `${requestOrigin}/auth/pending?flow=${encodeURIComponent(id)}`;
   if (c.env.DISCORD_CLIENT_ID) {
     const query = new URLSearchParams({
       client_id: c.env.DISCORD_CLIENT_ID,
       response_type: "code",
       redirect_uri: `${publicOrigin(c)}${CALLBACK_PATH}`,
-      scope: "identify guilds",
+      scope: scopes.join(" "),
       state,
       code_challenge: await s256(verifier),
       code_challenge_method: "S256",
