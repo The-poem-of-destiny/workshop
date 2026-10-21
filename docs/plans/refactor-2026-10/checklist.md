@@ -155,12 +155,12 @@
 - [x] Worker 58 测试、domain 17、content 7、schema 27 表校验。
 - [x] 迁移 synthetic + SQL converter 测试。
 - [x] 真实备份全量两次 + delta + reconcile；隔离本地 D1 load。
-- [x] 本地 HTTP E2E 14/14；真实 Chromium 搜索/详情/作者/管理/审核旅程。
+- [x] 本地 HTTP E2E 15/15；真实 Chromium 搜索/排序/详情/作者/管理/审核通过/审核拒绝 5 条旅程。
 - [x] staging 部署、D1 migration 0002–0006、Worker version 记录。
 - [ ] R2 批量复制适配器；staging 真实数据导入。
 - [x] T3 fingerprint/diff/安装安全测试（单元与 HTTP 覆盖）。
 - [ ] T6 旧公开 API 样本契约测试（fixtures 与契约测试尚未恢复）。
-- [ ] Playwright 5–8 条真实旅程（当前 4 条浏览器旅程）。
+- [x] Playwright 5 条真实浏览器旅程（本地 Worker + 真实 Chromium）。
 - [ ] staging 远程 HTTP smoke（本机代理对 workers.dev 不稳定，部署版本已由 wrangler 确认）。
 - [ ] 生产切换 runbook 执行与人工审批。
 - [ ] 生产旧库只读保留、回滚窗口、监控指标演练。

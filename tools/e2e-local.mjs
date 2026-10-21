@@ -214,34 +214,38 @@ async function main() {
       assert(JSON.parse(detail.body).counts.downloads === 1, "download counted exactly once");
     });
 
-    let pending;
-    await check("author submits without client checker", async () => {
+    async function createPending(title, key) {
       const created = await api("/api/v1/projects", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: "E2E Pending", description: "manual review", projectType: "事件" }),
+        body: JSON.stringify({ title, description: "manual review", projectType: "事件" }),
       }, authorToken);
       assert(created.response.status === 201, `pending create ${created.response.status}: ${created.body}`);
-      pending = JSON.parse(created.body);
-      const worldbook = '{"entries":[{"uid":1,"key":["pending"],"content":"pending"}]}';
-      const upload = await api(`/api/v1/projects/${pending.project.id}/revisions/${pending.workingRevisionId}/files/worldbook`, {
+      const project = JSON.parse(created.body);
+      const worldbook = JSON.stringify({ entries: [{ uid: 1, key: [key], content: key }] });
+      const upload = await api(`/api/v1/projects/${project.project.id}/revisions/${project.workingRevisionId}/files/worldbook`, {
         method: "PUT",
         headers: { "content-type": "application/json", "content-length": String(Buffer.byteLength(worldbook)) },
         body: worldbook,
       }, authorToken);
       assert(upload.response.status === 200, `pending upload ${upload.response.status}: ${upload.body}`);
-      const visibility = await api(`/api/v1/projects/${pending.project.id}/visibility`, {
+      const visibility = await api(`/api/v1/projects/${project.project.id}/visibility`, {
         method: "PATCH",
         headers: { "content-type": "application/json", "if-match": "1" },
         body: JSON.stringify({ visibility: "public" }),
       }, authorToken);
       assert(visibility.response.status === 200, `pending visibility ${visibility.response.status}: ${visibility.body}`);
-      const submit = await api(`/api/v1/projects/${pending.project.id}/revisions/${pending.workingRevisionId}/submit`, {
+      const submit = await api(`/api/v1/projects/${project.project.id}/revisions/${project.workingRevisionId}/submit`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ gate: "missing", acknowledged: true }),
       }, authorToken);
       assert(submit.response.status === 201, `pending submit ${submit.response.status}: ${submit.body}`);
+    }
+
+    await check("author submits without client checker", async () => {
+      await createPending("E2E Pending", "pending");
+      await createPending("E2E Approve", "approve");
     });
 
     const executablePath = chromiumExecutable();
@@ -252,11 +256,14 @@ async function main() {
           const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.locator(".card").first().waitFor({ state: "visible", timeout: 10_000 });
+          await page.getByRole("button", { name: "下载", exact: true }).click();
+          assert((await page.getByRole("button", { name: "下载", exact: true }).getAttribute("class"))?.includes("active") ?? false, "sort active");
           await page.locator('input[type="search"]').fill("E2E Project");
           await page.locator(".card", { hasText: "E2E Project" }).first().waitFor({ state: "visible", timeout: 10_000 });
           await page.locator(".card", { hasText: "E2E Project" }).first().click();
           await page.locator(".detail").waitFor({ state: "visible" });
           assert((await page.locator(".detail").textContent())?.includes("E2E Project"), "detail content");
+          assert((await page.locator(".detail").textContent())?.includes("SillyTavern"), "unauthenticated install hint");
           await page.close();
         });
 
@@ -284,6 +291,20 @@ async function main() {
           await page.getByText("审计", { exact: true }).waitFor({ state: "visible" });
           await page.getByRole("button", { name: "保存站点设置" }).click();
           await page.getByText("站点设置已保存").waitFor({ state: "visible", timeout: 10_000 });
+          await context.close();
+        });
+
+        await check("browser admin approves with reason", async () => {
+          const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+          await context.addInitScript(token => sessionStorage.setItem("cw_session_token", token), ownerToken);
+          const page = await context.newPage();
+          await page.goto(`${base}/`, { waitUntil: "networkidle" });
+          await page.getByRole("button", { name: "审核台" }).click();
+          await page.getByText("E2E Approve", { exact: true }).first().waitFor({ state: "visible", timeout: 10_000 });
+          await page.getByText("E2E Approve", { exact: true }).first().click();
+          await page.locator("textarea").fill("e2e approval reason");
+          await page.getByRole("button", { name: "通过", exact: true }).click();
+          await page.getByText("已通过审核").waitFor({ state: "visible", timeout: 10_000 });
           await context.close();
         });
 
