@@ -170,6 +170,10 @@ export async function listPublishedProjects(db: D1Database, query: ProjectListQu
     where.push("p.project_type = ?");
     bindings.push(query.projectType);
   }
+  if (query.authorId) {
+    where.push("p.author_id = ?");
+    bindings.push(query.authorId);
+  }
   if (query.search) {
     const predicate = searchPredicate(query.search);
     where.push(predicate.sql);

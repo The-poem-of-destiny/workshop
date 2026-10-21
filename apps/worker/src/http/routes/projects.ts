@@ -18,6 +18,7 @@ projectsRoutes.get("/", async c => {
     cursor: c.req.query("cursor"),
     sort: c.req.query("sort"),
     projectType: c.req.query("projectType"),
+    authorId: c.req.query("authorId"),
     search: c.req.query("search"),
   });
   if (!parsed.success) {

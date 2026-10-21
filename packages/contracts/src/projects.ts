@@ -57,6 +57,7 @@ export const projectListQuerySchema = z.object({
   cursor: z.string().max(512).optional(),
   sort: projectSortSchema.default("updated"),
   projectType: projectTypeSchema.optional(),
+  authorId: z.string().trim().min(1).max(64).optional(),
   search: z.string().trim().min(1).max(80).optional(),
 });
 

@@ -264,6 +264,9 @@ async function main() {
           await page.locator(".detail").waitFor({ state: "visible" });
           assert((await page.locator(".detail").textContent())?.includes("E2E Project"), "detail content");
           assert((await page.locator(".detail").textContent())?.includes("SillyTavern"), "unauthenticated install hint");
+          await page.locator(".detail .author.link").click();
+          await page.getByText("作者：E2E Author", { exact: false }).waitFor({ state: "visible" });
+          await page.getByRole("button", { name: "清除", exact: true }).click();
           await page.close();
         });
 

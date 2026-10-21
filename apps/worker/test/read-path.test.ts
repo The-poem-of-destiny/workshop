@@ -153,6 +153,16 @@ describe("public read path", () => {
     });
   });
 
+  it("filters by author id and returns an empty page for others", async () => {
+    await seed();
+    const mine = await app.request("/api/v1/projects?authorId=u1", undefined, bindings);
+    expect(mine.status).toBe(200);
+    await expect(mine.json()).resolves.toMatchObject({ items: [{ id: "p1", author: { id: "u1" } }] });
+    const other = await app.request("/api/v1/projects?authorId=u2", undefined, bindings);
+    expect(other.status).toBe(200);
+    await expect(other.json()).resolves.toMatchObject({ items: [], nextCursor: null });
+  });
+
   it("supports one- and two-character search across title, tags and author", async () => {
     await seed();
     for (const query of ["命", "命定", "奇幻", "作者", "命定之"]) {

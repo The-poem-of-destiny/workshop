@@ -114,12 +114,13 @@ export const api = {
   hasSession: () => Boolean(token()),
   me: () => requestJson<MeResponse>("/api/v1/me"),
   home: () => requestJson<HomeResponse>("/api/v1/home"),
-  projects: (params: { search?: string; sort?: string; cursor?: string; projectType?: string }) => {
+  projects: (params: { search?: string; sort?: string; cursor?: string; projectType?: string; authorId?: string }) => {
     const query = new URLSearchParams({ limit: "24" });
     if (params.search) query.set("search", params.search);
     if (params.sort) query.set("sort", params.sort);
     if (params.cursor) query.set("cursor", params.cursor);
     if (params.projectType) query.set("projectType", params.projectType);
+    if (params.authorId) query.set("authorId", params.authorId);
     return requestJson<ProjectListResponse>(`/api/v1/projects?${query}`);
   },
   myProjects: () => requestJson<AuthorProjectListResponse>("/api/v1/me/projects"),
