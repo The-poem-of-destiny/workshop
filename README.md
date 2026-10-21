@@ -17,12 +17,11 @@ workshop/
 │  ├─ migrations/            # D1 结构演进（唯一迁移序列）
 │  ├─ src/                   # API 与存储层
 │  └─ web/                   # 公开站点（React + Vite）
+├─ apps/tavern-client/data/  # 官方角色卡基线（客户端尚未实现）
 ├─ packages/contracts/       # 共享 Zod 契约与类型
 ├─ packages/domain/          # 分类、内容策略、限额、版本等纯函数
-├─ data/                     # 官方角色卡基线数据
 ├─ tools/                    # workspace/schema 校验、迁移与本地 E2E
-├─ docs/plans/refactor-2026-10/  # 决策、功能清单、checklist、状态、归档
-└─ tests/fixtures/legacy/    # 旧公开接口匿名响应样本
+└─ docs/plans/refactor-2026-10/  # 决策、功能清单、checklist、状态、归档
 ```
 
 `cloudflare/`、`src/`、`util/`、`config/`、`test-dist/` 和旧 webpack 构建链已删除；不要在当前工作树重新引入旧实现。

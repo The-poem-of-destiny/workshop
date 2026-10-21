@@ -93,8 +93,7 @@ workshop/
 │  ├ contracts/                # zod HTTP/bridge schema、错误码、DTO
 │  ├ content/                  # 解析/规范化/fingerprint/checker
 │  └ domain/                   # taxonomy、内容策略、排行规则
-├ config/workshop.json        # 发布通道/端点/配套脚本依赖
-├ data/                        # 官方卡基线
+├ apps/tavern-client/data/     # 官方卡基线（客户端实现后使用）
 ├ tools/                       # 构建、发布、数据迁移
 ├ tests/                       # 集成、e2e、迁移样本
 └ docs/

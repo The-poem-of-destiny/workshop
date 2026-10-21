@@ -5,7 +5,7 @@ import path from 'node:path';
 const sourceDir = process.argv[2];
 const explicitOutputPath = process.argv[3];
 if (!sourceDir) {
-  console.error('Usage: node data/official-card-baselines/generate-worldbook-fingerprints.mjs <machine-source-directory> [output-json]');
+  console.error('Usage: node apps/tavern-client/data/official-card-baselines/generate-worldbook-fingerprints.mjs <machine-source-directory> [output-json]');
   process.exit(1);
 }
 

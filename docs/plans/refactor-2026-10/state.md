@@ -11,8 +11,7 @@
 ### P0 基线
 
 - 旧路由/权限/数据/测试盘点：`archive/p0-baseline.md`。
-- 匿名公开 API 样本：`tests/fixtures/legacy/`（16 个响应 + manifest）。
-- 抓取脚本：`tools/p0-capture.mjs`。
+- 匿名公开 API 样本与抓取脚本已从当前树删除；需要时从 git 历史或 `workshop-legacy` worktree 恢复。
 
 ### P3 写路径
 
