@@ -37,7 +37,7 @@
 - [x] 生产 session 创建、30 天滑动过期（`touchSession`）。
 - [x] PKCE verifier 可兑换；服务端只存 hash。
 - [x] session token 使用 HMAC（配置 `SESSION_HASH_SECRET` 后生效；staging 已设置）。
-- [x] 公会准入 `DISCORD_ALLOWED_GUILD_IDS`；可选按 Guild 校验身份组 `DISCORD_GUILD_ROLE_IDS`（staging 已配置公会，身份组待填）。
+- [x] 公会准入 `DISCORD_ALLOWED_GUILD_IDS`；可选按 Guild 校验身份组 `DISCORD_GUILD_ROLE_IDS`（staging 已配置：`1134557553011998840` 需要身份组，`1417861565679669272` 仅校验公会）。
 - [x] OAuth flow 绑定发起浏览器 cookie；staging 无 cookie 404、带 cookie 200。
 - [x] CORS 允许列表与安全头；严格同源 CORS；静态 shell 设置 CSP（允许 iframe 嵌入）。
 - [x] `oauth_flows.origin` 与 D-10“不存储请求 Origin”的口径统一。

@@ -10,7 +10,7 @@
 | U-01 | Discord Application `client_id` | 生成 OAuth 授权 URL | Worker 变量 `DISCORD_CLIENT_ID` | staging 已配置 `1562466173268926575` |
 | U-02 | Discord Application `client_secret` | 回调换取 Discord token | Worker secret `DISCORD_CLIENT_SECRET` | staging 已设置；production 未设置 |
 | U-03 | 允许的 Discord Guild ID 列表 | 公会准入校验 | `DISCORD_ALLOWED_GUILD_IDS` | staging 已配置 `1417861565679669272,1134557553011998840` |
-| U-11 | 指定 Guild 的允许身份组 ID | 登录时额外校验身份组 | `DISCORD_GUILD_ROLE_IDS` | 未设置；未设置时仅校验公会 |
+| U-11 | 指定 Guild 的允许身份组 ID | 登录时额外校验身份组 | `DISCORD_GUILD_ROLE_IDS` | staging 已配置：类脑 `1134557553011998840` 需要“已验证”身份组 `1335363403870502912`；鸽子窝 `1417861565679669272` 仍只校验公会 |
 | U-04 | 允许的工坊 Origin 列表 | `/auth/flows` Origin 白名单 | `ALLOWED_ORIGINS` | staging 已配置 |
 | U-05 | 生产 Cloudflare 账号、D1、R2 目标 | 真实迁移与生产部署 | CI environment / wrangler env | 未授权 |
 | U-06 | `CLOUDFLARE_ZONE_ID`、`CLOUDFLARE_API_TOKEN`、`WORKSHOP_PUBLIC_URL` | 客户端 channel 指针 purge | 发布脚本环境变量 | 未设置；当前 publish 会跳过 purge |
