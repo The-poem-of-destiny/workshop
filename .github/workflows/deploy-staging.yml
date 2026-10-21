@@ -78,14 +78,17 @@ jobs:
         run: pnpm --filter @workshop/worker web:build
       - name: Build Worker bundle
         run: pnpm --filter @workshop/worker exec wrangler deploy --dry-run --outdir build --config wrangler.jsonc --env staging
+      - name: Build Tavern client
+        run: pnpm --filter @workshop/tavern-client build
       - name: Assemble release artifact
         run: |
           set -euo pipefail
-          find apps/worker/web/dist apps/worker/build -type f -print0 | sort -z | xargs -0 sha256sum > artifact.sha256
+          find apps/worker/web/dist apps/worker/build apps/tavern-client/dist -type f -print0 | sort -z | xargs -0 sha256sum > artifact.sha256
           cat artifact.sha256
-          mkdir -p release/apps/worker/web
+          mkdir -p release/apps/worker/web release/apps/tavern-client
           cp -R apps/worker/build release/apps/worker/build
           cp -R apps/worker/web/dist release/apps/worker/web/dist
+          cp -R apps/tavern-client/dist release/apps/tavern-client/dist
           cp artifact.sha256 release/artifact.sha256
       - name: Record provenance
         run: |
@@ -105,6 +108,7 @@ jobs:
           path: |
             release/apps/worker/build
             release/apps/worker/web/dist
+            release/apps/tavern-client/dist
             release/artifact.sha256
             release/artifact-manifest.json
           if-no-files-found: error
@@ -143,6 +147,8 @@ jobs:
         run: pnpm --filter @workshop/worker exec wrangler d1 migrations apply workshop-staging --remote --config wrangler.jsonc --env staging
       - name: Deploy staging worker
         run: pnpm --filter @workshop/worker exec wrangler deploy build/index.js --no-bundle --config wrangler.jsonc --env staging
+      - name: Publish staging client
+        run: pnpm --filter @workshop/tavern-client publish:client --env staging --channel staging
       - name: Record worker version
         run: pnpm --filter @workshop/worker exec wrangler deployments list --config wrangler.jsonc --env staging | tee deployment.txt
       - name: Upload deployment evidence
@@ -164,4 +170,5 @@ jobs:
           done
           curl -fsS "$base/api/v1/projects" | grep -q '"items"'
           curl -fsS "$base/" | grep -q 'id="root"'
+          curl -fsS "$base/client/staging/index.js" | grep -q 'CreativeWorkshop'
           test "$(curl -s -o /dev/null -w '%{http_code}' "$base/api/v1/me")" = "401"

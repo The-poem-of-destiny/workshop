@@ -100,6 +100,8 @@ jobs:
         run: pnpm --filter @workshop/worker exec wrangler d1 migrations apply workshop-prod --remote --config wrangler.jsonc --env production
       - name: Deploy production worker
         run: pnpm --filter @workshop/worker exec wrangler deploy build/index.js --no-bundle --config wrangler.jsonc --env production
+      - name: Publish stable client
+        run: pnpm --filter @workshop/tavern-client publish:client --env production --channel stable --allow-production
       - name: Record worker version
         run: pnpm --filter @workshop/worker exec wrangler deployments list --config wrangler.jsonc --env production | tee deployment.txt
       - name: Upload deployment evidence
@@ -123,4 +125,5 @@ jobs:
           done
           curl -fsS "$base/api/v1/projects" | grep -q '"items"'
           curl -fsS "$base/" | grep -q 'id="root"'
+          curl -fsS "$base/client/stable/index.js" | grep -q 'CreativeWorkshop'
           test "$(curl -s -o /dev/null -w '%{http_code}' "$base/api/v1/me")" = "401"

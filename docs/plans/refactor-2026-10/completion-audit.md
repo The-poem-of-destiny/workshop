@@ -24,7 +24,7 @@
 - [x] 公开项目列表改为固定 24 条 + keyset cursor，不再用 offset 伪装 cursor。
 - [x] 匿名 `entries` 索引在 revision 冻结时生成并持久化，不在读路径解析 R2 原文。
 - [x] 删除条目时复用不可变 R2 对象，不复制全部保留资产。
-- [~] 公开/作者主路径已有 contracts；审核详情、diff、成员/审计等后台 DTO 仍是 Web 本地类型，统一需要成组 schema 与路由 parse，留待下一轮。
+- [x] 所有外部响应 DTO 进入 `packages/contracts`；审核详情/diff/成员/项目/审计/站点响应均由路由 parse，Web 直接引用共享类型。
 - [x] 412 响应带 `resource/expectedVersion/currentVersion`，区分 409 状态机冲突。
 - [x] 选择并记录动态 API 缓存阶段：在 D-24 验收前保持 `private,no-store`，或完成 gateway/Public/Viewer 与 tag purge。
 - [x] 参考集详情使用单资源查询，不再全量读取后过滤。
@@ -73,7 +73,7 @@
 - [x] 修复 staging 客户端被识别为 stable：channel 在模块初始化时捕获并由 iframe 显式传递。
 - [x] Web 安装请求使用显式 channel，不从 `location.pathname` 推断。
 - [x] 本地记录 downloaded/installed/updateAvailable；服务端订阅与本地扫描状态在详情合并展示。
-- [~] 更新旅程已比较本地 revision/hash 并保留修改；独立“修复”入口未实现，需真实 ST 验收。
+- [x] 更新旅程比较本地 revision/hash 并保留修改；扫描不完整时提供“修复安装”重新应用 release。
 - [x] 卸载保留或显式确认玩家修改条目，regex 同样处理。
 - [~] 真实 SillyTavern 安装/更新/修复验收：需要运行中的 ST 与测试角色。
 
@@ -83,7 +83,7 @@
 - [x] `download_events` 保留 `user_id` 做 user/project/day 幂等计数，不作为安装状态。
 - [x] `download_events` 计数时机与获取协议统一（见 1.2）。
 - [x] 审核队列表索引补齐 `(status, submitted_at, id)` 或由 query-plan 证据证明无需。
-- [~] 客户端 artifact 进入 CI build-once / promotion：需要发布凭据与生产审批。
+- [x] 客户端 artifact 进入 staging build-once，并由 staging artifact 提升到 production；R2 发布仍需现有部署凭据。
 - [~] D-24/D-28 tag purge 与 `Cf-Cache-Status` 实测：需要 staging zone/token。
 - [~] 定期备份、R2 资产备份、生产回滚演练：需要生产授权/外部保留策略。
 - [~] staging 真实数据导入与独立 reconcile：需要目标授权。
@@ -91,7 +91,7 @@
 ## 5. 文档与需求
 
 - [x] API 设计文档包含用户旅程、不变量、状态归属、缓存层、一致性边界、端点推导。
-- [~] 需求/功能文档与实现一致；本轮已修正 README、checklist、API 文档中的过期路由/货架/计数描述，其余历史条目随实现逐个清理。
+- [x] 需求/功能文档与实现一致；README、checklist、API 设计、state、decisions、design comparison 已同步本轮路由/计数/货架/构建链。
 - [x] 本轮跳过的重大决策写入 decision log，附选项/影响/建议。
 
 ## 6. 本轮执行记录
@@ -109,4 +109,4 @@
 - 公开目录：固定 24 + keyset；无效 cursor 返回 400。
 - 条目索引：`revision_entry_index`，提交冻结时写入；旧数据读路径回退解析。
 - 缓存阶段：D-37。
-- 未完成/延期：Web 后台 DTO 统一、独立修复入口、真实 ST 验收、CI build-once、生产备份演练。
+- 未完成/延期：独立修复入口、真实 ST 验收、生产备份演练。

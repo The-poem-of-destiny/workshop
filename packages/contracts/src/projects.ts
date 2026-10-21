@@ -88,3 +88,10 @@ export const projectEntryIndexSchema = z.object({
 });
 
 export type ProjectEntryIndex = z.infer<typeof projectEntryIndexSchema>;
+
+export const discoveryResponseSchema = z.object({
+  bucket: z.string().optional(),
+  items: z.array(projectSummarySchema),
+});
+
+export type DiscoveryResponse = z.infer<typeof discoveryResponseSchema>;

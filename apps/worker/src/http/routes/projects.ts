@@ -1,5 +1,6 @@
 import {
   acquisitionResponseSchema,
+  discoveryResponseSchema,
   downloadTicketResponseSchema,
   projectListQuerySchema,
   releaseManifestSchema,
@@ -39,7 +40,9 @@ projectsRoutes.get("/", async (c) => {
   return publicJson(c, "projects", () => listPublishedProjects(c.env.DB, parsed.data));
 });
 
-projectsRoutes.get("/discovery", async (c) => publicJson(c, "discovery", () => getDiscovery(c.env.DB)));
+projectsRoutes.get("/discovery", async (c) =>
+  publicJson(c, "discovery", async () => discoveryResponseSchema.parse(await getDiscovery(c.env.DB))),
+);
 
 projectsRoutes.get("/rankings", async (c) => {
   const kind = c.req.query("kind") ?? "7d";

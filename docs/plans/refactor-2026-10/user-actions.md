@@ -63,7 +63,7 @@ Q-06 已定：审核台拉 pending，checking 只显示计数；响应一次返�
 
 ## 5. 本轮新增人工验收
 
-- 视觉签收：`docs/plans/refactor-2026-10/screenshots/` 下 6 张桌面/移动截图已生成，需你用真实数据确认版式、字体与颜色。
+- 视觉签收：`docs/plans/refactor-2026-10/screenshots/` 下 7 张桌面/移动截图已生成，需你用真实数据确认版式、字体与颜色。
 - 真实客户端：新的获取协议 `/api/v1/projects/:id/acquisitions` 已替代内联 `/install`；客户端已上报本地扫描状态（clean/localChanged/scanIncomplete），需在真实 ST 中确认安装票据、更新与卸载保留修改。
 - 生产缓存：D-37 明确只保留公开投影 30 秒 Workers Cache；tag purge 与生产缓存实测仍未验收。
 

@@ -240,7 +240,7 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
   - 订阅/评分等个人写操作：短 TTL（15–30s），不逐次 purge；必要时按 `viewer:<userId>` 强制失效。
   - 发布、下架、改可见性、删除：`Public` 的 `Cache-Tag` purge。
 - **计数分离**：缓存的是展示值；真实值由写路径原子增量维护。下载、订阅动作是 `POST` + `no-store`。
-- **计数下载**：会计数的那次请求不能缓存。先 `POST /api/v1/projects/:id/downloads` 增量并返回一次性地址或重定向，响应 `no-store`；公开文件若走缓存，则不计入下载量。
+- **计数下载**：票据申请不计数；只有票据消费并成功取得字节后才增量，响应 `no-store`。公开文件若走缓存，则不计入下载量。
 - **标签**：`projects`、`project:<id>`、`author:<id>`、`discover:<bucket>`、`taxonomy`、`viewer:<userId>`。
 - **TTL 基线**：列表 30s、详情 60s、作者 300s、分类/发现 1h；个人状态 15–30s；均配 `stale-while-revalidate`。
 - **禁止**：`Vary: Authorization` 代替 bypass；把 viewer 字段塞进 `Public` 共享缓存；对公开 GET 设置 Cookie；依赖 props 之外的客户端可控头做隔离。

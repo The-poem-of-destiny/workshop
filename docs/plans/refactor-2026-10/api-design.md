@@ -48,14 +48,15 @@
 
 ```text
 # 公开目录
-GET    /api/v1/projects?cursor=&sort=&q=&type=&tag=&author=
+GET    /api/v1/projects?cursor=&sort=&search=&projectType=&tag=&authorId=
 GET    /api/v1/projects/:id
 GET    /api/v1/projects/:id/entries
-GET    /api/v1/discoveries/current
+GET    /api/v1/projects/discovery
 GET    /api/v1/home
 GET    /api/v1/site
 GET    /api/v1/reference-sets
 GET    /api/v1/reference-sets/:id
+GET    /api/v1/projects/rankings?kind=daily|7d|30d
 
 # 身份
 POST   /api/v1/auth/flows
@@ -75,28 +76,45 @@ DELETE /api/v1/me/subscriptions/:id
 PUT    /api/v1/me/ratings/:id
 DELETE /api/v1/me/ratings/:id
 
-# 获取（唯一协议）
+# 获取
 POST   /api/v1/projects/:id/acquisitions
-GET    /api/v1/acquisitions/:ticket
+POST   /api/v1/projects/:id/downloads
+GET    /api/v1/downloads/:token
 
-# 创作
-POST   /api/v1/projects                              If-Match
+# 作者
+POST   /api/v1/projects
 GET    /api/v1/me/projects
 GET    /api/v1/projects/:id/draft
-PATCH  /api/v1/projects/:id                          If-Match
-DELETE /api/v1/projects/:id                          If-Match
-PATCH  /api/v1/projects/:id/visibility               If-Match
-POST   /api/v1/projects/:id/revisions                If-Match
-PUT    /api/v1/projects/:id/revisions/:rid/assets/:kind
-DELETE /api/v1/projects/:id/revisions/:rid/entries/:kind/:key If-Match
-POST   /api/v1/projects/:id/revisions/:rid/submissions
+PATCH  /api/v1/projects/:id
+DELETE /api/v1/projects/:id
+PATCH  /api/v1/projects/:id/visibility
+POST   /api/v1/projects/:id/revisions
+PUT    /api/v1/projects/:id/revisions/:rid/files/:kind
+DELETE /api/v1/projects/:id/revisions/:rid/entries/:kind/:key
+POST   /api/v1/projects/:id/revisions/:rid/submit
 GET    /api/v1/me/projects/:id/submissions
 
+# 发布清单（迁移期兼容）
+GET    /api/v1/projects/:id/releases/:releaseId/manifest
+GET    /api/v1/projects/:id/releases/:releaseId/files/:kind
+
 # 审核
-GET    /api/v1/admin/review-queue?cursor=
+GET    /api/v1/admin/submissions?status=&cursor=&limit=
 GET    /api/v1/admin/submissions/:id
+GET    /api/v1/admin/submissions/:id/diff
+GET    /api/v1/admin/submissions/:id/files/:kind
 POST   /api/v1/admin/submissions/:id/recheck
-POST   /api/v1/admin/submissions/:id/decision
+POST   /api/v1/admin/submissions/:id/review
+GET    /api/v1/admin/projects
+GET    /api/v1/admin/members
+PUT    /api/v1/admin/members/:id/role
+GET    /api/v1/admin/audit-events
+PUT    /api/v1/site
+POST   /api/v1/site/banner
+PUT/DELETE /api/v1/admin/recommendations/:projectId
+POST   /api/v1/admin/reference-sets
+PUT    /api/v1/admin/reference-sets/:id
+POST   /api/v1/admin/reference-sets/:id/versions
 ```
 
 ## 6. 获取契约
@@ -127,7 +145,7 @@ X-Client-Version: <exact version>
 ## 7. 队列契约
 
 ```text
-GET /api/v1/admin/review-queue?cursor=<keyset>&limit=20
+GET /api/v1/admin/submissions?status=pending&cursor=<keyset>&limit=20
 ```
 
 ```json

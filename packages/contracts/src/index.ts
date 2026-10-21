@@ -1,4 +1,5 @@
 export * from "./admin.js";
+export * from "./admin-dto.js";
 export * from "./authoring.js";
 export * from "./errors.js";
 export * from "./health.js";

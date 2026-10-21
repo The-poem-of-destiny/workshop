@@ -132,7 +132,7 @@
 - `ci` 只在 `main` push 和面向 `main` 的 PR 上运行；特性分支 push 不再产生第二套 `check` / `e2e`。
 - `deploy-staging` 由 `ci` 成功后的 `workflow_run` 触发；`main` 分支保护要求 `check` / `e2e`。
 - `deploy-staging` 先检查触发 commit 的改动路径；只有应用代码、packages、tools、tests 或依赖清单变化才构建和部署。纯 docs/AGENTS/CI 变更会跳过 build/deploy。
-- staging build artifact 只包含 `apps/worker/web/dist`；deploy job 仍从同一 commit 重新打包 Worker。当前是“同一 commit + web artifact”，不是完整的 build-once。
+- staging build artifact 包含 `apps/worker/web/dist`、Worker bundle 与 `apps/tavern-client/dist`；deploy job 下载并校验同一 artifact，随后发布 staging client。production 复用同一 staging artifact。Worker 仍由 build job 的 dry-run bundle 提供，deploy 不再重新打包。
 - `deploy-production` 由 `v*` tag push 触发，查找该 commit 的 staging 成功记录并下载 Web artifact；production environment 要求 1 名 reviewer 且只允许 `v*`。
 - 当前没有 `v*` tag，production workflow 没有实际运行过；production 仍为旧版本。
 

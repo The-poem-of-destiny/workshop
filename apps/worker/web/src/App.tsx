@@ -364,7 +364,9 @@ function Detail({
                     ? "更新（保留修改）"
                     : installState === "notInstalled"
                       ? "安装"
-                      : "更新"}
+                      : installState === "scanIncomplete"
+                        ? "修复安装"
+                        : "更新"}
             </button>
             {installState !== "notInstalled" ? (
               <button type="button" disabled={installing} onClick={() => onUninstall(project)}>

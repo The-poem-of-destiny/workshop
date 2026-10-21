@@ -1,295 +1,66 @@
-export interface ProjectSummary {
-  id: string;
-  title: string;
-  description: string | null;
-  author: { id: string; name: string; avatarUrl: string | null };
-  projectType: string | null;
-  extensionType: string | null;
-  tags: string[];
-  entries: { worldbook: number; regex: number };
-  schemaVersion: string | null;
-  authorNote?: string | null;
-  discordThreadUrl?: string | null;
-  versionLabel?: string | null;
-  counts: { downloads: number; likes: number; subscriptions: number };
-  coverUrl: string | null;
-  coverPositionX: number;
-  coverPositionY: number;
-  coverZoom: number;
-  visibility: "public" | "private";
-  publishedAt: string | null;
-  updatedAt: string;
-  publishedRevisionId?: string | null;
-}
+import type {
+  AcquisitionResponse,
+  AdminAuditEvent,
+  AdminAuditList,
+  AdminMember,
+  AdminMemberList,
+  AdminProject,
+  AdminProjectList,
+  AdminSubmissionDetail,
+  AdminSubmissionListResponse,
+  AuthorProject,
+  AuthorProjectListResponse,
+  AuthorSubmission,
+  Banner,
+  DiffKind,
+  DiscoveryResponse,
+  FindingDiff,
+  FindingRef,
+  HomeResponse,
+  JsonValue,
+  MeResponse,
+  ProjectDetail,
+  ProjectListResponse,
+  ProjectSummary,
+  ReferenceItem,
+  ReferenceSet,
+  ReferenceVersion,
+  SiteSettings,
+  SubmissionDiff,
+} from "@workshop/contracts";
 
-export interface ProjectDetail extends ProjectSummary {
-  authorNote: string | null;
-  precautions: string | null;
-  discordThreadUrl: string | null;
-}
+export type {
+  AdminAuditEvent,
+  AdminAuditList,
+  AdminMember,
+  AdminMemberList,
+  AdminProject,
+  AdminProjectList,
+  AdminSubmissionDetail,
+  AdminSubmissionListResponse,
+  AuthorProject,
+  AuthorProjectListResponse,
+  AuthorSubmission,
+  DiffKind,
+  DiscoveryResponse,
+  FindingDiff,
+  FindingRef,
+  HomeResponse,
+  JsonValue,
+  MeResponse,
+  ProjectDetail,
+  ProjectListResponse,
+  ProjectSummary,
+  ReferenceItem,
+  ReferenceSet,
+  ReferenceVersion,
+  SiteSettings,
+  SubmissionDiff,
+};
 
-export interface HomeResponse {
-  banner: {
-    imageUrl: string | null;
-    positionX: number;
-    positionY: number;
-    zoom: number;
-    mobilePositionX?: number;
-    mobilePositionY?: number;
-    mobileZoom?: number;
-  } | null;
-  latest: ProjectSummary[];
-  recommendations: ProjectSummary[];
-}
-export interface DiscoveryResponse {
-  bucket?: string;
-  items: ProjectSummary[];
-}
-
-export interface ProjectListResponse {
-  items: ProjectSummary[];
-  nextCursor: string | null;
-}
-export interface MeResponse {
-  user: { id: string; username: string; globalName: string | null; avatarUrl: string | null; role: string };
-}
-export interface AcquisitionPayload {
-  project: {
-    id: string;
-    title: string;
-    version: string;
-    projectType: string | null;
-    extensionType: string | null;
-    manifestHash: string | null;
-  };
-  release: {
-    revisionId: string;
-    manifestHash: string | null;
-    files: { kind: "worldbook" | "regex"; sha256: string; bytes: number; mime: string }[];
-  };
-  tickets: { kind: "worldbook" | "regex"; url: string; expiresAt: string }[];
-}
-export interface AuthorSubmission {
-  id: string;
-  revisionId: string;
-  status: "pending" | "checking" | "approved" | "rejected" | "superseded";
-  gate: string | null;
-  checkerRevision: string | null;
-  submittedAt: string;
-  resolvedAt: string | null;
-  decision: "approve" | "reject" | null;
-  reason: string | null;
-  reviewedAt: string | null;
-  checkStatus: "queued" | "running" | "done" | "needs_human" | "failed";
-  checkError: string | null;
-  checkedAt: string | null;
-}
-export interface AuthorProject {
-  project: ProjectSummary;
-  rowVersion: number;
-  workingRevisionId: string | null;
-  latestSubmission: AuthorSubmission | null;
-  authorNote?: string | null;
-  precautions?: string | null;
-  metadataFindings?: string | null;
-}
-export interface AuthorProjectListResponse {
-  items: AuthorProject[];
-}
-export interface AdminSubmissionListItem {
-  id: string;
-  projectId: string;
-  projectTitle: string;
-  author: { id: string; name: string };
-  status: string;
-  gate: string | null;
-  checkerRevision: string | null;
-  checkStatus: string;
-  submittedAt: string;
-}
-export interface AdminSubmissionListResponse {
-  counts: {
-    pending: number;
-    checking: number;
-    approved: number;
-    rejected: number;
-    superseded: number;
-  };
-  items: AdminSubmissionListItem[];
-  nextCursor: string | null;
-}
-export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
-export interface AdminSubmissionDetail {
-  submission: {
-    id: string;
-    projectId: string;
-    revisionId: string;
-    status: string;
-    gate: string | null;
-    checkerRevision: string | null;
-    submittedBy: string;
-    submittedAt: string;
-    resolvedAt: string | null;
-    clientGate: string | null;
-    clientCheckerRevision: string | null;
-    clientWarningCount: number | null;
-    clientAcknowledgedAt: string | null;
-    checkStatus: string;
-    checkAttempts: number;
-    checkError: string | null;
-    checkReport: JsonValue;
-    checkReportHash: string | null;
-    checkedAt: string | null;
-    reviewCheckerRevision: string | null;
-    autoPublishedAt: string | null;
-  };
-  project: {
-    id: string;
-    title: string;
-    description: string | null;
-    visibility: string;
-    author: { id: string; name: string };
-  };
-  revision: {
-    id: string;
-    revisionNo: number;
-    title: string;
-    description: string | null;
-    authorNote: string | null;
-    projectType: string | null;
-    extensionType: string | null;
-    searchTags: JsonValue;
-    metadata: JsonValue;
-    manifestHash: string | null;
-    createdAt: string;
-  };
-  assets: { id: string; kind: string; sha256: string; bytes: number; mime: string; r2Key: string }[];
-  checkRuns: {
-    id: string;
-    reviewCheckerRevision: string;
-    routeGate: string;
-    report: JsonValue;
-    reportHash: string;
-    durationMs: number;
-    createdAt: string;
-  }[];
-  review: {
-    id: string;
-    submissionId: string;
-    reviewerId: string;
-    decision: string;
-    reason: string | null;
-    manifestHash: string;
-    checkerVersion: string;
-    report: JsonValue;
-    createdAt: string;
-  } | null;
-}
-export interface DiffKind {
-  added: { entryKey: string; name: string }[];
-  modified: { entryKey: string; name: string; changedFields?: string[] }[];
-  deleted: { entryKey: string; name: string }[];
-  unchanged: number;
-}
-export interface FindingRef {
-  ruleId: string;
-  severity: string;
-  message: string;
-  file: string | null;
-  line: number | null;
-}
-export interface FindingDiff {
-  accepted: FindingRef[];
-  changed: FindingRef[];
-  added: FindingRef[];
-  removed: FindingRef[];
-}
-export interface SubmissionDiff {
-  revisionId: string;
-  previousRevisionId: string | null;
-  worldbook: DiffKind;
-  regex: DiffKind;
-  cover: { changed: boolean; beforeSha256: string | null; afterSha256: string | null };
-  findings: FindingDiff;
-}
-
-export interface AdminMember {
-  id: string;
-  username: string;
-  globalName: string | null;
-  avatarUrl: string | null;
-  role: string;
-}
-export interface AdminMemberList {
-  items: AdminMember[];
-  nextCursor: string | null;
-}
-export interface AdminProject {
-  id: string;
-  title: string;
-  description: string | null;
-  projectType: string | null;
-  visibility: "public" | "private";
-  author: { id: string; name: string };
-  publishedRevisionId: string | null;
-  deletedAt: string | null;
-  updatedAt: string;
-}
-export interface AdminProjectList {
-  items: AdminProject[];
-  nextCursor: string | null;
-}
-export interface AdminAuditEvent {
-  id: string;
-  action: string;
-  targetType: string;
-  targetId: string | null;
-  actorId: string | null;
-  actorName: string | null;
-  detail: JsonValue;
-  createdAt: string;
-}
-export interface AdminAuditList {
-  items: AdminAuditEvent[];
-  nextCursor: string | null;
-}
-export interface SiteBanner {
-  imageUrl: string | null;
-  positionX: number;
-  positionY: number;
-  zoom: number;
-  mobilePositionX: number;
-  mobilePositionY: number;
-  mobileZoom: number;
-}
-export interface SiteSettings {
-  banner: SiteBanner | null;
-  siteContent: JsonValue;
-}
-export interface ReferenceItem {
-  id: string;
-  kind: "worldbook" | "regex";
-  displayName: string;
-  exactHash: string;
-  normalizedContentHash: string;
-  nameHash: string;
-  structureHash: string;
-}
-export interface ReferenceVersion {
-  id: string;
-  label: string;
-  ordinal: number;
-  graceUntil: string;
-  worldbookCount: number;
-  regexCount: number;
-  items?: ReferenceItem[];
-}
-export interface ReferenceSet {
-  id: string;
-  name: string;
-  description: string | null;
-  versions: ReferenceVersion[];
-}
+export type AcquisitionPayload = AcquisitionResponse;
+export type SiteBanner = Banner;
+export type AdminSubmissionListItem = AdminSubmissionListResponse["items"][number];
 
 const TOKEN_KEY = "cw_session_token";
 function token(): string | null {
