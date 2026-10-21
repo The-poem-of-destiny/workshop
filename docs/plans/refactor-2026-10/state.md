@@ -82,6 +82,7 @@
 
 - `docs/audits/features-audit-a.md`：features §1–6、§13 与 checker 规则内容。
 - `docs/audits/features-audit-b.md`：features §7–12、decisions、API/schema/cache/ops。
+- `docs/audits/features-audit-merged.md`：去重后的完成度结论与 P0–P4 任务清单。
 
 结论：此前的“已完成 P1–P6”表述过强，不能作为交付依据。审计发现：
 
