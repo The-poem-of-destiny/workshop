@@ -154,6 +154,7 @@ describe("OAuth flows", () => {
     const html = await done.text();
     const token = /"token":"([^"]+)"/.exec(html)?.[1];
     expect(token).toBeTruthy();
+    expect(html).toContain(`"targetOrigin":"${ORIGIN}"`);
     expect((await app.request("/api/v1/me", {
       headers: { authorization: `Bearer ${token}` },
     }, bindings)).status).toBe(200);
