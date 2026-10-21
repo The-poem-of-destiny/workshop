@@ -45,7 +45,7 @@ function sqlValue(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
 
-const SKIP_COLUMNS = new Set(['content_base64', 'entry_count']);
+const SKIP_COLUMNS = new Set(['content_base64', 'entry_count', 'source_key']);
 
 function insertSql(table, rows, chunk = 1) {
   if (rows.length === 0) return '';

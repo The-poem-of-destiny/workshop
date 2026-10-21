@@ -6,6 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { extract, transform, verify, reconcile, stableStringify } from './lib.mjs';
+import { createHash } from 'node:crypto';
+import { buildManifest, localCopy, validateManifest } from './r2-copy.mjs';
 
 const dir = await mkdtemp(path.join(os.tmpdir(), 'workshop-migration-'));
 try {
@@ -67,6 +69,31 @@ try {
   duplicateKey.tables.assets[1].r2_key = duplicateKey.tables.assets[0].r2_key;
   assert.equal(verify(duplicateKey).ok, false, 'duplicate asset r2 keys are rejected');
   assert.equal(reconcile(firstRun, changed).ok, false, 'reconcile reports target mismatch');
+
+  const manifest = buildManifest(firstRun);
+  assert.equal(manifest.objects.length, firstRun.tables.assets.length, 'every asset needs a copy manifest entry');
+  assert.equal(validateManifest(manifest), manifest);
+  assert.throws(() => validateManifest({ objects: [{ sourceKey: 'a', targetKey: 'b', sha256: 'x', bytes: 1 }] }), /sha256/);
+  assert.throws(() => validateManifest({ objects: [
+    { sourceKey: 'a', targetKey: 'b', sha256: 'a'.repeat(64), bytes: 1 },
+    { sourceKey: 'c', targetKey: 'b', sha256: 'b'.repeat(64), bytes: 1 },
+  ] }), /duplicate targetKey/);
+
+  const copyRoot = path.join(dir, 'r2');
+  const copySource = path.join(copyRoot, 'source');
+  const copyTarget = path.join(copyRoot, 'target');
+  await mkdir(path.join(copySource, 'nested'), { recursive: true });
+  const payload = Buffer.from('asset-bytes');
+  await writeFile(path.join(copySource, 'nested', 'asset.json'), payload);
+  const copyManifest = validateManifest({ objects: [{
+    sourceKey: 'nested/asset.json', targetKey: 'projects/p1/asset.json',
+    sha256: createHash('sha256').update(payload).digest('hex'), bytes: payload.length,
+  }] });
+  assert.equal(localCopy(copyManifest, copySource, copyTarget).length, 1);
+  assert.equal(localCopy(copyManifest, copySource, copyTarget).length, 0, 'second copy is idempotent');
+  await writeFile(path.join(copyTarget, 'projects/p1/asset.json'), 'corrupt');
+  assert.equal(localCopy(copyManifest, copySource, copyTarget).length, 1, 'corrupt target is repaired');
+  assert.equal((await readFile(path.join(copyTarget, 'projects/p1/asset.json'))).toString(), 'asset-bytes');
 
   const delta = transform(await extract(source, { since: '2024-01-03T00:00:00Z' }));
   assert.equal(delta.tables.projects[0].id, firstRun.tables.projects[0].id, 'delta retains published project identity');

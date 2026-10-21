@@ -49,7 +49,7 @@
 
 - `tools/migrate/`：extract/transform/load/verify/reconcile/all，支持 `--source`、`--target`、`--dry-run`、`--since`。
 - 稳定排序/固定 id 保证幂等；对账检查数量、指针、sha256、FK、重复 id、pending 唯一。
-- `load-local.mjs` 已把 target 导入隔离本地 D1；R2 对象批量复制仍待实现。
+- `load-local.mjs` 已把 target 导入隔离本地 D1；`r2-copy.mjs` 提供 manifest、本地演练、SHA/bytes 校验、幂等重跑、损坏修复与 remote `--apply`。
 - 文档：`archive/p4-migration.md`。
 
 ### P5/P6
@@ -110,21 +110,21 @@
 ## 待办
 
 - 独立完成度审计：`docs/audits/features-audit-merged.md`；结论非 CLEAN，按 `checklist.md` 继续。
-- P3 缺口：真实 Discord OAuth callback/redeem（当前只有 flow 创建/状态，PKCE challenge 可选）；内容 checker DO。
-- P4：真实备份全量/两次/delta/对账与隔离本地 D1 load 已完成；R2 对象复制适配器仍未实现。
+- P3：OAuth callback/redeem/device/公会校验已实现；真实 Discord 握手仍缺 client secret。
+- P4：真实备份全量/两次/delta/对账与隔离本地 D1 load 已完成；R2 复制适配器已实现，真实导入未执行。
 - P5：本地与 staging 部署已完成；staging 回滚/恢复演练与 5xx 冒烟已完成；真实生产切换仍留人工审批。
 - P6：`cloudflare/`、旧客户端 `src/`、`util/`、`config/`、`test-dist/` 与旧 webpack 构建链已移出当前工作树；旧版本保存在本地 worktree `../workshop-legacy`（`4fdf71a`）仅作对照。客户端需按 checklist 重写，不再从当前树构建。
 - Web UI：公开列表/详情、Discord 登录、作者工作台、审核台、owner 管理已接入；分页/作者筛选/订阅列表仍缺。
 - 真实 SillyTavern / Tavern client 验证未做（本机无运行中的 SillyTavern，按 stop condition 记录）。
-- W23：R2 批量复制适配器、真实数据导入仍缺；staging 远程 HTTP smoke 已完成。
+- W23：R2 批量复制适配器已实现并有本地演练；真实数据导入与独立 reconcile 仍需授权目标。
 
 ## 停止条件 / 阻塞
 
-- 真实 Discord OAuth callback/redeem：缺 Discord client secret，当前只有 flow 创建/状态；不伪造登录。
-- `ContentService` DO + 权威 checker：仓库没有 review checker 实现与 revision 语料，无法在不发明规则的情况下补齐 D-31。
+- 真实 Discord OAuth 握手：callback/redeem/device 代码与本地负例已完成，缺 client secret 与真实公会数据；不伪造登录。
+- Checker：`ContentService` 与移植规则已完成；真实语料扩充仍可继续，但不是当前阻塞。
 - 真实 SillyTavern 验证：本机无运行中的 SillyTavern；已按 stop condition 停止该项，不用 mock 冒充。
-- R2 对象复制适配器：本地 D1 已完成 load；未实现批量 R2 复制，也未把真实备份导入 staging。
-- 旧客户端 / `test-dist` shim：已从当前工作树移出，旧快照在 `../workshop-legacy`；新客户端尚未实现。
+- R2 真实导入：适配器已完成本地演练；未把真实备份导入 staging，需授权目标桶与源桶。
+- 旧客户端 / `test-dist` shim：已从当前工作树移出，旧快照在 `../workshop-legacy`；新客户端 `apps/tavern-client` 已实现，真实 ST 旅程未验证。
 
 ## 已知约束
 

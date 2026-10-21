@@ -222,7 +222,7 @@ export function transform(source) {
     const r2Key = kind === 'cover'
       ? `covers/${project.id}/${revisionId}-${sha256}.${extensionFor(sourceKey, mime)}`
       : `projects/${project.id}/revisions/${revisionId}/${kind}-${sha256}.${extensionFor(sourceKey, mime)}`;
-    tables.assets.push({ id: text(first(row, ['id']), idFor('asset', project.id, revisionId, kind)), project_id: project.id, revision_id: revisionId, kind, r2_key: r2Key, sha256, bytes: Number(first(row, ['bytes', 'size'], 0)) || 0, mime, entry_count: Number(first(row, ['entry_count'], 0)) || 0, created_at: text(first(row, ['created_at', 'createdAt'], project.created_at), project.created_at) });
+    tables.assets.push({ id: text(first(row, ['id']), idFor('asset', project.id, revisionId, kind)), project_id: project.id, revision_id: revisionId, kind, r2_key: r2Key, source_key: sourceKey || null, sha256, bytes: Number(first(row, ['bytes', 'size'], 0)) || 0, mime, entry_count: Number(first(row, ['entry_count'], 0)) || 0, created_at: text(first(row, ['created_at', 'createdAt'], project.created_at), project.created_at) });
   }
   const entryCounts = new Map();
   for (const asset of tables.assets) {

@@ -157,9 +157,10 @@
 - [x] 真实备份全量两次 + delta + reconcile；隔离本地 D1 load。
 - [x] 本地 HTTP E2E 15/15；真实 Chromium 搜索/排序/详情/作者/管理/审核通过/审核拒绝 5 条旅程。
 - [x] staging 部署、D1 migration 0002–0006、Worker version 记录。
-- [ ] R2 批量复制适配器；staging 真实数据导入。
+- [x] R2 批量复制适配器（manifest、SHA/bytes 校验、本地演练、幂等重跑、损坏修复、remote `--apply`）。
+- [ ] staging 真实数据导入与独立 reconcile（需授权目标）。
 - [x] T3 fingerprint/diff/安装安全测试（单元与 HTTP 覆盖）。
-- [ ] T6 旧公开 API 样本契约测试（fixtures 与契约测试尚未恢复）。
+- [x] T6 旧公开 API 样本契约测试（17 个 fixtures 已恢复，`tests/legacy-contracts.test.mjs` 防泄露/搜索/类型/分页/条目摘要）。
 - [x] Playwright 5 条真实浏览器旅程（本地 Worker + 真实 Chromium）。
 - [x] staging 远程 HTTP smoke：health/list/root/reference-sets/site/home 200，Origin 拒绝 403，client compatibility 200。
 - [ ] 生产切换 runbook 执行与人工审批。
