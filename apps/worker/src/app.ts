@@ -15,13 +15,27 @@ import { recommendationRoutes } from "./http/routes/recommendations";
 import { referenceRoutes } from "./http/routes/references";
 import { siteRoutes } from "./http/routes/site";
 import { requireSession } from "./http/session";
+import { shouldSampleRequest } from "./http/observability";
 
 export const app = new Hono<{ Bindings: Env }>();
 
 // Register before routes: Hono wildcard middleware only runs for handlers
 // registered after it.
 app.use("*", async (c, next) => {
+  const started = Date.now();
   await next();
+  const rate = Number(c.env.LOG_SAMPLE_RATE ?? "0.1");
+  if (shouldSampleRequest(c.res.status, rate, Math.random())) {
+    const entry = {
+      event: "request",
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      status: c.res.status,
+      durationMs: Date.now() - started,
+      sampled: c.res.status < 500,
+    };
+    console.log(JSON.stringify(entry));
+  }
   c.res.headers.set("x-content-type-options", "nosniff");
   c.res.headers.set("referrer-policy", "same-origin");
   if (!c.res.headers.has("cache-control")) {

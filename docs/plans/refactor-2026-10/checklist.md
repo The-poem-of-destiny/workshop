@@ -26,7 +26,7 @@
 - [x] 项目版本标签字段（schema/contracts/API/客户端）。
 - [x] 元数据检查字段与 findings（D-30）。
 - [x] 客户端版本记录：`site_settings.client_channels`（publish 脚本写入）+ 版本化 R2 对象。
-- [ ] avatar/banner 上传与 `assets.kind` 的写入路径；当前只有 worldbook/regex/cover。
+- [x] Banner 上传与 `assets.kind` 写入路径；作者头像按 D-27 使用 Discord，不做 avatar 上传。
 
 ## 2. 认证与权限
 
@@ -143,7 +143,7 @@
 - [x] 审核队列/详情/批准拒绝后台。
 - [x] Toast、弹窗集合、警告标记、Discord 按钮、Banner 位置缩放。
 - [x] 卡片作者头像/时间/一句话/更新时间；详情显示发布/更新时间与 schema。
-- [ ] 详情独立作者介绍区。
+- [x] 详情复用项目级 `author_note`；不做作者级独立 bio（D-27/D-32）。
 
 ## 11. 缓存、调度与运维
 
