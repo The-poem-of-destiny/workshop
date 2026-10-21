@@ -153,7 +153,8 @@
 - [ ] D-24/D-28 Workers Cache 专项、Cache-Tag/purge、`Cf-Cache-Status` 测量（已实现公共读 Cache API + `cache_epoch` 触发器失效；尚缺 `Cf-Cache-Status`/tag purge 测量）。
 - [x] cron：榜单、7d/30d、清理、过期 session、自动审核。
 - [x] 可观测性采样率；错误不采样（`shouldSampleRequest` + 单测）。
-- [ ] 定期备份与校验（J6）。
+- [ ] 定期备份与校验（J6；已加导出校验工具与单测，缺 Cloudflare 定期备份调度）。
+- [x] 备份导出校验：assets bytes/sha256、项目 published/working 指针。
 - [x] D1 rows read/write 预算测试：公共列表页 rows_read < 200、rows_written = 0（单测）。
 
 ## 12. 测试、迁移与上线
