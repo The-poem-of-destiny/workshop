@@ -93,10 +93,12 @@ describe("identity and interactions", () => {
       body: JSON.stringify({ mode: "device" }),
     }, { ...bindings, ALLOWED_ORIGINS: "https://workshop.example" });
     expect(created.status).toBe(201);
-    const flow = await created.json() as { id: string; state: string; url: string; expiresAt: string };
+    const flow = await created.json() as { id: string; state: string; url: string; expiresAt: string; deviceCode: string };
     expect(flow.state).toEqual(expect.any(String));
     expect(flow.url).toContain("/auth/pending");
-    const status = await app.request(`/api/v1/auth/flows/${flow.id}`, undefined, bindings);
+    const unauthorized = await app.request(`/api/v1/auth/flows/${flow.id}`, undefined, bindings);
+    expect(unauthorized.status).toBe(404);
+    const status = await app.request(`/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`, undefined, bindings);
     expect(status.status).toBe(200);
     await expect(status.json()).resolves.toEqual({ status: "pending", expiresAt: flow.expiresAt });
   });

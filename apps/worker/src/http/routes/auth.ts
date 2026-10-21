@@ -178,7 +178,7 @@ authRoutes.post("/flows", async c => {
     verifier,
     codeChallenge: parsed.data.codeChallenge ?? null,
     redeemHash: deviceCode ? await sha256Hex(deviceCode) : null,
-    origin: requestOrigin,
+    origin: publicOrigin(c),
     mode: parsed.data.mode,
     expiresAt,
   });
@@ -207,7 +207,8 @@ authRoutes.post("/flows", async c => {
 });
 
 authRoutes.get("/flows/:id", async c => {
-  const status = await getAuthFlowStatus(c.env.DB, c.req.param("id"));
+  const deviceSecret = c.req.query("deviceCode") ?? c.req.header("x-device-secret") ?? "";
+  const status = await getAuthFlowStatus(c.env.DB, c.req.param("id"), deviceSecret);
   if (!status) return jsonError(c, "not_found", "Auth flow not found");
   return c.json(authFlowStatusSchema.parse(status));
 });

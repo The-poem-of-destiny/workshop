@@ -29,6 +29,7 @@ interface SubmissionTargetRow {
   review_checker_revision: string | null;
   check_status: string;
   check_report: string | null;
+  check_report_hash: string | null;
   client_gate: string | null;
 }
 
@@ -327,13 +328,16 @@ export async function reviewAdminSubmission(
   const target = await db.prepare(`
     SELECT s.id, s.project_id, s.revision_id, s.status,
            r.manifest_hash, s.checker_revision, s.review_checker_revision,
-           s.check_status, s.check_report, s.client_gate
+           s.check_status, s.check_report, s.check_report_hash, s.client_gate
     FROM submissions s
     JOIN project_revisions r ON r.id = s.revision_id
     WHERE s.id = ?
   `).bind(submissionId).first<SubmissionTargetRow>();
   if (!target) return { kind: "not_found" as const };
   if (target.status !== "pending") return { kind: "conflict" as const };
+  if (request.revisionId && request.revisionId !== target.revision_id) return { kind: "conflict" as const };
+  if (request.manifestHash && request.manifestHash !== target.manifest_hash) return { kind: "conflict" as const };
+  if (request.reportHash && request.reportHash !== target.check_report_hash) return { kind: "conflict" as const };
   if (target.check_status === "queued" || target.check_status === "running") {
     return { kind: "conflict" as const };
   }

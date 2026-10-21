@@ -136,10 +136,10 @@ describe("OAuth flows", () => {
   it("rejects a Discord account outside the allowed guild", async () => {
     mockDiscord("323456789012345678");
     const created = await createFlow({ mode: "device" });
-    const flow = await created.json() as { id: string; state: string };
+    const flow = await created.json() as { id: string; state: string; deviceCode: string };
     const done = await callback(flow.state);
     expect(done.status).toBe(400);
-    const status = await app.request(`/api/v1/auth/flows/${flow.id}`, undefined, bindings);
+    const status = await app.request(`/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`, undefined, bindings);
     await expect(status.json()).resolves.toMatchObject({ status: "pending", error: "你的账号不在允许的 Discord 服务器中" });
   });
 

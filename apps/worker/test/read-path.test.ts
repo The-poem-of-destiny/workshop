@@ -184,6 +184,12 @@ describe("public read path", () => {
       const response = await app.request(`/api/v1/projects?search=${encodeURIComponent(query)}`, undefined, bindings);
       expect(response.status).toBe(200);
     }
+    const plan = await bindings.DB.prepare(`
+      EXPLAIN QUERY PLAN
+      SELECT p.id FROM projects p
+      WHERE p.rowid IN (SELECT rowid FROM project_search_short WHERE project_search_short MATCH ?)
+    `).bind('"命"').all<{ detail: string }>();
+    expect(plan.results.some(row => row.detail.includes("project_search_short"))).toBe(true);
   });
 
   it("returns project detail and hides private projects", async () => {

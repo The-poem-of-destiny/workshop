@@ -15,6 +15,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "publish:checker": "node scripts/publish-checker.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {

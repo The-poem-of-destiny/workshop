@@ -9,4 +9,5 @@ export interface Env {
   DISCORD_CLIENT_ID?: string;
   DISCORD_CLIENT_SECRET?: string;
   DISCORD_ALLOWED_GUILD_IDS?: string;
+  CLEANUP_DRY_RUN?: string;
 }

@@ -13,6 +13,21 @@ export interface KindDiff {
   unchanged: number;
 }
 
+export interface FindingRef {
+  ruleId: string;
+  severity: string;
+  message: string;
+  file: string | null;
+  line: number | null;
+}
+
+export interface FindingDiff {
+  accepted: FindingRef[];
+  changed: FindingRef[];
+  added: FindingRef[];
+  removed: FindingRef[];
+}
+
 export interface SubmissionDiff {
   revisionId: string;
   previousRevisionId: string | null;
@@ -23,6 +38,7 @@ export interface SubmissionDiff {
     beforeSha256: string | null;
     afterSha256: string | null;
   };
+  findings: FindingDiff;
 }
 
 interface AssetRow {
@@ -91,25 +107,90 @@ function diffKind(
   };
 }
 
+function findingRefs(report: unknown): FindingRef[] {
+  if (!report || typeof report !== "object") return [];
+  const findings = Reflect.get(report, "findings");
+  if (!Array.isArray(findings)) return [];
+  const refs: FindingRef[] = [];
+  for (const item of findings) {
+    if (!item || typeof item !== "object") continue;
+    const ruleId = Reflect.get(item, "ruleId");
+    if (typeof ruleId !== "string") continue;
+    const severity = Reflect.get(item, "severity");
+    const message = Reflect.get(item, "message");
+    const file = Reflect.get(item, "file");
+    const line = Reflect.get(item, "line");
+    refs.push({
+      ruleId,
+      severity: typeof severity === "string" ? severity : "info",
+      message: typeof message === "string" ? message : "",
+      file: typeof file === "string" ? file : null,
+      line: typeof line === "number" ? line : null,
+    });
+  }
+  return refs;
+}
+
+function findingKey(ref: FindingRef): string {
+  return `${ref.ruleId}:${ref.file ?? ""}:${ref.line ?? ""}`;
+}
+
+function diffFindings(currentReport: unknown, previousReport: unknown): FindingDiff {
+  const current = new Map(findingRefs(currentReport).map(ref => [findingKey(ref), ref]));
+  const previous = new Map(findingRefs(previousReport).map(ref => [findingKey(ref), ref]));
+  const diff: FindingDiff = { accepted: [], changed: [], added: [], removed: [] };
+  for (const [key, ref] of current) {
+    const old = previous.get(key);
+    if (!old) diff.added.push(ref);
+    else if (old.severity !== ref.severity || old.message !== ref.message) diff.changed.push(ref);
+    else diff.accepted.push(ref);
+  }
+  for (const [key, ref] of previous) {
+    if (!current.has(key)) diff.removed.push(ref);
+  }
+  return diff;
+}
+
 export async function getSubmissionDiff(
   db: D1Database,
   r2: R2Bucket,
   submissionId: string,
 ): Promise<SubmissionDiff | null> {
   const target = await db.prepare(`
-    SELECT s.revision_id, p.published_revision_id
+    SELECT s.revision_id, s.project_id, s.check_report, p.published_revision_id
     FROM submissions s JOIN projects p ON p.id = s.project_id
     WHERE s.id = ?
-  `).bind(submissionId).first<{ revision_id: string; published_revision_id: string | null }>();
+  `).bind(submissionId).first<{
+    revision_id: string;
+    project_id: string;
+    check_report: string | null;
+    published_revision_id: string | null;
+  }>();
   if (!target) return null;
+  const previousSubmission = await db.prepare(`
+    SELECT revision_id, check_report FROM submissions
+    WHERE project_id = ? AND id <> ?
+    ORDER BY submitted_at DESC LIMIT 1
+  `).bind(target.project_id, submissionId).first<{ revision_id: string; check_report: string | null }>();
+  let previousReport: unknown = null;
+  try {
+    previousReport = previousSubmission?.check_report ? JSON.parse(previousSubmission.check_report) : null;
+  } catch {
+    previousReport = null;
+  }
+  let currentReport: unknown = null;
+  try {
+    currentReport = target.check_report ? JSON.parse(target.check_report) : null;
+  } catch {
+    currentReport = null;
+  }
 
-  const previousId = target.published_revision_id !== target.revision_id
-    ? target.published_revision_id
-    : null;
+  const previousId = previousSubmission?.revision_id
+    ?? (target.published_revision_id !== target.revision_id ? target.published_revision_id : null);
   const rows = await db.prepare(`
     SELECT revision_id, kind, r2_key, sha256 FROM assets
     WHERE revision_id IN (?, ?) AND kind IN ('worldbook', 'regex', 'cover')
-  `).bind(target.revision_id, target.published_revision_id ?? target.revision_id)
+  `).bind(target.revision_id, previousId ?? target.revision_id)
     .all<AssetRow>();
 
   const byRevision = new Map<string, Map<string, AssetRow>>();
@@ -146,5 +227,6 @@ export async function getSubmissionDiff(
       beforeSha256: coverBefore,
       afterSha256: coverAfter,
     },
+    findings: diffFindings(currentReport, previousReport),
   };
 }

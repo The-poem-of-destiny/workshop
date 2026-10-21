@@ -69,6 +69,8 @@ interface SummaryRow {
   worldbook_count: number;
   regex_count: number;
   schema_version: string | null;
+  author_note: string | null;
+  discord_thread_url: string | null;
   version_label: string | null;
   cover_position_x: number;
   cover_position_y: number;
@@ -120,6 +122,8 @@ function toSummary(row: SummaryRow): ProjectSummary {
     tags: parseTags(row.tags),
     entries: { worldbook: row.worldbook_count, regex: row.regex_count },
     schemaVersion: row.schema_version,
+    authorNote: row.author_note,
+    discordThreadUrl: row.discord_thread_url,
     versionLabel: row.version_label,
     coverPositionX: row.cover_position_x,
     coverPositionY: row.cover_position_y,
@@ -141,7 +145,8 @@ const summarySql = `
     p.subscriptions_count, u.id AS author_id, COALESCE(u.global_name, u.username) AS author_name,
     u.avatar AS author_avatar, COALESCE(r.tags, p.search_tags) AS tags,
     COALESCE(r.worldbook_count, 0) AS worldbook_count, COALESCE(r.regex_count, 0) AS regex_count,
-    r.schema_version, COALESCE(r.version_label, p.version_label) AS version_label,
+    r.schema_version, COALESCE(r.author_note, p.author_note) AS author_note,
+    r.discord_thread_url, COALESCE(r.version_label, p.version_label) AS version_label,
     COALESCE(r.cover_position_x, p.cover_position_x) AS cover_position_x,
     COALESCE(r.cover_position_y, p.cover_position_y) AS cover_position_y,
     COALESCE(r.cover_zoom, p.cover_zoom) AS cover_zoom,
@@ -190,6 +195,7 @@ export async function getProjectSummary(db: D1Database, projectId: string): Prom
 interface AuthorProjectRow extends SummaryRow {
   author_note: string | null;
   precautions: string | null;
+  metadata_findings: string | null;
   row_version: number;
   working_revision_id: string | null;
   submission_id: string | null;
@@ -241,6 +247,7 @@ export async function listAuthorProjects(db: D1Database, session: Session): Prom
       r.schema_version, COALESCE(r.version_label, p.version_label) AS version_label,
       COALESCE(r.author_note, p.author_note) AS author_note,
       COALESCE(r.precautions, p.precautions) AS precautions,
+      COALESCE(r.metadata_findings, p.metadata_findings) AS metadata_findings,
       COALESCE(r.cover_position_x, p.cover_position_x) AS cover_position_x,
       COALESCE(r.cover_position_y, p.cover_position_y) AS cover_position_y,
       COALESCE(r.cover_zoom, p.cover_zoom) AS cover_zoom,
@@ -268,6 +275,7 @@ export async function listAuthorProjects(db: D1Database, session: Session): Prom
     latestSubmission: toAuthorSubmission(row),
     authorNote: row.author_note ?? null,
     precautions: row.precautions ?? null,
+    metadataFindings: row.metadata_findings ?? null,
   }));
 }
 
@@ -397,7 +405,7 @@ export async function patchProject(
       ),
     db.prepare(`UPDATE project_revisions
       SET title = ?, description = ?, author_note = ?, project_type = ?, extension_type = ?,
-          tags = ?, schema_version = ?, version_label = ?, precautions = ?,
+          tags = ?, schema_version = COALESCE(schema_version, ?), version_label = ?, precautions = ?,
           cover_position_x = ?, cover_position_y = ?, cover_zoom = ?, metadata_findings = ?,
           metadata_checker_revision = ?, metadata_checked_at = ?, metadata_checked_by = ?,
           discord_thread_url = ?
@@ -601,6 +609,20 @@ export async function deleteProjectEntry(
   }
   const removed = removeSerializedEntry(raw, kind, entryKey);
   if (!removed) return null;
+  if (removed.entryCount === 0) {
+    const otherKind = kind === "worldbook" ? "regex" : "worldbook";
+    const other = await db.prepare(
+      "SELECT 1 AS present FROM assets WHERE revision_id = ? AND kind = ? LIMIT 1",
+    ).bind(revisionId, otherKind).first<{ present: number }>();
+    const policy = validateProjectContentPolicy(
+      { projectType: current.project_type, tags: parseTags(current.search_tags) },
+      {
+        worldbook: kind === "worldbook" ? false : Boolean(other?.present),
+        regex: kind === "regex" ? false : Boolean(other?.present),
+      },
+    );
+    if (!policy.valid) return null;
+  }
   const revision = await addRevision(db, session, current, expectedVersion, revisionValues(current, {}));
   if (!revision) return null;
   const body = new TextEncoder().encode(removed.text).buffer;
@@ -729,6 +751,13 @@ function extensionForMime(mime: string): string {
   return known[mime] ?? "bin";
 }
 
+export interface PrevalidatedContent {
+  presence: Record<ProjectEntryKind, boolean>;
+  counts: Record<ProjectEntryKind, number>;
+  conflict: string | null;
+  error: string | null;
+}
+
 export type SubmitRevisionResult =
   | { ok: true; submissionId: string; checkStatus: "queued" | "needs_human" }
   | { ok: false; code: "not_found" | "invalid_content" | "conflict"; message: string };
@@ -739,6 +768,34 @@ interface RevisionAssetRow {
   sha256: string;
 }
 
+async function baselineEntryConflict(db: D1Database, text: string): Promise<string | null> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const refs = extractProjectEntries(parsed, "worldbook");
+  if (refs.length === 0) return null;
+  const fingerprints = await Promise.all(refs.map(async ref => {
+    const entry = ref.entry;
+    const rawName = entry.comment ?? entry.name;
+    const name = String(rawName ?? "").replace(/\r\n/g, "\n").trim();
+    const content = String(entry.content ?? "").replace(/\r\n/g, "\n").trim();
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(JSON.stringify({ name, content })),
+    );
+    return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+  }));
+  const match = await db.prepare(`
+    SELECT display_name FROM reference_items
+    WHERE kind = 'worldbook' AND exact_hash IN (${fingerprints.map(() => "?").join(", ")})
+    LIMIT 1
+  `).bind(...fingerprints).first<{ display_name: string }>();
+  return match?.display_name ?? null;
+}
+
 export async function submitRevision(
   db: D1Database,
   r2: R2Bucket,
@@ -746,6 +803,7 @@ export async function submitRevision(
   projectId: string,
   revisionId: string,
   input: SubmitProject,
+  prevalidated?: PrevalidatedContent,
 ): Promise<SubmitRevisionResult> {
   const current = await getWorkingRevision(db, projectId, session);
   if (!current || current.working_revision_id !== revisionId) {
@@ -786,25 +844,44 @@ export async function submitRevision(
   const counts: Record<ProjectEntryKind, number> = { worldbook: 0, regex: 0 };
   let validationError: string | null = null;
 
-  try {
-    for (const asset of assets.results) {
-      if (asset.kind !== "worldbook" && asset.kind !== "regex") continue;
-      const kind = asset.kind as ProjectEntryKind;
-      const object = await r2.get(asset.r2_key);
-      if (!object) {
-        validationError = "项目文件缺失，请重新上传";
-        break;
-      }
-      const validation = validateProjectContentText(await object.text(), kind);
-      if (!validation.valid) {
-        validationError = validation.error;
-        break;
-      }
-      presence[kind] = true;
-      counts[kind] = validation.entryCount;
+  if (prevalidated) {
+    presence.worldbook = prevalidated.presence.worldbook;
+    presence.regex = prevalidated.presence.regex;
+    counts.worldbook = prevalidated.counts.worldbook;
+    counts.regex = prevalidated.counts.regex;
+    if (prevalidated.error) validationError = prevalidated.error;
+    if (prevalidated.conflict) {
+      validationError = `世界书条目与官方基线「${prevalidated.conflict}」完全相同，请基于基线修改后再提交`;
     }
-  } catch (error) {
-    validationError = error instanceof Error ? `项目文件读取失败：${error.message}` : "项目文件读取失败";
+  } else {
+    try {
+      for (const asset of assets.results) {
+        if (asset.kind !== "worldbook" && asset.kind !== "regex") continue;
+        const kind = asset.kind as ProjectEntryKind;
+        const object = await r2.get(asset.r2_key);
+        if (!object) {
+          validationError = "项目文件缺失，请重新上传";
+          break;
+        }
+        const text = await object.text();
+        const validation = validateProjectContentText(text, kind);
+        if (!validation.valid) {
+          validationError = validation.error;
+          break;
+        }
+        presence[kind] = true;
+        counts[kind] = validation.entryCount;
+        if (kind === "worldbook") {
+          const conflict = await baselineEntryConflict(db, text);
+          if (conflict) {
+            validationError = `世界书条目与官方基线「${conflict}」完全相同，请基于基线修改后再提交`;
+            break;
+          }
+        }
+      }
+    } catch (error) {
+      validationError = error instanceof Error ? `项目文件读取失败：${error.message}` : "项目文件读取失败";
+    }
   }
 
   if (!validationError) {

@@ -32,7 +32,7 @@ const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 const sha = createHash("sha256").update(body).digest("hex");
 if (sha !== manifest.revision) throw new Error("built manifest hash does not match dist/index.js");
 const bucket = env === "staging" ? "workshop-client-staging" : "workshop-client-prod";
-const database = env === "staging" ? "workshop-staging" : "workshop-production";
+const database = env === "staging" ? "workshop-staging" : "workshop-prod";
 const versionedKey = `client/v/${sha}/index.js`;
 const channelKey = `client/${channel}/index.js`;
 
@@ -55,7 +55,6 @@ function upload(key) {
 }
 
 upload(versionedKey);
-upload(channelKey);
 
 const query = `SELECT value FROM site_settings WHERE key = 'client_channels'`;
 const output = wrangler([
@@ -75,5 +74,30 @@ const escaped = JSON.stringify(channels).replaceAll("'", "''");
 const sql = `INSERT INTO site_settings (key, value, updated_at) VALUES ('client_channels', '${escaped}', CURRENT_TIMESTAMP)
   ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`;
 wrangler(["d1", "execute", database, "--remote", "--config", "wrangler.jsonc", "--env", env, "--command", sql]);
+
+// The channel pointer is written only after the version object and its D1
+// record exist, so a failed publish cannot point at a missing artifact.
+upload(channelKey);
+
+async function purgeChannel() {
+  const zone = process.env.CLOUDFLARE_ZONE_ID;
+  const token = process.env.CLOUDFLARE_API_TOKEN;
+  const publicUrl = process.env.WORKSHOP_PUBLIC_URL;
+  if (!zone || !token || !publicUrl) {
+    console.log("[purge skipped] set CLOUDFLARE_ZONE_ID, CLOUDFLARE_API_TOKEN and WORKSHOP_PUBLIC_URL to purge the channel");
+    return;
+  }
+  if (dryRun) {
+    console.log(`[dry-run] purge client:${channel} at ${publicUrl}`);
+    return;
+  }
+  const response = await fetch(`https://api.cloudflare.com/client/v4/zones/${zone}/purge_cache`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ tags: [`client:${channel}`] }),
+  });
+  if (!response.ok) throw new Error(`cache purge failed: ${response.status} ${await response.text()}`);
+}
+await purgeChannel();
 
 console.log(JSON.stringify({ ok: true, env, channel, version: manifest.version, revision: sha, versionedKey, channelKey }));

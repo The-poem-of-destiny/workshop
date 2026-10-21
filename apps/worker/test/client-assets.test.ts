@@ -48,6 +48,22 @@ describe("client distribution", () => {
     }
   });
 
+  it("serves pinned checker bundles immutably and rejects unknown files", async () => {
+    const checkerSha = "1234567890abcdef";
+    await bindings.R2.put(`checker/v/${checkerSha}/browser-checker.js`, "globalThis.PoemEjsChecker={};");
+    await bindings.R2.put(`checker/v/${checkerSha}/NOTICES.txt`, "notices");
+    const response = await app.request(`/client/checker/v/${checkerSha}/browser-checker.js`, undefined, bindings);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toContain("immutable");
+    expect(response.headers.get("cache-tag")).toBe(`checker:v:${checkerSha}`);
+    await expect(response.text()).resolves.toContain("PoemEjsChecker");
+    const notices = await app.request(`/client/checker/v/${checkerSha}/NOTICES.txt`, undefined, bindings);
+    expect(notices.status).toBe(200);
+    await expect(notices.text()).resolves.toBe("notices");
+    expect((await app.request(`/client/checker/v/${checkerSha}/..%2Fsecret`, undefined, bindings)).status).toBe(404);
+    expect((await app.request("/client/checker/v/nothex/browser-checker.js", undefined, bindings)).status).toBe(404);
+  });
+
   it("returns channel records and enforces exact version compatibility", async () => {
     const version = await app.request("/client/version?channel=staging", undefined, bindings);
     expect(version.status).toBe(200);

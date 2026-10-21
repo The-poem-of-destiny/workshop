@@ -75,6 +75,21 @@ describe("scheduled jobs", () => {
     ]);
   });
 
+  it("keeps soft-deleted projects for 90 days and supports a dry run", async () => {
+    await seedProject("old", 0);
+    await seedProject("recent", 0);
+    const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+    await bindings.DB.prepare("UPDATE projects SET deleted_at = ? WHERE id = 'old'").bind(daysAgo(100)).run();
+    await bindings.DB.prepare("UPDATE projects SET deleted_at = ? WHERE id = 'recent'").bind(daysAgo(60)).run();
+    const preview = await cleanupExpired(bindings.DB, true);
+    expect(preview.deletedProjects).toBe(1);
+    const before = await bindings.DB.prepare("SELECT COUNT(*) AS n FROM projects").first<{ n: number }>();
+    expect(before?.n).toBe(2);
+    await cleanupExpired(bindings.DB);
+    const remaining = await bindings.DB.prepare("SELECT id FROM projects ORDER BY id").all<{ id: string }>();
+    expect(remaining.results).toEqual([{ id: "recent" }]);
+  });
+
   it("removes expired sessions, flows and download tokens", async () => {
     await bindings.DB.prepare(
       "INSERT INTO users (id, username) VALUES ('u1', 'u1')",

@@ -3,7 +3,8 @@ import {
   detectImageDimensions,
   inspectProjectMetadata,
   normalizeDiscordThreadUrl,
-  validateProjectContentText,
+  type ProjectContentValidation,
+  type ProjectEntryKind,
 } from "@workshop/domain";
 import { Hono } from "hono";
 import type { Context } from "hono";
@@ -25,6 +26,7 @@ import {
   patchProject,
   softDeleteProject,
   submitRevision,
+  type PrevalidatedContent,
   updateVisibility,
   upsertAsset,
 } from "../../storage/authoring.js";
@@ -48,6 +50,32 @@ function ifMatchVersion(value: string | undefined): number | null {
   const unquoted = value.trim().replace(/^"|"$|^'|'$/g, "");
   const parsed = Number(unquoted);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+async function validateContentViaDo(
+  env: Env,
+  text: string,
+  kind: ProjectEntryKind,
+): Promise<ProjectContentValidation> {
+  const id = env.CONTENT_SERVICE.idFromName("content-validator");
+  const response = await env.CONTENT_SERVICE.get(id).fetch("https://content-service/validate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ validate: { kind, text } }),
+  });
+  if (!response.ok) throw new Error("Content validation service unavailable");
+  return response.json() as Promise<ProjectContentValidation>;
+}
+
+async function validateRevisionViaDo(env: Env, revisionId: string): Promise<PrevalidatedContent> {
+  const id = env.CONTENT_SERVICE.idFromName("content-validator");
+  const response = await env.CONTENT_SERVICE.get(id).fetch("https://content-service/validate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ validateRevision: revisionId }),
+  });
+  if (!response.ok) throw new Error("Content validation service unavailable");
+  return response.json() as Promise<PrevalidatedContent>;
 }
 
 async function metadataRateLimited(db: D1Database, projectId: string, actorId: string): Promise<boolean> {
@@ -108,10 +136,26 @@ authoringRoutes.get("/:id/draft", async c => {
   if (!project) return jsonError(c, "not_found", "Project not found");
   const summary = await getProjectSummary(c.env.DB, project.id);
   if (!summary) return jsonError(c, "not_found", "Project not found");
+  const latestSubmission = await c.env.DB.prepare(`
+    SELECT s.id, s.revision_id, s.status, s.check_status, s.resolved_at,
+      r.decision, r.reason
+    FROM submissions s LEFT JOIN reviews r ON r.submission_id = s.id
+    WHERE s.project_id = ?
+    ORDER BY s.submitted_at DESC LIMIT 1
+  `).bind(project.id).first<{
+    id: string;
+    revision_id: string;
+    status: string;
+    check_status: string;
+    resolved_at: string | null;
+    decision: string | null;
+    reason: string | null;
+  }>();
   return c.json({
     project: summary,
     rowVersion: project.row_version,
     workingRevisionId: project.working_revision_id,
+    latestSubmission: latestSubmission ?? null,
   });
 });
 
@@ -242,6 +286,27 @@ authoringRoutes.post("/:id/revisions", async c => {
   return c.json(result, 201);
 });
 
+authoringRoutes.get("/:id/revisions/:revisionId/files/cover", async c => {
+  const auth = await sessionOrError(c);
+  if (!auth.session) return auth.response;
+  const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
+  if (!project) return jsonError(c, "not_found", "Project not found");
+  const asset = await c.env.DB.prepare(`
+    SELECT r2_key, mime FROM assets
+    WHERE project_id = ? AND revision_id = ? AND kind = 'cover'
+  `).bind(c.req.param("id"), c.req.param("revisionId")).first<{ r2_key: string; mime: string }>();
+  if (!asset) return jsonError(c, "not_found", "Cover not found");
+  const object = await c.env.R2.get(asset.r2_key);
+  if (!object) return jsonError(c, "not_found", "Cover not found");
+  return new Response(object.body, {
+    headers: {
+      "content-type": asset.mime,
+      "cache-control": "private, no-store",
+      "x-content-type-options": "nosniff",
+    },
+  });
+});
+
 authoringRoutes.put("/:id/revisions/:revisionId/files/:kind", async c => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
@@ -269,7 +334,7 @@ authoringRoutes.put("/:id/revisions/:revisionId/files/:kind", async c => {
   if (body.byteLength > MAX_UPLOAD_BYTES) return jsonError(c, "payload_too_large", "File exceeds 10 MiB limit");
   let entryCount: number | undefined;
   if (parsedKind.data !== "cover") {
-    const validation = validateProjectContentText(new TextDecoder().decode(body), parsedKind.data);
+    const validation = await validateContentViaDo(c.env, new TextDecoder().decode(body), parsedKind.data);
     if (!validation.valid) return jsonError(c, "bad_request", validation.error);
     entryCount = validation.entryCount;
   } else {
@@ -299,6 +364,12 @@ authoringRoutes.post("/:id/revisions/:revisionId/submit", async c => {
   if (!auth.session) return auth.response;
   const parsed = submitProjectSchema.safeParse(await bodyJson(c));
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid submission", parsed.error.flatten());
+  let prevalidated: PrevalidatedContent;
+  try {
+    prevalidated = await validateRevisionViaDo(c.env, c.req.param("revisionId"));
+  } catch {
+    return jsonError(c, "internal", "Content validation service unavailable");
+  }
   const result = await submitRevision(
     c.env.DB,
     c.env.R2,
@@ -306,6 +377,7 @@ authoringRoutes.post("/:id/revisions/:revisionId/submit", async c => {
     c.req.param("id"),
     c.req.param("revisionId"),
     parsed.data,
+    prevalidated,
   );
   if (!result.ok) {
     if (result.code === "not_found") return jsonError(c, "not_found", result.message);

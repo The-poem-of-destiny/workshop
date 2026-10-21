@@ -58,13 +58,18 @@ export async function buildRankings(db: D1Database): Promise<void> {
   }
 }
 
-export async function cleanupExpired(db: D1Database): Promise<void> {
+export async function cleanupExpired(db: D1Database, dryRun = false): Promise<Record<string, number>> {
   const now = Date.now();
   const iso = new Date(now).toISOString();
   const weekAgo = new Date(now - 7 * 86_400_000).toISOString();
   const dayAgo = new Date(now - 86_400_000).toISOString();
   const ninetyDaysAgo = new Date(now - 90 * 86_400_000).toISOString();
-  const thirtyDaysAgo = new Date(now - 30 * 86_400_000).toISOString();
+  if (dryRun) {
+    const row = await db.prepare(
+      "SELECT COUNT(*) AS count FROM projects WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+    ).bind(ninetyDaysAgo).first<{ count: number }>();
+    return { deletedProjects: row?.count ?? 0 };
+  }
   await db.batch([
     db.prepare("DELETE FROM sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)")
       .bind(iso, weekAgo),
@@ -74,8 +79,9 @@ export async function cleanupExpired(db: D1Database): Promise<void> {
       .bind(dayAgo, weekAgo),
     db.prepare("DELETE FROM ranking_runs WHERE created_at < ?").bind(ninetyDaysAgo),
     db.prepare("DELETE FROM discovery_exposures WHERE created_at < ?").bind(ninetyDaysAgo),
-    db.prepare("DELETE FROM projects WHERE deleted_at IS NOT NULL AND deleted_at < ?").bind(thirtyDaysAgo),
+    db.prepare("DELETE FROM projects WHERE deleted_at IS NOT NULL AND deleted_at < ?").bind(ninetyDaysAgo),
   ]);
+  return { deletedProjects: 0 };
 }
 
 export async function getRankings(db: D1Database, kind: "daily" | "7d" | "30d") {

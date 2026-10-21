@@ -20,6 +20,9 @@ export type AdminSubmissionListQuery = z.infer<typeof adminSubmissionListQuerySc
 export const adminReviewRequestSchema = z.object({
   decision: z.enum(["approve", "reject"]),
   reason: z.string().max(4000).optional(),
+  revisionId: z.string().max(80).optional(),
+  manifestHash: z.string().max(128).optional(),
+  reportHash: z.string().max(128).optional(),
 }).superRefine((value, ctx) => {
   if (value.decision === "reject" && !value.reason?.trim()) {
     ctx.addIssue({

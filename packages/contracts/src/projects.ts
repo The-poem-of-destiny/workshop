@@ -27,6 +27,8 @@ export const projectSummarySchema = z.object({
     regex: z.number().int().nonnegative(),
   }),
   schemaVersion: z.string().nullable(),
+  authorNote: z.string().nullable().optional(),
+  discordThreadUrl: z.string().nullable().optional(),
   versionLabel: z.string().nullable().optional(),
   coverPositionX: z.number().nullable().optional(),
   coverPositionY: z.number().nullable().optional(),

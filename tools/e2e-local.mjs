@@ -128,8 +128,11 @@ async function main() {
     });
 
     await check("public list", async () => {
-      const { response, body } = await api("/api/v1/projects");
-      assert(response.status === 200 && Array.isArray(JSON.parse(body).items), "list shape");
+      const first = await api("/api/v1/projects");
+      assert(first.response.status === 200 && Array.isArray(JSON.parse(first.body).items), "list shape");
+      const second = await api("/api/v1/projects");
+      assert(second.response.headers.get("x-cache") === "HIT", `list cache hit: ${second.response.headers.get("x-cache")}`);
+      assert(second.response.headers.get("cache-control")?.includes("public"), "list public cache header");
     });
 
     let project;
@@ -142,6 +145,8 @@ async function main() {
       assert(response.status === 201, `create ${response.status}: ${body}`);
       project = JSON.parse(body);
       assert(project.project.id && project.workingRevisionId, "create shape");
+      const afterCreate = await api("/api/v1/projects");
+      assert(afterCreate.response.headers.get("x-cache") === "MISS", `epoch invalidation: ${afterCreate.response.headers.get("x-cache")}`);
     });
 
     await check("author uploads assets", async () => {
@@ -205,6 +210,47 @@ async function main() {
       assert(cover.status === 200 && cover.headers.get("content-type")?.includes("image/png"), "public cover");
     });
 
+    await check("author creates a second published project for ordering", async () => {
+      await sleep(1100);
+      const created = await api("/api/v1/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "E2E Sort", description: "ordering", projectType: "事件" }),
+      }, authorToken);
+      assert(created.response.status === 201, `sort create ${created.response.status}: ${created.body}`);
+      const second = JSON.parse(created.body);
+      const worldbook = '{"entries":[{"uid":1,"key":["sort"],"content":"sort body"}]}';
+      const upload = await api(`/api/v1/projects/${second.project.id}/revisions/${second.workingRevisionId}/files/worldbook`, {
+        method: "PUT",
+        headers: { "content-type": "application/json", "content-length": String(Buffer.byteLength(worldbook)) },
+        body: worldbook,
+      }, authorToken);
+      assert(upload.response.status === 200, `sort upload ${upload.response.status}: ${upload.body}`);
+      const visibility = await api(`/api/v1/projects/${second.project.id}/visibility`, {
+        method: "PATCH", headers: { "content-type": "application/json", "if-match": "1" },
+        body: JSON.stringify({ visibility: "public" }),
+      }, authorToken);
+      assert(visibility.response.status === 200, `sort visibility ${visibility.response.status}: ${visibility.body}`);
+      const submit = await api(`/api/v1/projects/${second.project.id}/revisions/${second.workingRevisionId}/submit`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ gate: "pass" }),
+      }, authorToken);
+      assert(submit.response.status === 201, `sort submit ${submit.response.status}: ${submit.body}`);
+      let detail;
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        detail = await api(`/api/v1/projects/${second.project.id}`);
+        if (detail.response.status === 200) break;
+        await sleep(250);
+      }
+      assert(detail?.response.status === 200, `sort public detail ${detail?.response.status}`);
+      const draft = await api(`/api/v1/projects/${project.project.id}/draft`, {}, authorToken);
+      const rowVersion = JSON.parse(draft.body).rowVersion;
+      const patched = await api(`/api/v1/projects/${project.project.id}`, {
+        method: "PATCH", headers: { "content-type": "application/json", "if-match": String(rowVersion) },
+        body: JSON.stringify({ title: "E2E Project" }),
+      }, authorToken);
+      assert(patched.response.status === 200, `sort patch ${patched.response.status}: ${patched.body}`);
+    });
+
     await check("download tickets are idempotent and one-time", async () => {
       const first = await api(`/api/v1/projects/${project.project.id}/downloads`, { method: "POST" }, authorToken);
       const second = await api(`/api/v1/projects/${project.project.id}/downloads`, { method: "POST" }, authorToken);
@@ -253,10 +299,12 @@ async function main() {
         body: JSON.stringify({ gate: "missing", acknowledged: true }),
       }, authorToken);
       assert(submit.response.status === 201, `pending submit ${submit.response.status}: ${submit.body}`);
+      return project.project.id;
     }
 
+    let pendingId = "";
     await check("author submits without client checker", async () => {
-      await createPending("E2E Pending", "pending");
+      pendingId = await createPending("E2E Pending", "pending");
       await createPending("E2E Approve", "approve");
     });
 
@@ -279,6 +327,22 @@ async function main() {
           await page.locator(".detail .author.link").click();
           await page.getByText("作者：E2E Author", { exact: false }).waitFor({ state: "visible" });
           await page.getByRole("button", { name: "清除", exact: true }).click();
+          await page.close();
+        });
+
+        await check("browser sort tabs reorder actual cards", async () => {
+          const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+          await page.goto(`${base}/`, { waitUntil: "networkidle" });
+          await page.locator('input[type="search"]').fill("E2E");
+          await page.locator(".card", { hasText: "E2E Sort" }).first().waitFor({ state: "visible", timeout: 10_000 });
+          const firstTitle = async () => (await page.locator(".card h3").first().textContent())?.trim();
+          assert(await firstTitle() === "E2E Project", `updated order: ${await firstTitle()}`);
+          await page.getByRole("button", { name: "发布时间", exact: true }).click();
+          await page.waitForFunction(() => document.querySelector(".card h3")?.textContent?.trim() === "E2E Sort", null, { timeout: 10_000 });
+          assert(await firstTitle() === "E2E Sort", `published order: ${await firstTitle()}`);
+          await page.getByRole("button", { name: "下载", exact: true }).click();
+          await page.waitForFunction(() => document.querySelector(".card h3")?.textContent?.trim() === "E2E Project", null, { timeout: 10_000 });
+          assert(await firstTitle() === "E2E Project", `download order: ${await firstTitle()}`);
           await page.close();
         });
 
@@ -338,6 +402,36 @@ async function main() {
           await page.locator("textarea").fill("e2e rejection reason");
           await page.getByRole("button", { name: "拒绝" }).click();
           await page.getByText("已拒绝审核").waitFor({ state: "visible", timeout: 10_000 });
+          await context.close();
+        });
+
+        await check("browser author revises rejected project and resubmits", async () => {
+          const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+          await context.addInitScript(token => sessionStorage.setItem("cw_session_token", token), authorToken);
+          const page = await context.newPage();
+          await page.goto(`${base}/`, { waitUntil: "networkidle" });
+          await page.getByRole("button", { name: "我的项目" }).click();
+          await page.getByText("E2E Pending", { exact: true }).first().click();
+          await page.getByText("e2e rejection reason", { exact: false }).waitFor({ state: "visible", timeout: 10_000 });
+          await page.getByRole("button", { name: "新建版本" }).click();
+          await page.getByText("现在可以上传修改后的文件", { exact: false }).waitFor({ state: "visible", timeout: 10_000 });
+          await page.locator('input[type="file"][accept*=".json"]').first().setInputFiles({
+            name: "worldbook.json",
+            mimeType: "application/json",
+            buffer: Buffer.from(JSON.stringify({ entries: [{ uid: 2, key: ["revised"], content: "revised pending" }] })),
+          });
+          const outcome = await Promise.race([
+            page.getByText("世界书已上传").waitFor({ state: "visible", timeout: 10_000 }).then(() => "uploaded"),
+            page.locator(".error").waitFor({ state: "visible", timeout: 10_000 }).then(async () => `error: ${await page.locator(".error").textContent()}`),
+          ]);
+          assert(outcome === "uploaded", `revision upload failed: ${outcome}`);
+          await page.getByRole("button", { name: "提交当前版本" }).click();
+          await page.getByText("已提交审核", { exact: false }).waitFor({ state: "visible", timeout: 10_000 });
+          const mine = await api("/api/v1/me/projects", {}, authorToken);
+          assert(mine.response.status === 200, `my projects ${mine.response.status}`);
+          const entry = JSON.parse(mine.body).items.find(item => item.project.id === pendingId);
+          assert(entry?.latestSubmission?.status === "approved", `resubmit auto-published: ${JSON.stringify(entry?.latestSubmission)}`);
+          assert(entry?.latestSubmission?.checkStatus === "done", "resubmit checker completed");
           await context.close();
         });
       } finally {

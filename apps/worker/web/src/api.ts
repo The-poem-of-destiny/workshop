@@ -8,6 +8,8 @@ export interface ProjectSummary {
   tags: string[];
   entries: { worldbook: number; regex: number };
   schemaVersion: string | null;
+  authorNote?: string | null;
+  discordThreadUrl?: string | null;
   versionLabel?: string | null;
   counts: { downloads: number; likes: number; subscriptions: number };
   coverUrl: string | null;
@@ -38,6 +40,7 @@ export interface HomeResponse {
   latest: ProjectSummary[];
   recommendations: ProjectSummary[];
 }
+export interface DiscoveryResponse { bucket?: string; items: ProjectSummary[]; }
 
 export interface ProjectListResponse { items: ProjectSummary[]; nextCursor: string | null; }
 export interface MeResponse {
@@ -69,6 +72,7 @@ export interface AuthorProject {
   latestSubmission: AuthorSubmission | null;
   authorNote?: string | null;
   precautions?: string | null;
+  metadataFindings?: string | null;
 }
 export interface AuthorProjectListResponse { items: AuthorProject[]; }
 export interface AdminSubmissionListItem {
@@ -93,9 +97,12 @@ export interface AdminSubmissionDetail {
   review: { id: string; submissionId: string; reviewerId: string; decision: string; reason: string | null; manifestHash: string; checkerVersion: string; report: JsonValue; createdAt: string } | null;
 }
 export interface DiffKind { added: { entryKey: string; name: string }[]; modified: { entryKey: string; name: string; changedFields?: string[] }[]; deleted: { entryKey: string; name: string }[]; unchanged: number; }
+export interface FindingRef { ruleId: string; severity: string; message: string; file: string | null; line: number | null; }
+export interface FindingDiff { accepted: FindingRef[]; changed: FindingRef[]; added: FindingRef[]; removed: FindingRef[]; }
 export interface SubmissionDiff {
   revisionId: string; previousRevisionId: string | null; worldbook: DiffKind; regex: DiffKind;
   cover: { changed: boolean; beforeSha256: string | null; afterSha256: string | null };
+  findings: FindingDiff;
 }
 
 export interface AdminMember { id: string; username: string; globalName: string | null; avatarUrl: string | null; role: string; }
@@ -144,6 +151,7 @@ export const api = {
   hasSession: () => Boolean(token()),
   me: () => requestJson<MeResponse>("/api/v1/me"),
   home: () => requestJson<HomeResponse>("/api/v1/home"),
+  discovery: () => requestJson<DiscoveryResponse>("/api/v1/projects/discovery"),
   project: (id: string) => requestJson<ProjectDetail>(`/api/v1/projects/${encodeURIComponent(id)}`),
   rankings: (kind: "daily" | "7d" | "30d") => requestJson<{ kind: string; bucket: string | null; items: { rank: number; score: number; project: ProjectSummary }[] }>(`/api/v1/projects/rankings?kind=${kind}`),
   projects: (params: { search?: string; sort?: string; cursor?: string; projectType?: string; authorId?: string; tag?: string }) => {
@@ -162,6 +170,11 @@ export const api = {
   patchProject: (id: string, rowVersion: number, body: Record<string, unknown>) => requestJson<{ rowVersion: number; revisionId: string }>("/api/v1/projects/" + encodeURIComponent(id), { method: "PATCH", headers: { "content-type": "application/json", "if-match": String(rowVersion) }, body: JSON.stringify(body) }),
   createRevision: (id: string, rowVersion: number, body: Record<string, unknown>) => requestJson<{ rowVersion: number; revisionId: string }>("/api/v1/projects/" + encodeURIComponent(id) + "/revisions", { method: "POST", headers: { "content-type": "application/json", "if-match": String(rowVersion) }, body: JSON.stringify(body) }),
   deleteProject: (id: string, rowVersion: number) => requestJson<void>("/api/v1/projects/" + encodeURIComponent(id), { method: "DELETE", headers: { "if-match": String(rowVersion) } }),
+  authorCover: async (id: string, revisionId: string): Promise<Blob> => {
+    const response = await fetch(`/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/files/cover`, { headers: authHeaders() });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    return response.blob();
+  },
   uploadFile: (id: string, revisionId: string, kind: "worldbook" | "regex" | "cover", file: File) => requestJson<{ kind: string; bytes: number; mime: string }>(`/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/files/${kind}`, { method: "PUT", headers: { "content-type": file.type || "application/octet-stream" }, body: file }),
   submitProject: (id: string, revisionId: string, body: { gate?: string; checkerRevision?: string; warningCount?: number; acknowledged?: boolean }) => requestJson<{ submissionId: string; status: string }>(`/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/submit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
   adminSubmissions: (status: "pending" | "checking") => requestJson<AdminSubmissionListResponse>(`/api/v1/admin/submissions?status=${status}`),

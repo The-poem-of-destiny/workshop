@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   api,
   setSessionToken,
@@ -7,6 +7,7 @@ import {
   type AuthorProject,
   type HomeResponse,
   type MeResponse,
+  type DiscoveryResponse,
   type ProjectDetail,
   type ProjectSummary,
   type SubmissionDiff,
@@ -29,7 +30,7 @@ interface ProjectForm { title: string; description: string; authorNote: string; 
 function ProjectCard({ project, onOpen }: { project: ProjectSummary; onOpen: (p: ProjectSummary) => void }) {
   return <button className="card" type="button" onClick={() => onOpen(project)}>
     <div className="cover">{project.coverUrl ? <img src={project.coverUrl} alt="" loading="lazy" style={{ objectPosition: `${project.coverPositionX}% ${project.coverPositionY}%`, transform: `scale(${project.coverZoom})` }} /> : <span>无封面</span>}</div>
-    <div className="card-body"><h3>{project.title}</h3><p className="author">{project.author.name}</p><p className="meta">世界书 {project.entries.worldbook} 条 | 正则 {project.entries.regex} 条</p><div className="tags">{project.projectType ? <span>{project.projectType}</span> : null}{project.schemaVersion ? <span>适配 {project.schemaVersion}</span> : null}{project.tags.slice(0, 2).map(tag => <span key={tag}>{tag}</span>)}</div></div>
+    <div className="card-body"><h3>{project.title}</h3><p className="byline">{project.author.avatarUrl ? <img src={project.author.avatarUrl} alt="" loading="lazy" /> : <span className="avatar-fallback">{project.author.name.slice(0, 1)}</span>}<span>{project.author.name}</span></p><p className="meta">世界书 {project.entries.worldbook} 条 | 正则 {project.entries.regex} 条{project.schemaVersion ? ` | 适配 ${project.schemaVersion}` : ""}</p>{project.authorNote ? <p className="note">{project.authorNote.slice(0, 80)}</p> : null}<p className="meta">更新 {project.updatedAt.slice(0, 10)}{project.publishedAt ? ` · 发布 ${project.publishedAt.slice(0, 10)}` : ""}</p><div className="tags">{project.projectType ? <span>{project.projectType}</span> : null}{project.tags.slice(0, 2).map(tag => <span key={tag}>{tag}</span>)}</div></div>
   </button>;
 }
 
@@ -40,7 +41,7 @@ function Detail({ project, onClose, onInstall, onUninstall, onDownload, onAuthor
     api.project(project.id).then(value => { if (active) setDetail(value); }).catch(() => undefined);
     return () => { active = false; };
   }, [project.id]);
-  return <aside className="detail"><button className="close" type="button" onClick={onClose}>关闭</button><h2>{project.title}</h2><button className="author link" type="button" onClick={() => onAuthor(project.author)}>{project.author.name}</button><p>{project.description}</p>{detail?.authorNote ? <p className="note">作者说明：{detail.authorNote}</p> : null}{detail?.precautions ? <p className="note">注意事项：{detail.precautions}</p> : null}{detail?.discordThreadUrl ? <p className="note"><a href={detail.discordThreadUrl} target="_blank" rel="noreferrer">Discord 讨论</a></p> : null}<dl><div><dt>世界书</dt><dd>{project.entries.worldbook} 条</dd></div><div><dt>正则</dt><dd>{project.entries.regex} 条</dd></div><div><dt>下载</dt><dd>{project.counts.downloads}</dd></div><div><dt>点赞</dt><dd>{project.counts.likes}</dd></div></dl>{installedVersion ? <p className="installed">已安装：{installedVersion}</p> : null}{loggedIn ? <div className="actions"><button type="button" disabled={installing} onClick={() => onDownload(project)}>下载文件</button></div> : null}{!embedded ? <p className="hint">安装请从 SillyTavern 内的「命定创意工坊」按钮打开。</p> : !loggedIn ? <p className="hint">请先使用 Discord 登录，再安装到当前角色。</p> : <div className="actions"><button type="button" className="primary" disabled={installing} onClick={() => onInstall(project)}>{installing ? "安装中…" : installedVersion ? "更新" : "安装"}</button>{installedVersion ? <button type="button" disabled={installing} onClick={() => onUninstall(project)}>卸载</button> : null}</div>}</aside>;
+  return <aside className="detail"><button className="close" type="button" onClick={onClose}>关闭</button><h2>{project.title}</h2><button className="author link" type="button" onClick={() => onAuthor(project.author)}>{project.author.avatarUrl ? <img src={project.author.avatarUrl} alt="" /> : <span className="avatar-fallback">{project.author.name.slice(0, 1)}</span>}{project.author.name}</button><p className="meta">更新 {project.updatedAt.slice(0, 10)}{project.publishedAt ? ` · 发布 ${project.publishedAt.slice(0, 10)}` : ""}{project.schemaVersion ? ` · 适配 ${project.schemaVersion}` : ""}</p><p>{project.description}</p>{detail?.authorNote ? <p className="note">作者说明：{detail.authorNote}</p> : null}{detail?.precautions ? <p className="note">注意事项：{detail.precautions}</p> : null}{detail?.discordThreadUrl ? <p className="note"><a href={detail.discordThreadUrl} target="_blank" rel="noreferrer">Discord 讨论</a></p> : null}<dl><div><dt>世界书</dt><dd>{project.entries.worldbook} 条</dd></div><div><dt>正则</dt><dd>{project.entries.regex} 条</dd></div><div><dt>下载</dt><dd>{project.counts.downloads}</dd></div><div><dt>点赞</dt><dd>{project.counts.likes}</dd></div></dl>{installedVersion ? <p className="installed">已安装：{installedVersion}</p> : null}{loggedIn ? <div className="actions"><button type="button" disabled={installing} onClick={() => onDownload(project)}>下载文件</button></div> : null}{!embedded ? <p className="hint">安装请从 SillyTavern 内的「命定创意工坊」按钮打开。</p> : !loggedIn ? <p className="hint">请先使用 Discord 登录，再安装到当前角色。</p> : <div className="actions"><button type="button" className="primary" disabled={installing} onClick={() => onInstall(project)}>{installing ? "安装中…" : installedVersion ? "更新" : "安装"}</button>{installedVersion ? <button type="button" disabled={installing} onClick={() => onUninstall(project)}>卸载</button> : null}</div>}</aside>;
 }
 
 function projectForm(project: ProjectSummary, entry?: AuthorProject): ProjectForm {
@@ -51,7 +52,22 @@ function ProjectEditor({ entry, onRefresh, onError, onNotice }: { entry: AuthorP
   const [form, setForm] = useState<ProjectForm>(() => projectForm(entry.project, entry));
   const [localFiles, setLocalFiles] = useState<{ worldbook?: File; regex?: File }>({});
   const [busy, setBusy] = useState(false);
+  const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  const [coverNonce, setCoverNonce] = useState(0);
   useEffect(() => setForm(projectForm(entry.project, entry)), [entry.project.id, entry.workingRevisionId]);
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | null = null;
+    if (!entry.workingRevisionId) { setCoverPreview(null); return; }
+    api.authorCover(entry.project.id, entry.workingRevisionId)
+      .then(blob => {
+        if (!active) return;
+        objectUrl = URL.createObjectURL(blob);
+        setCoverPreview(objectUrl);
+      })
+      .catch(() => { if (active) setCoverPreview(null); });
+    return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [entry.project.id, entry.workingRevisionId, coverNonce]);
   const update = (key: keyof ProjectForm, value: string): void => setForm(previous => ({ ...previous, [key]: value }));
   async function save(): Promise<void> {
     setBusy(true);
@@ -82,7 +98,7 @@ function ProjectEditor({ entry, onRefresh, onError, onNotice }: { entry: AuthorP
     if (!file || !entry.workingRevisionId) return;
     if (kind !== "cover") setLocalFiles(previous => ({ ...previous, [kind]: file }));
     setBusy(true);
-    try { await api.uploadFile(entry.project.id, entry.workingRevisionId, kind, file); onNotice(`${kind === "cover" ? "封面" : kind === "worldbook" ? "世界书" : "正则"}已上传。`); await onRefresh(); }
+    try { await api.uploadFile(entry.project.id, entry.workingRevisionId, kind, file); if (kind === "cover") setCoverNonce(value => value + 1); onNotice(`${kind === "cover" ? "封面" : kind === "worldbook" ? "世界书" : "正则"}已上传。`); await onRefresh(); }
     catch (reason) { onError(String(reason)); } finally { setBusy(false); }
   }
   async function submit(): Promise<void> {
@@ -120,28 +136,43 @@ function ProjectEditor({ entry, onRefresh, onError, onNotice }: { entry: AuthorP
     try { await api.deleteProject(entry.project.id, entry.rowVersion); onNotice("项目已删除。"); await onRefresh(); }
     catch (reason) { onError(String(reason)); } finally { setBusy(false); }
   }
+  let metadataWarnings: { field?: unknown; message?: unknown }[] = [];
+  if (entry.metadataFindings) {
+    try {
+      const parsed: unknown = JSON.parse(entry.metadataFindings);
+      if (Array.isArray(parsed)) metadataWarnings = parsed.filter(item => item && typeof item === "object");
+    } catch {
+      metadataWarnings = [];
+    }
+  }
   const input = (key: keyof ProjectForm, label: string, multiline = false) => multiline
     ? <label>{label}<textarea value={form[key]} onChange={event => update(key, event.target.value)} /></label>
     : <label>{label}<input value={form[key]} onChange={event => update(key, event.target.value)} /></label>;
   return <section className="panel editor"><div className="panel-heading"><div><h2>编辑项目</h2><p className="hint">{entry.project.visibility === "public" ? "公开" : "私有"} · rowVersion {entry.rowVersion}</p></div><button type="button" onClick={remove} disabled={busy}>删除项目</button></div>
+    {coverPreview ? <img className="cover-preview" src={coverPreview} alt="当前封面" /> : <p className="hint">当前版本还没有封面。</p>}
     {input("title", "标题")}{input("description", "简介", true)}{input("authorNote", "作者说明", true)}{input("precautions", "注意事项", true)}
     <div className="form-grid">{input("versionLabel", "版本号")}<label>项目类型<select value={form.projectType} onChange={event => update("projectType", event.target.value)}><option value="">请选择</option>{PROJECT_TYPES.map(value => <option key={value}>{value}</option>)}</select></label><label>扩展类型<select value={form.extensionType} onChange={event => update("extensionType", event.target.value)}><option value="">不适用</option>{EXTENSION_TYPES.map(value => <option key={value}>{value}</option>)}</select></label>{input("tags", "标签（逗号分隔）")}</div>
     <div className="actions"><button type="button" className="primary" onClick={() => void save()} disabled={busy}>保存元数据</button><button type="button" onClick={() => void newRevision()} disabled={busy}>新建版本</button><label className="file-button">上传世界书 JSON<input type="file" accept=".json,application/json,text/plain" onChange={event => void upload("worldbook", event.target.files?.[0])} /></label><label className="file-button">上传正则 JSON<input type="file" accept=".json,application/json,text/plain" onChange={event => void upload("regex", event.target.files?.[0])} /></label><label className="file-button">上传封面<input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => void upload("cover", event.target.files?.[0])} /></label></div>
+    {metadataWarnings.length > 0 ? <div className="findings"><strong>元数据提示</strong><ul>{metadataWarnings.map((item, index) => <li key={index}>{typeof item.field === "string" ? `${item.field}：` : ""}{typeof item.message === "string" ? item.message : ""}</li>)}</ul></div> : null}
     <div className="submit-box"><strong>提交审核</strong><p className="hint">当前提交按“无客户端 checker”处理，会明确进入人工审核；请确认文件和元数据已经完整。</p><button type="button" className="primary" onClick={() => void submit()} disabled={busy || !entry.workingRevisionId}>提交当前版本</button>{entry.latestSubmission ? <span className="status">最近提交：{entry.latestSubmission.status} / {entry.latestSubmission.checkStatus}{entry.latestSubmission.reason ? ` · ${entry.latestSubmission.reason}` : ""}</span> : null}</div>
   </section>;
 }
 
 function Discovery({ home, onOpen }: { home: HomeResponse; onOpen: (project: ProjectSummary) => void }) {
   const [ranked, setRanked] = useState<ProjectSummary[]>([]);
+  const [discovery, setDiscovery] = useState<DiscoveryResponse | null>(null);
   const latest = home.latest.slice(0, 4);
   const recommendations = home.recommendations.slice(0, 4);
   useEffect(() => {
     let active = true;
     api.rankings("7d").then(result => { if (active) setRanked(result.items.slice(0, 4).map(item => item.project)); }).catch(() => undefined);
+    api.discovery().then(result => { if (active) setDiscovery(result); }).catch(() => undefined);
     return () => { active = false; };
   }, []);
-  if (latest.length === 0 && recommendations.length === 0 && ranked.length === 0) return null;
+  const discovered = discovery?.items.slice(0, 4) ?? [];
+  if (latest.length === 0 && recommendations.length === 0 && ranked.length === 0 && discovered.length === 0) return null;
   return <section className="discovery">
+    {discovered.length > 0 ? <><h2>发现</h2><div className="grid">{discovered.map(project => <ProjectCard key={project.id} project={project} onOpen={onOpen} />)}</div></> : null}
     {latest.length > 0 ? <><h2>最新上架</h2><div className="grid">{latest.map(project => <ProjectCard key={project.id} project={project} onOpen={onOpen} />)}</div></> : null}
     {recommendations.length > 0 ? <><h2>编辑精选</h2><div className="grid">{recommendations.map(project => <ProjectCard key={project.id} project={project} onOpen={onOpen} />)}</div></> : null}
     {ranked.length > 0 ? <><h2>周热度</h2><div className="grid">{ranked.map(project => <ProjectCard key={project.id} project={project} onOpen={onOpen} />)}</div></> : null}
@@ -206,7 +237,7 @@ function AdminPanel({ onError, onNotice }: { onError: (message: string) => void;
   async function recheck(): Promise<void> { if (!selectedId) return; setBusy(true); try { await api.adminRecheck(selectedId); onNotice("已重新排队检查。"); await refresh(); } catch (value) { onError(String(value)); } finally { setBusy(false); } }
   async function download(kind: "worldbook" | "regex" | "cover"): Promise<void> { if (!selectedId) return; try { const blob = await api.adminFile(selectedId, kind); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `${selectedId}-${kind}`; link.click(); URL.revokeObjectURL(url); } catch (value) { onError(String(value)); } }
   return <div className="admin-layout"><section className="panel"><div className="panel-heading"><h2>审核台</h2><button type="button" onClick={() => void refresh()}>刷新</button></div>{items.length === 0 ? <p className="hint">暂无待处理提交。</p> : <div className="project-list">{items.map(item => <button className={`project-row${item.id === selectedId ? " selected" : ""}`} type="button" key={item.id} onClick={() => void select(item.id)}><span><strong>{item.projectTitle}</strong><small>{item.author.name} · {item.status} · {item.checkStatus}</small></span><span className="status">{item.gate ?? "missing"}</span></button>)}</div>}</section>
-    {detail ? <section className="panel review-detail"><h2>{detail.project.title}</h2><p className="hint">作者：{detail.project.author.name} · revision #{detail.revision.revisionNo}</p><dl><div><dt>客户端 gate</dt><dd>{detail.submission.clientGate ?? "missing"}</dd></div><div><dt>检查状态</dt><dd>{detail.submission.checkStatus}</dd></div><div><dt>检查报告 gate</dt><dd>{detail.checkRuns[0]?.routeGate ?? "暂无"}</dd></div><div><dt>提交时间</dt><dd>{detail.submission.submittedAt}</dd></div></dl><h3>检查报告</h3><pre className="report">{JSON.stringify(detail.submission.checkReport, null, 2) ?? "暂无报告"}</pre><h3>差异</h3>{diff ? <div className="diff-grid">{(["worldbook", "regex"] as const).map(kind => <div key={kind}><strong>{kind === "worldbook" ? "世界书" : "正则"}</strong><p>新增 {diff[kind].added.length} · 修改 {diff[kind].modified.length} · 删除 {diff[kind].deleted.length}</p><ul>{[...diff[kind].added.map(item => `+ ${item.name}`), ...diff[kind].modified.map(item => `~ ${item.name}`), ...diff[kind].deleted.map(item => `- ${item.name}`)].slice(0, 12).map(item => <li key={item}>{item}</li>)}</ul></div>)}</div> : <p className="hint">暂无差异。</p>}<h3>文件</h3><div className="actions">{(["worldbook", "regex", "cover"] as const).map(kind => <button type="button" key={kind} onClick={() => void download(kind)}>{kind} 下载</button>)}</div><label>审核说明<textarea value={reason} onChange={event => setReason(event.target.value)} placeholder="拒绝、阻断或人工放行时填写理由" /></label><div className="actions"><button type="button" className="primary" disabled={busy} onClick={() => void review("approve")}>通过</button><button type="button" disabled={busy} onClick={() => void review("reject")}>拒绝</button><button type="button" disabled={busy} onClick={() => void recheck()}>重新检查</button></div></section> : <section className="panel empty-panel"><p className="hint">选择左侧提交查看详情。</p></section>}</div>;
+    {detail ? <section className="panel review-detail"><h2>{detail.project.title}</h2><p className="hint">作者：{detail.project.author.name} · revision #{detail.revision.revisionNo}</p><dl><div><dt>客户端 gate</dt><dd>{detail.submission.clientGate ?? "missing"}</dd></div><div><dt>检查状态</dt><dd>{detail.submission.checkStatus}</dd></div><div><dt>检查报告 gate</dt><dd>{detail.checkRuns[0]?.routeGate ?? "暂无"}</dd></div><div><dt>提交时间</dt><dd>{detail.submission.submittedAt}</dd></div></dl><h3>检查报告</h3><pre className="report">{JSON.stringify(detail.submission.checkReport, null, 2) ?? "暂无报告"}</pre><h3>差异</h3>{diff ? <><p className="meta">检查结论：保留 {diff.findings.accepted.length} · 变更 {diff.findings.changed.length} · 新增 {diff.findings.added.length} · 移除 {diff.findings.removed.length}</p><div className="diff-grid">{(["worldbook", "regex"] as const).map(kind => <div key={kind}><strong>{kind === "worldbook" ? "世界书" : "正则"}</strong><p>新增 {diff[kind].added.length} · 修改 {diff[kind].modified.length} · 删除 {diff[kind].deleted.length}</p><ul>{[...diff[kind].added.map(item => `+ ${item.name}`), ...diff[kind].modified.map(item => `~ ${item.name}`), ...diff[kind].deleted.map(item => `- ${item.name}`)].slice(0, 12).map(item => <li key={item}>{item}</li>)}</ul></div>)}</div></> : <p className="hint">暂无差异。</p>}<h3>文件</h3><div className="actions">{(["worldbook", "regex", "cover"] as const).map(kind => <button type="button" key={kind} onClick={() => void download(kind)}>{kind} 下载</button>)}</div><label>审核说明<textarea value={reason} onChange={event => setReason(event.target.value)} placeholder="拒绝、阻断或人工放行时填写理由" /></label><div className="actions"><button type="button" className="primary" disabled={busy} onClick={() => void review("approve")}>通过</button><button type="button" disabled={busy} onClick={() => void review("reject")}>拒绝</button><button type="button" disabled={busy} onClick={() => void recheck()}>重新检查</button></div></section> : <section className="panel empty-panel"><p className="hint">选择左侧提交查看详情。</p></section>}</div>;
 }
 
 export function App() {
@@ -225,6 +256,7 @@ export function App() {
   const [context, setContext] = useState<HostContext | null>(null);
   const [installing, setInstalling] = useState(false);
   const [view, setView] = useState<"browse" | "projects" | "subs" | "admin" | "tools">("browse");
+  const listRequest = useRef(0);
   const embedded = new URLSearchParams(location.search).get("embed") === "1";
   function postToHost(payload: Record<string, unknown>): void { if (window.parent !== window) window.parent.postMessage(payload, "*"); }
   async function refreshMe(): Promise<void> { if (!api.hasSession()) return; try { const value = await api.me(); setMe(value.user); } catch { setSessionToken(null); setMe(null); } }
@@ -248,8 +280,32 @@ export function App() {
     }).catch(reason => setError(`下载失败：${String(reason)}`)).finally(() => setInstalling(false));
   }
   useEffect(() => { api.home().then(setHome).catch(reason => setError(String(reason))); void refreshMe(); if (embedded) postToHost({ type: "cw:ready" }); const onMessage = (event: MessageEvent): void => { if (event.source !== window.parent) return; const data: { type?: unknown; [key: string]: unknown } = event.data; if (typeof data.type !== "string") return; if (data.type === "cw:context") setContext(data as unknown as HostContext); else if (data.type === "cw:install-result") { setInstalling(false); setNotice(data.ok ? "安装完成。" : `安装失败：${String(data.message ?? "")}`); if (data.ok) postToHost({ type: "cw:request-context" }); } else if (data.type === "cw:uninstall-result") { setInstalling(false); setNotice(data.ok ? "卸载完成。" : `卸载失败：${String(data.message ?? "")}`); if (data.ok) postToHost({ type: "cw:request-context" }); } }; window.addEventListener("message", onMessage); return () => window.removeEventListener("message", onMessage); }, [embedded]);
-  useEffect(() => { let cancelled = false; const timer = setTimeout(() => { api.projects({ search: search.trim() || undefined, sort, projectType: projectType || undefined, authorId: author?.id, tag: tag.trim() || undefined }).then(result => { if (!cancelled) { setProjects(result.items); setNextCursor(result.nextCursor); } }).catch(reason => { if (!cancelled) setError(String(reason)); }); }, 200); return () => { cancelled = true; clearTimeout(timer); }; }, [search, sort, projectType, author, tag]);
-  function loadMore(): void { if (!nextCursor) return; api.projects({ search: search.trim() || undefined, sort, projectType: projectType || undefined, authorId: author?.id, tag: tag.trim() || undefined, cursor: nextCursor }).then(result => { setProjects(previous => [...previous, ...result.items]); setNextCursor(result.nextCursor); }).catch(reason => setError(String(reason))); }
+  useEffect(() => {
+    let cancelled = false;
+    const requestId = ++listRequest.current;
+    const timer = setTimeout(() => {
+      api.projects({ search: search.trim() || undefined, sort, projectType: projectType || undefined, authorId: author?.id, tag: tag.trim() || undefined })
+        .then(result => {
+          if (!cancelled && requestId === listRequest.current) {
+            setProjects(result.items);
+            setNextCursor(result.nextCursor);
+          }
+        })
+        .catch(reason => { if (!cancelled && requestId === listRequest.current) setError(String(reason)); });
+    }, 200);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [search, sort, projectType, author, tag]);
+  function loadMore(): void {
+    if (!nextCursor) return;
+    const requestId = listRequest.current;
+    api.projects({ search: search.trim() || undefined, sort, projectType: projectType || undefined, authorId: author?.id, tag: tag.trim() || undefined, cursor: nextCursor })
+      .then(result => {
+        if (requestId !== listRequest.current) return;
+        setProjects(previous => [...previous, ...result.items]);
+        setNextCursor(result.nextCursor);
+      })
+      .catch(reason => { if (requestId === listRequest.current) setError(String(reason)); });
+  }
   const installed = selected ? context?.registry?.[selected.id] ?? null : null;
   const reviewer = me?.role === "reviewer" || me?.role === "owner";
   return <div className={`shell${embedded ? " embedded" : ""}`}><header><div><p className="eyebrow">命定之诗与黄昏之歌</p><h1>创意工坊</h1></div><div className="header-tools"><input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索项目、作者、标签" aria-label="搜索" />{me ? <div className="account"><span>{me.globalName || me.username}</span><button type="button" onClick={logout}>退出</button></div> : <button type="button" className="login" onClick={login}>Discord 登录</button>}</div></header>

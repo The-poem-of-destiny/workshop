@@ -117,6 +117,26 @@ describe("admin review and publishing", () => {
     expect(review).toMatchObject({ manifest_hash: "manifest-1", checker_version: "checker-1" });
   });
 
+  it("rejects a review bound to the wrong revision or hash without writing", async () => {
+    const wrong = await request("/submissions/s1/review", "reviewer-token", {
+      method: "POST",
+      body: JSON.stringify({ decision: "approve", revisionId: "other", manifestHash: "manifest-1" }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(wrong.status).toBe(409);
+    const wrongHash = await request("/submissions/s1/review", "reviewer-token", {
+      method: "POST",
+      body: JSON.stringify({ decision: "approve", manifestHash: "other" }),
+      headers: { "content-type": "application/json" },
+    });
+    expect(wrongHash.status).toBe(409);
+    const reviews = await bindings.DB.prepare("SELECT COUNT(*) AS n FROM reviews").first<{ n: number }>();
+    expect(reviews?.n).toBe(0);
+    const project = await bindings.DB.prepare("SELECT published_revision_id FROM projects WHERE id = 'p1'")
+      .first<{ published_revision_id: string | null }>();
+    expect(project?.published_revision_id).toBeNull();
+  });
+
   it("requires a reason when the server checker blocked even if the client gate passed", async () => {
     await bindings.DB.prepare(`
       UPDATE submissions SET check_report = ?, check_status = 'needs_human' WHERE id = 's1'
@@ -175,6 +195,7 @@ describe("admin review and publishing", () => {
       revisionId: "r1",
       previousRevisionId: null,
       worldbook: { added: [{ entryKey: expect.any(String) }], unchanged: 0 },
+      findings: { accepted: [], changed: [], added: [], removed: [] },
     });
 
     const recheck = await request("/submissions/s1/recheck", "reviewer-token", { method: "POST" });
@@ -187,6 +208,34 @@ describe("admin review and publishing", () => {
       "SELECT action FROM audit_events WHERE target_id = 's1' ORDER BY created_at DESC LIMIT 1",
     ).first<{ action: string }>();
     expect(audit?.action).toBe("checker.recheck");
+  });
+
+  it("classifies accepted, changed, added and removed findings against the previous submission", async () => {
+    await bindings.DB.prepare(`
+      INSERT INTO submissions (id, project_id, revision_id, status, gate, checker_revision, submitted_by, submitted_at, check_report)
+      VALUES ('s0', 'p1', 'r1', 'rejected', 'warn', 'checker-1', 'member', '2026-10-20T00:00:00.000Z', ?)
+    `).bind(JSON.stringify({ findings: [
+      { ruleId: "SAME", severity: "warn", message: "same", file: "a.js", line: 1 },
+      { ruleId: "CHANGED", severity: "warn", message: "old", file: "a.js", line: 2 },
+      { ruleId: "REMOVED", severity: "warn", message: "gone", file: "a.js", line: 3 },
+    ] })).run();
+    await bindings.DB.prepare("UPDATE submissions SET check_report = ? WHERE id = 's1'").bind(JSON.stringify({
+      findings: [
+        { ruleId: "SAME", severity: "warn", message: "same", file: "a.js", line: 1 },
+        { ruleId: "CHANGED", severity: "error", message: "new", file: "a.js", line: 2 },
+        { ruleId: "ADDED", severity: "warn", message: "new finding", file: "b.js", line: 4 },
+      ],
+    })).run();
+    const diff = await request("/submissions/s1/diff");
+    expect(diff.status).toBe(200);
+    await expect(diff.json()).resolves.toMatchObject({
+      findings: {
+        accepted: [{ ruleId: "SAME" }],
+        changed: [{ ruleId: "CHANGED" }],
+        added: [{ ruleId: "ADDED" }],
+        removed: [{ ruleId: "REMOVED" }],
+      },
+    });
   });
 
   it("requires a reject reason and exposes it to the author", async () => {

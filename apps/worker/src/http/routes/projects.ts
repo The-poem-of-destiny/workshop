@@ -10,6 +10,7 @@ import { issueDownloadTickets, recordDownload } from "../../storage/downloads.js
 import { getPublishedProject, listPublishedProjects } from "../../storage/projects.js";
 import { getReleaseAssets } from "../../storage/releases.js";
 import { jsonError } from "../errors.js";
+import { publicJson } from "../public-cache.js";
 import { requireSession } from "../session.js";
 
 export const projectsRoutes = new Hono<{ Bindings: Env }>();
@@ -27,23 +28,23 @@ projectsRoutes.get("/", async c => {
   if (!parsed.success) {
     return jsonError(c, "bad_request", "Invalid query", parsed.error.flatten());
   }
-  return c.json(await listPublishedProjects(c.env.DB, parsed.data));
+  return publicJson(c, "projects", () => listPublishedProjects(c.env.DB, parsed.data));
 });
 
-projectsRoutes.get("/discovery", async c => c.json(await getDiscovery(c.env.DB)));
+projectsRoutes.get("/discovery", async c => publicJson(c, "discovery", () => getDiscovery(c.env.DB)));
 
 projectsRoutes.get("/rankings", async c => {
   const kind = c.req.query("kind") ?? "7d";
   if (kind !== "daily" && kind !== "7d" && kind !== "30d") {
     return jsonError(c, "bad_request", "Unknown ranking kind");
   }
-  return c.json(await getRankings(c.env.DB, kind));
+  return publicJson(c, "rankings", () => getRankings(c.env.DB, kind));
 });
 
 projectsRoutes.get("/:id", async c => {
   const project = await getPublishedProject(c.env.DB, c.req.param("id"));
   if (!project) return jsonError(c, "not_found", "Project not found");
-  return c.json(project);
+  return publicJson(c, "project", async () => project);
 });
 
 projectsRoutes.post("/:id/downloads", async c => {

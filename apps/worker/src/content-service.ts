@@ -1,4 +1,5 @@
 import type { Env } from "./env";
+import { extractProjectEntries, validateProjectContentText, type ProjectEntryKind } from "@workshop/domain";
 import { analyzeFiles, routeGate, REVIEW_CHECKER_REVISION } from "./content-checker";
 
 interface RunTarget {
@@ -20,6 +21,29 @@ async function sha256(value: string): Promise<string> {
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
+async function baselineConflict(db: D1Database, text: string): Promise<string | null> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const refs = extractProjectEntries(parsed, "worldbook");
+  if (refs.length === 0) return null;
+  const fingerprints = await Promise.all(refs.map(async ref => {
+    const entry = ref.entry;
+    const name = String(entry.comment ?? entry.name ?? "").replace(/\r\n/g, "\n").trim();
+    const content = String(entry.content ?? "").replace(/\r\n/g, "\n").trim();
+    return sha256(JSON.stringify({ name, content }));
+  }));
+  const match = await db.prepare(`
+    SELECT display_name FROM reference_items
+    WHERE kind = 'worldbook' AND exact_hash IN (${fingerprints.map(() => "?").join(", ")})
+    LIMIT 1
+  `).bind(...fingerprints).first<{ display_name: string }>();
+  return match?.display_name ?? null;
+}
+
 export class ContentService implements DurableObject {
   constructor(
     private readonly state: DurableObjectState,
@@ -29,11 +53,59 @@ export class ContentService implements DurableObject {
   async fetch(request: Request): Promise<Response> {
     if (request.method !== "POST") return Response.json({ error: "method_not_allowed" }, { status: 405 });
     let submissionId = "";
+    let validateRevision = "";
+    let validation: { kind?: unknown; text?: unknown } | null = null;
     try {
-      const body = await request.json() as { submissionId?: unknown };
+      const body = await request.json() as {
+        submissionId?: unknown;
+        validate?: unknown;
+        validateRevision?: unknown;
+      };
       if (typeof body.submissionId === "string") submissionId = body.submissionId;
+      if (typeof body.validateRevision === "string") validateRevision = body.validateRevision;
+      if (body.validate && typeof body.validate === "object") {
+        validation = body.validate as { kind?: unknown; text?: unknown };
+      }
     } catch {
       return Response.json({ error: "bad_request" }, { status: 400 });
+    }
+    if (validateRevision) {
+      const assets = await this.env.DB.prepare(
+        "SELECT kind, r2_key FROM assets WHERE revision_id = ? AND kind IN ('worldbook', 'regex')",
+      ).bind(validateRevision).all<{ kind: string; r2_key: string }>();
+      const presence: Record<ProjectEntryKind, boolean> = { worldbook: false, regex: false };
+      const counts: Record<ProjectEntryKind, number> = { worldbook: 0, regex: 0 };
+      let conflict: string | null = null;
+      let error: string | null = null;
+      for (const asset of assets.results) {
+        if (asset.kind !== "worldbook" && asset.kind !== "regex") continue;
+        const kind = asset.kind as ProjectEntryKind;
+        const object = await this.env.R2.get(asset.r2_key);
+        if (!object) {
+          error = "项目文件缺失，请重新上传";
+          break;
+        }
+        const text = await object.text();
+        const result = validateProjectContentText(text, kind);
+        if (!result.valid) {
+          error = result.error;
+          break;
+        }
+        presence[kind] = true;
+        counts[kind] = result.entryCount;
+        if (kind === "worldbook") {
+          conflict = await baselineConflict(this.env.DB, text);
+          if (conflict) break;
+        }
+      }
+      return Response.json({ presence, counts, conflict, error });
+    }
+    if (validation) {
+      if ((validation.kind !== "worldbook" && validation.kind !== "regex") || typeof validation.text !== "string") {
+        return Response.json({ error: "bad_request" }, { status: 400 });
+      }
+      const result = validateProjectContentText(validation.text, validation.kind as ProjectEntryKind);
+      return Response.json(result);
     }
     if (!submissionId) return Response.json({ error: "bad_request" }, { status: 400 });
 

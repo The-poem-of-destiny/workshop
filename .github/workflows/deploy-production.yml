@@ -27,6 +27,8 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
       - uses: pnpm/action-setup@v4
         with:
           version: 11.24.0
@@ -35,6 +37,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Verify checkout matches promoted SHA
+        run: test "$(git rev-parse HEAD)" = "${{ inputs.commit_sha }}"
       - uses: actions/download-artifact@v4
         with:
           name: staging-web-${{ inputs.commit_sha }}
@@ -43,7 +47,7 @@ jobs:
       - name: Verify promoted artifact hash
         run: sha256sum -c artifact.sha256
       - name: Apply production migrations
-        run: pnpm --filter @workshop/worker exec wrangler d1 migrations apply workshop-production --remote --config wrangler.jsonc --env production
+        run: pnpm --filter @workshop/worker exec wrangler d1 migrations apply workshop-prod --remote --config wrangler.jsonc --env production
       - name: Deploy production worker
         run: pnpm --filter @workshop/worker exec wrangler deploy --config wrangler.jsonc --env production
       - name: Record worker version

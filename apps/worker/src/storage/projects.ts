@@ -97,6 +97,8 @@ function toSummary(row: ProjectRow): ProjectSummary {
       regex: row.regex_count,
     },
     schemaVersion: row.schema_version,
+    authorNote: row.author_note,
+    discordThreadUrl: row.discord_thread_url,
     versionLabel: row.version_label,
     coverPositionX: row.cover_position_x,
     coverPositionY: row.cover_position_y,

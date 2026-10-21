@@ -13,6 +13,8 @@ interface FlowRow {
   status: AuthFlowStatus["status"];
   expires_at: string;
   error: string | null;
+  mode: AuthFlowMode;
+  redeem_hash: string | null;
 }
 
 function avatarUrl(userId: string, avatar: string | null): string | null {
@@ -61,11 +63,18 @@ export async function insertAuthFlow(db: D1Database, flow: NewAuthFlow): Promise
   `).bind(flow.id, stateHash, challenge, flow.origin, flow.mode, flow.expiresAt).run();
 }
 
-export async function getAuthFlowStatus(db: D1Database, id: string): Promise<AuthFlowStatus | null> {
+export async function getAuthFlowStatus(
+  db: D1Database,
+  id: string,
+  deviceSecret?: string,
+): Promise<AuthFlowStatus | null> {
   const row = await db.prepare(
-    "SELECT status, expires_at, error FROM oauth_flows WHERE id = ?",
+    "SELECT status, expires_at, error, mode, redeem_hash FROM oauth_flows WHERE id = ?",
   ).bind(id).first<FlowRow>();
   if (!row) return null;
+  if (row.mode === "device") {
+    if (!deviceSecret || !row.redeem_hash || await sha256Hex(deviceSecret) !== row.redeem_hash) return null;
+  }
   const expired = row.status === "pending" && Date.parse(row.expires_at) <= Date.now();
   if (expired) {
     await db.prepare("UPDATE oauth_flows SET status = 'expired' WHERE id = ? AND status = 'pending'")

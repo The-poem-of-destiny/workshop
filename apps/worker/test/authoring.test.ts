@@ -37,6 +37,9 @@ beforeAll(async () => {
 beforeEach(async () => {
   await bindings.DB.exec(`
     DELETE FROM audit_events;
+    DELETE FROM reference_items;
+    DELETE FROM reference_versions;
+    DELETE FROM reference_sets;
     DELETE FROM reviews;
     DELETE FROM project_likes;
     DELETE FROM project_subscriptions;
@@ -217,6 +220,34 @@ describe("authoring write paths", () => {
       headers: { "content-type": "image/png", "content-length": String(10 * 1024 * 1024 + 1) },
     });
     expect(oversized.status).toBe(413);
+  });
+
+  it("rejects a submission containing an entry identical to an official baseline item", async () => {
+    const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Baseline" }) });
+    const project = await created.json() as { project: { id: string }; workingRevisionId: string };
+    await request(`/${project.project.id}/revisions/${project.workingRevisionId}/files/worldbook`, {
+      method: "PUT", body: validWorldbook,
+      headers: { "content-type": "application/json", "content-length": String(validWorldbookBytes) },
+    });
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(JSON.stringify({ name: "Entry", content: "Text" })),
+    );
+    const fingerprint = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+    await bindings.DB.prepare(`
+      INSERT INTO reference_sets (id, name, created_by) VALUES ('rs1', 'Baseline', 'author');
+      INSERT INTO reference_versions (id, reference_set_id, version_label, version_ordinal, grace_until, created_by)
+        VALUES ('rv1', 'rs1', 'v1', 1, '2099-01-01T00:00:00.000Z', 'author');
+      INSERT INTO reference_items (id, reference_version_id, kind, display_name, exact_hash, normalized_content_hash, name_hash, structure_hash)
+        VALUES ('ri1', 'rv1', 'worldbook', 'Official', ?, 'n', 'h', 's');
+    `).bind(fingerprint).run();
+    const submitted = await request(`/${project.project.id}/revisions/${project.workingRevisionId}/submit`, {
+      method: "POST", body: JSON.stringify({ gate: "pass" }),
+    });
+    expect(submitted.status).toBe(400);
+    const count = await bindings.DB.prepare("SELECT COUNT(*) AS count FROM submissions WHERE project_id = ?")
+      .bind(project.project.id).first<{ count: number }>();
+    expect(count?.count).toBe(0);
   });
 
   it("rate limits rapid metadata writes", async () => {
