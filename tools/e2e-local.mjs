@@ -427,9 +427,14 @@ async function main() {
           assert(outcome === "uploaded", `revision upload failed: ${outcome}`);
           await page.getByRole("button", { name: "提交当前版本" }).click();
           await page.getByText("已提交审核", { exact: false }).waitFor({ state: "visible", timeout: 10_000 });
-          const mine = await api("/api/v1/me/projects", {}, authorToken);
-          assert(mine.response.status === 200, `my projects ${mine.response.status}`);
-          const entry = JSON.parse(mine.body).items.find(item => item.project.id === pendingId);
+          let entry;
+          for (let attempt = 0; attempt < 40; attempt += 1) {
+            const mine = await api("/api/v1/me/projects", {}, authorToken);
+            assert(mine.response.status === 200, `my projects ${mine.response.status}`);
+            entry = JSON.parse(mine.body).items.find(item => item.project.id === pendingId);
+            if (entry?.latestSubmission?.status === "approved" && entry.latestSubmission.checkStatus === "done") break;
+            await sleep(250);
+          }
           assert(entry?.latestSubmission?.status === "approved", `resubmit auto-published: ${JSON.stringify(entry?.latestSubmission)}`);
           assert(entry?.latestSubmission?.checkStatus === "done", "resubmit checker completed");
           await context.close();
