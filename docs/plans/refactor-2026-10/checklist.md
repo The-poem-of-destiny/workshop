@@ -84,11 +84,11 @@
 - [x] EJS-PARSE / JS-PARSE / FILE / CHECKER-INTERNAL / CHECKER-LIMIT。
 - [x] 预算：2000 条目、500 单元、20 万字符、4 万/10 万 AST、120s。
 - [x] upload-checker 与 review-checker bundle 构建；Web 在提交前执行 browser checker。
-- [ ] upload/review bundle 的独立 `?v=` 分发路由与 immutable 缓存。
+- [x] upload/review bundle 的独立 `?v=` 分发路由与 immutable 缓存（`/client/checker/v/<revision>/...`，staging 200 immutable）。
 - [x] 上传端记录 client gate / warning count / acknowledged / checked_at。
 - [x] DO 权威复核；pass/warn 自动发布，block/missing/超时转人工。
 - [x] 审核绑定 `submission + content hash + checker revision`；本地重跑同 revision。
-- [x] 报告、fingerprint、diff、baseline、accepted/changed/new/removed。
+- [x] 报告、fingerprint、diff、baseline、accepted/changed/new/removed（审核详情读取上一 submission 的条目与 findings 差异）。
 - [x] checker 语料/behavior test（T2）。
 
 ## 6. 审核与发布
@@ -141,13 +141,14 @@
 - [x] 登录态、作者创建/编辑/上传/提交后台。
 - [x] 审核队列/详情/批准拒绝后台。
 - [x] Toast、弹窗集合、警告标记、Discord 按钮、Banner 位置缩放。
-- [ ] 卡片作者头像/时间/一句话/更新时间；详情作者介绍。
+- [x] 卡片作者头像/时间/一句话/更新时间；详情显示发布/更新时间与 schema。
+- [ ] 详情独立作者介绍区。
 
 ## 11. 缓存、调度与运维
 
 - [x] 第一阶段动态 API `private, no-store`；文件/审核文件 no-store。
 - [x] 静态 hashed 资产 immutable（Worker `/assets/*` 返回 `max-age=31536000, immutable`）。
-- [ ] D-24/D-28 Workers Cache 专项、Cache-Tag/purge、`Cf-Cache-Status` 测量（当前仅客户端版本化对象缓存）。
+- [ ] D-24/D-28 Workers Cache 专项、Cache-Tag/purge、`Cf-Cache-Status` 测量（已实现公共读 Cache API + `cache_epoch` 触发器失效；尚缺 `Cf-Cache-Status`/tag purge 测量）。
 - [x] cron：榜单、7d/30d、清理、过期 session、自动审核。
 - [ ] 可观测性采样率；错误不采样。
 - [ ] 定期备份与校验（J6）。
@@ -155,11 +156,11 @@
 
 ## 12. 测试、迁移与上线
 
-- [x] Worker 58 测试、domain 17、content 7、schema 27 表校验。
+- [x] Worker 70 测试、domain 17、content 7、schema 27 表校验。
 - [x] 迁移 synthetic + SQL converter 测试。
 - [x] 真实备份全量两次 + delta + reconcile；隔离本地 D1 load。
-- [x] 本地 HTTP E2E 16/16；真实 Chromium 搜索/排序/作者筛选/详情、作者工作台+订阅、owner 管理、审核通过/拒绝 5 条旅程。
-- [x] staging 部署、D1 migration 0002–0008、Worker version 记录。
+- [x] 本地 HTTP E2E 19/19；真实 Chromium 搜索/排序 DOM、作者工作台+订阅、owner 管理、审核通过/拒绝、拒绝→改稿重提 6 条旅程。
+- [x] staging 部署、D1 migration 0002–0009、Worker `a6d2cfa5-a03b-4305-95f6-62d3804d7b4c`（commit `e1a347a`）。
 - [x] R2 批量复制适配器（manifest、SHA/bytes 校验、本地演练、幂等重跑、损坏修复、remote `--apply`）。
 - [ ] staging 真实数据导入与独立 reconcile（需授权目标）。
 - [x] T3 entry-key/fingerprint/玩家修改保留单元测试（tavern-client 4 项）；真实 ST 旅程未验。
