@@ -13,7 +13,7 @@ export const adminSubmissionListQuerySchema = z.object({
             .map((item) => item.trim())
             .filter(Boolean)
         : value,
-    z.array(adminSubmissionStatusSchema).min(1).max(5).optional(),
+    z.array(adminSubmissionStatusSchema).min(1).max(5).default(["pending"]),
   ),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   cursor: z.string().max(512).optional(),

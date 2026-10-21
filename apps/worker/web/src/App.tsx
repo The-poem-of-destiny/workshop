@@ -7,7 +7,6 @@ import {
   type AdminSubmissionListResponse,
   type AuthorProject,
   api,
-  type DiscoveryResponse,
   type HomeResponse,
   type MeResponse,
   type ProjectDetail,
@@ -50,25 +49,35 @@ interface ProjectForm {
 }
 
 function ProjectCard({ project, onOpen }: { project: ProjectSummary; onOpen: (p: ProjectSummary) => void }) {
+  const open = (): void => onOpen(project);
   return (
-    <button className="card" type="button" onClick={() => onOpen(project)}>
-      <div className="cover">
-        {project.coverUrl ? (
-          <img
-            src={project.coverUrl}
-            alt=""
-            loading="lazy"
-            style={{
-              objectPosition: `${project.coverPositionX}% ${project.coverPositionY}%`,
-              transform: `scale(${project.coverZoom})`,
-            }}
-          />
-        ) : (
-          <span>无封面</span>
-        )}
-      </div>
+    <article className="card">
+      <button className="card-cover-button" type="button" onClick={open} aria-label={`查看 ${project.title}`}>
+        <span className="cover">
+          {project.coverUrl ? (
+            <img
+              src={project.coverUrl}
+              alt=""
+              loading="lazy"
+              style={{
+                objectPosition: `${project.coverPositionX}% ${project.coverPositionY}%`,
+                transform: `scale(${project.coverZoom})`,
+              }}
+            />
+          ) : (
+            <span>无封面</span>
+          )}
+        </span>
+      </button>
       <div className="card-body">
-        <h3>{project.title}</h3>
+        <div className="card-title-row">
+          <h3>
+            <button className="card-title" type="button" onClick={open}>
+              {project.title}
+            </button>
+          </h3>
+          {project.versionLabel ? <span className="version">{project.versionLabel}</span> : null}
+        </div>
         <p className="byline">
           {project.author.avatarUrl ? (
             <img src={project.author.avatarUrl} alt="" loading="lazy" />
@@ -82,10 +91,17 @@ function ProjectCard({ project, onOpen }: { project: ProjectSummary; onOpen: (p:
           {project.schemaVersion ? ` | 适配 ${project.schemaVersion}` : ""}
         </p>
         {project.authorNote ? <p className="note">{project.authorNote.slice(0, 80)}</p> : null}
-        <p className="meta">
-          更新 {project.updatedAt.slice(0, 10)}
-          {project.publishedAt ? ` · 发布 ${project.publishedAt.slice(0, 10)}` : ""}
-        </p>
+        <div className="card-footer">
+          <p className="meta">
+            更新 {project.updatedAt.slice(0, 10)}
+            {project.publishedAt ? ` · 发布 ${project.publishedAt.slice(0, 10)}` : ""}
+          </p>
+          {project.discordThreadUrl ? (
+            <a className="discord-link" href={project.discordThreadUrl} target="_blank" rel="noreferrer">
+              Discord
+            </a>
+          ) : null}
+        </div>
         <div className="tags">
           {project.projectType ? <span>{project.projectType}</span> : null}
           {project.tags.slice(0, 2).map((tag) => (
@@ -93,7 +109,7 @@ function ProjectCard({ project, onOpen }: { project: ProjectSummary; onOpen: (p:
           ))}
         </div>
       </div>
-    </button>
+    </article>
   );
 }
 
@@ -121,6 +137,10 @@ function Detail({
   embedded: boolean;
 }) {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     let active = true;
     api
@@ -133,78 +153,135 @@ function Detail({
       active = false;
     };
   }, [project.id]);
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    closeRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !panelRef.current) return;
+      const focusable = [
+        ...panelRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ].filter((element) => element.offsetParent !== null);
+      if (focusable.length === 0) return;
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = originalOverflow;
+      previous?.focus();
+    };
+  }, [project.id]);
   return (
-    <aside className="detail">
-      <button className="close" type="button" onClick={onClose}>
-        关闭
-      </button>
-      <h2>{project.title}</h2>
-      <button className="author link" type="button" onClick={() => onAuthor(project.author)}>
-        {project.author.avatarUrl ? (
-          <img src={project.author.avatarUrl} alt="" />
-        ) : (
-          <span className="avatar-fallback">{project.author.name.slice(0, 1)}</span>
-        )}
-        {project.author.name}
-      </button>
-      <p className="meta">
-        更新 {project.updatedAt.slice(0, 10)}
-        {project.publishedAt ? ` · 发布 ${project.publishedAt.slice(0, 10)}` : ""}
-        {project.schemaVersion ? ` · 适配 ${project.schemaVersion}` : ""}
-      </p>
-      <p>{project.description}</p>
-      {detail?.authorNote ? <p className="note">作者说明：{detail.authorNote}</p> : null}
-      {detail?.precautions ? <p className="note">注意事项：{detail.precautions}</p> : null}
-      {detail?.discordThreadUrl ? (
-        <p className="note">
-          <a href={detail.discordThreadUrl} target="_blank" rel="noreferrer">
-            Discord 讨论
-          </a>
+    <>
+      <div className="detail-backdrop" aria-hidden="true" onClick={onClose} />
+      <aside className="detail" role="dialog" aria-modal="true" aria-labelledby="detail-title" ref={panelRef}>
+        <button className="close" type="button" onClick={onClose} ref={closeRef} aria-label="关闭详情">
+          关闭
+        </button>
+        <h2 id="detail-title">{project.title}</h2>
+        <button className="author link" type="button" onClick={() => onAuthor(project.author)}>
+          {project.author.avatarUrl ? (
+            <img src={project.author.avatarUrl} alt="" />
+          ) : (
+            <span className="avatar-fallback">{project.author.name.slice(0, 1)}</span>
+          )}
+          {project.author.name}
+        </button>
+        <p className="meta">
+          更新 {project.updatedAt.slice(0, 10)}
+          {project.publishedAt ? ` · 发布 ${project.publishedAt.slice(0, 10)}` : ""}
+          {project.schemaVersion ? ` · 适配 ${project.schemaVersion}` : ""}
         </p>
-      ) : null}
-      <dl>
-        <div>
-          <dt>世界书</dt>
-          <dd>{project.entries.worldbook} 条</dd>
-        </div>
-        <div>
-          <dt>正则</dt>
-          <dd>{project.entries.regex} 条</dd>
-        </div>
-        <div>
-          <dt>下载</dt>
-          <dd>{project.counts.downloads}</dd>
-        </div>
-        <div>
-          <dt>点赞</dt>
-          <dd>{project.counts.likes}</dd>
-        </div>
-      </dl>
-      {installedVersion ? <p className="installed">已安装：{installedVersion}</p> : null}
-      {loggedIn ? (
-        <div className="actions">
-          <button type="button" disabled={installing} onClick={() => onDownload(project)}>
-            下载文件
-          </button>
-        </div>
-      ) : null}
-      {!embedded ? (
-        <p className="hint">安装请从 SillyTavern 内的「命定创意工坊」按钮打开。</p>
-      ) : !loggedIn ? (
-        <p className="hint">请先使用 Discord 登录，再安装到当前角色。</p>
-      ) : (
-        <div className="actions">
-          <button type="button" className="primary" disabled={installing} onClick={() => onInstall(project)}>
-            {installing ? "安装中…" : installedVersion ? "更新" : "安装"}
-          </button>
-          {installedVersion ? (
-            <button type="button" disabled={installing} onClick={() => onUninstall(project)}>
-              卸载
+        <p>{project.description}</p>
+        {detail?.authorNote ? <p className="note">作者说明：{detail.authorNote}</p> : null}
+        {detail?.precautions ? <p className="note">注意事项：{detail.precautions}</p> : null}
+        {detail?.discordThreadUrl ? (
+          <p className="note">
+            <a href={detail.discordThreadUrl} target="_blank" rel="noreferrer">
+              Discord 讨论
+            </a>
+          </p>
+        ) : null}
+        <dl>
+          <div>
+            <dt>世界书</dt>
+            <dd>{project.entries.worldbook} 条</dd>
+          </div>
+          <div>
+            <dt>正则</dt>
+            <dd>{project.entries.regex} 条</dd>
+          </div>
+          <div>
+            <dt>下载</dt>
+            <dd>{project.counts.downloads}</dd>
+          </div>
+          <div>
+            <dt>点赞</dt>
+            <dd>{project.counts.likes}</dd>
+          </div>
+        </dl>
+        {installedVersion ? (
+          <p className="installed">
+            {detail?.publishedRevisionId && installedVersion === detail.publishedRevisionId
+              ? "已安装，且与当前发布版本一致。"
+              : "已安装；当前发布版本可更新。"}
+          </p>
+        ) : null}
+        {loggedIn ? (
+          <div className="actions">
+            <button type="button" disabled={installing} onClick={() => onDownload(project)}>
+              下载文件
             </button>
-          ) : null}
-        </div>
-      )}
-    </aside>
+          </div>
+        ) : null}
+        {!embedded ? (
+          <p className="hint">安装请从 SillyTavern 内的「命定创意工坊」按钮打开。</p>
+        ) : !loggedIn ? (
+          <p className="hint">请先使用 Discord 登录，再安装到当前角色。</p>
+        ) : (
+          <div className="actions">
+            <button
+              type="button"
+              className="primary"
+              disabled={
+                installing || (Boolean(detail?.publishedRevisionId) && installedVersion === detail?.publishedRevisionId)
+              }
+              onClick={() => onInstall(project)}
+            >
+              {installing
+                ? "安装中…"
+                : detail?.publishedRevisionId && installedVersion === detail.publishedRevisionId
+                  ? "已是最新"
+                  : installedVersion
+                    ? "更新"
+                    : "安装"}
+            </button>
+            {installedVersion ? (
+              <button type="button" disabled={installing} onClick={() => onUninstall(project)}>
+                卸载
+              </button>
+            ) : null}
+          </div>
+        )}
+      </aside>
+    </>
   );
 }
 
@@ -510,81 +587,59 @@ function ProjectEditor({
   );
 }
 
-function Discovery({ home, onOpen }: { home: HomeResponse; onOpen: (project: ProjectSummary) => void }) {
-  const [ranked, setRanked] = useState<ProjectSummary[]>([]);
-  const [discovery, setDiscovery] = useState<DiscoveryResponse | null>(null);
-  const latest = home.latest.slice(0, 4);
-  const recommendations = home.recommendations.slice(0, 4);
+function Discovery({ onOpen }: { onOpen: (project: ProjectSummary) => void }) {
+  const [items, setItems] = useState<ProjectSummary[]>([]);
+  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   useEffect(() => {
     let active = true;
     api
-      .rankings("7d")
-      .then((result) => {
-        if (active) setRanked(result.items.slice(0, 4).map((item) => item.project));
-      })
-      .catch(() => undefined);
-    api
       .discovery()
       .then((result) => {
-        if (active) setDiscovery(result);
+        if (!active) return;
+        setItems(result.items);
+        setState("ready");
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (active) setState("error");
+      });
     return () => {
       active = false;
     };
   }, []);
   const discovered = useMemo(() => {
-    const items = [...(discovery?.items ?? [])];
-    for (let index = items.length - 1; index > 0; index -= 1) {
+    const next = [...items];
+    for (let index = next.length - 1; index > 0; index -= 1) {
       const swap = Math.floor(Math.random() * (index + 1));
-      [items[index], items[swap]] = [items[swap]!, items[index]!];
+      [next[index], next[swap]] = [next[swap]!, next[index]!];
     }
-    return items.slice(0, 4);
-  }, [discovery]);
-  if (latest.length === 0 && recommendations.length === 0 && ranked.length === 0 && discovered.length === 0)
-    return null;
+    return next.slice(0, 4);
+  }, [items]);
+
+  if (state === "loading") {
+    return (
+      <section className="discovery" aria-busy="true">
+        <h2>发现</h2>
+        <p className="hint">正在整理今日发现…</p>
+      </section>
+    );
+  }
+  if (state === "error") {
+    return (
+      <section className="discovery">
+        <h2>发现</h2>
+        <p className="hint">暂时无法加载发现内容，主列表不受影响。</p>
+      </section>
+    );
+  }
+  if (discovered.length === 0) return null;
   return (
     <section className="discovery">
-      {discovered.length > 0 ? (
-        <>
-          <h2>发现</h2>
-          <div className="grid">
-            {discovered.map((project) => (
-              <ProjectCard key={project.id} project={project} onOpen={onOpen} />
-            ))}
-          </div>
-        </>
-      ) : null}
-      {latest.length > 0 ? (
-        <>
-          <h2>最新上架</h2>
-          <div className="grid">
-            {latest.map((project) => (
-              <ProjectCard key={project.id} project={project} onOpen={onOpen} />
-            ))}
-          </div>
-        </>
-      ) : null}
-      {recommendations.length > 0 ? (
-        <>
-          <h2>编辑精选</h2>
-          <div className="grid">
-            {recommendations.map((project) => (
-              <ProjectCard key={project.id} project={project} onOpen={onOpen} />
-            ))}
-          </div>
-        </>
-      ) : null}
-      {ranked.length > 0 ? (
-        <>
-          <h2>周热度</h2>
-          <div className="grid">
-            {ranked.map((project) => (
-              <ProjectCard key={project.id} project={project} onOpen={onOpen} />
-            ))}
-          </div>
-        </>
-      ) : null}
+      <h2>发现</h2>
+      <div className="grid discovery-grid">
+        {discovered.map((project) => (
+          <ProjectCard key={project.id} project={project} onOpen={onOpen} />
+        ))}
+      </div>
     </section>
   );
 }
@@ -1041,7 +1096,10 @@ function AdminPanel({
             </div>
           </dl>
           <h3>检查报告</h3>
-          <pre className="report">{JSON.stringify(detail.submission.checkReport, null, 2) ?? "暂无报告"}</pre>
+          <details className="report-fold">
+            <summary>查看原始报告 JSON</summary>
+            <pre className="report">{JSON.stringify(detail.submission.checkReport, null, 2) ?? "暂无报告"}</pre>
+          </details>
           <h3>差异</h3>
           {diff ? (
             <>
@@ -1127,6 +1185,7 @@ export function App() {
   const [me, setMe] = useState<MeResponse["user"] | null>(null);
   const [context, setContext] = useState<HostContext | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [loginFallback, setLoginFallback] = useState<string | null>(null);
   const [view, setView] = useState<"browse" | "projects" | "subs" | "admin" | "tools">("browse");
   const listRequest = useRef(0);
   const embedded = new URLSearchParams(location.search).get("embed") === "1";
@@ -1145,23 +1204,25 @@ export function App() {
   }
   function login(): void {
     setError(null);
+    setLoginFallback(null);
     void api
       .createFlow()
       .then((flow) => {
-        const popup = window.open(flow.url, "cw-discord-login", "width=520,height=720");
-        if (!popup) {
-          setError("登录窗口被浏览器拦截，请允许弹窗后重试。");
-          return;
-        }
         const onMessage = (event: MessageEvent): void => {
           if (event.origin !== location.origin) return;
           const data: { type?: unknown; token?: unknown } = event.data;
           if (data.type !== "oauth-success" || typeof data.token !== "string") return;
           setSessionToken(data.token);
+          setLoginFallback(null);
           window.removeEventListener("message", onMessage);
           void refreshMe();
         };
         window.addEventListener("message", onMessage);
+        const popup = window.open(flow.url, "cw-discord-login", "width=520,height=720");
+        if (!popup) {
+          setLoginFallback(flow.url);
+          setError("登录窗口被拦截。可以点击下方链接打开登录页；完成后本页会自动登录。");
+        }
       })
       .catch((reason) => setError(String(reason)));
   }
@@ -1179,10 +1240,19 @@ export function App() {
     setInstalling(true);
     setNotice(null);
     void api
-      .install(project.id)
-      .then((payload) => {
+      .acquisitions(project.id)
+      .then(async (payload) => {
+        const files: { worldbook?: string; regex?: string } = {};
+        for (const ticket of payload.tickets) {
+          files[ticket.kind] = await api.downloadTicketText(ticket.url);
+        }
         const target = context.worldbooks.primary ?? context.worldbooks.available[0] ?? null;
-        postToHost({ type: "cw:install", project: payload.project, files: payload.files, targetWorldbook: target });
+        postToHost({
+          type: "cw:install",
+          project: payload.project,
+          files,
+          targetWorldbook: target,
+        });
       })
       .catch((reason) => {
         setError(String(reason));
@@ -1230,7 +1300,15 @@ export function App() {
         if (data.ok) postToHost({ type: "cw:request-context" });
       } else if (data.type === "cw:uninstall-result") {
         setInstalling(false);
-        setNotice(data.ok ? "卸载完成。" : `卸载失败：${String(data.message ?? "")}`);
+        const preservedEntries = Number(data.preservedEntries ?? 0);
+        const preservedRegexes = Number(data.preservedRegexes ?? 0);
+        setNotice(
+          data.ok
+            ? preservedEntries + preservedRegexes > 0
+              ? `卸载完成；保留了 ${preservedEntries} 个玩家修改条目、${preservedRegexes} 条玩家修改正则。`
+              : "卸载完成。"
+            : `卸载失败：${String(data.message ?? "")}`,
+        );
         if (data.ok) postToHost({ type: "cw:request-context" });
       }
     };
@@ -1359,14 +1437,25 @@ export function App() {
         />
       ) : null}
       {error ? (
-        <p className="error">
+        <p className="error" role="alert">
           {error}
-          <button type="button" onClick={() => setError(null)}>
+          <button type="button" onClick={() => setError(null)} aria-label="关闭提示">
             ×
           </button>
         </p>
       ) : null}
-      {notice ? <p className="notice">{notice}</p> : null}
+      {loginFallback ? (
+        <p className="notice">
+          <a href={loginFallback} target="_blank" rel="noopener opener">
+            打开 Discord 登录页
+          </a>
+        </p>
+      ) : null}
+      {notice ? (
+        <p className="notice" role="status">
+          {notice}
+        </p>
+      ) : null}
       {view === "projects" && me ? (
         <MyProjects
           onError={(message) => {
@@ -1414,9 +1503,7 @@ export function App() {
       ) : (
         <>
           {" "}
-          {home && !search.trim() && !projectType && !author && !tag.trim() ? (
-            <Discovery home={home} onOpen={setSelected} />
-          ) : null}
+          {!search.trim() && !projectType && !author && !tag.trim() ? <Discovery onOpen={setSelected} /> : null}
           <nav className="sorts" aria-label="排序">
             {SORTS.map(([value, label]) => (
               <button

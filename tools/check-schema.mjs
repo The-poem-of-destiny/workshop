@@ -38,6 +38,7 @@ const expectedTables = [
   "project_search_tags",
   "download_tokens",
   "submission_check_runs",
+  "revision_entry_index",
 ];
 
 const tables = new Set(

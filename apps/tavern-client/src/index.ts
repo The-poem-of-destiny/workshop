@@ -56,6 +56,7 @@ type InstallRegistryEntry = {
   worldbookName: string;
   entries: Record<string, { hash: string; name: string }>;
   regexIds: string[];
+  regexHashes?: Record<string, string>;
   updatedAt: string;
 };
 type InstallRegistry = Record<string, InstallRegistryEntry>;
@@ -85,13 +86,17 @@ function workshopOrigin(): string {
   return normalizeWorkshopOrigin(variables[ORIGIN_VARIABLE], DEFAULT_ORIGIN);
 }
 
-function currentChannel(): "stable" | "staging" {
+const SCRIPT_CHANNEL: "stable" | "staging" = (() => {
   try {
     const script = document.currentScript as HTMLScriptElement | null;
     return script?.src && /\/staging\//.test(script.src) ? "staging" : "stable";
   } catch {
     return "stable";
   }
+})();
+
+function currentChannel(): "stable" | "staging" {
+  return SCRIPT_CHANNEL;
 }
 
 function readRegistry(): InstallRegistry {
@@ -117,6 +122,16 @@ async function ensureTargetWorldbook(requested?: string | null): Promise<string>
     });
   }
   return target;
+}
+
+function regexFingerprint(regex: Record<string, unknown>): string {
+  return JSON.stringify({
+    find: regex.find_regex ?? "",
+    replace: regex.replace_string ?? "",
+    trim: regex.trim_strings ?? [],
+    source: regex.source ?? null,
+    destination: regex.destination ?? null,
+  });
 }
 
 async function installProject(project: InstallProject, files: InstallFileSet, targetWorldbook?: string | null) {
@@ -197,6 +212,7 @@ async function installProject(project: InstallProject, files: InstallFileSet, ta
   await updateWorldbookWith(target, () => result);
 
   const regexIds: string[] = [];
+  const regexHashes: Record<string, string> = {};
   if (files.regex) {
     const incomingRegex = regexEntries(JSON.parse(files.regex));
     const all = getTavernRegexes({ scope: "character", enable_state: "all" });
@@ -233,6 +249,9 @@ async function installProject(project: InstallProject, files: InstallFileSet, ta
         max_depth: Number.isFinite(entry.maxDepth) ? entry.maxDepth : null,
       };
     });
+    for (const regex of added) {
+      regexHashes[String(regex.id)] = await hashText(regexFingerprint(regex));
+    }
     await updateTavernRegexesWith(() => [...kept, ...added], { scope: "character" });
   } else if (previous?.regexIds?.length) {
     const prefix = `cw-${project.id}-`;
@@ -256,6 +275,7 @@ async function installProject(project: InstallProject, files: InstallFileSet, ta
     worldbookName: target,
     entries: entryIndex,
     regexIds,
+    regexHashes,
     updatedAt: new Date().toISOString(),
   };
   await writeRegistry(registry);
@@ -265,20 +285,50 @@ async function installProject(project: InstallProject, files: InstallFileSet, ta
 async function uninstallProject(projectId: string) {
   const registry = readRegistry();
   const record = registry[projectId];
+  let preservedEntries = 0;
+  let preservedRegexes = 0;
+
   if (record?.worldbookName && getWorldbookNames().includes(record.worldbookName)) {
-    await updateWorldbookWith(record.worldbookName, (entries) =>
-      entries.filter((entry) => entry?.extensions?.cw_project_id !== projectId),
-    );
+    const current = await getWorldbook(record.worldbookName);
+    const kept: Record<string, unknown>[] = [];
+    for (const [index, entry] of current.entries()) {
+      if (entry?.extensions?.cw_project_id !== projectId) {
+        kept.push(entry);
+        continue;
+      }
+      const installedHash = entry.extensions.cw_installed_hash;
+      const currentHash = await hashText(String(entry.content ?? ""));
+      if (typeof installedHash === "string" && currentHash !== installedHash) {
+        kept.push(entry);
+        preservedEntries += 1;
+      }
+    }
+    await updateWorldbookWith(record.worldbookName, () => kept);
   }
+
   if (record?.regexIds?.length) {
     const ids = new Set(record.regexIds);
-    await updateTavernRegexesWith((regexes) => regexes.filter((regex) => !ids.has(String(regex.id ?? ""))), {
-      scope: "character",
-    });
+    const all = getTavernRegexes({ scope: "character", enable_state: "all" });
+    const kept: Record<string, unknown>[] = [];
+    for (const regex of all) {
+      const id = String(regex.id ?? "");
+      if (!ids.has(id)) {
+        kept.push(regex);
+        continue;
+      }
+      const installedHash = record.regexHashes?.[id];
+      const currentHash = await hashText(regexFingerprint(regex));
+      if (installedHash && currentHash !== installedHash) {
+        kept.push(regex);
+        preservedRegexes += 1;
+      }
+    }
+    await updateTavernRegexesWith(() => kept, { scope: "character" });
   }
+
   delete registry[projectId];
   await writeRegistry(registry);
-  return { removed: Boolean(record) };
+  return { removed: Boolean(record), preservedEntries, preservedRegexes };
 }
 
 function contextPayload() {
@@ -377,7 +427,7 @@ function showOverlay() {
 
   const origin = workshopOrigin();
   (async () => {
-    const target = `${origin}/?embed=1&clientVersion=${encodeURIComponent(CLIENT_VERSION)}`;
+    const target = `${origin}/?embed=1&clientVersion=${encodeURIComponent(CLIENT_VERSION)}&clientChannel=${SCRIPT_CHANNEL}`;
     try {
       const response = await fetch(
         `${origin}/api/v1/client/compatibility?version=${encodeURIComponent(CLIENT_VERSION)}&channel=${currentChannel()}`,

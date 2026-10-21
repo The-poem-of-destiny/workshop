@@ -85,7 +85,7 @@ export async function consumeDownloadToken(
   const now = new Date().toISOString();
   const row = await db
     .prepare(`
-    SELECT t.user_id, t.expires_at, t.consumed_at, a.r2_key, a.mime, a.bytes
+    SELECT t.user_id, t.project_id, t.expires_at, t.consumed_at, a.r2_key, a.mime, a.bytes
     FROM download_tokens t
     JOIN assets a
       ON a.project_id = t.project_id AND a.revision_id = t.revision_id AND a.kind = t.kind
@@ -102,6 +102,7 @@ export async function consumeDownloadToken(
     .bind(hash, session.userId, session.sessionVersion, now, session.userId, session.role)
     .first<{
       user_id: string;
+      project_id: string;
       expires_at: string;
       consumed_at: string | null;
       r2_key: string;
@@ -117,6 +118,9 @@ export async function consumeDownloadToken(
     return "not_found";
   }
 
+  const object = await r2.get(row.r2_key);
+  if (!object) return "not_found";
+
   const consumed = await db
     .prepare(`
     UPDATE download_tokens SET consumed_at = ?
@@ -125,9 +129,7 @@ export async function consumeDownloadToken(
     .bind(now, hash, now)
     .run();
   if (consumed.meta.changes === 0) return "not_found";
-
-  const object = await r2.get(row.r2_key);
-  if (!object) return "not_found";
+  await recordDownload(db, row.project_id, session.userId).catch(() => undefined);
   return {
     object,
     mime: row.mime,

@@ -8,7 +8,7 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +21,7 @@ const base = `http://127.0.0.1:${port}`;
 const tmp = mkdtempSync(path.join(os.tmpdir(), "workshop-e2e-"));
 let server;
 
+const screenshotDir = process.env.E2E_SCREENSHOT_DIR ?? "";
 const authorToken = "e2e-author-token";
 const ownerToken = "e2e-owner-token";
 const hash = (value) => createHash("sha256").update(value).digest("hex");
@@ -48,6 +49,12 @@ async function api(pathname, init = {}, token) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+async function screenshot(page, name) {
+  if (!screenshotDir) return;
+  mkdirSync(screenshotDir, { recursive: true });
+  await page.screenshot({ path: path.join(screenshotDir, `${name}.png`), fullPage: true });
 }
 
 function chromiumExecutable() {
@@ -433,6 +440,15 @@ async function main() {
           const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.locator(".card").first().waitFor({ state: "visible", timeout: 10_000 });
+          assert((await page.locator(".discovery").count()) <= 1, "at most one discovery shelf");
+          assert((await page.locator(".discovery .card").count()) <= 4, "discovery has at most four cards");
+          if ((await page.locator(".banner").count()) > 0) {
+            const bannerHeight = await page
+              .locator(".banner")
+              .evaluate((element) => element.getBoundingClientRect().height);
+            assert(bannerHeight >= 72 && bannerHeight <= 104, `banner height ${bannerHeight}`);
+          }
+          await screenshot(page, "browse-desktop");
           await page.getByRole("button", { name: "下载", exact: true }).click();
           assert(
             (await page.getByRole("button", { name: "下载", exact: true }).getAttribute("class"))?.includes("active") ??
@@ -444,8 +460,15 @@ async function main() {
             .locator(".card", { hasText: "E2E Project" })
             .first()
             .waitFor({ state: "visible", timeout: 10_000 });
-          await page.locator(".card", { hasText: "E2E Project" }).first().click();
+          await page.locator(".card", { hasText: "E2E Project" }).first().locator(".card-title").click();
           await page.locator(".detail").waitFor({ state: "visible" });
+          assert((await page.locator(".detail").getAttribute("role")) === "dialog", "detail dialog role");
+          assert((await page.locator(".detail").getAttribute("aria-modal")) === "true", "detail modal");
+          assert(
+            (await page.evaluate(() => document.activeElement?.classList.contains("close"))) === true,
+            "dialog focuses close button",
+          );
+          await screenshot(page, "detail-desktop");
           assert((await page.locator(".detail").textContent())?.includes("E2E Project"), "detail content");
           assert(
             (await page.locator(".detail").textContent())?.includes("SillyTavern"),
@@ -454,6 +477,23 @@ async function main() {
           await page.locator(".detail .author.link").click();
           await page.getByText("作者：E2E Author", { exact: false }).waitFor({ state: "visible" });
           await page.getByRole("button", { name: "清除", exact: true }).click();
+          await page.close();
+        });
+
+        await check("browser mobile browse and detail", async () => {
+          const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true });
+          await page.goto(`${base}/`, { waitUntil: "networkidle" });
+          await page.locator(".card").first().waitFor({ state: "visible", timeout: 10_000 });
+          assert(
+            (await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)) === true,
+            "mobile has no horizontal overflow",
+          );
+          await screenshot(page, "browse-mobile");
+          await page.locator(".card").first().locator(".card-title").click();
+          await page.locator(".detail").waitFor({ state: "visible" });
+          await screenshot(page, "detail-mobile");
+          await page.keyboard.press("Escape");
+          await page.locator(".detail").waitFor({ state: "hidden" });
           await page.close();
         });
 
@@ -491,6 +531,7 @@ async function main() {
           await page.getByText("E2E Project", { exact: true }).first().click();
           await page.getByRole("button", { name: "提交当前版本" }).waitFor({ state: "visible" });
           assert((await page.locator(".workspace").textContent())?.includes("提交审核"), "submit box");
+          await screenshot(page, "author-workspace");
           await page.getByRole("button", { name: "订阅", exact: true }).click();
           await page.getByText("E2E Project", { exact: true }).first().waitFor({ state: "visible", timeout: 10_000 });
           await context.close();
@@ -503,6 +544,7 @@ async function main() {
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.getByRole("button", { name: "管理" }).click();
           await page.getByText("站点设置", { exact: true }).waitFor({ state: "visible", timeout: 10_000 });
+          await screenshot(page, "admin-tools");
           await page.getByText("成员", { exact: true }).waitFor({ state: "visible" });
           await page.getByText("审计", { exact: true }).waitFor({ state: "visible" });
           await page.getByRole("button", { name: "保存站点设置" }).click();
@@ -518,6 +560,7 @@ async function main() {
           await page.getByRole("button", { name: "审核台" }).click();
           await page.getByText("E2E Approve", { exact: true }).first().waitFor({ state: "visible", timeout: 10_000 });
           await page.getByText("E2E Approve", { exact: true }).first().click();
+          await screenshot(page, "review-detail");
           await page.locator("textarea").fill("e2e approval reason");
           await page.getByRole("button", { name: "通过", exact: true }).click();
           await page.getByText("已通过审核").waitFor({ state: "visible", timeout: 10_000 });

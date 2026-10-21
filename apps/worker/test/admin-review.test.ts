@@ -103,6 +103,10 @@ describe("admin review and publishing", () => {
       VALUES ('s2', 'p2', 'r2', 'checking', 'warn', 'checker-1', 'member', '2026-10-21T00:00:01.000Z');
     `).run();
 
+    const defaultPage = await request("/submissions");
+    expect(defaultPage.status).toBe(200);
+    await expect(defaultPage.json()).resolves.toMatchObject({ items: [{ id: "s1" }] });
+
     const first = await request("/submissions?status=pending,checking&limit=1");
     expect(first.status).toBe(200);
     const firstPage = (await first.json()) as {

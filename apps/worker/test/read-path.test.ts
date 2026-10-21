@@ -224,6 +224,38 @@ describe("public read path", () => {
     expect(meta.rows_written).toBe(0);
   });
 
+  it("paginates with a stable keyset cursor", async () => {
+    await seed();
+    for (const [projectId, revisionId, updatedAt] of [
+      ["p3", "r4", "2026-10-20T00:00:00.000Z"],
+      ["p4", "r5", "2026-10-19T00:00:00.000Z"],
+    ] as const) {
+      await bindings.DB.prepare(`
+        INSERT INTO projects
+          (id, author_id, title, visibility, published_revision_id, published_at, updated_at)
+        VALUES (?, 'u1', ?, 'public', ?, ?, ?)
+      `)
+        .bind(projectId, projectId, revisionId, updatedAt, updatedAt)
+        .run();
+      await bindings.DB.prepare(`
+        INSERT INTO project_revisions (id, project_id, revision_no, title, created_by, created_at)
+        VALUES (?, ?, 1, ?, 'u1', ?)
+      `)
+        .bind(revisionId, projectId, projectId, updatedAt)
+        .run();
+    }
+    const first = await listPublishedProjects(bindings.DB, { limit: 2, sort: "updated" });
+    expect(first.items.map((item) => item.id)).toEqual(["p1", "p3"]);
+    expect(first.nextCursor).toBeTruthy();
+    const second = await listPublishedProjects(bindings.DB, {
+      limit: 2,
+      sort: "updated",
+      cursor: first.nextCursor!,
+    });
+    expect(second.items.map((item) => item.id)).toEqual(["p4"]);
+    expect(second.nextCursor).toBeNull();
+  });
+
   it("filters by exact tag", async () => {
     await seed();
     const tagged = await app.request(`/api/v1/projects?tag=${encodeURIComponent("奇幻")}`, undefined, bindings);
@@ -281,6 +313,10 @@ describe("public read path", () => {
     expect(ticket.files).toHaveLength(1);
     expect(ticket.files[0]).toMatchObject({ kind: "worldbook" });
     expect(ticket.files[0]!.expiresAt).toBeTruthy();
+    const afterIssue = await bindings.DB.prepare("SELECT downloads_count FROM projects WHERE id = 'p1'").first<{
+      downloads_count: number;
+    }>();
+    expect(afterIssue?.downloads_count).toBe(12);
 
     const otherUser = await app.request(
       ticket.files[0]!.url,
@@ -366,32 +402,74 @@ describe("public read path", () => {
     expect(JSON.stringify(body)).not.toContain('"content"');
   });
 
-  it("returns an authenticated install payload without exposing it anonymously", async () => {
+  it("returns acquisition tickets only after client version and channel checks", async () => {
     await seed();
-    expect((await app.request("/api/v1/projects/p1/install", undefined, bindings)).status).toBe(401);
+    expect((await app.request("/api/v1/projects/p1/acquisitions", { method: "POST" }, bindings)).status).toBe(401);
     await bindings.DB.prepare("INSERT INTO site_settings (key, value, updated_at) VALUES ('client_channels', ?, ?)")
       .bind(JSON.stringify({ stable: { revision: "r1", version: "1.0.0" } }), now)
       .run();
-    const wrong = await app.request(
-      "/api/v1/projects/p1/install",
+    const missingChannel = await app.request(
+      "/api/v1/projects/p1/acquisitions",
+      { method: "POST", headers: { authorization: "Bearer test-token", "x-client-version": "1.0.0" } },
+      bindings,
+    );
+    expect(missingChannel.status).toBe(426);
+    const wrongChannel = await app.request(
+      "/api/v1/projects/p1/acquisitions",
       {
-        headers: { authorization: "Bearer test-token", "x-client-version": "0.9.0" },
+        method: "POST",
+        headers: {
+          authorization: "Bearer test-token",
+          "x-client-version": "1.0.0",
+          "x-client-channel": "staging",
+        },
       },
       bindings,
     );
-    expect(wrong.status).toBe(426);
+    expect(wrongChannel.status).toBe(426);
+    const wrongVersion = await app.request(
+      "/api/v1/projects/p1/acquisitions",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer test-token",
+          "x-client-version": "0.9.0",
+          "x-client-channel": "stable",
+        },
+      },
+      bindings,
+    );
+    expect(wrongVersion.status).toBe(426);
     const response = await app.request(
-      "/api/v1/projects/p1/install",
+      "/api/v1/projects/p1/acquisitions",
       {
-        headers: { authorization: "Bearer test-token", "x-client-version": "1.0.0" },
+        method: "POST",
+        headers: {
+          authorization: "Bearer test-token",
+          "x-client-version": "1.0.0",
+          "x-client-channel": "stable",
+        },
       },
       bindings,
     );
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      project: { id: "p1", version: "r1" },
-      files: { worldbook: '{"entries":[]}' },
-    });
+    expect(response.status).toBe(201);
+    const acquisition = (await response.json()) as {
+      project: { id: string; version: string };
+      release: { files: Array<{ kind: string }> };
+      tickets: Array<{ kind: string; url: string }>;
+    };
+    expect(acquisition.project).toMatchObject({ id: "p1", version: "r1" });
+    expect(acquisition.release.files).toMatchObject([{ kind: "worldbook" }]);
+    expect(acquisition.tickets.map((ticket) => ticket.kind)).toEqual(["worldbook"]);
+    const file = await app.request(
+      acquisition.tickets[0]!.url,
+      {
+        headers: { authorization: "Bearer test-token" },
+      },
+      bindings,
+    );
+    expect(file.status).toBe(200);
+    await expect(file.text()).resolves.toBe('{"entries":[]}');
   });
 
   it("requires login for release manifest and files", async () => {

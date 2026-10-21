@@ -31,7 +31,7 @@ import {
   updateVisibility,
   upsertAsset,
 } from "../../storage/authoring.js";
-import { jsonError } from "../errors.js";
+import { jsonError, versionConflict } from "../errors.js";
 import { requireSession } from "../session.js";
 
 export const authoringRoutes = new Hono<{ Bindings: Env }>();
@@ -167,7 +167,7 @@ authoringRoutes.patch("/:id", async (c) => {
   if (!project) return jsonError(c, "not_found", "Project not found");
   const expectedVersion = ifMatchVersion(c.req.header("if-match"));
   if (expectedVersion === null || expectedVersion !== project.row_version) {
-    return jsonError(c, "precondition_failed", "Project version does not match");
+    return versionConflict(c, "project", expectedVersion, project.row_version);
   }
   if (await metadataRateLimited(c.env.DB, project.id, auth.session.userId)) {
     return jsonError(c, "rate_limited", "Too many metadata updates; retry in a minute");
@@ -194,7 +194,7 @@ authoringRoutes.patch("/:id", async (c) => {
     return jsonError(c, "bad_request", "Project metadata failed validation", metadata.findings);
   }
   const result = await patchProject(c.env.DB, auth.session, project.id, expectedVersion, parsed.data);
-  if (!result) return jsonError(c, "precondition_failed", "Project version does not match");
+  if (!result) return versionConflict(c, "project", expectedVersion, project.row_version);
   return c.json(result);
 });
 
@@ -231,11 +231,12 @@ authoringRoutes.delete("/:id", async (c) => {
   const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
   if (!project) return jsonError(c, "not_found", "Project not found");
   const expectedVersion = ifMatchVersion(c.req.header("if-match"));
-  if (expectedVersion !== null && expectedVersion !== project.row_version) {
-    return jsonError(c, "precondition_failed", "Project version does not match");
+  if (expectedVersion === null) return versionConflict(c, "project", null, project.row_version);
+  if (expectedVersion !== project.row_version) {
+    return versionConflict(c, "project", expectedVersion, project.row_version);
   }
-  const deleted = await softDeleteProject(c.env.DB, auth.session, project.id, expectedVersion ?? undefined);
-  if (!deleted) return jsonError(c, "conflict", "Project cannot be deleted");
+  const deleted = await softDeleteProject(c.env.DB, auth.session, project.id, expectedVersion);
+  if (!deleted) return versionConflict(c, "project", expectedVersion, project.row_version);
   return c.body(null, 204);
 });
 
@@ -246,12 +247,12 @@ authoringRoutes.patch("/:id/visibility", async (c) => {
   if (!project) return jsonError(c, "not_found", "Project not found");
   const expectedVersion = ifMatchVersion(c.req.header("if-match"));
   if (expectedVersion === null || expectedVersion !== project.row_version) {
-    return jsonError(c, "precondition_failed", "Project version does not match");
+    return versionConflict(c, "project", expectedVersion, project.row_version);
   }
   const parsed = visibilityUpdateSchema.safeParse(await bodyJson(c));
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid visibility", parsed.error.flatten());
   const rowVersion = await updateVisibility(c.env.DB, auth.session, project.id, expectedVersion, parsed.data);
-  if (!rowVersion) return jsonError(c, "precondition_failed", "Project version does not match");
+  if (!rowVersion) return versionConflict(c, "project", expectedVersion, project.row_version);
   return c.json({ rowVersion });
 });
 
@@ -289,7 +290,7 @@ authoringRoutes.post("/:id/revisions", async (c) => {
     return jsonError(c, "bad_request", "Project metadata failed validation", metadata.findings);
   }
   const result = await createRevision(c.env.DB, auth.session, project.id, expectedVersion, parsed.data);
-  if (!result) return jsonError(c, "precondition_failed", "Project version does not match");
+  if (!result) return versionConflict(c, "project", expectedVersion, project.row_version);
   return c.json(result, 201);
 });
 

@@ -25,6 +25,7 @@ export interface ProjectDetail extends ProjectSummary {
   authorNote: string | null;
   precautions: string | null;
   discordThreadUrl: string | null;
+  publishedRevisionId?: string | null;
 }
 
 export interface HomeResponse {
@@ -52,9 +53,21 @@ export interface ProjectListResponse {
 export interface MeResponse {
   user: { id: string; username: string; globalName: string | null; avatarUrl: string | null; role: string };
 }
-export interface InstallPayload {
-  project: { id: string; title: string; version: string; projectType: string | null; extensionType: string | null };
-  files: { worldbook?: string; regex?: string };
+export interface AcquisitionPayload {
+  project: {
+    id: string;
+    title: string;
+    version: string;
+    projectType: string | null;
+    extensionType: string | null;
+    manifestHash: string | null;
+  };
+  release: {
+    revisionId: string;
+    manifestHash: string | null;
+    files: { kind: "worldbook" | "regex"; sha256: string; bytes: number; mime: string }[];
+  };
+  tickets: { kind: "worldbook" | "regex"; url: string; expiresAt: string }[];
 }
 export interface AuthorSubmission {
   id: string;
@@ -428,19 +441,22 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ mode: "browser" }),
     }),
-  install: (projectId: string) => {
-    const version = new URLSearchParams(location.search).get("clientVersion");
-    return requestJson<InstallPayload>(
-      `/api/v1/projects/${encodeURIComponent(projectId)}/install`,
-      version
-        ? {
-            headers: {
-              "x-client-version": version,
-              "x-client-channel": location.pathname.includes("staging") ? "staging" : "stable",
-            },
-          }
-        : {},
-    );
+  acquisitions: (projectId: string) => {
+    const params = new URLSearchParams(location.search);
+    const version = params.get("clientVersion");
+    const channel = params.get("clientChannel");
+    const headers: Record<string, string> = {};
+    if (version) headers["x-client-version"] = version;
+    if (channel === "stable" || channel === "staging") headers["x-client-channel"] = channel;
+    return requestJson<AcquisitionPayload>(`/api/v1/projects/${encodeURIComponent(projectId)}/acquisitions`, {
+      method: "POST",
+      headers,
+    });
+  },
+  downloadTicketText: async (url: string) => {
+    const response = await fetch(url, { headers: authHeaders() });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    return response.text();
   },
   downloadTickets: (projectId: string) =>
     requestJson<{ revisionId: string; files: { kind: string; url: string; expiresAt: string }[] }>(

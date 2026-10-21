@@ -20,6 +20,7 @@ import {
 } from "@workshop/domain";
 import { z } from "zod";
 import { REVIEW_CHECKER_REVISION } from "../content-checker.js";
+import { buildEntryIndex, saveEntryIndex } from "./content-index.js";
 
 interface ProjectAccessRow {
   id: string;
@@ -1244,5 +1245,18 @@ export async function submitRevision(
     WHERE id = ?`)
     .bind(manifestHash, counts.worldbook, counts.regex, revisionId)
     .run();
+  try {
+    const indexAssets = assets.results
+      .filter(
+        (asset): asset is typeof asset & { kind: ProjectEntryKind } =>
+          asset.kind === "worldbook" || asset.kind === "regex",
+      )
+      .map((asset) => ({ kind: asset.kind, r2_key: asset.r2_key }));
+    const entries = await buildEntryIndex(r2, indexAssets);
+    await saveEntryIndex(db, revisionId, entries);
+  } catch (error) {
+    // The public index is a read optimization; submission must still succeed.
+    console.warn("entry index build failed", error);
+  }
   return { ok: true, submissionId, checkStatus };
 }

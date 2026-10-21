@@ -81,6 +81,12 @@ describe("authoring write paths", () => {
       body: JSON.stringify({ title: "stale" }),
     });
     expect(mismatch.status).toBe(412);
+    await expect(mismatch.json()).resolves.toMatchObject({
+      error: {
+        code: "precondition_failed",
+        details: { resource: "project", expectedVersion: 99, currentVersion: 1 },
+      },
+    });
   });
 
   it("hides projects from non-authors and permits owners", async () => {

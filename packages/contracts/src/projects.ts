@@ -50,12 +50,13 @@ export const projectDetailSchema = projectSummarySchema.extend({
   authorNote: z.string().nullable(),
   precautions: z.string().nullable().optional(),
   discordThreadUrl: z.string().nullable(),
+  publishedRevisionId: z.string().nullable().optional(),
 });
 
 export type ProjectDetail = z.infer<typeof projectDetailSchema>;
 
 export const projectListQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(50).default(20),
+  limit: z.coerce.number().int().min(1).max(50).default(24),
   cursor: z.string().max(512).optional(),
   sort: projectSortSchema.default("updated"),
   projectType: projectTypeSchema.optional(),

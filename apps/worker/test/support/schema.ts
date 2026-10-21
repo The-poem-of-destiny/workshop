@@ -9,6 +9,8 @@ import likeMetrics from "../../migrations/0008_like_metrics.sql?raw";
 import publicCacheEpoch from "../../migrations/0009_public_cache_epoch.sql?raw";
 import oauthBrowserBinding from "../../migrations/0010_oauth_browser_binding.sql?raw";
 import cacheEpochWriteScope from "../../migrations/0011_cache_epoch_write_scope.sql?raw";
+import revisionEntryIndex from "../../migrations/0012_revision_entry_index.sql?raw";
+import submissionQueueCursor from "../../migrations/0013_submission_queue_cursor.sql?raw";
 import { splitSql } from "./sql";
 
 export async function applySchema(db: D1Database): Promise<void> {
@@ -24,6 +26,8 @@ export async function applySchema(db: D1Database): Promise<void> {
     publicCacheEpoch,
     oauthBrowserBinding,
     cacheEpochWriteScope,
+    revisionEntryIndex,
+    submissionQueueCursor,
   ]) {
     const sql = source.replace(/^\s*--.*$/gm, "").replace(/^\s*PRAGMA\b.*$/gm, "");
     for (const statement of splitSql(sql)) await db.prepare(statement).run();

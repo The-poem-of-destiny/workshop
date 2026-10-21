@@ -171,7 +171,7 @@ function decodeSubmissionCursor(cursor: string | undefined): [string, string] | 
 }
 
 export async function listAdminSubmissions(db: D1Database, query: AdminSubmissionListQuery) {
-  const statuses = query.status ?? [];
+  const statuses = query.status;
   const conditions: string[] = [];
   const bindings: unknown[] = [];
   if (statuses.length > 0) {

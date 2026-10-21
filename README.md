@@ -2,10 +2,10 @@
 
 这是「命定之诗与黄昏之歌」的**创意工坊**独立仓库。
 
-当前工作树包含新后端、公开 Web 站点和酒馆客户端 bundle：
+当前工作树包含一个 Cloudflare Worker（API + Web 静态托管）和酒馆客户端 bundle：
 
-- **Cloudflare Worker 后端**：项目读取、作者写路径、人工审核、发布、互动与文件分发；
-- **Web 站点**：React + Vite 的公开列表、详情与作者/审核界面；
+- **Cloudflare Worker 后端**：项目读取、作者写路径、人工审核、发布、互动与文件分发；同时通过 Static Assets 托管 Web 构建产物。
+- **Web 站点**：React + Vite 的公开列表、详情与作者/审核界面。它不是独立服务，构建产物由上面的 Worker 同源提供，页面里的 `/api/v1` 请求也回到这个 Worker。
 - **酒馆客户端**：安装、更新、卸载和内容基线桥接。
 
 ## 仓库结构
@@ -27,8 +27,6 @@ workshop/
 │  └─ audits/
 └─ .agents/                  # 项目级 Agent 规则、notes、skills 与共享规范
 ```
-
-`cloudflare/`、`src/`、`util/`、`config/`、`test-dist/` 和旧 webpack 构建链已删除；不要在当前工作树重新引入旧实现。
 
 ## 后端与客户端
 

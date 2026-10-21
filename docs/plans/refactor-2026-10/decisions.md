@@ -336,6 +336,14 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
 - 管理端队列保持 `private, no-store`；Workers Cache 只用于公开读接口。
 - 服务端仍用条件更新兜底重复审核，不引入 snapshot 存储。
 
+### D-37 缓存阶段：公开投影短 TTL，动态接口保持 no-store
+
+- 当前保留 Workers Cache 仅用于明确标注的公开投影（项目列表/详情/发现/榜单/推荐等），TTL 30 秒，键含 `cache_epoch`；不宣称 tag purge、`Cf-Cache-Status` 或网关级缓存已完成。
+- 登录后读取、下载票据/字节、作者、审核、互动写路径全部 `private, no-store`。
+- 在 D-24/D-28 验收前不扩大缓存范围，也不把公开计数缓存当作权限或写入判断。
+- 客户端/checker 版本化对象使用 immutable 长缓存；channel 指针使用短缓存并回源校验。
+- `/api/v1/client/compatibility` 与 `/client/*` 允许 `Access-Control-Allow-Origin: *`：它们无 session、由任意 SillyTavern 页面加载；其余 `/api/*` 继续使用 Origin 白名单。
+
 ---
 
 ## 待定

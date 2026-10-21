@@ -1,4 +1,9 @@
-import { projectListQuerySchema, releaseManifestSchema } from "@workshop/contracts";
+import {
+  acquisitionResponseSchema,
+  downloadTicketResponseSchema,
+  projectListQuerySchema,
+  releaseManifestSchema,
+} from "@workshop/contracts";
 import { WORKSHOP_LIMITS } from "@workshop/domain";
 import { Hono } from "hono";
 import type { Env } from "../../env";
@@ -6,7 +11,7 @@ import { getClientChannel } from "../../storage/client.js";
 import { getProjectEntryIndex } from "../../storage/content-index.js";
 import { issueDownloadTickets, recordDownload } from "../../storage/downloads.js";
 import { getDiscovery } from "../../storage/home.js";
-import { getPublishedProject, listPublishedProjects } from "../../storage/projects.js";
+import { getPublishedProject, isValidProjectListCursor, listPublishedProjects } from "../../storage/projects.js";
 import { getRankings } from "../../storage/rankings.js";
 import { getReleaseAssets } from "../../storage/releases.js";
 import { jsonError } from "../errors.js";
@@ -27,6 +32,9 @@ projectsRoutes.get("/", async (c) => {
   });
   if (!parsed.success) {
     return jsonError(c, "bad_request", "Invalid query", parsed.error.flatten());
+  }
+  if (!isValidProjectListCursor(parsed.data.cursor, parsed.data.sort)) {
+    return jsonError(c, "bad_request", "Invalid cursor");
   }
   return publicJson(c, "projects", () => listPublishedProjects(c.env.DB, parsed.data));
 });
@@ -54,9 +62,6 @@ projectsRoutes.post("/:id/downloads", async (c) => {
   const release = await getReleaseAssets(c.env.DB, projectId, null, session);
   if (!release) return jsonError(c, "not_found", "Release not found");
 
-  const recorded = await recordDownload(c.env.DB, projectId, session.userId);
-  if (recorded === "not_found") return jsonError(c, "not_found", "Project not found");
-
   const tickets = await issueDownloadTickets(
     c.env.DB,
     projectId,
@@ -67,14 +72,14 @@ projectsRoutes.post("/:id/downloads", async (c) => {
     WORKSHOP_LIMITS.downloadTicketTtlMs,
   );
   return c.json(
-    {
+    downloadTicketResponseSchema.parse({
       revisionId: release.revisionId,
       files: tickets.map((ticket) => ({
         kind: ticket.kind,
         url: `/api/v1/downloads/${ticket.token}`,
         expiresAt: ticket.expiresAt,
       })),
-    },
+    }),
     201,
   );
 });
@@ -85,19 +90,24 @@ projectsRoutes.get("/:id/entries", async (c) => {
   return c.json(index);
 });
 
-projectsRoutes.get("/:id/install", async (c) => {
+projectsRoutes.post("/:id/acquisitions", async (c) => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
   const projectId = c.req.param("id");
-  const clientVersion = c.req.header("x-client-version");
-  if (clientVersion) {
-    const current = await getClientChannel(c.env.DB, c.req.header("x-client-channel") ?? "stable");
-    if (current && current.version !== clientVersion) {
-      return jsonError(c, "upgrade_required", "Client version does not match the current channel", {
-        required: current.version,
-        received: clientVersion,
-      });
-    }
+  const clientVersion = c.req.header("x-client-version")?.trim();
+  const clientChannel = c.req.header("x-client-channel")?.trim();
+  if (!clientVersion || (clientChannel !== "stable" && clientChannel !== "staging")) {
+    return jsonError(c, "upgrade_required", "Client version and channel are required", {
+      required: null,
+      received: clientVersion ?? null,
+    });
+  }
+  const current = await getClientChannel(c.env.DB, clientChannel);
+  if (!current || current.version !== clientVersion) {
+    return jsonError(c, "upgrade_required", "Client version does not match the current channel", {
+      required: current?.version ?? null,
+      received: clientVersion,
+    });
   }
   const release = await getReleaseAssets(c.env.DB, projectId, null, session);
   if (!release) return jsonError(c, "not_found", "Release not found");
@@ -119,26 +129,40 @@ projectsRoutes.get("/:id/install", async (c) => {
     }>();
   if (!project) return jsonError(c, "not_found", "Release not found");
 
-  const files: Record<string, string> = {};
-  for (const file of release.files) {
-    const object = await c.env.R2.get(file.r2Key);
-    if (!object) return jsonError(c, "not_found", `Missing ${file.kind} file`);
-    files[file.kind] = await object.text();
-  }
-  await recordDownload(c.env.DB, projectId, session.userId).catch(() => undefined);
-  return c.json({
-    project: {
-      id: project.id,
-      title: project.revision_title || project.title,
-      projectType: project.project_type,
-      extensionType: project.extension_type,
-      version: release.revisionId,
-      manifestHash: release.manifestHash,
-      updatedAt: project.updated_at,
-      tags: JSON.parse(project.tags) as unknown,
-    },
-    files,
-  });
+  const tickets = await issueDownloadTickets(
+    c.env.DB,
+    projectId,
+    release.revisionId,
+    session.userId,
+    session.sessionVersion,
+    release.files,
+    WORKSHOP_LIMITS.downloadTicketTtlMs,
+  );
+  return c.json(
+    acquisitionResponseSchema.parse({
+      project: {
+        id: project.id,
+        title: project.revision_title || project.title,
+        projectType: project.project_type,
+        extensionType: project.extension_type,
+        version: release.revisionId,
+        manifestHash: release.manifestHash,
+        updatedAt: project.updated_at,
+        tags: JSON.parse(project.tags) as unknown,
+      },
+      release: {
+        revisionId: release.revisionId,
+        manifestHash: release.manifestHash,
+        files: release.files.map(({ kind, sha256, bytes, mime }) => ({ kind, sha256, bytes, mime })),
+      },
+      tickets: tickets.map((ticket) => ({
+        kind: ticket.kind,
+        url: `/api/v1/downloads/${ticket.token}`,
+        expiresAt: ticket.expiresAt,
+      })),
+    }),
+    201,
+  );
 });
 
 projectsRoutes.get("/:id/releases/:releaseId/manifest", async (c) => {
@@ -167,6 +191,7 @@ projectsRoutes.get("/:id/releases/:releaseId/files/:kind", async (c) => {
   if (!asset) return jsonError(c, "not_found", "File not found");
   const object = await c.env.R2.get(asset.r2Key);
   if (!object) return jsonError(c, "not_found", "File not found");
+  await recordDownload(c.env.DB, c.req.param("id"), session.userId).catch(() => undefined);
   return new Response(object.body, {
     headers: {
       "content-type": asset.mime,

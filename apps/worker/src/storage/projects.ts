@@ -33,12 +33,13 @@ interface ProjectRow {
   cover_zoom: number;
   discord_thread_url: string | null;
   cover_key: string | null;
+  published_revision_id: string | null;
 }
 
 const SELECT_PROJECT = `
   SELECT
     p.id, p.title, p.description, p.author_note, p.project_type, p.extension_type,
-    p.visibility, p.published_at, p.updated_at,
+    p.visibility, p.published_at, p.updated_at, p.published_revision_id,
     p.downloads_count, p.likes_count, p.subscriptions_count,
     u.id AS author_id,
     COALESCE(u.global_name, u.username) AS author_name,
@@ -121,21 +122,58 @@ function toDetail(row: ProjectRow): ProjectDetail {
     authorNote: row.author_note,
     precautions: row.precautions,
     discordThreadUrl: row.discord_thread_url,
+    publishedRevisionId: row.published_revision_id,
   };
 }
 
-function encodeCursor(offset: number): string {
-  return btoa(String(offset));
+interface CatalogCursor {
+  sort: ProjectListQuery["sort"];
+  value: string | number;
+  id: string;
 }
 
-function decodeCursor(cursor: string | undefined): number {
-  if (!cursor) return 0;
+function encodeCursor(cursor: CatalogCursor): string {
+  return btoa(JSON.stringify(cursor));
+}
+
+function decodeCursor(cursor: string | undefined, sort: ProjectListQuery["sort"]): CatalogCursor | null {
+  if (!cursor) return null;
   try {
-    const value = Number(atob(cursor));
-    return Number.isInteger(value) && value >= 0 ? value : 0;
+    const parsed: unknown = JSON.parse(atob(cursor));
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "sort" in parsed &&
+      parsed.sort === sort &&
+      "value" in parsed &&
+      (typeof parsed.value === "string" || typeof parsed.value === "number") &&
+      "id" in parsed &&
+      typeof parsed.id === "string"
+    ) {
+      return { sort, value: parsed.value, id: parsed.id };
+    }
   } catch {
-    return 0;
+    return null;
   }
+  return null;
+}
+
+export function isValidProjectListCursor(cursor: string | undefined, sort: ProjectListQuery["sort"]): boolean {
+  return !cursor || decodeCursor(cursor, sort) !== null;
+}
+
+const SORT_COLUMN: Record<ProjectListQuery["sort"], string> = {
+  updated: "p.updated_at",
+  published: "COALESCE(p.published_at, '')",
+  downloads: "p.downloads_count",
+  likes: "p.likes_count",
+};
+
+function sortValue(row: ProjectRow, sort: ProjectListQuery["sort"]): string | number {
+  if (sort === "published") return row.published_at ?? "";
+  if (sort === "downloads") return row.downloads_count;
+  if (sort === "likes") return row.likes_count;
+  return row.updated_at;
 }
 
 function searchPredicate(search: string): { sql: string; values: unknown[] } {
@@ -158,7 +196,7 @@ function searchPredicate(search: string): { sql: string; values: unknown[] } {
 
 const ORDER_BY: Record<ProjectListQuery["sort"], string> = {
   updated: "p.updated_at DESC, p.id DESC",
-  published: "p.published_at DESC, p.id DESC",
+  published: "COALESCE(p.published_at, '') DESC, p.id DESC",
   downloads: "p.downloads_count DESC, p.id DESC",
   likes: "p.likes_count DESC, p.id DESC",
 };
@@ -168,7 +206,7 @@ export async function listPublishedProjects(
   query: ProjectListQuery,
   onMeta?: (meta: { rows_read: number; rows_written: number }) => void,
 ) {
-  const offset = decodeCursor(query.cursor);
+  const cursor = decodeCursor(query.cursor, query.sort);
   const where = [PUBLIC_PROJECT];
   const bindings: unknown[] = [];
 
@@ -190,21 +228,29 @@ export async function listPublishedProjects(
     bindings.push(...predicate.values);
   }
 
+  if (cursor) {
+    const column = SORT_COLUMN[query.sort];
+    where.push(`(${column} < ? OR (${column} = ? AND p.id < ?))`);
+    bindings.push(cursor.value, cursor.value, cursor.id);
+  }
+
   const sql = `${SELECT_PROJECT}
     WHERE ${where.join(" AND ")}
     ORDER BY ${ORDER_BY[query.sort]}
-    LIMIT ? OFFSET ?`;
+    LIMIT ?`;
   const result = await db
     .prepare(sql)
-    .bind(...bindings, query.limit + 1, offset)
+    .bind(...bindings, query.limit + 1)
     .all<ProjectRow>();
   onMeta?.({ rows_read: result.meta.rows_read, rows_written: result.meta.rows_written });
 
   const rows = result.results.slice(0, query.limit);
   const hasMore = result.results.length > query.limit;
+  const last = rows.at(-1);
   return projectListResponseSchema.parse({
     items: rows.map(toSummary),
-    nextCursor: hasMore ? encodeCursor(offset + query.limit) : null,
+    nextCursor:
+      hasMore && last ? encodeCursor({ sort: query.sort, value: sortValue(last, query.sort), id: last.id }) : null,
   });
 }
 
