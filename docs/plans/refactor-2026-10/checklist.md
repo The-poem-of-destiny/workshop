@@ -41,7 +41,7 @@
 - [x] OAuth flow 绑定发起浏览器 cookie；staging 无 cookie 404、带 cookie 200。
 - [x] CORS 允许列表与安全头；严格同源 CORS；静态 shell 设置 CSP（允许 iframe 嵌入）。
 - [x] `oauth_flows.origin` 与 D-10“不存储请求 Origin”的口径统一。
-- [ ] 真实 Discord 握手（缺 client secret；本地负例已覆盖）。
+- [ ] 真实 Discord 授权（staging 凭据、公会与身份组已配置；本地正/负例已覆盖；待真实账号验收）。
 
 ## 3. 公开读、搜索与发现
 
