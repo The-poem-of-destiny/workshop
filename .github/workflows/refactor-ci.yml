@@ -3,66 +3,44 @@ name: refactor-ci
 on:
   push:
     branches: [main]
-    paths:
-      - "apps/worker/**"
-      - "apps/tavern-client/**"
-      - "packages/**"
-      - "tools/**"
-      - "tests/**"
-      - "docs/**"
-      - "AGENTS.md"
-      - "README.md"
-      - ".agents/**"
-      - "pnpm-workspace.yaml"
-      - "pnpm-lock.yaml"
-      - "package.json"
-      - ".github/workflows/**"
   pull_request:
     branches: [main]
-    paths:
-      - "apps/worker/**"
-      - "apps/tavern-client/**"
-      - "packages/**"
-      - "tools/**"
-      - "tests/**"
-      - "docs/**"
-      - "AGENTS.md"
-      - "README.md"
-      - ".agents/**"
-      - "pnpm-workspace.yaml"
-      - "pnpm-lock.yaml"
-      - "package.json"
-      - ".github/workflows/**"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: refactor-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.24.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
 
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.24.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium

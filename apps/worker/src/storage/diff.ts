@@ -64,15 +64,11 @@ function comparable(entry: Record<string, unknown>): Record<string, unknown> {
   return copy;
 }
 
-function diffKind(
-  currentText: string | null,
-  previousText: string | null,
-  kind: ProjectEntryKind,
-): KindDiff {
+function diffKind(currentText: string | null, previousText: string | null, kind: ProjectEntryKind): KindDiff {
   const current = currentText ? extractProjectEntries(JSON.parse(currentText), kind) : [];
   const previous = previousText ? extractProjectEntries(JSON.parse(previousText), kind) : [];
-  const before = new Map(previous.map(ref => [ref.entryKey, ref]));
-  const after = new Map(current.map(ref => [ref.entryKey, ref]));
+  const before = new Map(previous.map((ref) => [ref.entryKey, ref]));
+  const after = new Map(current.map((ref) => [ref.entryKey, ref]));
   const added: EntryChange[] = [];
   const modified: EntryChange[] = [];
   const deleted: EntryChange[] = [];
@@ -86,8 +82,9 @@ function diffKind(
     }
     const oldValue = comparable(old.entry);
     const newValue = comparable(ref.entry);
-    const changedFields = Array.from(new Set([...Object.keys(oldValue), ...Object.keys(newValue)]))
-      .filter(field => JSON.stringify(oldValue[field]) !== JSON.stringify(newValue[field]));
+    const changedFields = Array.from(new Set([...Object.keys(oldValue), ...Object.keys(newValue)])).filter(
+      (field) => JSON.stringify(oldValue[field]) !== JSON.stringify(newValue[field]),
+    );
     if (changedFields.length > 0) {
       modified.push({ entryKey: key, name: entryName(ref.entry, key), changedFields });
     } else {
@@ -136,8 +133,8 @@ function findingKey(ref: FindingRef): string {
 }
 
 function diffFindings(currentReport: unknown, previousReport: unknown): FindingDiff {
-  const current = new Map(findingRefs(currentReport).map(ref => [findingKey(ref), ref]));
-  const previous = new Map(findingRefs(previousReport).map(ref => [findingKey(ref), ref]));
+  const current = new Map(findingRefs(currentReport).map((ref) => [findingKey(ref), ref]));
+  const previous = new Map(findingRefs(previousReport).map((ref) => [findingKey(ref), ref]));
   const diff: FindingDiff = { accepted: [], changed: [], added: [], removed: [] };
   for (const [key, ref] of current) {
     const old = previous.get(key);
@@ -156,22 +153,28 @@ export async function getSubmissionDiff(
   r2: R2Bucket,
   submissionId: string,
 ): Promise<SubmissionDiff | null> {
-  const target = await db.prepare(`
+  const target = await db
+    .prepare(`
     SELECT s.revision_id, s.project_id, s.check_report, p.published_revision_id
     FROM submissions s JOIN projects p ON p.id = s.project_id
     WHERE s.id = ?
-  `).bind(submissionId).first<{
-    revision_id: string;
-    project_id: string;
-    check_report: string | null;
-    published_revision_id: string | null;
-  }>();
+  `)
+    .bind(submissionId)
+    .first<{
+      revision_id: string;
+      project_id: string;
+      check_report: string | null;
+      published_revision_id: string | null;
+    }>();
   if (!target) return null;
-  const previousSubmission = await db.prepare(`
+  const previousSubmission = await db
+    .prepare(`
     SELECT revision_id, check_report FROM submissions
     WHERE project_id = ? AND id <> ?
     ORDER BY submitted_at DESC LIMIT 1
-  `).bind(target.project_id, submissionId).first<{ revision_id: string; check_report: string | null }>();
+  `)
+    .bind(target.project_id, submissionId)
+    .first<{ revision_id: string; check_report: string | null }>();
   let previousReport: unknown = null;
   try {
     previousReport = previousSubmission?.check_report ? JSON.parse(previousSubmission.check_report) : null;
@@ -185,12 +188,15 @@ export async function getSubmissionDiff(
     currentReport = null;
   }
 
-  const previousId = previousSubmission?.revision_id
-    ?? (target.published_revision_id !== target.revision_id ? target.published_revision_id : null);
-  const rows = await db.prepare(`
+  const previousId =
+    previousSubmission?.revision_id ??
+    (target.published_revision_id !== target.revision_id ? target.published_revision_id : null);
+  const rows = await db
+    .prepare(`
     SELECT revision_id, kind, r2_key, sha256 FROM assets
     WHERE revision_id IN (?, ?) AND kind IN ('worldbook', 'regex', 'cover')
-  `).bind(target.revision_id, previousId ?? target.revision_id)
+  `)
+    .bind(target.revision_id, previousId ?? target.revision_id)
     .all<AssetRow>();
 
   const byRevision = new Map<string, Map<string, AssetRow>>();
@@ -200,7 +206,9 @@ export async function getSubmissionDiff(
     byRevision.set(row.revision_id, map);
   }
   const current = byRevision.get(target.revision_id) ?? new Map<string, AssetRow>();
-  const previous = previousId ? byRevision.get(previousId) ?? new Map<string, AssetRow>() : new Map<string, AssetRow>();
+  const previous = previousId
+    ? (byRevision.get(previousId) ?? new Map<string, AssetRow>())
+    : new Map<string, AssetRow>();
 
   async function text(asset: AssetRow | undefined): Promise<string | null> {
     if (!asset) return null;

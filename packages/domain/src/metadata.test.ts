@@ -3,14 +3,16 @@ import { inspectProjectMetadata } from "./metadata.js";
 
 describe("project metadata", () => {
   it("passes valid metadata", () => {
-    expect(inspectProjectMetadata({
-      title: "项目",
-      description: "描述",
-      tags: ["奇幻", "角色"],
-      versionLabel: "v1",
-      coverPositionX: 50,
-      coverZoom: 1,
-    })).toEqual({ gate: "pass", findings: [] });
+    expect(
+      inspectProjectMetadata({
+        title: "项目",
+        description: "描述",
+        tags: ["奇幻", "角色"],
+        versionLabel: "v1",
+        coverPositionX: 50,
+        coverZoom: 1,
+      }),
+    ).toEqual({ gate: "pass", findings: [] });
   });
 
   it("blocks control characters and invalid cover presentation", () => {
@@ -20,7 +22,7 @@ describe("project metadata", () => {
       coverZoom: 4,
     });
     expect(result.gate).toBe("block");
-    expect(result.findings.map(item => item.field).sort()).toEqual(["coverPositionX", "coverZoom", "title"]);
+    expect(result.findings.map((item) => item.field).sort()).toEqual(["coverPositionX", "coverZoom", "title"]);
   });
 
   it("warns on duplicate tags without blocking", () => {

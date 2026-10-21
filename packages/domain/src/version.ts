@@ -52,9 +52,6 @@ export function normalizeProjectVersionBase(value: unknown): string {
   return `${parsed.major}.${parsed.minor}.${parsed.patch}`;
 }
 
-export function bumpProjectVersionWithLegacyFallback(
-  value: unknown,
-  bump: ProjectVersionBump = "patch",
-): string {
+export function bumpProjectVersionWithLegacyFallback(value: unknown, bump: ProjectVersionBump = "patch"): string {
   return bumpProjectVersion(normalizeProjectVersionBase(value), bump);
 }

@@ -1,9 +1,9 @@
 import {
-  projectDetailSchema,
-  projectListResponseSchema,
   type ProjectDetail,
   type ProjectListQuery,
   type ProjectSummary,
+  projectDetailSchema,
+  projectListResponseSchema,
 } from "@workshop/contracts";
 
 interface ProjectRow {
@@ -144,7 +144,7 @@ function searchPredicate(search: string): { sql: string; values: unknown[] } {
   if (chars.length <= 2) {
     // The short index stores one token per character, separated by spaces.
     // A quoted phrase keeps character order and makes FTS operators inert.
-    const phrase = chars.map(char => `"${char.replaceAll('"', '""')}"`).join(" ");
+    const phrase = chars.map((char) => `"${char.replaceAll('"', '""')}"`).join(" ");
     return {
       sql: "p.rowid IN (SELECT rowid FROM project_search_short WHERE project_search_short MATCH ?)",
       values: [phrase],
@@ -194,7 +194,8 @@ export async function listPublishedProjects(
     WHERE ${where.join(" AND ")}
     ORDER BY ${ORDER_BY[query.sort]}
     LIMIT ? OFFSET ?`;
-  const result = await db.prepare(sql)
+  const result = await db
+    .prepare(sql)
     .bind(...bindings, query.limit + 1, offset)
     .all<ProjectRow>();
   onMeta?.({ rows_read: result.meta.rows_read, rows_written: result.meta.rows_written });
@@ -208,17 +209,16 @@ export async function listPublishedProjects(
 }
 
 export async function getPublishedProject(db: D1Database, id: string) {
-  const row = await db.prepare(`${SELECT_PROJECT} WHERE p.id = ? AND ${PUBLIC_PROJECT}`)
-    .bind(id)
-    .first<ProjectRow>();
+  const row = await db.prepare(`${SELECT_PROJECT} WHERE p.id = ? AND ${PUBLIC_PROJECT}`).bind(id).first<ProjectRow>();
   return row ? projectDetailSchema.parse(toDetail(row)) : null;
 }
 
 export async function getPublishedProjectsByIds(db: D1Database, ids: string[]) {
   if (ids.length === 0) return new Map<string, ProjectSummary>();
   const placeholders = ids.map(() => "?").join(", ");
-  const result = await db.prepare(`${SELECT_PROJECT} WHERE p.id IN (${placeholders}) AND ${PUBLIC_PROJECT}`)
+  const result = await db
+    .prepare(`${SELECT_PROJECT} WHERE p.id IN (${placeholders}) AND ${PUBLIC_PROJECT}`)
     .bind(...ids)
     .all<ProjectRow>();
-  return new Map(result.results.map(row => [row.id, toSummary(row)]));
+  return new Map(result.results.map((row) => [row.id, toSummary(row)]));
 }

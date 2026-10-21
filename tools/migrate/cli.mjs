@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import path from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { extract, transform, verify, reconcile, readJson, writeJson } from './lib.mjs';
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { extract, readJson, reconcile, transform, verify, writeJson } from "./lib.mjs";
 
 const help = `Usage: node tools/migrate/cli.mjs <phase> --source <dir> --target <file> [options]
 
@@ -21,41 +21,75 @@ Options:
   --help                Show this message`;
 
 function parse(argv) {
-  const args = [...argv]; let phase = null, source, target, since, dryRun = false;
+  const args = [...argv];
+  let phase = null,
+    source,
+    target,
+    since,
+    dryRun = false;
   while (args.length) {
     const arg = args.shift();
-    if (arg === '--help' || arg === '-h') return { help: true };
-    if (!phase && !arg.startsWith('-')) { phase = arg; continue; }
-    if (arg === '--dry-run') { dryRun = true; continue; }
-    if (['--source', '--target', '--since'].includes(arg)) { const value = args.shift(); if (!value || value.startsWith('-')) throw new Error(`${arg} requires a value`); if (arg === '--source') source = value; else if (arg === '--target') target = value; else since = value; continue; }
+    if (arg === "--help" || arg === "-h") return { help: true };
+    if (!phase && !arg.startsWith("-")) {
+      phase = arg;
+      continue;
+    }
+    if (arg === "--dry-run") {
+      dryRun = true;
+      continue;
+    }
+    if (["--source", "--target", "--since"].includes(arg)) {
+      const value = args.shift();
+      if (!value || value.startsWith("-")) throw new Error(`${arg} requires a value`);
+      if (arg === "--source") source = value;
+      else if (arg === "--target") target = value;
+      else since = value;
+      continue;
+    }
     throw new Error(`unknown argument: ${arg}`);
   }
-  if (!phase) throw new Error('phase is required');
-  if (!['extract', 'transform', 'load', 'verify', 'reconcile', 'all'].includes(phase)) throw new Error(`unknown phase: ${phase}`);
-  if (!target) throw new Error('--target is required');
-  if (['extract', 'transform', 'load', 'reconcile', 'all'].includes(phase) && !source) throw new Error('--source is required for this phase');
+  if (!phase) throw new Error("phase is required");
+  if (!["extract", "transform", "load", "verify", "reconcile", "all"].includes(phase))
+    throw new Error(`unknown phase: ${phase}`);
+  if (!target) throw new Error("--target is required");
+  if (["extract", "transform", "load", "reconcile", "all"].includes(phase) && !source)
+    throw new Error("--source is required for this phase");
   return { phase, source, target, since, dryRun };
 }
 
 export async function run(options) {
-  if (options.phase === 'verify') {
+  if (options.phase === "verify") {
     const report = verify(await readJson(options.target));
     console.log(JSON.stringify(report));
     return report.ok ? 0 : 1;
   }
   const snapshot = await extract(options.source, { since: options.since });
-  if (options.phase === 'extract') {
+  if (options.phase === "extract") {
     if (!options.dryRun) await writeJson(options.target, snapshot);
-    console.log(JSON.stringify({ ok: true, phase: 'extract', tables: Object.fromEntries(Object.entries(snapshot.tables).map(([k, v]) => [k, v.length])), dryRun: options.dryRun }));
+    console.log(
+      JSON.stringify({
+        ok: true,
+        phase: "extract",
+        tables: Object.fromEntries(Object.entries(snapshot.tables).map(([k, v]) => [k, v.length])),
+        dryRun: options.dryRun,
+      }),
+    );
     return 0;
   }
   const expected = transform(snapshot);
-  if (options.phase === 'transform' || options.phase === 'load') {
+  if (options.phase === "transform" || options.phase === "load") {
     if (!options.dryRun) await writeJson(options.target, expected);
-    console.log(JSON.stringify({ ok: true, phase: options.phase, projects: expected.tables.projects.length, dryRun: options.dryRun }));
+    console.log(
+      JSON.stringify({
+        ok: true,
+        phase: options.phase,
+        projects: expected.tables.projects.length,
+        dryRun: options.dryRun,
+      }),
+    );
     return 0;
   }
-  if (options.phase === 'reconcile') {
+  if (options.phase === "reconcile") {
     const report = reconcile(expected, await readJson(options.target));
     console.log(JSON.stringify(report));
     return report.ok ? 0 : 1;
@@ -71,7 +105,10 @@ export async function run(options) {
 if (import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   try {
     const options = parse(process.argv.slice(2));
-    if (options.help) { console.log(help); process.exit(0); }
+    if (options.help) {
+      console.log(help);
+      process.exit(0);
+    }
     process.exitCode = await run(options);
   } catch (error) {
     console.error(`migration: ${error instanceof Error ? error.message : String(error)}`);

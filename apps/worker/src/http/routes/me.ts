@@ -1,4 +1,3 @@
-import { Hono } from "hono";
 import {
   authorProjectListResponseSchema,
   authorSubmissionListResponseSchema,
@@ -6,7 +5,10 @@ import {
   meStateResponseSchema,
   ratingInputSchema,
 } from "@workshop/contracts";
+import { Hono } from "hono";
 import type { Env } from "../../env";
+import { listAuthorProjects, listAuthorSubmissions } from "../../storage/authoring.js";
+import { getMe } from "../../storage/identity.js";
 import {
   getInteractionState,
   interactionProjectExists,
@@ -18,14 +20,12 @@ import {
   unsetRating,
   unsetSubscription,
 } from "../../storage/interactions.js";
-import { listAuthorProjects, listAuthorSubmissions } from "../../storage/authoring.js";
-import { getMe } from "../../storage/identity.js";
 import { jsonError } from "../errors.js";
 import { requireSession } from "../session.js";
 
 export const meRoutes = new Hono<{ Bindings: Env }>();
 
-meRoutes.get("/", async c => {
+meRoutes.get("/", async (c) => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
   const me = await getMe(c.env.DB, session.userId);
@@ -33,14 +33,14 @@ meRoutes.get("/", async c => {
   return c.json(meResponseSchema.parse(me));
 });
 
-meRoutes.get("/projects", async c => {
+meRoutes.get("/projects", async (c) => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
   const items = await listAuthorProjects(c.env.DB, session);
   return c.json(authorProjectListResponseSchema.parse({ items }));
 });
 
-meRoutes.get("/projects/:id/submissions", async c => {
+meRoutes.get("/projects/:id/submissions", async (c) => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
   const items = await listAuthorSubmissions(c.env.DB, session, c.req.param("id"));
@@ -48,24 +48,26 @@ meRoutes.get("/projects/:id/submissions", async c => {
   return c.json(authorSubmissionListResponseSchema.parse({ items }));
 });
 
-meRoutes.get("/subscriptions", async c => {
+meRoutes.get("/subscriptions", async (c) => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
   return c.json({ items: await listSubscribedProjects(c.env.DB, session.userId) });
 });
 
-meRoutes.get("/state", async c => {
+meRoutes.get("/state", async (c) => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
   const rawIds = c.req.query("ids") ?? "";
-  const ids = rawIds.split(",").map(id => id.trim()).filter(Boolean);
+  const ids = rawIds
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
   if (ids.length > 50) return jsonError(c, "bad_request", "At most 50 project IDs are allowed");
   const state = await getInteractionState(c.env.DB, session.userId, ids);
   return c.json(meStateResponseSchema.parse(state));
 });
 
-
-meRoutes.put("/likes/:id", async c => {
+meRoutes.put("/likes/:id", async (c) => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
   const projectId = c.req.param("id");
@@ -74,7 +76,7 @@ meRoutes.put("/likes/:id", async c => {
   return c.body(null, 204);
 });
 
-meRoutes.delete("/likes/:id", async c => {
+meRoutes.delete("/likes/:id", async (c) => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
   const projectId = c.req.param("id");
@@ -83,7 +85,7 @@ meRoutes.delete("/likes/:id", async c => {
   return c.body(null, 204);
 });
 
-meRoutes.put("/subscriptions/:id", async c => {
+meRoutes.put("/subscriptions/:id", async (c) => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
   const projectId = c.req.param("id");
@@ -92,7 +94,7 @@ meRoutes.put("/subscriptions/:id", async c => {
   return c.body(null, 204);
 });
 
-meRoutes.delete("/subscriptions/:id", async c => {
+meRoutes.delete("/subscriptions/:id", async (c) => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
   const projectId = c.req.param("id");
@@ -101,7 +103,7 @@ meRoutes.delete("/subscriptions/:id", async c => {
   return c.body(null, 204);
 });
 
-meRoutes.put("/ratings/:id", async c => {
+meRoutes.put("/ratings/:id", async (c) => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
   const projectId = c.req.param("id");
@@ -118,7 +120,7 @@ meRoutes.put("/ratings/:id", async c => {
   return c.body(null, 204);
 });
 
-meRoutes.delete("/ratings/:id", async c => {
+meRoutes.delete("/ratings/:id", async (c) => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
   const projectId = c.req.param("id");

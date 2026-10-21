@@ -6,7 +6,7 @@ import { requireSession } from "../session.js";
 
 export const downloadRoutes = new Hono<{ Bindings: Env }>();
 
-downloadRoutes.get("/:token", async c => {
+downloadRoutes.get("/:token", async (c) => {
   const session = await requireSession(c);
   if (!session) return jsonError(c, "unauthorized", "Login required");
 

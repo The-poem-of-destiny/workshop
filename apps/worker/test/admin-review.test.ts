@@ -1,8 +1,8 @@
 import { env } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { app } from "../src/app";
-import { adminRoutes } from "../src/http/routes/admin";
 import type { Env } from "../src/env";
+import { adminRoutes } from "../src/http/routes/admin";
 import { applySchema } from "./support/schema";
 import { splitSql } from "./support/sql";
 
@@ -11,14 +11,16 @@ const now = "2026-10-21T00:00:00.000Z";
 
 async function tokenHash(token: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
-  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function seedSession(token: string, userId: string) {
   await bindings.DB.prepare(`
     INSERT INTO sessions (token_hash, user_id, session_version, expires_at, created_at, last_seen_at)
     VALUES (?, ?, 1, '2099-01-01T00:00:00.000Z', ?, ?)
-  `).bind(await tokenHash(token), userId, now, now).run();
+  `)
+    .bind(await tokenHash(token), userId, now, now)
+    .run();
 }
 
 async function seed() {
@@ -59,10 +61,14 @@ async function seed() {
 }
 
 function request(path: string, token = "reviewer-token", init?: RequestInit) {
-  return adminRoutes.request(path, {
-    ...init,
-    headers: { authorization: `Bearer ${token}`, ...(init?.headers ?? {}) },
-  }, bindings);
+  return adminRoutes.request(
+    path,
+    {
+      ...init,
+      headers: { authorization: `Bearer ${token}`, ...(init?.headers ?? {}) },
+    },
+    bindings,
+  );
 }
 
 beforeAll(async () => {
@@ -70,7 +76,9 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await bindings.DB.exec("DELETE FROM audit_events; DELETE FROM reviews; DELETE FROM submissions; DELETE FROM assets; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;");
+  await bindings.DB.exec(
+    "DELETE FROM audit_events; DELETE FROM reviews; DELETE FROM submissions; DELETE FROM assets; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;",
+  );
   await seed();
 });
 
@@ -87,12 +95,17 @@ describe("admin review and publishing", () => {
   it("returns detail metadata without file contents", async () => {
     const response = await request("/submissions/s1");
     expect(response.status).toBe(200);
-    const body = await response.json() as { revision: Record<string, unknown>; assets: Array<Record<string, unknown>> };
+    const body = (await response.json()) as {
+      revision: Record<string, unknown>;
+      assets: Array<Record<string, unknown>>;
+    };
     expect(body.revision).toMatchObject({ id: "r1", manifestHash: "manifest-1" });
-    expect(body.assets).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: "worldbook", r2Key: "projects/p1/r1/worldbook.json" }),
-      expect.objectContaining({ kind: "cover", r2Key: "covers/p1/r1-cover.webp" }),
-    ]));
+    expect(body.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "worldbook", r2Key: "projects/p1/r1/worldbook.json" }),
+        expect.objectContaining({ kind: "cover", r2Key: "covers/p1/r1-cover.webp" }),
+      ]),
+    );
     expect(body.assets[0]).not.toHaveProperty("content");
   });
 
@@ -111,9 +124,18 @@ describe("admin review and publishing", () => {
       headers: { "content-type": "application/json" },
     });
     expect(response.status).toBe(201);
-    const project = await bindings.DB.prepare("SELECT published_revision_id, title, search_tags, row_version FROM projects WHERE id = 'p1'").first<Record<string, unknown>>();
-    expect(project).toMatchObject({ published_revision_id: "r1", title: "Submitted title", search_tags: '["submitted"]', row_version: 2 });
-    const review = await bindings.DB.prepare("SELECT manifest_hash, checker_version FROM reviews WHERE submission_id = 's1'").first<Record<string, unknown>>();
+    const project = await bindings.DB.prepare(
+      "SELECT published_revision_id, title, search_tags, row_version FROM projects WHERE id = 'p1'",
+    ).first<Record<string, unknown>>();
+    expect(project).toMatchObject({
+      published_revision_id: "r1",
+      title: "Submitted title",
+      search_tags: '["submitted"]',
+      row_version: 2,
+    });
+    const review = await bindings.DB.prepare(
+      "SELECT manifest_hash, checker_version FROM reviews WHERE submission_id = 's1'",
+    ).first<Record<string, unknown>>();
     expect(review).toMatchObject({ manifest_hash: "manifest-1", checker_version: "checker-1" });
   });
 
@@ -132,15 +154,18 @@ describe("admin review and publishing", () => {
     expect(wrongHash.status).toBe(409);
     const reviews = await bindings.DB.prepare("SELECT COUNT(*) AS n FROM reviews").first<{ n: number }>();
     expect(reviews?.n).toBe(0);
-    const project = await bindings.DB.prepare("SELECT published_revision_id FROM projects WHERE id = 'p1'")
-      .first<{ published_revision_id: string | null }>();
+    const project = await bindings.DB.prepare("SELECT published_revision_id FROM projects WHERE id = 'p1'").first<{
+      published_revision_id: string | null;
+    }>();
     expect(project?.published_revision_id).toBeNull();
   });
 
   it("requires a reason when the server checker blocked even if the client gate passed", async () => {
     await bindings.DB.prepare(`
       UPDATE submissions SET check_report = ?, check_status = 'needs_human' WHERE id = 's1'
-    `).bind(JSON.stringify({ routeGate: "block", findings: [] })).run();
+    `)
+      .bind(JSON.stringify({ routeGate: "block", findings: [] }))
+      .run();
     const missing = await request("/submissions/s1/review", "reviewer-token", {
       method: "POST",
       body: JSON.stringify({ decision: "approve" }),
@@ -169,9 +194,9 @@ describe("admin review and publishing", () => {
       headers: { "content-type": "application/json" },
     });
     expect(response.status).toBe(201);
-    const review = await bindings.DB.prepare(
-      "SELECT checker_version FROM reviews WHERE submission_id = 's1'",
-    ).first<{ checker_version: string }>();
+    const review = await bindings.DB.prepare("SELECT checker_version FROM reviews WHERE submission_id = 's1'").first<{
+      checker_version: string;
+    }>();
     expect(review?.checker_version).toBe("server-review-1");
   });
 
@@ -200,9 +225,9 @@ describe("admin review and publishing", () => {
 
     const recheck = await request("/submissions/s1/recheck", "reviewer-token", { method: "POST" });
     expect(recheck.status).toBe(202);
-    const row = await bindings.DB.prepare(
-      "SELECT status, check_status FROM submissions WHERE id = 's1'",
-    ).first<Record<string, unknown>>();
+    const row = await bindings.DB.prepare("SELECT status, check_status FROM submissions WHERE id = 's1'").first<
+      Record<string, unknown>
+    >();
     expect(row).toMatchObject({ status: "checking", check_status: "queued" });
     const audit = await bindings.DB.prepare(
       "SELECT action, detail FROM audit_events WHERE target_id = 's1' ORDER BY created_at DESC LIMIT 1",
@@ -215,18 +240,28 @@ describe("admin review and publishing", () => {
     await bindings.DB.prepare(`
       INSERT INTO submissions (id, project_id, revision_id, status, gate, checker_revision, submitted_by, submitted_at, check_report)
       VALUES ('s0', 'p1', 'r1', 'rejected', 'warn', 'checker-1', 'member', '2026-10-20T00:00:00.000Z', ?)
-    `).bind(JSON.stringify({ findings: [
-      { ruleId: "SAME", severity: "warn", message: "same", file: "a.js", line: 1 },
-      { ruleId: "CHANGED", severity: "warn", message: "old", file: "a.js", line: 2 },
-      { ruleId: "REMOVED", severity: "warn", message: "gone", file: "a.js", line: 3 },
-    ] })).run();
-    await bindings.DB.prepare("UPDATE submissions SET check_report = ? WHERE id = 's1'").bind(JSON.stringify({
-      findings: [
-        { ruleId: "SAME", severity: "warn", message: "same", file: "a.js", line: 1 },
-        { ruleId: "CHANGED", severity: "error", message: "new", file: "a.js", line: 2 },
-        { ruleId: "ADDED", severity: "warn", message: "new finding", file: "b.js", line: 4 },
-      ],
-    })).run();
+    `)
+      .bind(
+        JSON.stringify({
+          findings: [
+            { ruleId: "SAME", severity: "warn", message: "same", file: "a.js", line: 1 },
+            { ruleId: "CHANGED", severity: "warn", message: "old", file: "a.js", line: 2 },
+            { ruleId: "REMOVED", severity: "warn", message: "gone", file: "a.js", line: 3 },
+          ],
+        }),
+      )
+      .run();
+    await bindings.DB.prepare("UPDATE submissions SET check_report = ? WHERE id = 's1'")
+      .bind(
+        JSON.stringify({
+          findings: [
+            { ruleId: "SAME", severity: "warn", message: "same", file: "a.js", line: 1 },
+            { ruleId: "CHANGED", severity: "error", message: "new", file: "a.js", line: 2 },
+            { ruleId: "ADDED", severity: "warn", message: "new finding", file: "b.js", line: 4 },
+          ],
+        }),
+      )
+      .run();
     const diff = await request("/submissions/s1/diff");
     expect(diff.status).toBe(200);
     await expect(diff.json()).resolves.toMatchObject({
@@ -241,12 +276,14 @@ describe("admin review and publishing", () => {
 
   it("requires a reject reason and exposes it to the author", async () => {
     const missing = await request("/submissions/s1/review", "reviewer-token", {
-      method: "POST", body: JSON.stringify({ decision: "reject" }),
+      method: "POST",
+      body: JSON.stringify({ decision: "reject" }),
       headers: { "content-type": "application/json" },
     });
     expect(missing.status).toBe(400);
     const rejected = await request("/submissions/s1/review", "reviewer-token", {
-      method: "POST", body: JSON.stringify({ decision: "reject", reason: "unsafe" }),
+      method: "POST",
+      body: JSON.stringify({ decision: "reject", reason: "unsafe" }),
       headers: { "content-type": "application/json" },
     });
     expect(rejected.status).toBe(201);
@@ -255,10 +292,12 @@ describe("admin review and publishing", () => {
     const mine = await app.request("/api/v1/me/projects", { headers }, bindings);
     expect(mine.status).toBe(200);
     await expect(mine.json()).resolves.toMatchObject({
-      items: [{
-        project: { id: "p1" },
-        latestSubmission: { status: "rejected", decision: "reject", reason: "unsafe" },
-      }],
+      items: [
+        {
+          project: { id: "p1" },
+          latestSubmission: { status: "rejected", decision: "reject", reason: "unsafe" },
+        },
+      ],
     });
     const history = await app.request("/api/v1/me/projects/p1/submissions", { headers }, bindings);
     expect(history.status).toBe(200);
@@ -269,27 +308,35 @@ describe("admin review and publishing", () => {
 
   it("rejects without changing the published pointer and prevents double review", async () => {
     const first = await request("/submissions/s1/review", "reviewer-token", {
-      method: "POST", body: JSON.stringify({ decision: "reject", reason: "unsafe" }),
+      method: "POST",
+      body: JSON.stringify({ decision: "reject", reason: "unsafe" }),
       headers: { "content-type": "application/json" },
     });
     expect(first.status).toBe(201);
     const second = await request("/submissions/s1/review", "reviewer-token", {
-      method: "POST", body: JSON.stringify({ decision: "approve" }),
+      method: "POST",
+      body: JSON.stringify({ decision: "approve" }),
       headers: { "content-type": "application/json" },
     });
     expect(second.status).toBe(409);
-    const project = await bindings.DB.prepare("SELECT published_revision_id FROM projects WHERE id = 'p1'").first<{ published_revision_id: string | null }>();
+    const project = await bindings.DB.prepare("SELECT published_revision_id FROM projects WHERE id = 'p1'").first<{
+      published_revision_id: string | null;
+    }>();
     expect(project?.published_revision_id).toBeNull();
   });
 
   it("invalidates changed member sessions and guards the last owner", async () => {
     const changed = await request("/members/reviewer/role", "owner-token", {
-      method: "PUT", body: JSON.stringify({ role: "member" }), headers: { "content-type": "application/json" },
+      method: "PUT",
+      body: JSON.stringify({ role: "member" }),
+      headers: { "content-type": "application/json" },
     });
     expect(changed.status).toBe(200);
     expect((await request("/submissions", "reviewer-token")).status).toBe(401);
     const lastOwner = await request("/members/owner/role", "owner-token", {
-      method: "PUT", body: JSON.stringify({ role: "member" }), headers: { "content-type": "application/json" },
+      method: "PUT",
+      body: JSON.stringify({ role: "member" }),
+      headers: { "content-type": "application/json" },
     });
     expect(lastOwner.status).toBe(409);
   });

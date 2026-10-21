@@ -13,7 +13,8 @@ interface ReferenceRow {
 }
 
 export async function listReferenceSets(db: D1Database): Promise<ReferenceSet[]> {
-  const rows = await db.prepare(`
+  const rows = await db
+    .prepare(`
     SELECT s.id, s.name, s.description,
            v.id AS version_id, v.version_label, v.version_ordinal, v.grace_until,
            SUM(CASE WHEN i.kind = 'worldbook' THEN 1 ELSE 0 END) AS worldbook_count,
@@ -23,25 +24,32 @@ export async function listReferenceSets(db: D1Database): Promise<ReferenceSet[]>
     LEFT JOIN reference_items i ON i.reference_version_id = v.id
     GROUP BY s.id, v.id
     ORDER BY s.name, v.version_ordinal DESC
-  `).all<ReferenceRow>();
+  `)
+    .all<ReferenceRow>();
 
-  const versionIds = [...new Set(rows.results.map(row => row.version_id))];
-  const itemRows = versionIds.length === 0 ? null : await db.prepare(`
+  const versionIds = [...new Set(rows.results.map((row) => row.version_id))];
+  const itemRows =
+    versionIds.length === 0
+      ? null
+      : await db
+          .prepare(`
     SELECT id, reference_version_id, kind, display_name, exact_hash,
            normalized_content_hash, name_hash, structure_hash
     FROM reference_items
     WHERE reference_version_id IN (${versionIds.map(() => "?").join(", ")})
     ORDER BY kind, display_name
-  `).bind(...versionIds).all<{
-    id: string;
-    reference_version_id: string;
-    kind: "worldbook" | "regex";
-    display_name: string;
-    exact_hash: string;
-    normalized_content_hash: string;
-    name_hash: string;
-    structure_hash: string;
-  }>();
+  `)
+          .bind(...versionIds)
+          .all<{
+            id: string;
+            reference_version_id: string;
+            kind: "worldbook" | "regex";
+            display_name: string;
+            exact_hash: string;
+            normalized_content_hash: string;
+            name_hash: string;
+            structure_hash: string;
+          }>();
   const itemsByVersion = new Map<string, ReferenceSet["versions"][number]["items"]>();
   for (const item of itemRows?.results ?? []) {
     const list = itemsByVersion.get(item.reference_version_id) ?? [];

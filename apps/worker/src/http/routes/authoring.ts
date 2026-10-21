@@ -1,36 +1,36 @@
 import {
-  WORKSHOP_LIMITS,
-  detectImageDimensions,
-  inspectProjectMetadata,
-  normalizeDiscordThreadUrl,
-  type ProjectContentValidation,
-  type ProjectEntryKind,
-} from "@workshop/domain";
-import { Hono } from "hono";
-import type { Context } from "hono";
-import {
   createProjectSchema,
   patchProjectSchema,
   submitProjectSchema,
   uploadKindSchema,
   visibilityUpdateSchema,
 } from "@workshop/contracts";
+import {
+  detectImageDimensions,
+  inspectProjectMetadata,
+  normalizeDiscordThreadUrl,
+  type ProjectContentValidation,
+  type ProjectEntryKind,
+  WORKSHOP_LIMITS,
+} from "@workshop/domain";
+import type { Context } from "hono";
+import { Hono } from "hono";
 import type { Env } from "../../env";
+import { enqueueSubmission } from "../../scheduler.js";
 import {
   createProject,
   createRevision,
+  deleteProjectEntry,
   getAuthoringProject,
   getProjectSummary,
-  deleteProjectEntry,
   getRevisionForProject,
+  type PrevalidatedContent,
   patchProject,
   softDeleteProject,
   submitRevision,
-  type PrevalidatedContent,
   updateVisibility,
   upsertAsset,
 } from "../../storage/authoring.js";
-import { enqueueSubmission } from "../../scheduler.js";
 import { jsonError } from "../errors.js";
 import { requireSession } from "../session.js";
 
@@ -52,11 +52,7 @@ function ifMatchVersion(value: string | undefined): number | null {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-async function validateContentViaDo(
-  env: Env,
-  text: string,
-  kind: ProjectEntryKind,
-): Promise<ProjectContentValidation> {
+async function validateContentViaDo(env: Env, text: string, kind: ProjectEntryKind): Promise<ProjectContentValidation> {
   const id = env.CONTENT_SERVICE.idFromName("content-validator");
   const response = await env.CONTENT_SERVICE.get(id).fetch("https://content-service/validate", {
     method: "POST",
@@ -80,13 +76,16 @@ async function validateRevisionViaDo(env: Env, projectId: string, revisionId: st
 
 async function metadataRateLimited(db: D1Database, projectId: string, actorId: string): Promise<boolean> {
   const cutoff = new Date(Date.now() - 60_000).toISOString();
-  const row = await db.prepare(`
+  const row = await db
+    .prepare(`
     SELECT
       (SELECT COUNT(*) FROM audit_events
         WHERE target_id = ? AND actor_id = ? AND action = 'project.patch' AND created_at > ?)
       + (SELECT COUNT(*) FROM project_revisions
         WHERE project_id = ? AND created_by = ? AND created_at > ?) AS total
-  `).bind(projectId, actorId, cutoff, projectId, actorId, cutoff).first<{ total: number }>();
+  `)
+    .bind(projectId, actorId, cutoff, projectId, actorId, cutoff)
+    .first<{ total: number }>();
   return (row?.total ?? 0) >= 20;
 }
 
@@ -99,7 +98,7 @@ async function sessionOrError(c: Context<{ Bindings: Env }>) {
 function allowedGuildIds(c: Context<{ Bindings: Env }>): string[] {
   return (c.env.DISCORD_ALLOWED_GUILD_IDS ?? "")
     .split(",")
-    .map(value => value.trim())
+    .map((value) => value.trim())
     .filter(Boolean);
 }
 
@@ -110,7 +109,7 @@ function normalizeThreadUrl(
   return normalizeDiscordThreadUrl(value, allowedGuildIds(c));
 }
 
-authoringRoutes.post("/", async c => {
+authoringRoutes.post("/", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
   const parsed = createProjectSchema.safeParse(await bodyJson(c));
@@ -129,7 +128,7 @@ authoringRoutes.post("/", async c => {
   }
 });
 
-authoringRoutes.get("/:id/draft", async c => {
+authoringRoutes.get("/:id/draft", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
   const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
@@ -142,15 +141,17 @@ authoringRoutes.get("/:id/draft", async c => {
     FROM submissions s LEFT JOIN reviews r ON r.submission_id = s.id
     WHERE s.project_id = ?
     ORDER BY s.submitted_at DESC LIMIT 1
-  `).bind(project.id).first<{
-    id: string;
-    revision_id: string;
-    status: string;
-    check_status: string;
-    resolved_at: string | null;
-    decision: string | null;
-    reason: string | null;
-  }>();
+  `)
+    .bind(project.id)
+    .first<{
+      id: string;
+      revision_id: string;
+      status: string;
+      check_status: string;
+      resolved_at: string | null;
+      decision: string | null;
+      reason: string | null;
+    }>();
   return c.json({
     project: summary,
     rowVersion: project.row_version,
@@ -159,7 +160,7 @@ authoringRoutes.get("/:id/draft", async c => {
   });
 });
 
-authoringRoutes.patch("/:id", async c => {
+authoringRoutes.patch("/:id", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
   const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
@@ -197,7 +198,7 @@ authoringRoutes.patch("/:id", async c => {
   return c.json(result);
 });
 
-authoringRoutes.delete("/:id/revisions/:revisionId/entries/:kind/:entryKey", async c => {
+authoringRoutes.delete("/:id/revisions/:revisionId/entries/:kind/:entryKey", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
   const kind = c.req.param("kind");
@@ -211,14 +212,20 @@ authoringRoutes.delete("/:id/revisions/:revisionId/entries/:kind/:entryKey", asy
     return jsonError(c, "bad_request", "Invalid entry key");
   }
   const result = await deleteProjectEntry(
-    c.env.DB, c.env.R2, auth.session, c.req.param("id"), c.req.param("revisionId"),
-    kind, entryKey, expectedVersion,
+    c.env.DB,
+    c.env.R2,
+    auth.session,
+    c.req.param("id"),
+    c.req.param("revisionId"),
+    kind,
+    entryKey,
+    expectedVersion,
   );
   if (!result) return jsonError(c, "conflict", "Entry cannot be deleted from this revision");
   return c.json(result);
 });
 
-authoringRoutes.delete("/:id", async c => {
+authoringRoutes.delete("/:id", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
   const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
@@ -232,7 +239,7 @@ authoringRoutes.delete("/:id", async c => {
   return c.body(null, 204);
 });
 
-authoringRoutes.patch("/:id/visibility", async c => {
+authoringRoutes.patch("/:id/visibility", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
   const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
@@ -248,7 +255,7 @@ authoringRoutes.patch("/:id/visibility", async c => {
   return c.json({ rowVersion });
 });
 
-authoringRoutes.post("/:id/revisions", async c => {
+authoringRoutes.post("/:id/revisions", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
   const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
@@ -286,7 +293,7 @@ authoringRoutes.post("/:id/revisions", async c => {
   return c.json(result, 201);
 });
 
-authoringRoutes.get("/:id/revisions/:revisionId/files/cover", async c => {
+authoringRoutes.get("/:id/revisions/:revisionId/files/cover", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
   const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
@@ -294,7 +301,9 @@ authoringRoutes.get("/:id/revisions/:revisionId/files/cover", async c => {
   const asset = await c.env.DB.prepare(`
     SELECT r2_key, mime FROM assets
     WHERE project_id = ? AND revision_id = ? AND kind = 'cover'
-  `).bind(c.req.param("id"), c.req.param("revisionId")).first<{ r2_key: string; mime: string }>();
+  `)
+    .bind(c.req.param("id"), c.req.param("revisionId"))
+    .first<{ r2_key: string; mime: string }>();
   if (!asset) return jsonError(c, "not_found", "Cover not found");
   const object = await c.env.R2.get(asset.r2_key);
   if (!object) return jsonError(c, "not_found", "Cover not found");
@@ -307,7 +316,7 @@ authoringRoutes.get("/:id/revisions/:revisionId/files/cover", async c => {
   });
 });
 
-authoringRoutes.put("/:id/revisions/:revisionId/files/:kind", async c => {
+authoringRoutes.put("/:id/revisions/:revisionId/files/:kind", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
   const parsedKind = uploadKindSchema.safeParse(c.req.param("kind"));
@@ -340,8 +349,7 @@ authoringRoutes.put("/:id/revisions/:revisionId/files/:kind", async c => {
   } else {
     const dimensions = detectImageDimensions(new Uint8Array(body));
     if (!dimensions) return jsonError(c, "bad_request", "无法识别封面图片尺寸");
-    if (dimensions.width > WORKSHOP_LIMITS.coverMaxDimension
-      || dimensions.height > WORKSHOP_LIMITS.coverMaxDimension) {
+    if (dimensions.width > WORKSHOP_LIMITS.coverMaxDimension || dimensions.height > WORKSHOP_LIMITS.coverMaxDimension) {
       return jsonError(c, "payload_too_large", "封面尺寸不能超过 4096×4096");
     }
   }
@@ -359,7 +367,7 @@ authoringRoutes.put("/:id/revisions/:revisionId/files/:kind", async c => {
   return c.json(result);
 });
 
-authoringRoutes.post("/:id/revisions/:revisionId/submit", async c => {
+authoringRoutes.post("/:id/revisions/:revisionId/submit", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
   const parsed = submitProjectSchema.safeParse(await bodyJson(c));
@@ -387,7 +395,7 @@ authoringRoutes.post("/:id/revisions/:revisionId/submit", async c => {
   if (result.checkStatus === "queued") {
     try {
       c.executionCtx.waitUntil(
-        enqueueSubmission(c.env, result.submissionId).catch(error => {
+        enqueueSubmission(c.env, result.submissionId).catch((error) => {
           console.error("ContentService run failed", error);
         }),
       );

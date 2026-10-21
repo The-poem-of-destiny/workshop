@@ -20,7 +20,9 @@ export async function runScheduled(env: Env, scheduledTime?: number): Promise<vo
     SET status = 'pending', check_status = 'needs_human', check_lease_until = NULL,
         check_error = COALESCE(check_error, '检查超时次数已达上限，转人工审核。')
     WHERE status = 'checking' AND check_status IN ('queued', 'running') AND check_attempts >= ?
-  `).bind(MAX_ATTEMPTS).run();
+  `)
+    .bind(MAX_ATTEMPTS)
+    .run();
 
   const due = await env.DB.prepare(`
     SELECT id FROM submissions
@@ -30,7 +32,9 @@ export async function runScheduled(env: Env, scheduledTime?: number): Promise<vo
       AND (check_lease_until IS NULL OR check_lease_until < ?)
     ORDER BY submitted_at ASC
     LIMIT 20
-  `).bind(MAX_ATTEMPTS, now).all<{ id: string }>();
+  `)
+    .bind(MAX_ATTEMPTS, now)
+    .all<{ id: string }>();
 
   if (due.results.length === 0) return;
   const stub = env.CONTENT_SERVICE.get(env.CONTENT_SERVICE.idFromName("content-service"));

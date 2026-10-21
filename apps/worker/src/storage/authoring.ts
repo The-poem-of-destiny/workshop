@@ -1,16 +1,24 @@
-import type { AuthorProject, AuthorSubmission, ProjectSummary, Session } from "@workshop/contracts";
-import type { CreateProject, PatchProject, SubmitProject, VisibilityUpdate } from "@workshop/contracts";
-import { z } from "zod";
+import type {
+  AuthorProject,
+  AuthorSubmission,
+  CreateProject,
+  PatchProject,
+  ProjectSummary,
+  Session,
+  SubmitProject,
+  VisibilityUpdate,
+} from "@workshop/contracts";
 import {
   extractProjectEntries,
   getProjectEntryKey,
   inspectProjectMetadata,
   METADATA_CHECKER_REVISION,
-  validateProjectContentPolicy,
-  validateProjectContentText,
   type MetadataInput,
   type ProjectEntryKind,
+  validateProjectContentPolicy,
+  validateProjectContentText,
 } from "@workshop/domain";
+import { z } from "zod";
 import { REVIEW_CHECKER_REVISION } from "../content-checker.js";
 
 interface ProjectAccessRow {
@@ -161,17 +169,25 @@ export async function getAuthoringProject(
   projectId: string,
   session: Session,
 ): Promise<ProjectAccessRow | null> {
-  return db.prepare(`
+  return db
+    .prepare(`
     SELECT id, author_id, title, description, author_note, project_type, extension_type,
       search_tags, visibility, working_revision_id, published_revision_id, row_version,
       version_label, precautions, cover_position_x, cover_position_y, cover_zoom
     FROM projects
     WHERE id = ? AND deleted_at IS NULL AND (author_id = ? OR ? = 'owner')
-  `).bind(projectId, session.userId, session.role).first<ProjectAccessRow>();
+  `)
+    .bind(projectId, session.userId, session.role)
+    .first<ProjectAccessRow>();
 }
 
-async function getWorkingRevision(db: D1Database, projectId: string, session: Session): Promise<WorkingRevisionRow | null> {
-  return db.prepare(`
+async function getWorkingRevision(
+  db: D1Database,
+  projectId: string,
+  session: Session,
+): Promise<WorkingRevisionRow | null> {
+  return db
+    .prepare(`
     SELECT p.id, p.author_id, p.title, p.description, p.author_note, p.project_type, p.extension_type,
       p.search_tags, p.visibility, p.working_revision_id, p.published_revision_id, p.row_version,
       p.version_label, p.precautions, p.cover_position_x, p.cover_position_y, p.cover_zoom,
@@ -184,7 +200,9 @@ async function getWorkingRevision(db: D1Database, projectId: string, session: Se
       r.cover_zoom AS revision_cover_zoom
     FROM projects p LEFT JOIN project_revisions r ON r.id = p.working_revision_id
     WHERE p.id = ? AND p.deleted_at IS NULL AND (p.author_id = ? OR ? = 'owner')
-  `).bind(projectId, session.userId, session.role).first<WorkingRevisionRow>();
+  `)
+    .bind(projectId, session.userId, session.role)
+    .first<WorkingRevisionRow>();
 }
 
 export async function getProjectSummary(db: D1Database, projectId: string): Promise<ProjectSummary | null> {
@@ -235,7 +253,8 @@ function toAuthorSubmission(row: AuthorProjectRow): AuthorSubmission | null {
 }
 
 export async function listAuthorProjects(db: D1Database, session: Session): Promise<AuthorProject[]> {
-  const result = await db.prepare(`
+  const result = await db
+    .prepare(`
     SELECT p.id, COALESCE(r.title, p.title) AS title,
       COALESCE(r.description, p.description) AS description,
       COALESCE(r.project_type, p.project_type) AS project_type,
@@ -267,8 +286,10 @@ export async function listAuthorProjects(db: D1Database, session: Session): Prom
     LEFT JOIN reviews rv ON rv.submission_id = s.id
     WHERE p.author_id = ? AND p.deleted_at IS NULL
     ORDER BY p.updated_at DESC, p.id DESC
-  `).bind(session.userId).all<AuthorProjectRow>();
-  return result.results.map(row => ({
+  `)
+    .bind(session.userId)
+    .all<AuthorProjectRow>();
+  return result.results.map((row) => ({
     project: toSummary(row),
     rowVersion: row.row_version,
     workingRevisionId: row.working_revision_id,
@@ -284,32 +305,37 @@ export async function listAuthorSubmissions(
   session: Session,
   projectId: string,
 ): Promise<AuthorSubmission[] | null> {
-  const project = await db.prepare("SELECT id FROM projects WHERE id = ? AND author_id = ? AND deleted_at IS NULL")
-    .bind(projectId, session.userId).first<{ id: string }>();
+  const project = await db
+    .prepare("SELECT id FROM projects WHERE id = ? AND author_id = ? AND deleted_at IS NULL")
+    .bind(projectId, session.userId)
+    .first<{ id: string }>();
   if (!project) return null;
-  const result = await db.prepare(`
+  const result = await db
+    .prepare(`
     SELECT s.id, s.revision_id, s.status, s.gate, s.checker_revision, s.submitted_at, s.resolved_at,
       s.check_status, s.check_error, s.checked_at,
       rv.decision, rv.reason, rv.created_at
     FROM submissions s LEFT JOIN reviews rv ON rv.submission_id = s.id
     WHERE s.project_id = ?
     ORDER BY s.submitted_at DESC, s.id DESC
-  `).bind(projectId).all<{
-    id: string;
-    revision_id: string;
-    status: AuthorSubmission["status"];
-    gate: string | null;
-    checker_revision: string | null;
-    submitted_at: string;
-    resolved_at: string | null;
-    check_status: AuthorSubmission["checkStatus"];
-    check_error: string | null;
-    checked_at: string | null;
-    decision: "approve" | "reject" | null;
-    reason: string | null;
-    created_at: string | null;
-  }>();
-  return result.results.map(row => ({
+  `)
+    .bind(projectId)
+    .all<{
+      id: string;
+      revision_id: string;
+      status: AuthorSubmission["status"];
+      gate: string | null;
+      checker_revision: string | null;
+      submitted_at: string;
+      resolved_at: string | null;
+      check_status: AuthorSubmission["checkStatus"];
+      check_error: string | null;
+      checked_at: string | null;
+      decision: "approve" | "reject" | null;
+      reason: string | null;
+      created_at: string | null;
+    }>();
+  return result.results.map((row) => ({
     id: row.id,
     revisionId: row.revision_id,
     status: row.status,
@@ -348,33 +374,70 @@ export async function createProject(db: D1Database, session: Session, input: Cre
   };
   const meta = metadataSnapshot(values, session.userId, now);
   await db.batch([
-    db.prepare(`INSERT INTO projects
+    db
+      .prepare(`INSERT INTO projects
       (id, author_id, title, description, author_note, project_type, extension_type, search_tags,
        visibility, working_revision_id, row_version, created_at, updated_at,
        version_label, precautions, cover_position_x, cover_position_y, cover_zoom,
        metadata_findings, metadata_checker_revision, metadata_checked_at, metadata_checked_by)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'private', ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(projectId, session.userId, values.title, values.description, values.authorNote,
-        values.projectType, values.extensionType, tags, revisionId, now, now,
-        values.versionLabel, values.precautions, values.coverPositionX, values.coverPositionY, values.coverZoom,
-        meta.findings, meta.revision, meta.checkedAt, meta.actorId),
-    db.prepare(`INSERT INTO project_revisions
+      .bind(
+        projectId,
+        session.userId,
+        values.title,
+        values.description,
+        values.authorNote,
+        values.projectType,
+        values.extensionType,
+        tags,
+        revisionId,
+        now,
+        now,
+        values.versionLabel,
+        values.precautions,
+        values.coverPositionX,
+        values.coverPositionY,
+        values.coverZoom,
+        meta.findings,
+        meta.revision,
+        meta.checkedAt,
+        meta.actorId,
+      ),
+    db
+      .prepare(`INSERT INTO project_revisions
       (id, project_id, revision_no, title, description, author_note, project_type, extension_type,
        schema_version, version_label, precautions, cover_position_x, cover_position_y, cover_zoom,
        metadata_findings, metadata_checker_revision, metadata_checked_at, metadata_checked_by,
        discord_thread_url, tags, created_by, created_at)
       VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(revisionId, projectId, values.title, values.description, values.authorNote,
-        values.projectType, values.extensionType, values.schemaVersion, values.versionLabel,
-        values.precautions, values.coverPositionX, values.coverPositionY, values.coverZoom,
-        meta.findings, meta.revision, meta.checkedAt, meta.actorId,
-        values.discordThreadUrl, tags, session.userId, now),
+      .bind(
+        revisionId,
+        projectId,
+        values.title,
+        values.description,
+        values.authorNote,
+        values.projectType,
+        values.extensionType,
+        values.schemaVersion,
+        values.versionLabel,
+        values.precautions,
+        values.coverPositionX,
+        values.coverPositionY,
+        values.coverZoom,
+        meta.findings,
+        meta.revision,
+        meta.checkedAt,
+        meta.actorId,
+        values.discordThreadUrl,
+        tags,
+        session.userId,
+        now,
+      ),
   ]);
   const project = await getProjectSummary(db, projectId);
   if (!project) throw new Error("Created project not found");
   return { project, rowVersion: 1, workingRevisionId: revisionId };
 }
-
 
 export async function patchProject(
   db: D1Database,
@@ -390,7 +453,8 @@ export async function patchProject(
   const meta = metadataSnapshot(values, session.userId, now);
   const tags = JSON.stringify(values.tags);
   const [updated] = await db.batch([
-    db.prepare(`UPDATE projects
+    db
+      .prepare(`UPDATE projects
       SET title = ?, description = ?, author_note = ?, project_type = ?, extension_type = ?,
           search_tags = ?, version_label = ?, precautions = ?, cover_position_x = ?,
           cover_position_y = ?, cover_zoom = ?, metadata_findings = ?,
@@ -398,12 +462,28 @@ export async function patchProject(
           row_version = row_version + 1, updated_at = ?
       WHERE id = ? AND row_version = ? AND working_revision_id = ?`)
       .bind(
-        values.title, values.description, values.authorNote, values.projectType, values.extensionType,
-        tags, values.versionLabel, values.precautions, values.coverPositionX, values.coverPositionY,
-        values.coverZoom, meta.findings, meta.revision, meta.checkedAt, meta.actorId, now,
-        projectId, expectedVersion, current.working_revision_id,
+        values.title,
+        values.description,
+        values.authorNote,
+        values.projectType,
+        values.extensionType,
+        tags,
+        values.versionLabel,
+        values.precautions,
+        values.coverPositionX,
+        values.coverPositionY,
+        values.coverZoom,
+        meta.findings,
+        meta.revision,
+        meta.checkedAt,
+        meta.actorId,
+        now,
+        projectId,
+        expectedVersion,
+        current.working_revision_id,
       ),
-    db.prepare(`UPDATE project_revisions
+    db
+      .prepare(`UPDATE project_revisions
       SET title = ?, description = ?, author_note = ?, project_type = ?, extension_type = ?,
           tags = ?, schema_version = COALESCE(schema_version, ?), version_label = ?, precautions = ?,
           cover_position_x = ?, cover_position_y = ?, cover_zoom = ?, metadata_findings = ?,
@@ -411,18 +491,38 @@ export async function patchProject(
           discord_thread_url = ?
       WHERE id IN (?, ?)`)
       .bind(
-        values.title, values.description, values.authorNote, values.projectType, values.extensionType,
-        tags, values.schemaVersion, values.versionLabel, values.precautions, values.coverPositionX,
-        values.coverPositionY, values.coverZoom, meta.findings, meta.revision, meta.checkedAt,
-        meta.actorId, values.discordThreadUrl, current.working_revision_id, current.published_revision_id,
+        values.title,
+        values.description,
+        values.authorNote,
+        values.projectType,
+        values.extensionType,
+        tags,
+        values.schemaVersion,
+        values.versionLabel,
+        values.precautions,
+        values.coverPositionX,
+        values.coverPositionY,
+        values.coverZoom,
+        meta.findings,
+        meta.revision,
+        meta.checkedAt,
+        meta.actorId,
+        values.discordThreadUrl,
+        current.working_revision_id,
+        current.published_revision_id,
       ),
-    db.prepare(`INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
+    db
+      .prepare(`INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
       SELECT ?, 'project.patch', 'project', ?, ?, ?, ?
       WHERE EXISTS (SELECT 1 FROM projects WHERE id = ? AND row_version = ?)`)
       .bind(
-        crypto.randomUUID(), projectId, session.userId,
+        crypto.randomUUID(),
+        projectId,
+        session.userId,
         JSON.stringify({ fields: Object.keys(input), rowVersion: expectedVersion + 1 }),
-        now, projectId, expectedVersion + 1,
+        now,
+        projectId,
+        expectedVersion + 1,
       ),
   ]);
   if (!updated || updated.meta.changes === 0) return null;
@@ -448,17 +548,26 @@ export interface RevisionValues {
 function revisionValues(current: WorkingRevisionRow, patch: PatchProject): RevisionValues {
   return {
     title: patch.title ?? current.revision_title ?? current.title,
-    description: patch.description !== undefined ? patch.description : current.revision_description ?? current.description,
-    authorNote: patch.authorNote !== undefined ? patch.authorNote : current.revision_author_note ?? current.author_note,
-    projectType: patch.projectType !== undefined ? patch.projectType : current.revision_project_type ?? current.project_type,
-    extensionType: patch.extensionType !== undefined ? patch.extensionType : current.revision_extension_type ?? current.extension_type,
+    description:
+      patch.description !== undefined ? patch.description : (current.revision_description ?? current.description),
+    authorNote:
+      patch.authorNote !== undefined ? patch.authorNote : (current.revision_author_note ?? current.author_note),
+    projectType:
+      patch.projectType !== undefined ? patch.projectType : (current.revision_project_type ?? current.project_type),
+    extensionType:
+      patch.extensionType !== undefined
+        ? patch.extensionType
+        : (current.revision_extension_type ?? current.extension_type),
     schemaVersion: patch.schemaVersion !== undefined ? patch.schemaVersion : current.revision_schema_version,
-    versionLabel: patch.versionLabel !== undefined ? patch.versionLabel : current.revision_version_label ?? current.version_label,
-    precautions: patch.precautions !== undefined ? patch.precautions : current.revision_precautions ?? current.precautions,
+    versionLabel:
+      patch.versionLabel !== undefined ? patch.versionLabel : (current.revision_version_label ?? current.version_label),
+    precautions:
+      patch.precautions !== undefined ? patch.precautions : (current.revision_precautions ?? current.precautions),
     coverPositionX: patch.coverPositionX ?? current.revision_cover_position_x ?? current.cover_position_x,
     coverPositionY: patch.coverPositionY ?? current.revision_cover_position_y ?? current.cover_position_y,
     coverZoom: patch.coverZoom ?? current.revision_cover_zoom ?? current.cover_zoom,
-    discordThreadUrl: patch.discordThreadUrl !== undefined ? patch.discordThreadUrl : current.revision_discord_thread_url,
+    discordThreadUrl:
+      patch.discordThreadUrl !== undefined ? patch.discordThreadUrl : current.revision_discord_thread_url,
     tags: patch.tags !== undefined ? patch.tags : parseTags(current.revision_tags || current.search_tags),
   };
 }
@@ -498,10 +607,12 @@ async function addRevision(
   const tags = JSON.stringify(values.tags);
   const meta = metadataSnapshot(values, session.userId, now);
   const [updated] = await db.batch([
-    db.prepare(`UPDATE projects SET working_revision_id = ?, row_version = row_version + 1, updated_at = ?
+    db
+      .prepare(`UPDATE projects SET working_revision_id = ?, row_version = row_version + 1, updated_at = ?
       WHERE id = ? AND row_version = ? AND working_revision_id = ?`)
       .bind(revisionId, now, current.id, expectedVersion, current.working_revision_id),
-    db.prepare(`INSERT INTO project_revisions
+    db
+      .prepare(`INSERT INTO project_revisions
       (id, project_id, revision_no, title, description, author_note, project_type, extension_type,
        schema_version, version_label, precautions, cover_position_x, cover_position_y, cover_zoom,
        metadata_findings, metadata_checker_revision, metadata_checked_at, metadata_checked_by,
@@ -512,11 +623,31 @@ async function addRevision(
         WHERE id = ? AND row_version = ? AND working_revision_id = ?
       )`)
       .bind(
-        revisionId, current.id, nextNo, values.title, values.description, values.authorNote,
-        values.projectType, values.extensionType, values.schemaVersion, values.versionLabel,
-        values.precautions, values.coverPositionX, values.coverPositionY, values.coverZoom,
-        meta.findings, meta.revision, meta.checkedAt, meta.actorId, values.discordThreadUrl,
-        tags, session.userId, now, current.id, expectedVersion + 1, revisionId,
+        revisionId,
+        current.id,
+        nextNo,
+        values.title,
+        values.description,
+        values.authorNote,
+        values.projectType,
+        values.extensionType,
+        values.schemaVersion,
+        values.versionLabel,
+        values.precautions,
+        values.coverPositionX,
+        values.coverPositionY,
+        values.coverZoom,
+        meta.findings,
+        meta.revision,
+        meta.checkedAt,
+        meta.actorId,
+        values.discordThreadUrl,
+        tags,
+        session.userId,
+        now,
+        current.id,
+        expectedVersion + 1,
+        revisionId,
       ),
   ]);
   if (!updated || updated.meta.changes === 0) return null;
@@ -546,12 +677,15 @@ function removeSerializedEntry(
     return { text: JSON.stringify(next), entryCount: extractProjectEntries(next, kind).length };
   }
 
-  const container = z.object({
-    entries: z.union([
-      z.array(z.record(z.string(), z.unknown())),
-      z.record(z.string(), z.record(z.string(), z.unknown())),
-    ]),
-  }).passthrough().safeParse(raw);
+  const container = z
+    .object({
+      entries: z.union([
+        z.array(z.record(z.string(), z.unknown())),
+        z.record(z.string(), z.record(z.string(), z.unknown())),
+      ]),
+    })
+    .passthrough()
+    .safeParse(raw);
   if (container.success) {
     if (Array.isArray(container.data.entries)) {
       const next = container.data.entries.filter((value, index) => getProjectEntryKey(kind, value, index) !== entryKey);
@@ -592,12 +726,17 @@ export async function deleteProjectEntry(
 ): Promise<{ rowVersion: number; revisionId: string; entryCount: number } | null> {
   const current = await getWorkingRevision(db, projectId, session);
   if (!current || current.row_version !== expectedVersion || current.working_revision_id !== revisionId) return null;
-  const submitted = await db.prepare("SELECT 1 AS present FROM submissions WHERE revision_id = ?")
-    .bind(revisionId).first<{ present: number }>();
+  const submitted = await db
+    .prepare("SELECT 1 AS present FROM submissions WHERE revision_id = ?")
+    .bind(revisionId)
+    .first<{ present: number }>();
   if (submitted) return null;
-  const asset = await db.prepare(`
+  const asset = await db
+    .prepare(`
     SELECT r2_key, mime FROM assets WHERE revision_id = ? AND kind = ?
-  `).bind(revisionId, kind).first<{ r2_key: string; mime: string }>();
+  `)
+    .bind(revisionId, kind)
+    .first<{ r2_key: string; mime: string }>();
   if (!asset) return null;
   const object = await r2.get(asset.r2_key);
   if (!object) return null;
@@ -611,9 +750,10 @@ export async function deleteProjectEntry(
   if (!removed) return null;
   if (removed.entryCount === 0) {
     const otherKind = kind === "worldbook" ? "regex" : "worldbook";
-    const other = await db.prepare(
-      "SELECT 1 AS present FROM assets WHERE revision_id = ? AND kind = ? LIMIT 1",
-    ).bind(revisionId, otherKind).first<{ present: number }>();
+    const other = await db
+      .prepare("SELECT 1 AS present FROM assets WHERE revision_id = ? AND kind = ? LIMIT 1")
+      .bind(revisionId, otherKind)
+      .first<{ present: number }>();
     const policy = validateProjectContentPolicy(
       { projectType: current.project_type, tags: parseTags(current.search_tags) },
       {
@@ -627,11 +767,14 @@ export async function deleteProjectEntry(
   if (!revision) return null;
   const body = new TextEncoder().encode(removed.text).buffer;
   await upsertAsset(db, r2, projectId, revision.revisionId, kind, body, asset.mime, removed.entryCount);
-  await db.prepare(`
+  await db
+    .prepare(`
     INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime)
     SELECT ?, project_id, ?, kind, r2_key, sha256, bytes, mime FROM assets
     WHERE revision_id = ? AND kind <> ?
-  `).bind(crypto.randomUUID(), revision.revisionId, revisionId, kind).run();
+  `)
+    .bind(crypto.randomUUID(), revision.revisionId, revisionId, kind)
+    .run();
   return { ...revision, entryCount: removed.entryCount };
 }
 
@@ -642,18 +785,24 @@ export async function softDeleteProject(
   expectedVersion?: number,
 ): Promise<boolean> {
   const now = new Date().toISOString();
-  const result = await db.prepare(`
+  const result = await db
+    .prepare(`
     UPDATE projects
     SET deleted_at = ?, row_version = row_version + 1, updated_at = ?
     WHERE id = ? AND deleted_at IS NULL
       AND (author_id = ? OR ? = 'owner')
       AND (? IS NULL OR row_version = ?)
-  `).bind(now, now, projectId, session.userId, session.role, expectedVersion ?? null, expectedVersion ?? null).run();
+  `)
+    .bind(now, now, projectId, session.userId, session.role, expectedVersion ?? null, expectedVersion ?? null)
+    .run();
   if (result.meta.changes === 0) return false;
-  await db.prepare(`
+  await db
+    .prepare(`
     INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
     VALUES (?, 'project.delete', 'project', ?, ?, ?, ?)
-  `).bind(crypto.randomUUID(), projectId, session.userId, JSON.stringify({ soft: true }), now).run();
+  `)
+    .bind(crypto.randomUUID(), projectId, session.userId, JSON.stringify({ soft: true }), now)
+    .run();
   return true;
 }
 
@@ -666,8 +815,11 @@ export async function updateVisibility(
 ): Promise<number | null> {
   const current = await getAuthoringProject(db, projectId, session);
   if (!current || current.row_version !== expectedVersion) return null;
-  const result = await db.prepare(`UPDATE projects SET visibility = ?, row_version = row_version + 1, updated_at = ?
-    WHERE id = ? AND row_version = ?`).bind(input.visibility, new Date().toISOString(), projectId, expectedVersion).run();
+  const result = await db
+    .prepare(`UPDATE projects SET visibility = ?, row_version = row_version + 1, updated_at = ?
+    WHERE id = ? AND row_version = ?`)
+    .bind(input.visibility, new Date().toISOString(), projectId, expectedVersion)
+    .run();
   return result.meta.changes === 0 ? null : expectedVersion + 1;
 }
 
@@ -684,13 +836,16 @@ export async function getRevisionForProject(
   revisionId: string,
   session: Session,
 ): Promise<RevisionAccess | null> {
-  return db.prepare(`SELECT r.id, r.project_id, r.revision_no, p.working_revision_id
+  return db
+    .prepare(`SELECT r.id, r.project_id, r.revision_no, p.working_revision_id
     FROM project_revisions r JOIN projects p ON p.id = r.project_id
     WHERE r.id = ? AND r.project_id = ? AND p.deleted_at IS NULL
       AND p.working_revision_id = r.id
       AND (p.published_revision_id IS NULL OR p.published_revision_id <> r.id)
       AND NOT EXISTS (SELECT 1 FROM submissions s WHERE s.revision_id = r.id)
-      AND (p.author_id = ? OR ? = 'owner')`).bind(revisionId, projectId, session.userId, session.role).first<RevisionAccess>();
+      AND (p.author_id = ? OR ? = 'owner')`)
+    .bind(revisionId, projectId, session.userId, session.role)
+    .first<RevisionAccess>();
 }
 
 export async function upsertAsset(
@@ -704,25 +859,36 @@ export async function upsertAsset(
   entryCount?: number,
 ): Promise<UploadResult | null> {
   const hash = await crypto.subtle.digest("SHA-256", body);
-  const sha256 = [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+  const sha256 = [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   const ext = extensionForMime(mime);
-  const r2Key = kind === "cover"
-    ? `covers/${projectId}/${revisionId}-${sha256}.${ext}`
-    : `projects/${projectId}/revisions/${revisionId}/${kind}-${sha256}.${ext}`;
+  const r2Key =
+    kind === "cover"
+      ? `covers/${projectId}/${revisionId}-${sha256}.${ext}`
+      : `projects/${projectId}/revisions/${revisionId}/${kind}-${sha256}.${ext}`;
   // Content-addressed keys make a pre-insert put safe: a frozen revision never
   // points at the new key, and identical bytes reuse the same object.
   await r2.put(r2Key, body, { httpMetadata: { contentType: mime } });
 
   const statements = [
-    db.prepare(`INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime)
+    db
+      .prepare(`INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime)
       SELECT ?, ?, ?, ?, ?, ?, ?, ?
       WHERE EXISTS (SELECT 1 FROM projects WHERE id = ? AND working_revision_id = ?)
         AND NOT EXISTS (SELECT 1 FROM submissions WHERE revision_id = ?)
       ON CONFLICT(revision_id, kind) DO UPDATE SET r2_key = excluded.r2_key, sha256 = excluded.sha256,
         bytes = excluded.bytes, mime = excluded.mime, created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`)
       .bind(
-        crypto.randomUUID(), projectId, revisionId, kind, r2Key, sha256, body.byteLength, mime,
-        projectId, revisionId, revisionId,
+        crypto.randomUUID(),
+        projectId,
+        revisionId,
+        kind,
+        r2Key,
+        sha256,
+        body.byteLength,
+        mime,
+        projectId,
+        revisionId,
+        revisionId,
       ),
   ];
 
@@ -731,11 +897,14 @@ export async function upsertAsset(
       throw new Error("Validated entry count is required for content uploads");
     }
     const column = kind === "worldbook" ? "worldbook_count" : "regex_count";
-    statements.push(db.prepare(`UPDATE project_revisions SET ${column} = ?
+    statements.push(
+      db
+        .prepare(`UPDATE project_revisions SET ${column} = ?
       WHERE id = ?
         AND EXISTS (SELECT 1 FROM projects WHERE id = ? AND working_revision_id = ?)
         AND NOT EXISTS (SELECT 1 FROM submissions WHERE revision_id = ?)`)
-      .bind(entryCount, revisionId, projectId, revisionId, revisionId));
+        .bind(entryCount, revisionId, projectId, revisionId, revisionId),
+    );
   }
 
   const [inserted] = await db.batch(statements);
@@ -745,8 +914,13 @@ export async function upsertAsset(
 
 function extensionForMime(mime: string): string {
   const known: Record<string, string> = {
-    "application/json": "json", "application/zip": "zip", "text/plain": "txt",
-    "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif",
+    "application/json": "json",
+    "application/zip": "zip",
+    "text/plain": "txt",
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/webp": "webp",
+    "image/gif": "gif",
   };
   return known[mime] ?? "bin";
 }
@@ -778,22 +952,28 @@ async function baselineEntryConflict(db: D1Database, text: string): Promise<stri
   }
   const refs = extractProjectEntries(parsed, "worldbook");
   if (refs.length === 0) return null;
-  const fingerprints = await Promise.all(refs.map(async ref => {
-    const entry = ref.entry;
-    const rawName = entry.comment ?? entry.name;
-    const name = String(rawName ?? "").replace(/\r\n/g, "\n").trim();
-    const content = String(entry.content ?? "").replace(/\r\n/g, "\n").trim();
-    const digest = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(JSON.stringify({ name, content })),
-    );
-    return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
-  }));
-  const match = await db.prepare(`
+  const fingerprints = await Promise.all(
+    refs.map(async (ref) => {
+      const entry = ref.entry;
+      const rawName = entry.comment ?? entry.name;
+      const name = String(rawName ?? "")
+        .replace(/\r\n/g, "\n")
+        .trim();
+      const content = String(entry.content ?? "")
+        .replace(/\r\n/g, "\n")
+        .trim();
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify({ name, content })));
+      return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    }),
+  );
+  const match = await db
+    .prepare(`
     SELECT display_name FROM reference_items
     WHERE kind = 'worldbook' AND exact_hash IN (${fingerprints.map(() => "?").join(", ")})
     LIMIT 1
-  `).bind(...fingerprints).first<{ display_name: string }>();
+  `)
+    .bind(...fingerprints)
+    .first<{ display_name: string }>();
   return match?.display_name ?? null;
 }
 
@@ -811,10 +991,13 @@ export async function submitRevision(
     return { ok: false, code: "not_found", message: "Working revision not found" };
   }
 
-  const previous = await db.prepare(`
+  const previous = await db
+    .prepare(`
     SELECT id, status FROM submissions
     WHERE project_id = ? AND status IN ('pending', 'checking')
-  `).bind(projectId).all<{ id: string; status: string }>();
+  `)
+    .bind(projectId)
+    .all<{ id: string; status: string }>();
 
   // Freeze first: the pending submission makes the upload guard reject any
   // later asset write, so the asset snapshot read below cannot change.
@@ -824,22 +1007,39 @@ export async function submitRevision(
   const checkStatus = clientGate === "pass" || clientGate === "warn" ? "queued" : "needs_human";
   const submissionStatus = checkStatus === "queued" ? "checking" : "pending";
   await db.batch([
-    db.prepare("UPDATE submissions SET status = 'superseded', resolved_at = ? WHERE project_id = ? AND status IN ('pending', 'checking')")
+    db
+      .prepare(
+        "UPDATE submissions SET status = 'superseded', resolved_at = ? WHERE project_id = ? AND status IN ('pending', 'checking')",
+      )
       .bind(now, projectId),
-    db.prepare(`INSERT INTO submissions
+    db
+      .prepare(`INSERT INTO submissions
       (id, project_id, revision_id, status, gate, checker_revision, submitted_by, submitted_at,
        client_gate, client_checker_revision, client_warning_count, client_acknowledged_at, check_status,
        review_checker_revision)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .bind(
-        submissionId, projectId, revisionId, submissionStatus, clientGate, input.checkerRevision ?? null,
-        session.userId, now, clientGate, input.checkerRevision ?? null, input.warningCount,
-        input.acknowledged ? now : null, checkStatus, REVIEW_CHECKER_REVISION,
+        submissionId,
+        projectId,
+        revisionId,
+        submissionStatus,
+        clientGate,
+        input.checkerRevision ?? null,
+        session.userId,
+        now,
+        clientGate,
+        input.checkerRevision ?? null,
+        input.warningCount,
+        input.acknowledged ? now : null,
+        checkStatus,
+        REVIEW_CHECKER_REVISION,
       ),
   ]);
 
-  const assets = await db.prepare("SELECT kind, r2_key, sha256 FROM assets WHERE revision_id = ? ORDER BY kind")
-    .bind(revisionId).all<RevisionAssetRow>();
+  const assets = await db
+    .prepare("SELECT kind, r2_key, sha256 FROM assets WHERE revision_id = ? ORDER BY kind")
+    .bind(revisionId)
+    .all<RevisionAssetRow>();
 
   const presence: Record<ProjectEntryKind, boolean> = { worldbook: false, regex: false };
   const counts: Record<ProjectEntryKind, number> = { worldbook: 0, regex: 0 };
@@ -854,7 +1054,7 @@ export async function submitRevision(
       }
     }
     for (const kind of ["worldbook", "regex"] as const) {
-      const present = assets.results.some(asset => asset.kind === kind);
+      const present = assets.results.some((asset) => asset.kind === kind);
       if (!validationError && present !== prevalidated.presence[kind]) {
         validationError = "内容在检查期间发生变化，请重新提交";
       }
@@ -912,8 +1112,9 @@ export async function submitRevision(
   if (validationError) {
     const restore = [
       db.prepare("DELETE FROM submissions WHERE id = ? AND status IN ('pending', 'checking')").bind(submissionId),
-      ...previous.results.map(item =>
-        db.prepare("UPDATE submissions SET status = ?, resolved_at = NULL WHERE id = ? AND status = 'superseded'")
+      ...previous.results.map((item) =>
+        db
+          .prepare("UPDATE submissions SET status = ?, resolved_at = NULL WHERE id = ? AND status = 'superseded'")
           .bind(item.status, item.id),
       ),
     ];
@@ -921,11 +1122,14 @@ export async function submitRevision(
     return { ok: false, code: "invalid_content", message: validationError };
   }
 
-  const manifest = assets.results.map(asset => `${asset.kind}:${asset.sha256}`).join("\n");
+  const manifest = assets.results.map((asset) => `${asset.kind}:${asset.sha256}`).join("\n");
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(manifest));
-  const manifestHash = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
-  await db.prepare(`UPDATE project_revisions
+  const manifestHash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  await db
+    .prepare(`UPDATE project_revisions
     SET manifest_hash = ?, worldbook_count = ?, regex_count = ?
-    WHERE id = ?`).bind(manifestHash, counts.worldbook, counts.regex, revisionId).run();
+    WHERE id = ?`)
+    .bind(manifestHash, counts.worldbook, counts.regex, revisionId)
+    .run();
   return { ok: true, submissionId, checkStatus };
 }

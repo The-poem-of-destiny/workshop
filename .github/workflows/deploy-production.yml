@@ -15,22 +15,32 @@ concurrency:
 jobs:
   promote:
     environment: production
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      BACKUP_BUCKET: ${{ vars.BACKUP_BUCKET }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.24.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Locate successful staging deploy for this commit
+      - name: Verify tag commit
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Locate staging artifact
         id: staging
         run: |
           set -euo pipefail
@@ -40,28 +50,76 @@ jobs:
             exit 1
           fi
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
-          name: staging-web-${{ github.sha }}
+          name: release-${{ github.sha }}
           run-id: ${{ steps.staging.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Verify promoted artifact hash
-        run: sha256sum -c artifact.sha256
-      - name: Verify tag checkout
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Verify promoted artifact
+        run: |
+          set -euo pipefail
+          sha256sum -c artifact.sha256
+          jq -e --arg sha "$GITHUB_SHA" '.sourceSha == $sha' artifact-manifest.json
+      - name: Back up production D1
+        run: |
+          set -euo pipefail
+          test -n "$BACKUP_BUCKET"
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          mkdir -p backup
+          dump="backup/workshop-prod-${stamp}.sql"
+          pnpm --filter @workshop/worker exec wrangler d1 export workshop-prod \
+            --remote --config wrangler.jsonc --env production --output "$dump" -y \
+            2>&1 | sed -E 's#https?://[^ ]+#<redacted>#g'
+          test -s "$dump"
+          sha256sum "$dump" > "${dump}.sha256"
+          pnpm --filter @workshop/worker exec wrangler d1 time-travel info workshop-prod \
+            --config wrangler.jsonc --env production \
+            --timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --json > "backup/time-travel-${stamp}.json"
+          jq -n \
+            --arg sourceSha "$GITHUB_SHA" \
+            --arg tag "$GITHUB_REF_NAME" \
+            --arg backupKey "d1/${stamp}/workshop-prod.sql" \
+            --arg backupSha "$(sha256sum "$dump" | cut -d' ' -f1)" \
+            --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{sourceSha:$sourceSha,tag:$tag,backupKey:$backupKey,backupSha256:$backupSha,createdAt:$createdAt}' \
+            > backup/manifest.json
+          pnpm --filter @workshop/worker exec wrangler r2 object put \
+            "${BACKUP_BUCKET}/d1/${stamp}/workshop-prod.sql" \
+            --file "$dump" --remote --config wrangler.jsonc --env production
+          pnpm --filter @workshop/worker exec wrangler r2 object put \
+            "${BACKUP_BUCKET}/d1/${stamp}/workshop-prod.sql.sha256" \
+            --file "${dump}.sha256" --remote --config wrangler.jsonc --env production
+          pnpm --filter @workshop/worker exec wrangler r2 object put \
+            "${BACKUP_BUCKET}/d1/${stamp}/time-travel.json" \
+            --file "backup/time-travel-${stamp}.json" --remote --config wrangler.jsonc --env production
+          pnpm --filter @workshop/worker exec wrangler r2 object put \
+            "${BACKUP_BUCKET}/d1/${stamp}/manifest.json" \
+            --file backup/manifest.json --remote --config wrangler.jsonc --env production
       - name: Apply production migrations
         run: pnpm --filter @workshop/worker exec wrangler d1 migrations apply workshop-prod --remote --config wrangler.jsonc --env production
       - name: Deploy production worker
-        run: pnpm --filter @workshop/worker exec wrangler deploy --config wrangler.jsonc --env production
+        run: pnpm --filter @workshop/worker exec wrangler deploy apps/worker/build/index.js --no-bundle --config wrangler.jsonc --env production
       - name: Record worker version
         run: pnpm --filter @workshop/worker exec wrangler deployments list --config wrangler.jsonc --env production | tee deployment.txt
+      - name: Upload deployment evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: production-evidence-${{ github.sha }}
+          path: |
+            artifact-manifest.json
+            backup/manifest.json
+            backup/time-travel-*.json
+            deployment.txt
+          retention-days: 90
       - name: Smoke test
         run: |
           set -euo pipefail
+          base="${{ vars.PRODUCTION_URL }}"
           for i in 1 2 3 4 5; do
-            if curl -fsS "${{ vars.PRODUCTION_URL }}/api/v1/health" | grep -q '"ok":true'; then
-              exit 0
-            fi
+            if curl -fsS "$base/api/v1/health" | grep -q '"ok":true'; then break; fi
+            if [ "$i" = 5 ]; then exit 1; fi
             sleep 5
           done
-          exit 1
+          curl -fsS "$base/api/v1/projects" | grep -q '"items"'
+          curl -fsS "$base/" | grep -q 'id="root"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$base/api/v1/me")" = "401"

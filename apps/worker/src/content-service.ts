@@ -1,6 +1,6 @@
+import { extractProjectEntries, type ProjectEntryKind, validateProjectContentText } from "@workshop/domain";
+import { analyzeFiles, REVIEW_CHECKER_REVISION, routeGate } from "./content-checker";
 import type { Env } from "./env";
-import { extractProjectEntries, validateProjectContentText, type ProjectEntryKind } from "@workshop/domain";
-import { analyzeFiles, routeGate, REVIEW_CHECKER_REVISION } from "./content-checker";
 
 interface RunTarget {
   id: string;
@@ -18,7 +18,7 @@ const MAX_ATTEMPTS = 3;
 
 async function sha256(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function baselineConflict(db: D1Database, text: string): Promise<string | null> {
@@ -30,23 +30,32 @@ async function baselineConflict(db: D1Database, text: string): Promise<string | 
   }
   const refs = extractProjectEntries(parsed, "worldbook");
   if (refs.length === 0) return null;
-  const fingerprints = await Promise.all(refs.map(async ref => {
-    const entry = ref.entry;
-    const name = String(entry.comment ?? entry.name ?? "").replace(/\r\n/g, "\n").trim();
-    const content = String(entry.content ?? "").replace(/\r\n/g, "\n").trim();
-    return sha256(JSON.stringify({ name, content }));
-  }));
-  const match = await db.prepare(`
+  const fingerprints = await Promise.all(
+    refs.map(async (ref) => {
+      const entry = ref.entry;
+      const name = String(entry.comment ?? entry.name ?? "")
+        .replace(/\r\n/g, "\n")
+        .trim();
+      const content = String(entry.content ?? "")
+        .replace(/\r\n/g, "\n")
+        .trim();
+      return sha256(JSON.stringify({ name, content }));
+    }),
+  );
+  const match = await db
+    .prepare(`
     SELECT display_name FROM reference_items
     WHERE kind = 'worldbook' AND exact_hash IN (${fingerprints.map(() => "?").join(", ")})
     LIMIT 1
-  `).bind(...fingerprints).first<{ display_name: string }>();
+  `)
+    .bind(...fingerprints)
+    .first<{ display_name: string }>();
   return match?.display_name ?? null;
 }
 
 export class ContentService implements DurableObject {
   constructor(
-    private readonly state: DurableObjectState,
+    _state: DurableObjectState,
     private readonly env: Env,
   ) {}
 
@@ -57,7 +66,7 @@ export class ContentService implements DurableObject {
     let validateProjectId = "";
     let validation: { kind?: unknown; text?: unknown } | null = null;
     try {
-      const body = await request.json() as {
+      const body = (await request.json()) as {
         submissionId?: unknown;
         validate?: unknown;
         validateRevision?: unknown;
@@ -76,7 +85,9 @@ export class ContentService implements DurableObject {
       if (!validateProjectId) return Response.json({ error: "bad_request" }, { status: 400 });
       const assets = await this.env.DB.prepare(
         "SELECT kind, r2_key FROM assets WHERE revision_id = ? AND project_id = ? AND kind IN ('worldbook', 'regex')",
-      ).bind(validateRevision, validateProjectId).all<{ kind: string; r2_key: string }>();
+      )
+        .bind(validateRevision, validateProjectId)
+        .all<{ kind: string; r2_key: string }>();
       const presence: Record<ProjectEntryKind, boolean> = { worldbook: false, regex: false };
       const counts: Record<ProjectEntryKind, number> = { worldbook: 0, regex: 0 };
       const hashes: Partial<Record<ProjectEntryKind, string>> = {};
@@ -116,11 +127,14 @@ export class ContentService implements DurableObject {
     if (!submissionId) return Response.json({ error: "bad_request" }, { status: 400 });
 
     const db = this.env.DB;
-    const target = await db.prepare(`
+    const target = await db
+      .prepare(`
       SELECT id, project_id, revision_id, status, check_status, check_attempts, client_gate,
              review_checker_revision
       FROM submissions WHERE id = ?
-    `).bind(submissionId).first<RunTarget>();
+    `)
+      .bind(submissionId)
+      .first<RunTarget>();
     if (!target) return Response.json({ error: "not_found" }, { status: 404 });
     if (target.status === "approved" || target.status === "rejected" || target.status === "superseded") {
       return Response.json({ skipped: "resolved" });
@@ -139,21 +153,27 @@ export class ContentService implements DurableObject {
 
     const now = new Date().toISOString();
     const leaseUntil = new Date(Date.now() + LEASE_MS).toISOString();
-    const claimed = await db.prepare(`
+    const claimed = await db
+      .prepare(`
       UPDATE submissions
       SET check_status = 'running', check_lease_until = ?, check_attempts = check_attempts + 1, check_error = NULL
       WHERE id = ? AND status IN ('checking', 'pending')
         AND check_status IN ('queued', 'running')
         AND (check_status = 'queued' OR check_lease_until IS NULL OR check_lease_until < ?)
         AND check_attempts < ?
-    `).bind(leaseUntil, submissionId, now, MAX_ATTEMPTS).run();
+    `)
+      .bind(leaseUntil, submissionId, now, MAX_ATTEMPTS)
+      .run();
     if (claimed.meta.changes === 0) return Response.json({ skipped: "not_claimed" });
 
     try {
       const startedAt = Date.now();
-      const assets = await db.prepare(`
+      const assets = await db
+        .prepare(`
         SELECT kind, r2_key FROM assets WHERE revision_id = ? AND kind IN ('worldbook', 'regex') ORDER BY kind
-      `).bind(target.revision_id).all<{ kind: "worldbook" | "regex"; r2_key: string }>();
+      `)
+        .bind(target.revision_id)
+        .all<{ kind: "worldbook" | "regex"; r2_key: string }>();
       if (assets.results.length === 0) throw new Error("冻结内容没有世界书或正则文件");
 
       const files = [];
@@ -172,14 +192,23 @@ export class ContentService implements DurableObject {
       });
       const reportHash = await sha256(storedReport);
       const checkedAt = new Date().toISOString();
-      await db.prepare(`
+      await db
+        .prepare(`
         INSERT INTO submission_check_runs
           (id, submission_id, review_checker_revision, route_gate, report, report_hash, duration_ms, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(
-        crypto.randomUUID(), submissionId, REVIEW_CHECKER_REVISION, route,
-        storedReport, reportHash, Date.now() - startedAt, checkedAt,
-      ).run();
+      `)
+        .bind(
+          crypto.randomUUID(),
+          submissionId,
+          REVIEW_CHECKER_REVISION,
+          route,
+          storedReport,
+          reportHash,
+          Date.now() - startedAt,
+          checkedAt,
+        )
+        .run();
 
       if (route === "block") {
         await this.needsHuman(submissionId, "自动检查要求人工审核。", {
@@ -206,11 +235,14 @@ export class ContentService implements DurableObject {
       if (attempts >= MAX_ATTEMPTS) {
         await this.needsHuman(submissionId, message, null);
       } else {
-        await db.prepare(`
+        await db
+          .prepare(`
           UPDATE submissions
           SET check_status = 'queued', check_lease_until = NULL, check_error = ?
           WHERE id = ? AND check_status = 'running'
-        `).bind(message, submissionId).run();
+        `)
+          .bind(message, submissionId)
+          .run();
       }
       return Response.json({ ok: false, error: message, attempts }, { status: 500 });
     }
@@ -229,14 +261,16 @@ export class ContentService implements DurableObject {
           checked_at = COALESCE(?, checked_at),
           review_checker_revision = COALESCE(?, review_checker_revision)
       WHERE id = ? AND status IN ('checking', 'pending')
-    `).bind(
-      message,
-      result?.report ?? null,
-      result?.hash ?? null,
-      result?.checkedAt ?? null,
-      result ? REVIEW_CHECKER_REVISION : null,
-      submissionId,
-    ).run();
+    `)
+      .bind(
+        message,
+        result?.report ?? null,
+        result?.hash ?? null,
+        result?.checkedAt ?? null,
+        result ? REVIEW_CHECKER_REVISION : null,
+        submissionId,
+      )
+      .run();
   }
 
   private async autoPublish(target: RunTarget, report: string, reportHash: string, checkedAt: string) {

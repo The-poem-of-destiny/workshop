@@ -1,8 +1,4 @@
-import {
-  bannerSchema,
-  type Banner,
-  type Recommendation,
-} from "@workshop/contracts";
+import { type Banner, bannerSchema, type Recommendation } from "@workshop/contracts";
 import { getPublishedProjectsByIds, listPublishedProjects } from "./projects.js";
 
 interface RecommendationRow {
@@ -26,7 +22,8 @@ const DEFAULT_BANNER: Banner = {
 };
 
 export async function getBanner(db: D1Database): Promise<Banner> {
-  const row = await db.prepare("SELECT value FROM site_settings WHERE key = ?")
+  const row = await db
+    .prepare("SELECT value FROM site_settings WHERE key = ?")
     .bind("discover_banner")
     .first<{ value: string }>();
   if (!row) return DEFAULT_BANNER;
@@ -38,8 +35,10 @@ export async function getBanner(db: D1Database): Promise<Banner> {
 }
 
 export async function getSiteContent(db: D1Database): Promise<unknown> {
-  const row = await db.prepare("SELECT value FROM site_settings WHERE key = ?")
-    .bind("site_content").first<{ value: string }>();
+  const row = await db
+    .prepare("SELECT value FROM site_settings WHERE key = ?")
+    .bind("site_content")
+    .first<{ value: string }>();
   if (!row) return null;
   try {
     return JSON.parse(row.value) as unknown;
@@ -49,46 +48,60 @@ export async function getSiteContent(db: D1Database): Promise<unknown> {
 }
 
 export async function listRecommendations(db: D1Database): Promise<Recommendation[]> {
-  const rows = await db.prepare(`
+  const rows = await db
+    .prepare(`
     SELECT r.id, r.curator_id, r.project_id, r.comment, r.reaction,
            COALESCE(u.global_name, u.username) AS curator_name, u.avatar AS curator_avatar
     FROM recommendations r
     JOIN users u ON u.id = r.curator_id
     ORDER BY r.updated_at DESC
     LIMIT 20
-  `).all<RecommendationRow>();
+  `)
+    .all<RecommendationRow>();
 
-  const projects = await getPublishedProjectsByIds(db, rows.results.map(row => row.project_id));
-  return rows.results.flatMap(row => {
+  const projects = await getPublishedProjectsByIds(
+    db,
+    rows.results.map((row) => row.project_id),
+  );
+  return rows.results.flatMap((row) => {
     const project = projects.get(row.project_id);
     if (!project) return [];
-    return [{
-      id: row.id,
-      curator: {
-        id: row.curator_id,
-        name: row.curator_name,
-        avatarUrl: row.curator_avatar
-          ? `https://cdn.discordapp.com/avatars/${row.curator_id}/${row.curator_avatar}.png`
-          : null,
+    return [
+      {
+        id: row.id,
+        curator: {
+          id: row.curator_id,
+          name: row.curator_name,
+          avatarUrl: row.curator_avatar
+            ? `https://cdn.discordapp.com/avatars/${row.curator_id}/${row.curator_avatar}.png`
+            : null,
+        },
+        comment: row.comment,
+        reaction: row.reaction,
+        project,
       },
-      comment: row.comment,
-      reaction: row.reaction,
-      project,
-    }];
+    ];
   });
 }
 
 export async function getDiscovery(db: D1Database) {
-  const bucket = await db.prepare("SELECT MAX(bucket) AS bucket FROM discovery_exposures")
+  const bucket = await db
+    .prepare("SELECT MAX(bucket) AS bucket FROM discovery_exposures")
     .first<{ bucket: string | null }>();
   if (!bucket?.bucket) return { items: [] };
-  const rows = await db.prepare(`
+  const rows = await db
+    .prepare(`
     SELECT project_id FROM discovery_exposures WHERE bucket = ? ORDER BY rank LIMIT 12
-  `).bind(bucket.bucket).all<{ project_id: string }>();
-  const projects = await getPublishedProjectsByIds(db, rows.results.map(row => row.project_id));
+  `)
+    .bind(bucket.bucket)
+    .all<{ project_id: string }>();
+  const projects = await getPublishedProjectsByIds(
+    db,
+    rows.results.map((row) => row.project_id),
+  );
   return {
     bucket: bucket.bucket,
-    items: rows.results.flatMap(row => {
+    items: rows.results.flatMap((row) => {
       const project = projects.get(row.project_id);
       return project ? [project] : [];
     }),
@@ -104,6 +117,6 @@ export async function getHome(db: D1Database) {
   return {
     banner,
     latest: latest.items,
-    recommendations: recommendations.slice(0, 4).map(item => item.project),
+    recommendations: recommendations.slice(0, 4).map((item) => item.project),
   };
 }

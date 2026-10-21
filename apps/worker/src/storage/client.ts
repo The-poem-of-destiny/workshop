@@ -9,7 +9,8 @@ export interface ClientChannel {
 export type ClientChannels = Record<string, ClientChannel>;
 
 export async function getClientChannels(db: D1Database): Promise<ClientChannels> {
-  const row = await db.prepare("SELECT value FROM site_settings WHERE key = 'client_channels'")
+  const row = await db
+    .prepare("SELECT value FROM site_settings WHERE key = 'client_channels'")
     .first<{ value: string }>();
   if (!row) return {};
   try {
@@ -21,11 +22,8 @@ export async function getClientChannels(db: D1Database): Promise<ClientChannels>
   }
 }
 
-export async function getClientChannel(
-  db: D1Database,
-  channel: string,
-): Promise<ClientChannel | null> {
+export async function getClientChannel(db: D1Database, channel: string): Promise<ClientChannel | null> {
   if (channel !== "stable" && channel !== "staging") return null;
   const channels = await getClientChannels(db);
-  return Object.hasOwn(channels, channel) ? channels[channel] ?? null : null;
+  return Object.hasOwn(channels, channel) ? (channels[channel] ?? null) : null;
 }

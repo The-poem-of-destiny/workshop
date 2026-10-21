@@ -4,19 +4,19 @@
 // records produced here, so they cannot drift into deciding independently which
 // fields to look at or how to classify a link.
 
+import { CHECKER_LIMITS, createParseBudget } from "../ejs-checker/limits.mjs";
+import { collectEntryExternalLinkTargets } from "../ejs-checker/links.mjs";
+import { inspectCharInfoManagedV2Block } from "../ejs-checker/policy-config.mjs";
+import { parseEjs, parseRegex, parseWorldbookHtml } from "../ejs-checker/syntax.mjs";
 import {
+  classifyExternalLink,
   LINK_SOURCE,
   LINK_TRUST,
   LINK_USAGE,
-  classifyExternalLink,
   normalizeExternalLinkUrl,
   normalizeProjectDiscordThreadUrl,
   trimTrailingUrlPunctuation,
-} from './policy.mjs';
-import { inspectCharInfoManagedV2Block } from '../ejs-checker/policy-config.mjs';
-import { collectEntryExternalLinkTargets } from '../ejs-checker/links.mjs';
-import { parseEjs, parseRegex, parseWorldbookHtml } from '../ejs-checker/syntax.mjs';
-import { CHECKER_LIMITS, createParseBudget } from '../ejs-checker/limits.mjs';
+} from "./policy.mjs";
 
 const HTTP_URL_PATTERN = /https?:\/\/[^\s<>"'`，。；：！？、（）【】《》“”‘’]+/giu;
 
@@ -35,8 +35,8 @@ const HTTP_URL_PATTERN = /https?:\/\/[^\s<>"'`，。；：！？、（）【】�
  * proof rather than re-litigated.
  */
 export function collectProjectExternalLinks({
-  description = '',
-  precautions = '',
+  description = "",
+  precautions = "",
   discordThreadUrl = null,
   allowedGuildIds = [],
   worldbookEntries = [],
@@ -46,11 +46,15 @@ export function collectProjectExternalLinks({
   const recordByUrl = new Map();
 
   const addRecord = (rawValue, { source, usage, index, action }) => {
-    const value = trimTrailingUrlPunctuation(String(rawValue ?? '').trim());
+    const value = trimTrailingUrlPunctuation(String(rawValue ?? "").trim());
     let url = normalizeExternalLinkUrl(value);
     // Rejected credentials/dynamic paths still need a visible observation.
     if (!url && /^(?:https?:)?\/\//i.test(value) && value.length <= 4096) {
-      try { url = new URL(value.startsWith('//') ? 'https:' + value : value); } catch { return; }
+      try {
+        url = new URL(value.startsWith("//") ? "https:" + value : value);
+      } catch {
+        return;
+      }
     }
     if (!url) return;
 
@@ -65,7 +69,11 @@ export function collectProjectExternalLinks({
 
     const existing = recordByUrl.get(href);
     if (existing) {
-      if (!existing.observations.some(item => item.source === source && item.usage === usage && item.index === index && item.action === action)) {
+      if (
+        !existing.observations.some(
+          (item) => item.source === source && item.usage === usage && item.index === index && item.action === action,
+        )
+      ) {
         existing.observations.push(observation);
       }
       if (!existing.sources.includes(source)) existing.sources.push(source);
@@ -75,7 +83,7 @@ export function collectProjectExternalLinks({
     const record = {
       url: href,
       hostname: url.hostname.toLowerCase(),
-      kind: url.protocol === 'https:' ? 'https' : 'http',
+      kind: url.protocol === "https:" ? "https" : "http",
       // Best-effort headline for simple consumers; review decisions use
       // `observations`, never this.
       source,
@@ -88,7 +96,7 @@ export function collectProjectExternalLinks({
   };
 
   const addTextLinks = (text, source, usage) => {
-    const value = String(text ?? '');
+    const value = String(text ?? "");
     HTTP_URL_PATTERN.lastIndex = 0;
     for (const match of value.matchAll(HTTP_URL_PATTERN)) {
       const candidate = trimTrailingUrlPunctuation(match[0]);
@@ -113,7 +121,7 @@ export function collectProjectExternalLinks({
         source: LINK_SOURCE.DISCORD_THREAD,
         usage: LINK_USAGE.NAVIGATION,
         trust: LINK_TRUST.TRUSTED,
-        reason: 'validated-project-thread',
+        reason: "validated-project-thread",
         authoritative: true,
       });
       if (!record.sources.includes(LINK_SOURCE.DISCORD_THREAD)) {
@@ -123,17 +131,19 @@ export function collectProjectExternalLinks({
       const record = {
         url: href,
         hostname: new URL(href).hostname.toLowerCase(),
-        kind: 'https',
+        kind: "https",
         source: LINK_SOURCE.DISCORD_THREAD,
         sources: [LINK_SOURCE.DISCORD_THREAD],
         usage: LINK_USAGE.NAVIGATION,
-        observations: [{
-          source: LINK_SOURCE.DISCORD_THREAD,
-          usage: LINK_USAGE.NAVIGATION,
-          trust: LINK_TRUST.TRUSTED,
-          reason: 'validated-project-thread',
-          authoritative: true,
-        }],
+        observations: [
+          {
+            source: LINK_SOURCE.DISCORD_THREAD,
+            usage: LINK_USAGE.NAVIGATION,
+            trust: LINK_TRUST.TRUSTED,
+            reason: "validated-project-thread",
+            authoritative: true,
+          },
+        ],
       };
       recordByUrl.set(href, record);
       records.push(record);
@@ -142,8 +152,12 @@ export function collectProjectExternalLinks({
 
   const budget = createParseBudget();
   const addEntry = (item, sourceType) => {
-    const content = String(sourceType === 'regex' ? item?.replaceString ?? item?.replace_string ?? '' : item?.content ?? item?.text ?? '');
-    const source = sourceType === 'regex' ? LINK_SOURCE.REGEX : LINK_SOURCE.WORLDBOOK;
+    const content = String(
+      sourceType === "regex"
+        ? (item?.replaceString ?? item?.replace_string ?? "")
+        : (item?.content ?? item?.text ?? ""),
+    );
+    const source = sourceType === "regex" ? LINK_SOURCE.REGEX : LINK_SOURCE.WORLDBOOK;
     // Browser-only analysis: large HTML/CSS should get normal media evidence.
     // Exhausting an executable parse budget still grants no media proof.
     if (budget.nodes >= CHECKER_LIMITS.astNodes || budget.units >= CHECKER_LIMITS.codeUnits) {
@@ -151,7 +165,10 @@ export function collectProjectExternalLinks({
       return;
     }
     const entry = { content, sourceType };
-    const ejs = sourceType === 'worldbook' && content.includes('<%') ? parseEjs(content, { budget }) : { units: [], errors: [], internalErrors: [] };
+    const ejs =
+      sourceType === "worldbook" && content.includes("<%")
+        ? parseEjs(content, { budget })
+        : { units: [], errors: [], internalErrors: [] };
     const html = ejs.units.length ? parseWorldbookHtml(entry, ejs, budget) : parseRegex(content, budget);
     const parsed = { units: [...ejs.units, ...html.units] };
     const complete = ![...ejs.errors, ...ejs.internalErrors, ...html.errors, ...html.internalErrors].length;
@@ -166,8 +183,8 @@ export function collectProjectExternalLinks({
       });
     }
   };
-  for (const entry of Array.isArray(worldbookEntries) ? worldbookEntries : []) addEntry(entry, 'worldbook');
-  for (const entry of Array.isArray(regexEntries) ? regexEntries : []) addEntry(entry, 'regex');
+  for (const entry of Array.isArray(worldbookEntries) ? worldbookEntries : []) addEntry(entry, "worldbook");
+  for (const entry of Array.isArray(regexEntries) ? regexEntries : []) addEntry(entry, "regex");
   return records;
 }
 
@@ -191,15 +208,15 @@ function recordObservations(record) {
 function unresolvedObservations(record) {
   // A validated project identity proves which target this URL is, so it covers
   // every observation of the very same URL rather than only itself.
-  if (recordObservations(record).some(observation => observation?.authoritative)) return [];
-  return recordObservations(record).filter(observation => observation?.trust !== LINK_TRUST.TRUSTED);
+  if (recordObservations(record).some((observation) => observation?.authoritative)) return [];
+  return recordObservations(record).filter((observation) => observation?.trust !== LINK_TRUST.TRUSTED);
 }
 
 /** Records that still need a human decision, in stable order. */
 export function externalLinksNeedingReview(records) {
   return (Array.isArray(records) ? records : [])
-    .filter(record => unresolvedObservations(record).length > 0)
-    .map(record => {
+    .filter((record) => unresolvedObservations(record).length > 0)
+    .map((record) => {
       const pending = unresolvedObservations(record);
       const first = pending[0];
       return {
@@ -208,7 +225,7 @@ export function externalLinksNeedingReview(records) {
         usage: first.usage ?? record.usage,
         trust: first.trust,
         reason: first.reason,
-        reviewSources: [...new Set(pending.map(item => item.source).filter(Boolean))],
+        reviewSources: [...new Set(pending.map((item) => item.source).filter(Boolean))],
       };
     })
     .sort(
@@ -221,9 +238,7 @@ export function externalLinksNeedingReview(records) {
 
 /** Trusted records, for the optional informational section. */
 export function trustedExternalLinks(records) {
-  return (Array.isArray(records) ? records : []).filter(
-    record => unresolvedObservations(record).length === 0,
-  );
+  return (Array.isArray(records) ? records : []).filter((record) => unresolvedObservations(record).length === 0);
 }
 
 /**
@@ -241,17 +256,17 @@ export function groupExternalLinksByHostname(records) {
       group = { hostname: record.hostname, links: [] };
       byHostname.set(record.hostname, group);
     }
-    if (!group.links.some(link => link.url === record.url)) {
+    if (!group.links.some((link) => link.url === record.url)) {
       group.links.push({ url: record.url, hostname: record.hostname, sources: [] });
     }
-    const link = group.links.find(item => item.url === record.url);
+    const link = group.links.find((item) => item.url === record.url);
     for (const source of recordSources(record)) {
       if (!link.sources.includes(source)) link.sources.push(source);
     }
   }
 
   return Array.from(byHostname.values())
-    .map(group => ({
+    .map((group) => ({
       ...group,
       links: group.links.sort((a, b) => a.url.localeCompare(b.url)),
     }))

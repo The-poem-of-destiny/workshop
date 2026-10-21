@@ -11,7 +11,7 @@ clientApiRoutes.use("*", async (c, next) => {
   c.header("cache-control", "no-store");
 });
 
-clientApiRoutes.get("/compatibility", async c => {
+clientApiRoutes.get("/compatibility", async (c) => {
   const channel = c.req.query("channel") ?? "stable";
   if (channel !== "stable" && channel !== "staging") {
     return jsonError(c, "not_found", "Client channel not found");

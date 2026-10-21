@@ -59,13 +59,15 @@ workshop/
 
 ## 本地开发
 
-根目录使用 pnpm：
+根目录使用 pnpm，Node 版本见 `.nvmrc`（22）：
 
 ```text
 pnpm install
+pnpm exec playwright install chromium   # 本地 E2E 浏览器
 pnpm build                 # 构建 apps/worker/web 静态资源
 pnpm dev                   # 本地 Worker
-pnpm check                 # workspace、类型、测试、schema、迁移/备份测试、wrangler dry-run
+pnpm format                # 写入格式化结果
+pnpm check                 # format/lint、workspace、类型、测试、schema、迁移/备份测试、wrangler dry-run
 pnpm e2e:local             # 真实 workerd + 本地 D1/R2 + Chromium E2E
 ```
 
@@ -89,6 +91,8 @@ pnpm exec wrangler d1 migrations apply workshop-staging --local --config wrangle
 - Git 仓库与 Cloudflare 运行时是两套独立状态：推送不等于部署，部署后必须单独核对 Worker version。
 - 密钥通过 GitHub Actions secrets 或 `wrangler secret put` 写入，不进入仓库。
 - 生产 D1 不手工修改；schema 变更只通过 migration，并先在本地和 staging 验证。
+- production migration 前自动导出 D1、记录 Time Travel bookmark，并上传到私有 R2 backup bucket；恢复步骤见 [`docs/operations/deployment-safety.md`](docs/operations/deployment-safety.md)。
+- 备份完整性用 `.github/workflows/verify-production-backup.yml` 手动验证；它不修改生产数据库。
 
 本地验证仍按上面的 `pnpm check` 和 `pnpm e2e:local` 执行。需要手工排查 migration 时使用：
 

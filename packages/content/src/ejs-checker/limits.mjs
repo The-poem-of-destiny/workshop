@@ -11,7 +11,12 @@ export const CHECKER_LIMITS = Object.freeze({
 });
 
 export class CheckerLimitError extends Error {
-  constructor(message) { super(message); this.name = 'CheckerLimitError'; }
+  constructor(message) {
+    super(message);
+    this.name = "CheckerLimitError";
+  }
 }
 
-export function createParseBudget() { return { nodes: 0, units: 0 }; }
+export function createParseBudget() {
+  return { nodes: 0, units: 0 };
+}

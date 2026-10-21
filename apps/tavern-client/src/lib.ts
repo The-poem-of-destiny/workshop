@@ -1,7 +1,7 @@
 export async function hashText(value: string): Promise<string> {
   try {
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-    return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   } catch {
     let hash = 0;
     for (let index = 0; index < value.length; index += 1) {
@@ -12,30 +12,33 @@ export async function hashText(value: string): Promise<string> {
 }
 
 export function worldbookEntries(raw: unknown): Record<string, unknown>[] {
-  if (Array.isArray(raw)) return raw.filter(item => item && typeof item === "object") as Record<string, unknown>[];
+  if (Array.isArray(raw)) return raw.filter((item) => item && typeof item === "object") as Record<string, unknown>[];
   if (!raw || typeof raw !== "object") return [];
   const record = raw as Record<string, unknown>;
-  if (Array.isArray(record.entries)) return record.entries.filter(item => item && typeof item === "object") as Record<string, unknown>[];
+  if (Array.isArray(record.entries))
+    return record.entries.filter((item) => item && typeof item === "object") as Record<string, unknown>[];
   if (record.entries && typeof record.entries === "object") {
-    return Object.values(record.entries as Record<string, unknown>).filter(item => item && typeof item === "object") as Record<string, unknown>[];
+    return Object.values(record.entries as Record<string, unknown>).filter(
+      (item) => item && typeof item === "object",
+    ) as Record<string, unknown>[];
   }
   return [];
 }
 
 export function regexEntries(raw: unknown): Record<string, unknown>[] {
-  if (Array.isArray(raw)) return raw.filter(item => item && typeof item === "object") as Record<string, unknown>[];
+  if (Array.isArray(raw)) return raw.filter((item) => item && typeof item === "object") as Record<string, unknown>[];
   if (!raw || typeof raw !== "object") return [];
   for (const key of ["regex_scripts", "regexScripts", "scripts", "entries"]) {
     const value = (raw as Record<string, unknown>)[key];
-    if (Array.isArray(value)) return value.filter(item => item && typeof item === "object") as Record<string, unknown>[];
+    if (Array.isArray(value))
+      return value.filter((item) => item && typeof item === "object") as Record<string, unknown>[];
   }
   return [raw as Record<string, unknown>];
 }
 
 export function entryKey(entry: Record<string, unknown>, index: number): string {
-  const extension = entry.extensions && typeof entry.extensions === "object"
-    ? entry.extensions as Record<string, unknown>
-    : {};
+  const extension =
+    entry.extensions && typeof entry.extensions === "object" ? (entry.extensions as Record<string, unknown>) : {};
   const marker = extension.cw_entry_key ?? entry.uid ?? extension.cw_entry_id;
   if (marker === undefined || marker === null) return `index:${index}`;
   const value = String(marker);
@@ -74,7 +77,7 @@ export function hasForeignBaselineConflict(
 ): boolean {
   const name = entryName(incoming, incomingKey);
   if (!name.startsWith("[DLC]")) return false;
-  return current.some(entry => {
+  return current.some((entry) => {
     if (projectEntry(entry)) return false;
     return entryName(entry, incomingKey) === name;
   });

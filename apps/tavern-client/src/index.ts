@@ -29,7 +29,16 @@ declare function updateTavernRegexesWith(
 declare const __CW_CLIENT_VERSION__: string;
 declare const __CW_DEFAULT_ORIGIN__: string;
 
-import { entryKey, entryName, hashText, hasForeignBaselineConflict, normalizeWorkshopOrigin, projectEntry, regexEntries, worldbookEntries } from "./lib.js";
+import {
+  entryKey,
+  entryName,
+  hasForeignBaselineConflict,
+  hashText,
+  normalizeWorkshopOrigin,
+  projectEntry,
+  regexEntries,
+  worldbookEntries,
+} from "./lib.js";
 
 const CLIENT_VERSION = __CW_CLIENT_VERSION__;
 const DEFAULT_ORIGIN = __CW_DEFAULT_ORIGIN__;
@@ -62,10 +71,13 @@ function scriptVariables(): Record<string, unknown> {
 }
 
 async function saveScriptVariables(updater: (variables: Record<string, unknown>) => void): Promise<void> {
-  await updateVariablesWith(variables => {
-    updater(variables);
-    return variables;
-  }, { type: "script", script_id: getScriptId() });
+  await updateVariablesWith(
+    (variables) => {
+      updater(variables);
+      return variables;
+    },
+    { type: "script", script_id: getScriptId() },
+  );
 }
 
 function workshopOrigin(): string {
@@ -84,11 +96,11 @@ function currentChannel(): "stable" | "staging" {
 
 function readRegistry(): InstallRegistry {
   const raw = scriptVariables()[REGISTRY_VARIABLE];
-  return raw && typeof raw === "object" && !Array.isArray(raw) ? raw as InstallRegistry : {};
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as InstallRegistry) : {};
 }
 
 async function writeRegistry(registry: InstallRegistry): Promise<void> {
-  await saveScriptVariables(variables => {
+  await saveScriptVariables((variables) => {
     variables[REGISTRY_VARIABLE] = registry;
   });
 }
@@ -116,9 +128,13 @@ async function installProject(project: InstallProject, files: InstallFileSet, ta
   if (previous && previous.worldbookName && previous.worldbookName !== target) {
     const oldBook = previous.worldbookName;
     if (getWorldbookNames().includes(oldBook)) {
-      await updateWorldbookWith(oldBook, entries => entries.filter(entry =>
-        entry?.extensions?.cw_project_id !== project.id || entry?.extensions?.cw_project_version !== previous.version,
-      ));
+      await updateWorldbookWith(oldBook, (entries) =>
+        entries.filter(
+          (entry) =>
+            entry?.extensions?.cw_project_id !== project.id ||
+            entry?.extensions?.cw_project_version !== previous.version,
+        ),
+      );
     }
   }
 
@@ -185,8 +201,8 @@ async function installProject(project: InstallProject, files: InstallFileSet, ta
     const incomingRegex = regexEntries(JSON.parse(files.regex));
     const all = getTavernRegexes({ scope: "character", enable_state: "all" });
     const prefix = `cw-${project.id}-`;
-    const existing = new Map(all.map(regex => [String(regex.id ?? ""), regex]));
-    const kept = all.filter(regex => !String(regex.id ?? "").startsWith(prefix));
+    const existing = new Map(all.map((regex) => [String(regex.id ?? ""), regex]));
+    const kept = all.filter((regex) => !String(regex.id ?? "").startsWith(prefix));
     const added = incomingRegex.map((entry, index) => {
       const id = `${prefix}${index}`;
       regexIds.push(id);
@@ -199,13 +215,15 @@ async function installProject(project: InstallProject, files: InstallFileSet, ta
         find_regex: String(entry.findRegex ?? entry.find_regex ?? ""),
         replace_string: String(entry.replaceString ?? entry.replace_string ?? ""),
         trim_strings: Array.isArray(entry.trimStrings) ? entry.trimStrings : [],
-        source: entry.placement ? {
-          user_input: entry.placement.includes(1),
-          ai_output: entry.placement.includes(2),
-          slash_command: entry.placement.includes(3),
-          world_info: entry.placement.includes(5),
-          reasoning: entry.placement.includes(6),
-        } : old?.source,
+        source: entry.placement
+          ? {
+              user_input: entry.placement.includes(1),
+              ai_output: entry.placement.includes(2),
+              slash_command: entry.placement.includes(3),
+              world_info: entry.placement.includes(5),
+              reasoning: entry.placement.includes(6),
+            }
+          : old?.source,
         destination: old?.destination ?? {
           display: Boolean(entry.markdownOnly),
           prompt: Boolean(entry.promptOnly),
@@ -218,10 +236,9 @@ async function installProject(project: InstallProject, files: InstallFileSet, ta
     await updateTavernRegexesWith(() => [...kept, ...added], { scope: "character" });
   } else if (previous?.regexIds?.length) {
     const prefix = `cw-${project.id}-`;
-    await updateTavernRegexesWith(
-      regexes => regexes.filter(regex => !String(regex.id ?? "").startsWith(prefix)),
-      { scope: "character" },
-    );
+    await updateTavernRegexesWith((regexes) => regexes.filter((regex) => !String(regex.id ?? "").startsWith(prefix)), {
+      scope: "character",
+    });
   }
 
   const entryIndex: InstallRegistryEntry["entries"] = {};
@@ -249,13 +266,13 @@ async function uninstallProject(projectId: string) {
   const registry = readRegistry();
   const record = registry[projectId];
   if (record?.worldbookName && getWorldbookNames().includes(record.worldbookName)) {
-    await updateWorldbookWith(record.worldbookName, entries =>
-      entries.filter(entry => entry?.extensions?.cw_project_id !== projectId),
+    await updateWorldbookWith(record.worldbookName, (entries) =>
+      entries.filter((entry) => entry?.extensions?.cw_project_id !== projectId),
     );
   }
   if (record?.regexIds?.length) {
     const ids = new Set(record.regexIds);
-    await updateTavernRegexesWith(regexes => regexes.filter(regex => !ids.has(String(regex.id ?? ""))), {
+    await updateTavernRegexesWith((regexes) => regexes.filter((regex) => !ids.has(String(regex.id ?? ""))), {
       scope: "character",
     });
   }
@@ -269,7 +286,7 @@ function contextPayload() {
     const bindings = getCharWorldbookNames("current");
     return {
       connected: true,
-      characterName: typeof SillyTavern !== "undefined" ? SillyTavern.getCurrentCharacterName?.() ?? null : null,
+      characterName: typeof SillyTavern !== "undefined" ? (SillyTavern.getCurrentCharacterName?.() ?? null) : null,
       worldbooks: {
         primary: bindings.primary,
         additional: bindings.additional || [],
@@ -295,26 +312,54 @@ function showOverlay() {
 
   host$(`#${OVERLAY_ID}`).remove();
   const $overlay = host$(`<div id="${OVERLAY_ID}">`).css({
-    position: "fixed", inset: "0", zIndex: 2147483600, background: "rgba(0,0,0,.72)",
-    display: "flex", alignItems: "stretch", justifyContent: "center", padding: "16px",
-    boxSizing: "border-box", backdropFilter: "blur(4px)",
+    position: "fixed",
+    inset: "0",
+    zIndex: 2147483600,
+    background: "rgba(0,0,0,.72)",
+    display: "flex",
+    alignItems: "stretch",
+    justifyContent: "center",
+    padding: "16px",
+    boxSizing: "border-box",
+    backdropFilter: "blur(4px)",
   });
   const $card = host$("<div>").css({
-    position: "relative", display: "flex", flexDirection: "column", width: "min(1200px, 100%)",
-    height: "100%", background: "#0f1012", borderRadius: "18px", overflow: "hidden",
+    position: "relative",
+    display: "flex",
+    flexDirection: "column",
+    width: "min(1200px, 100%)",
+    height: "100%",
+    background: "#0f1012",
+    borderRadius: "18px",
+    overflow: "hidden",
     boxShadow: "0 24px 80px rgba(0,0,0,.5)",
   });
   const $bar = host$("<div>").css({
-    display: "flex", alignItems: "center", justifyContent: "space-between",
-    flex: "0 0 46px", padding: "0 8px 0 16px", background: "#1b1d22",
-    color: "#e5e7eb", font: "600 13px system-ui",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flex: "0 0 46px",
+    padding: "0 8px 0 16px",
+    background: "#1b1d22",
+    color: "#e5e7eb",
+    font: "600 13px system-ui",
   });
   const $close = host$("<button type='button' aria-label='关闭'>×</button>").css({
-    width: "40px", height: "40px", border: "0", borderRadius: "9px",
-    background: "transparent", color: "#d1d5db", fontSize: "26px", cursor: "pointer",
+    width: "40px",
+    height: "40px",
+    border: "0",
+    borderRadius: "9px",
+    background: "transparent",
+    color: "#d1d5db",
+    fontSize: "26px",
+    cursor: "pointer",
   });
   const $frame = host$("<iframe frameborder='0'>").css({
-    flex: "1 1 0", minHeight: "0", width: "100%", border: "0", background: "#0f1012",
+    flex: "1 1 0",
+    minHeight: "0",
+    width: "100%",
+    border: "0",
+    background: "#0f1012",
   });
   $bar.append(host$("<span>命定创意工坊</span>"), $close);
   $card.append($bar, $frame);
@@ -326,22 +371,32 @@ function showOverlay() {
     $overlay.remove();
   };
   $close.on("click", close);
-  $overlay.on("click", (event: Event) => { if (event.target === $overlay[0]) close(); });
+  $overlay.on("click", (event: Event) => {
+    if (event.target === $overlay[0]) close();
+  });
 
   const origin = workshopOrigin();
   (async () => {
-    let target = `${origin}/?embed=1&clientVersion=${encodeURIComponent(CLIENT_VERSION)}`;
+    const target = `${origin}/?embed=1&clientVersion=${encodeURIComponent(CLIENT_VERSION)}`;
     try {
       const response = await fetch(
         `${origin}/api/v1/client/compatibility?version=${encodeURIComponent(CLIENT_VERSION)}&channel=${currentChannel()}`,
         { cache: "no-store" },
       );
-      const version = await response.json() as { compatible?: boolean; required?: string | null };
+      const version = (await response.json()) as { compatible?: boolean; required?: string | null };
       if (version.compatible === false) {
         $frame.remove();
-        $card.append(host$("<div>").css({
-          padding: "32px", color: "#fbbf24", font: "14px/1.7 system-ui",
-        }).text(`客户端版本 ${CLIENT_VERSION} 与工坊要求不一致，需要 ${version.required ?? "更新版本"}。请刷新页面或更新脚本。`));
+        $card.append(
+          host$("<div>")
+            .css({
+              padding: "32px",
+              color: "#fbbf24",
+              font: "14px/1.7 system-ui",
+            })
+            .text(
+              `客户端版本 ${CLIENT_VERSION} 与工坊要求不一致，需要 ${version.required ?? "更新版本"}。请刷新页面或更新脚本。`,
+            ),
+        );
         return;
       }
     } catch {
@@ -374,24 +429,24 @@ function onMessage(event: MessageEvent) {
   }
   if (data.type === "cw:uninstall") {
     void uninstallProject(String(data.projectId ?? ""))
-      .then(result => send({ type: "cw:uninstall-result", ok: true, projectId: data.projectId, ...result }))
-      .catch(error => send({ type: "cw:uninstall-result", ok: false, message: String(error?.message ?? error) }));
+      .then((result) => send({ type: "cw:uninstall-result", ok: true, projectId: data.projectId, ...result }))
+      .catch((error) => send({ type: "cw:uninstall-result", ok: false, message: String(error?.message ?? error) }));
     return;
   }
   if (data.type === "cw:install") {
     const project = data.project as InstallProject;
     const files = data.files as InstallFileSet;
-    if (!project || !files || typeof files.worldbook !== "string" && typeof files.regex !== "string") {
+    if (!project || !files || (typeof files.worldbook !== "string" && typeof files.regex !== "string")) {
       send({ type: "cw:install-result", ok: false, message: "安装数据不完整" });
       return;
     }
     void installProject(project, files, typeof data.targetWorldbook === "string" ? data.targetWorldbook : null)
-      .then(result => send({ type: "cw:install-result", ok: true, projectId: project.id, ...result }))
-      .catch(error => send({ type: "cw:install-result", ok: false, message: String(error?.message ?? error) }));
+      .then((result) => send({ type: "cw:install-result", ok: true, projectId: project.id, ...result }))
+      .catch((error) => send({ type: "cw:install-result", ok: false, message: String(error?.message ?? error) }));
   }
 }
 
-
+// biome-ignore lint/suspicious/noExplicitAny: host-provided jQuery is intentionally untyped
 function hostJQuery(): any {
   const hostWindow = window.parent !== window ? window.parent : window;
   const host$ = Reflect.get(hostWindow, "$");
@@ -400,71 +455,156 @@ function hostJQuery(): any {
 }
 
 function showAgreement(): Promise<boolean> {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     const host$ = hostJQuery();
     host$("#cw-agreement").remove();
     const $overlay = host$(`<div id="cw-agreement">`).css({
-      position: "fixed", inset: "0", zIndex: 2147483601, background: "rgba(0,0,0,.72)",
-      display: "flex", alignItems: "center", justifyContent: "center", padding: "20px",
+      position: "fixed",
+      inset: "0",
+      zIndex: 2147483601,
+      background: "rgba(0,0,0,.72)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "20px",
       boxSizing: "border-box",
     });
     const $card = host$("<div>").css({
-      width: "min(560px, 100%)", background: "#17191f", color: "#e8dfcf",
-      border: "1px solid #3a3428", borderRadius: "14px", padding: "22px",
-      font: "14px/1.75 system-ui", boxShadow: "0 24px 80px rgba(0,0,0,.5)",
+      width: "min(560px, 100%)",
+      background: "#17191f",
+      color: "#e8dfcf",
+      border: "1px solid #3a3428",
+      borderRadius: "14px",
+      padding: "22px",
+      font: "14px/1.75 system-ui",
+      boxShadow: "0 24px 80px rgba(0,0,0,.5)",
     });
     $card.append(host$("<h3>使用前说明</h3>").css({ margin: "0 0 10px", fontSize: "18px" }));
-    $card.append(host$("<p>").text("创意工坊会把你选择的世界书与正则安装到当前 SillyTavern 角色。安装前请备份角色卡；卸载会移除工坊写入的条目，但不会恢复已被你覆盖的原条目。"));
+    $card.append(
+      host$("<p>").text(
+        "创意工坊会把你选择的世界书与正则安装到当前 SillyTavern 角色。安装前请备份角色卡；卸载会移除工坊写入的条目，但不会恢复已被你覆盖的原条目。",
+      ),
+    );
     $card.append(host$("<p>").text("服务地址默认为官方工坊。仅在自建或测试环境修改；地址必须与你信任的工坊一致。"));
-    const $actions = host$("<div>").css({ display: "flex", gap: "10px", justifyContent: "flex-end", marginTop: "16px" });
-    const $cancel = host$("<button type='button'>取消</button>").css({ padding: "8px 14px", borderRadius: "8px", border: "1px solid #4b5563", background: "transparent", color: "#d1d5db", cursor: "pointer" });
-    const $accept = host$("<button type='button'>同意并继续</button>").css({ padding: "8px 14px", borderRadius: "8px", border: "0", background: "#d8b46a", color: "#1a1a1a", fontWeight: "600", cursor: "pointer" });
+    const $actions = host$("<div>").css({
+      display: "flex",
+      gap: "10px",
+      justifyContent: "flex-end",
+      marginTop: "16px",
+    });
+    const $cancel = host$("<button type='button'>取消</button>").css({
+      padding: "8px 14px",
+      borderRadius: "8px",
+      border: "1px solid #4b5563",
+      background: "transparent",
+      color: "#d1d5db",
+      cursor: "pointer",
+    });
+    const $accept = host$("<button type='button'>同意并继续</button>").css({
+      padding: "8px 14px",
+      borderRadius: "8px",
+      border: "0",
+      background: "#d8b46a",
+      color: "#1a1a1a",
+      fontWeight: "600",
+      cursor: "pointer",
+    });
     $actions.append($cancel, $accept);
     $card.append($actions);
     $overlay.append($card).appendTo((window.parent !== window ? window.parent : window).document.body);
-    const finish = (value: boolean) => { $overlay.remove(); resolve(value); };
+    const finish = (value: boolean) => {
+      $overlay.remove();
+      resolve(value);
+    };
     $cancel.on("click", () => finish(false));
     $accept.on("click", () => finish(true));
-    $overlay.on("click", (event: Event) => { if (event.target === $overlay[0]) finish(false); });
+    $overlay.on("click", (event: Event) => {
+      if (event.target === $overlay[0]) finish(false);
+    });
   });
 }
 
 function showOriginSettings(): Promise<void> {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     const host$ = hostJQuery();
     host$("#cw-origin-settings").remove();
     const $overlay = host$(`<div id="cw-origin-settings">`).css({
-      position: "fixed", inset: "0", zIndex: 2147483601, background: "rgba(0,0,0,.72)",
-      display: "flex", alignItems: "center", justifyContent: "center", padding: "20px",
+      position: "fixed",
+      inset: "0",
+      zIndex: 2147483601,
+      background: "rgba(0,0,0,.72)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "20px",
       boxSizing: "border-box",
     });
     const $card = host$("<div>").css({
-      width: "min(520px, 100%)", background: "#17191f", color: "#e8dfcf",
-      border: "1px solid #3a3428", borderRadius: "14px", padding: "22px",
+      width: "min(520px, 100%)",
+      background: "#17191f",
+      color: "#e8dfcf",
+      border: "1px solid #3a3428",
+      borderRadius: "14px",
+      padding: "22px",
       font: "14px/1.7 system-ui",
     });
     $card.append(host$("<h3>工坊服务地址</h3>").css({ margin: "0 0 10px", fontSize: "18px" }));
-    const $input = host$("<input type='url'>").css({ width: "100%", boxSizing: "border-box", padding: "9px 11px", borderRadius: "8px", border: "1px solid #4b5563", background: "#0f1012", color: "#e5e7eb" });
+    const $input = host$("<input type='url'>").css({
+      width: "100%",
+      boxSizing: "border-box",
+      padding: "9px 11px",
+      borderRadius: "8px",
+      border: "1px solid #4b5563",
+      background: "#0f1012",
+      color: "#e5e7eb",
+    });
     $input.val(workshopOrigin());
     $card.append($input);
-    const $hint = host$("<p>").css({ color: "#9ca3af", fontSize: "12px", margin: "8px 0 0" }).text("留空恢复默认：" + DEFAULT_ORIGIN);
+    const $hint = host$("<p>")
+      .css({ color: "#9ca3af", fontSize: "12px", margin: "8px 0 0" })
+      .text("留空恢复默认：" + DEFAULT_ORIGIN);
     $card.append($hint);
-    const $actions = host$("<div>").css({ display: "flex", gap: "10px", justifyContent: "flex-end", marginTop: "14px" });
-    const $cancel = host$("<button type='button'>取消</button>").css({ padding: "8px 14px", borderRadius: "8px", border: "1px solid #4b5563", background: "transparent", color: "#d1d5db", cursor: "pointer" });
-    const $save = host$("<button type='button'>保存</button>").css({ padding: "8px 14px", borderRadius: "8px", border: "0", background: "#d8b46a", color: "#1a1a1a", fontWeight: "600", cursor: "pointer" });
+    const $actions = host$("<div>").css({
+      display: "flex",
+      gap: "10px",
+      justifyContent: "flex-end",
+      marginTop: "14px",
+    });
+    const $cancel = host$("<button type='button'>取消</button>").css({
+      padding: "8px 14px",
+      borderRadius: "8px",
+      border: "1px solid #4b5563",
+      background: "transparent",
+      color: "#d1d5db",
+      cursor: "pointer",
+    });
+    const $save = host$("<button type='button'>保存</button>").css({
+      padding: "8px 14px",
+      borderRadius: "8px",
+      border: "0",
+      background: "#d8b46a",
+      color: "#1a1a1a",
+      fontWeight: "600",
+      cursor: "pointer",
+    });
     $actions.append($cancel, $save);
     $card.append($actions);
     $overlay.append($card).appendTo((window.parent !== window ? window.parent : window).document.body);
-    const finish = () => { $overlay.remove(); resolve(); };
+    const finish = () => {
+      $overlay.remove();
+      resolve();
+    };
     $cancel.on("click", finish);
     $save.on("click", () => {
       const next = normalizeWorkshopOrigin($input.val(), DEFAULT_ORIGIN);
-      void saveScriptVariables(variables => {
+      void saveScriptVariables((variables) => {
         if (next === DEFAULT_ORIGIN) delete variables[ORIGIN_VARIABLE];
         else variables[ORIGIN_VARIABLE] = next;
       }).finally(finish);
     });
-    $overlay.on("click", (event: Event) => { if (event.target === $overlay[0]) finish(); });
+    $overlay.on("click", (event: Event) => {
+      if (event.target === $overlay[0]) finish();
+    });
   });
 }
 
@@ -482,21 +622,42 @@ function installButton() {
     const bind = () => {
       if ($(`#${BUTTON_ID}`).length) return;
       const $button = $(`<button id="${BUTTON_ID}" type="button">命定创意工坊</button>`).css({
-        position: "fixed", right: "18px", bottom: "18px", zIndex: 2147483500,
-        border: "1px solid rgba(184,157,118,.5)", borderRadius: "999px",
-        background: "#18191c", color: "#e8dfcf", padding: "10px 16px",
-        font: "600 13px system-ui", cursor: "pointer", boxShadow: "0 8px 30px rgba(0,0,0,.35)",
+        position: "fixed",
+        right: "18px",
+        bottom: "18px",
+        zIndex: 2147483500,
+        border: "1px solid rgba(184,157,118,.5)",
+        borderRadius: "999px",
+        background: "#18191c",
+        color: "#e8dfcf",
+        padding: "10px 16px",
+        font: "600 13px system-ui",
+        cursor: "pointer",
+        boxShadow: "0 8px 30px rgba(0,0,0,.35)",
       });
       $button.on("click", () => {
-        try { void openWithAgreement(); }
-        catch (error) { console.error("[CreativeWorkshop] open failed", error); }
+        try {
+          void openWithAgreement();
+        } catch (error) {
+          console.error("[CreativeWorkshop] open failed", error);
+        }
       });
       const $settings = $(`<button id="cw-settings-button" type="button" aria-label="工坊设置">⚙</button>`).css({
-        position: "fixed", right: "18px", bottom: "68px", zIndex: 2147483500,
-        width: "36px", height: "36px", border: "1px solid rgba(184,157,118,.5)",
-        borderRadius: "50%", background: "#18191c", color: "#e8dfcf", cursor: "pointer",
+        position: "fixed",
+        right: "18px",
+        bottom: "68px",
+        zIndex: 2147483500,
+        width: "36px",
+        height: "36px",
+        border: "1px solid rgba(184,157,118,.5)",
+        borderRadius: "50%",
+        background: "#18191c",
+        color: "#e8dfcf",
+        cursor: "pointer",
       });
-      $settings.on("click", () => { void showOriginSettings().catch(error => console.error("[CreativeWorkshop] settings failed", error)); });
+      $settings.on("click", () => {
+        void showOriginSettings().catch((error) => console.error("[CreativeWorkshop] settings failed", error));
+      });
       $("body").append($button, $settings);
     };
     bind();

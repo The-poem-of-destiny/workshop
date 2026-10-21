@@ -1,4 +1,4 @@
-import { PROJECT_TYPES, resolveProjectType, type ProjectType } from "./taxonomy.js";
+import { PROJECT_TYPES, type ProjectType, resolveProjectType } from "./taxonomy.js";
 
 export const PROJECT_BASE_TAGS = PROJECT_TYPES;
 export type ProjectBaseTag = ProjectType;
@@ -55,7 +55,7 @@ export function validateProjectContentPolicy(
     }
   }
 
-  if (rule.anyOf.length > 0 && !rule.anyOf.some(kind => presence[kind])) {
+  if (rule.anyOf.length > 0 && !rule.anyOf.some((kind) => presence[kind])) {
     return { valid: false, baseTag, error: `${baseTag}项目必须包含有效世界书或正则` };
   }
 

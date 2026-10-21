@@ -3,18 +3,12 @@ import { normalizeProjectTaxonomyInput, validateProjectContentPolicy } from "../
 
 describe("project content policy", () => {
   it("requires a worldbook for core projects", () => {
-    const result = validateProjectContentPolicy(
-      { projectType: "系统核心" },
-      { worldbook: false, regex: true },
-    );
+    const result = validateProjectContentPolicy({ projectType: "系统核心" }, { worldbook: false, regex: true });
     expect(result.valid).toBe(false);
   });
 
   it("accepts either entry kind for extensions", () => {
-    const result = validateProjectContentPolicy(
-      { projectType: "扩展" },
-      { worldbook: false, regex: true },
-    );
+    const result = validateProjectContentPolicy({ projectType: "扩展" }, { worldbook: false, regex: true });
     expect(result).toEqual({ valid: true, baseTag: "扩展" });
   });
 

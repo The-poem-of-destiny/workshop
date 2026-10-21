@@ -12,12 +12,12 @@ function defaultCache(): WorkerCache | null {
   if (typeof caches === "undefined") return null;
   const candidate: unknown = Reflect.get(caches, "default");
   if (
-    candidate
-    && typeof candidate === "object"
-    && "match" in candidate
-    && "put" in candidate
-    && typeof candidate.match === "function"
-    && typeof candidate.put === "function"
+    candidate &&
+    typeof candidate === "object" &&
+    "match" in candidate &&
+    "put" in candidate &&
+    typeof candidate.match === "function" &&
+    typeof candidate.put === "function"
   ) {
     return candidate as WorkerCache;
   }
@@ -25,8 +25,7 @@ function defaultCache(): WorkerCache | null {
 }
 
 async function cacheEpoch(db: D1Database): Promise<string> {
-  const row = await db.prepare("SELECT value FROM site_settings WHERE key = 'cache_epoch'")
-    .first<{ value: string }>();
+  const row = await db.prepare("SELECT value FROM site_settings WHERE key = 'cache_epoch'").first<{ value: string }>();
   return row?.value ?? "0";
 }
 

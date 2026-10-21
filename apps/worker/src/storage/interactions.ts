@@ -15,7 +15,8 @@ export async function getInteractionState(
 ): Promise<MeStateResponse> {
   if (projectIds.length === 0) return { items: [] };
   const placeholders = projectIds.map(() => "?").join(", ");
-  const rows = await db.prepare(`
+  const rows = await db
+    .prepare(`
     SELECT p.id AS project_id,
       EXISTS (SELECT 1 FROM project_likes l WHERE l.project_id = p.id AND l.user_id = ?) AS liked,
       EXISTS (SELECT 1 FROM project_subscriptions s WHERE s.project_id = p.id AND s.user_id = ?) AS subscribed,
@@ -25,72 +26,91 @@ export async function getInteractionState(
       AND p.deleted_at IS NULL
       AND p.visibility = 'public'
       AND p.published_revision_id IS NOT NULL
-  `).bind(userId, userId, userId, ...projectIds).all<StateRow>();
-  const byId = new Map(rows.results.map(row => [row.project_id, row]));
+  `)
+    .bind(userId, userId, userId, ...projectIds)
+    .all<StateRow>();
+  const byId = new Map(rows.results.map((row) => [row.project_id, row]));
   const items: InteractionStateItem[] = [];
   for (const projectId of projectIds) {
     const row = byId.get(projectId);
-    if (row) items.push({ projectId, liked: Boolean(row.liked), subscribed: Boolean(row.subscribed), rating: row.rating });
+    if (row)
+      items.push({ projectId, liked: Boolean(row.liked), subscribed: Boolean(row.subscribed), rating: row.rating });
   }
   return { items };
 }
 
 export async function listSubscribedProjects(db: D1Database, userId: string): Promise<ProjectSummary[]> {
-  const rows = await db.prepare(`
+  const rows = await db
+    .prepare(`
     SELECT s.project_id FROM project_subscriptions s
     JOIN projects p ON p.id = s.project_id
     WHERE s.user_id = ? AND p.deleted_at IS NULL
       AND p.visibility = 'public' AND p.published_revision_id IS NOT NULL
     ORDER BY s.created_at DESC
-  `).bind(userId).all<{ project_id: string }>();
-  const projects = await getPublishedProjectsByIds(db, rows.results.map(row => row.project_id));
-  return rows.results.flatMap(row => {
+  `)
+    .bind(userId)
+    .all<{ project_id: string }>();
+  const projects = await getPublishedProjectsByIds(
+    db,
+    rows.results.map((row) => row.project_id),
+  );
+  return rows.results.flatMap((row) => {
     const project = projects.get(row.project_id);
     return project ? [project] : [];
   });
 }
 
 export async function interactionProjectExists(db: D1Database, projectId: string): Promise<boolean> {
-  const row = await db.prepare(
-    `SELECT 1 AS present FROM projects
+  const row = await db
+    .prepare(
+      `SELECT 1 AS present FROM projects
      WHERE id = ? AND deleted_at IS NULL
        AND visibility = 'public' AND published_revision_id IS NOT NULL`,
-  ).bind(projectId).first<{ present: number }>();
+    )
+    .bind(projectId)
+    .first<{ present: number }>();
   return Boolean(row);
 }
 
 export async function setLike(db: D1Database, userId: string, projectId: string): Promise<void> {
-  await db.prepare("INSERT OR IGNORE INTO project_likes (project_id, user_id) VALUES (?, ?)")
-    .bind(projectId, userId).run();
+  await db
+    .prepare("INSERT OR IGNORE INTO project_likes (project_id, user_id) VALUES (?, ?)")
+    .bind(projectId, userId)
+    .run();
 }
 
 export async function unsetLike(db: D1Database, userId: string, projectId: string): Promise<void> {
-  await db.prepare("DELETE FROM project_likes WHERE project_id = ? AND user_id = ?")
-    .bind(projectId, userId).run();
+  await db.prepare("DELETE FROM project_likes WHERE project_id = ? AND user_id = ?").bind(projectId, userId).run();
 }
 
 export async function setSubscription(db: D1Database, userId: string, projectId: string): Promise<void> {
-  await db.prepare("INSERT OR IGNORE INTO project_subscriptions (project_id, user_id) VALUES (?, ?)")
-    .bind(projectId, userId).run();
+  await db
+    .prepare("INSERT OR IGNORE INTO project_subscriptions (project_id, user_id) VALUES (?, ?)")
+    .bind(projectId, userId)
+    .run();
 }
 
 export async function unsetSubscription(db: D1Database, userId: string, projectId: string): Promise<void> {
-  await db.prepare("DELETE FROM project_subscriptions WHERE project_id = ? AND user_id = ?")
-    .bind(projectId, userId).run();
+  await db
+    .prepare("DELETE FROM project_subscriptions WHERE project_id = ? AND user_id = ?")
+    .bind(projectId, userId)
+    .run();
 }
 
 export async function setRating(db: D1Database, userId: string, projectId: string, input: RatingInput): Promise<void> {
-  await db.prepare(`
+  await db
+    .prepare(`
     INSERT INTO project_ratings (project_id, user_id, rating, comment_text)
     VALUES (?, ?, ?, ?)
     ON CONFLICT(project_id, user_id) DO UPDATE SET
       rating = excluded.rating,
       comment_text = excluded.comment_text,
       updated_at = CURRENT_TIMESTAMP
-  `).bind(projectId, userId, input.rating, input.comment ?? null).run();
+  `)
+    .bind(projectId, userId, input.rating, input.comment ?? null)
+    .run();
 }
 
 export async function unsetRating(db: D1Database, userId: string, projectId: string): Promise<void> {
-  await db.prepare("DELETE FROM project_ratings WHERE project_id = ? AND user_id = ?")
-    .bind(projectId, userId).run();
+  await db.prepare("DELETE FROM project_ratings WHERE project_id = ? AND user_id = ?").bind(projectId, userId).run();
 }

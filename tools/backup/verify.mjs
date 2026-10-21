@@ -8,9 +8,9 @@
  * project_revisions.json. Every asset row must have matching bytes and sha256
  * in the R2 mirror; project pointers must stay within the same project.
  */
-import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 
 function arg(name) {
   const index = process.argv.indexOf(`--${name}`);
@@ -27,15 +27,15 @@ function rows(value) {
 function readTable(dir, name) {
   const file = join(dir, `${name}.json`);
   if (!existsSync(file)) return [];
-  return rows(JSON.parse(readFileSync(file, 'utf8')));
+  return rows(JSON.parse(readFileSync(file, "utf8")));
 }
 
 export function verifyBackup(tablesDir, r2Dir) {
   const tables = resolve(tablesDir);
   const r2 = resolve(r2Dir);
-  const assets = readTable(tables, 'assets');
-  const projects = readTable(tables, 'projects');
-  const revisions = readTable(tables, 'project_revisions');
+  const assets = readTable(tables, "assets");
+  const projects = readTable(tables, "projects");
+  const revisions = readTable(tables, "project_revisions");
   const failures = [];
   let checked = 0;
 
@@ -46,18 +46,18 @@ export function verifyBackup(tablesDir, r2Dir) {
   }
 
   for (const project of projects) {
-    for (const field of ['published_revision_id', 'working_revision_id']) {
+    for (const field of ["published_revision_id", "working_revision_id"]) {
       const revisionId = project[field];
       if (!revisionId) continue;
       const ok = revisionsByKey.has(`${project.id}:${revisionId}`);
-      if (!ok) failures.push({ kind: 'pointer', project: project.id, field, revisionId });
+      if (!ok) failures.push({ kind: "pointer", project: project.id, field, revisionId });
     }
   }
 
   for (const asset of assets) {
     const key = asset.r2_key ?? asset.targetKey ?? asset.key;
-    if (typeof key !== 'string' || !key) {
-      failures.push({ kind: 'asset_key', asset: asset.id ?? null });
+    if (typeof key !== "string" || !key) {
+      failures.push({ kind: "asset_key", asset: asset.id ?? null });
       continue;
     }
     checked += 1;
@@ -65,16 +65,16 @@ export function verifyBackup(tablesDir, r2Dir) {
     const fallback = join(r2, basename(key));
     const chosen = existsSync(path) ? path : existsSync(fallback) ? fallback : null;
     if (!chosen) {
-      failures.push({ kind: 'missing_asset', key });
+      failures.push({ kind: "missing_asset", key });
       continue;
     }
     const body = readFileSync(chosen);
-    const actualSha = createHash('sha256').update(body).digest('hex');
+    const actualSha = createHash("sha256").update(body).digest("hex");
     if (asset.sha256 && actualSha !== asset.sha256) {
-      failures.push({ kind: 'sha256', key, expected: asset.sha256, actual: actualSha });
+      failures.push({ kind: "sha256", key, expected: asset.sha256, actual: actualSha });
     }
     if (asset.bytes != null && statSync(chosen).size !== Number(asset.bytes)) {
-      failures.push({ kind: 'bytes', key, expected: Number(asset.bytes), actual: statSync(chosen).size });
+      failures.push({ kind: "bytes", key, expected: Number(asset.bytes), actual: statSync(chosen).size });
     }
   }
 
@@ -86,10 +86,10 @@ export function verifyBackup(tablesDir, r2Dir) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const tables = arg('tables');
-  const r2 = arg('r2');
+  const tables = arg("tables");
+  const r2 = arg("r2");
   if (!tables || !r2) {
-    console.error('Usage: node tools/backup/verify.mjs --tables <dir> --r2 <dir>');
+    console.error("Usage: node tools/backup/verify.mjs --tables <dir> --r2 <dir>");
     process.exit(2);
   }
   const report = verifyBackup(tables, r2);
