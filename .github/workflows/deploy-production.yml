@@ -1,14 +1,8 @@
 name: deploy-production
 
 on:
-  workflow_dispatch:
-    inputs:
-      artifact_run_id:
-        description: Numeric staging build run id
-        required: true
-      commit_sha:
-        description: Full commit SHA produced by that staging build
-        required: true
+  push:
+    tags: ["v*"]
 
 permissions:
   contents: read
@@ -25,10 +19,9 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.commit_sha }}
       - uses: pnpm/action-setup@v4
         with:
           version: 11.24.0
@@ -37,15 +30,25 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Verify checkout matches promoted SHA
-        run: test "$(git rev-parse HEAD)" = "${{ inputs.commit_sha }}"
+      - name: Locate successful staging deploy for this commit
+        id: staging
+        run: |
+          set -euo pipefail
+          run_id="$(gh run list --workflow deploy-staging.yml --commit "$GITHUB_SHA" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          if [ -z "$run_id" ]; then
+            echo "::error::no successful staging deploy for $GITHUB_SHA"
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v4
         with:
-          name: staging-web-${{ inputs.commit_sha }}
-          run-id: ${{ inputs.artifact_run_id }}
+          name: staging-web-${{ github.sha }}
+          run-id: ${{ steps.staging.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Verify promoted artifact hash
         run: sha256sum -c artifact.sha256
+      - name: Verify tag checkout
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
       - name: Apply production migrations
         run: pnpm --filter @workshop/worker exec wrangler d1 migrations apply workshop-prod --remote --config wrangler.jsonc --env production
       - name: Deploy production worker

@@ -16,6 +16,7 @@
 | U-09 | `SESSION_HASH_SECRET` | session token HMAC | Worker secret | staging 已设置；生产需设置 |
 | U-07 | GitHub Actions secret/variable | 让 staging/production workflow 真正运行 | GitHub repo settings | 未验证 |
 | U-08 | 允许 `refactor/2026-10` 部署到 staging 环境 | staging CI 的 deploy job 当前只允许 `main` | GitHub Environment `staging` branch policy | **阻塞**：run 39582600843 build 成功，deploy 被拒绝 |
+| U-10 | 生产发布使用的 `v*` tag | 允许 deploy-production 的 workflow_dispatch 进入 production environment | Git tag + GitHub Environment `production`（只允许 `v*`，1 名 reviewer） | 无 `v*` tag；production Actions 尚未运行 |
 
 注意：凭据不得写入仓库、文档、测试或提交信息；只通过 `wrangler secret put` 或 GitHub Secrets 设置。
 
@@ -68,11 +69,11 @@
 
 | Run | 结果 |
 |---|---|
-| `refactor-ci` 39582448150 | ✅ check + e2e 均成功 |
-| `deploy-staging` 39582600843 | ◐ build 成功；deploy 因 environment branch policy 拒绝 |
-| `refactor-ci` 39584761236 | ✅ check + e2e 成功（含 tavern-client 路径） |
-| `refactor-ci` 39587088617 | ✅ OAuth browser-binding + cache-scope 变更通过 |
-| 本地 staging 部署 | ✅ Worker `44be59cd-3f68-46d8-9366-ef34b5c00beb`（commit `30e8ecc`） |
+| `refactor-ci` 39587965049 | ✅ check + e2e 成功（commit `8d645a2`） |
+| `deploy-staging` 39582600843 | ◐ build 成功；deploy 因 environment branch policy 拒绝（`refactor/2026-10`，commit `740063b`） |
+| `deploy-staging` 39466481870 | ✅ `main` 上最后一次成功部署（commit `4fdf71a`） |
+| 本地 staging 部署 | ✅ Worker `7625ef0a-5ff6-4c19-9d6a-479ee44c47a1`（commit `e04e43a`），覆盖了此前 Actions 部署 |
+| production 当前版本 | ⚠️ 旧 Worker `5d2edd06-ac64-43b4-95fc-954fbccb0683`（2026-10-20），不是当前重构版本 |
 | 客户端 staging stable | ✅ 0.1.3 `5e1c4a4a...`，含免责声明/服务地址/基线 fail-closed |
 | OAuth 浏览器绑定 | ✅ staging：无 cookie 404、带 cookie 200 |
 

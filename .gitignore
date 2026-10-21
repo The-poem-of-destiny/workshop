@@ -6,6 +6,9 @@ node_modules/
 worker-configuration.d.ts
 .ai-bridge/
 
+# machine-local agent context — never commit
+AGENTS.local.md
+
 # local secrets — never commit
 .env
 .env.*
@@ -29,3 +32,6 @@ apps/tavern-client/.local/
 
 __pycache__/
 *.pyc
+
+# sync conflict copies
+*.sync-conflict-*

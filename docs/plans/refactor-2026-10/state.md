@@ -4,15 +4,16 @@
 
 ## 当前分支
 
-`refactor/2026-10`（本地，未 push）。最新 checkpoint `92e2f0b`。
+`refactor/2026-10`，已 push 到 `origin`；HEAD `8d645a2`。`origin/main` 仍在 `4fdf71a`，当前分支领先 81 个提交，尚未合并。
 
 ## 2026-10-21 续作
 
 - W12 客户端、W13/W14 分发、W16 元数据、W18 cron、W19 生命周期/索引、W20 Web 作者/审核/管理、W17 管理写接口已提交。
-- `pnpm check` 绿；worker 65、domain 17、content 7、tavern-client 4。
-- `pnpm e2e:local` 16/16，含 5 条真实 Chromium 旅程：匿名搜索/排序/作者筛选/详情、作者工作台+订阅、owner 管理、审核通过、审核拒绝理由。
-- staging D1 已应用 0002–0011；Worker 版本 `7625ef0a-5ff6-4c19-9d6a-479ee44c47a1`，commit `e04e43a`。
-- staging 远程 smoke 已通过：health/list/discovery/root/reference-sets/site/home 200，Origin 拒绝 403，client compatibility 200；`client/stable/index.js` 已发布 `0.1.1`（`3eb417a1…`）并可下载。
+- `pnpm check` 绿；worker 76、domain 17、content 7、tavern-client 6。
+- `pnpm e2e:local` 19/19（上一轮完整运行），含真实 Chromium 旅程：匿名搜索/排序/作者筛选/详情、作者工作台+订阅、owner 管理、审核通过、审核拒绝理由。
+- staging D1 已应用 0001–0011；Worker 版本 `7625ef0a-5ff6-4c19-9d6a-479ee44c47a1`，commit `e04e43a`，由本轮本地部署产生，不是 Actions 流水线产出。
+- staging 远程 smoke 已通过：health/list/discovery/root/reference-sets/site/home 200，Origin 拒绝 403，client compatibility 200；`client/stable/index.js` 已发布 `0.1.3` 并可下载。
+- GitHub Actions：`refactor-ci` run `39587965049`（commit `8d645a2`）成功；`deploy-staging` run `39582600843` build 成功，deploy 被 staging environment 的 `main` 分支策略拒绝；`main` 上最后一次成功 deploy 是 run `39466481870`（commit `4fdf71a`）。
 - W21/W24 仍被 Q-05/Q-06/Q-10 阻塞；W23 R2 适配器已完成，真实数据导入与生产 cutover 未做。
 
 ## 已有实现（不等于验收完成）
@@ -82,7 +83,7 @@
 - 初始 D1 schema：`apps/worker/migrations/0001_initial.sql`，含 FTS trigram + 1–2 字短索引、外键、pending 唯一约束。
 - 单入口 `pnpm check`：workspace、typecheck、test、schema、wrangler dry-run。
 - CI：`.github/workflows/refactor-ci.yml`。
-- 压缩配置：`.omp/config.yml`，50% 阈值，`handoff/shake/soft` 文本路径，关闭 snapcompact 视觉。
+- 压缩配置：本地 50% 阈值，`handoff/shake/soft` 文本路径，关闭 snapcompact 视觉。
 
 ## 独立完成度审计（2026-10-21）
 
@@ -103,9 +104,9 @@
 
 ## 当前线上
 
-- staging：`https://workshop-staging.poem-of-destiny.workers.dev`，active Worker `7625ef0a-5ff6-4c19-9d6a-479ee44c47a1`（commit `e04e43a`；HMAC secret 已设置），D1 0001–0011 已应用；上一版 `44be59cd-3f68-46d8-9366-ef34b5c00beb` 可回滚。
-- production：`https://workshop.poem-of-destiny.workers.dev`，未部署；真实生产切换留人工审批。
-- 本轮未 push。
+- staging：`https://workshop-staging.poem-of-destiny.workers.dev`，active Worker `7625ef0a-5ff6-4c19-9d6a-479ee44c47a1`（commit `e04e43a`；HMAC secret 已设置），D1 0001–0011 已应用；上一版 `44be59cd-3f68-46d8-9366-ef34b5c00beb` 可回滚。该版本由本地部署覆盖，不是 `deploy-staging` Actions 产物。
+- production：`https://workshop.poem-of-destiny.workers.dev` 仍运行旧版本 `5d2edd06-ac64-43b4-95fc-954fbccb0683`（2026-10-20 部署），当前重构版本未提升；生产切换留人工审批。
+- `refactor/2026-10` 已 push，`origin/main` 尚未包含该分支。
 
 ## 待办
 
@@ -126,10 +127,17 @@
 - R2 真实导入：适配器已完成本地演练；未把真实备份导入 staging，需授权目标桶与源桶。
 - 旧客户端 / `test-dist` shim：已从当前工作树移出，旧快照在 `../workshop-legacy`；新客户端 `apps/tavern-client` 已实现，真实 ST 旅程未验证。
 
+## CI/CD 待修
+
+- `deploy-staging` 与 `refactor-ci` 并行运行，部署不依赖测试成功；当前靠 `main` 分支保护/人工纪律，不是流水线强制。
+- staging build artifact 只包含 `apps/worker/web/dist`；deploy job 仍从同一 commit 重新打包 Worker。当前是“同一 commit + web artifact”，不是完整的 build-once。
+- `deploy-production` 通过 `workflow_dispatch` 手工输入 `artifact_run_id` / `commit_sha`，但只校验 checkout 与输入 SHA 一致，没有校验 tag 指向的 commit；环境层用 `v*` tag 兜底。
+- 当前没有 `v*` tag，production workflow 没有实际运行过。
+
 ## 已知约束
 
 - `data_backup/` 已加入 `.gitignore`；P4 前不读取。
-- 不 push、不部署生产、不操作真实生产 D1/R2/Cloudflare 资源。
+- 允许 push 到 `refactor/2026-10` 和部署 staging；不部署生产、不操作真实生产 D1/R2/Cloudflare 资源。
 - 每个切片本地 commit；commit 使用 aoo / lxxxaoo@users.noreply.github.com。
 - Q-05、Q-06、Q-10 未定，不自行发明。
 

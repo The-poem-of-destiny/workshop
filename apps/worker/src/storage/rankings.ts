@@ -41,10 +41,12 @@ export async function buildRankings(db: D1Database): Promise<void> {
       LIMIT 50
     `).bind(bucketStart(days)).all<{ project_id: string; score: number }>();
 
-    await db.batch(rows.results.map((row, index) =>
-      db.prepare("INSERT INTO ranking_entries (run_id, rank, project_id, score) VALUES (?, ?, ?, ?)")
-        .bind(run.id, index + 1, row.project_id, row.score),
-    ));
+    if (rows.results.length > 0) {
+      await db.batch(rows.results.map((row, index) =>
+        db.prepare("INSERT INTO ranking_entries (run_id, rank, project_id, score) VALUES (?, ?, ?, ?)")
+          .bind(run.id, index + 1, row.project_id, row.score),
+      ));
+    }
     await db.prepare("UPDATE ranking_runs SET status = 'complete', completed_at = ? WHERE id = ?")
       .bind(new Date().toISOString(), run.id).run();
 

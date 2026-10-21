@@ -11,7 +11,11 @@ const required = [
   "apps/worker/migrations/0001_initial.sql",
   "packages/contracts/package.json",
   "packages/contracts/tsconfig.json",
-  ".agents/skills/project-basics/SKILL.md",
+  "docs/AGENTS.md",
+  ".agents/AGENTS.md",
+  ".agents/notes/README.md",
+  ".agents/notes/AGENTS.md",
+  ".agents/skills/AGENTS.md",
   ".agents/skills/autonomous-refactor/SKILL.md",
 ];
 
@@ -44,8 +48,8 @@ if (!gitignore.includes("data_backup/")) {
 }
 
 const agents = read("AGENTS.md");
-for (const skill of ["project-basics", "autonomous-refactor"]) {
-  if (!agents.includes(skill)) failures.push(`AGENTS.md does not mention ${skill}`);
+if (!agents.includes("docs/AGENTS.md")) {
+  failures.push("AGENTS.md does not point to docs/AGENTS.md");
 }
 
 if (failures.length > 0) {

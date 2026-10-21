@@ -1,13 +1,10 @@
 name: deploy-staging
 
 on:
-  push:
+  workflow_run:
+    workflows: ["refactor-ci"]
+    types: [completed]
     branches: [main]
-    paths:
-      - "apps/worker/**"
-      - "packages/**"
-      - ".github/workflows/deploy-staging.yml"
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,9 +15,12 @@ concurrency:
 
 jobs:
   build:
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: pnpm/action-setup@v4
         with:
           version: 11.24.0
@@ -37,7 +37,7 @@ jobs:
           cat artifact.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: staging-web-${{ github.sha }}
+          name: staging-web-${{ github.event.workflow_run.head_sha }}
           path: |
             apps/worker/web/dist
             artifact.sha256
@@ -53,6 +53,8 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: pnpm/action-setup@v4
         with:
           version: 11.24.0
@@ -63,7 +65,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@v4
         with:
-          name: staging-web-${{ github.sha }}
+          name: staging-web-${{ github.event.workflow_run.head_sha }}
       - name: Verify downloaded artifact hash
         run: sha256sum -c artifact.sha256
       - name: Apply staging migrations
