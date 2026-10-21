@@ -417,7 +417,7 @@ function showAgreement(): Promise<boolean> {
     const $accept = host$("<button type='button'>同意并继续</button>").css({ padding: "8px 14px", borderRadius: "8px", border: "0", background: "#d8b46a", color: "#1a1a1a", fontWeight: "600", cursor: "pointer" });
     $actions.append($cancel, $accept);
     $card.append($actions);
-    $overlay.append($card).appendTo(host$.get(0)?.body ?? document.body);
+    $overlay.append($card).appendTo((window.parent !== window ? window.parent : window).document.body);
     const finish = (value: boolean) => { $overlay.remove(); resolve(value); };
     $cancel.on("click", () => finish(false));
     $accept.on("click", () => finish(true));
@@ -450,7 +450,7 @@ function showOriginSettings(): Promise<void> {
     const $save = host$("<button type='button'>保存</button>").css({ padding: "8px 14px", borderRadius: "8px", border: "0", background: "#d8b46a", color: "#1a1a1a", fontWeight: "600", cursor: "pointer" });
     $actions.append($cancel, $save);
     $card.append($actions);
-    $overlay.append($card).appendTo(host$.get(0)?.body ?? document.body);
+    $overlay.append($card).appendTo((window.parent !== window ? window.parent : window).document.body);
     const finish = () => { $overlay.remove(); resolve(); };
     $cancel.on("click", finish);
     $save.on("click", () => {
