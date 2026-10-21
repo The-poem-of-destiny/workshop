@@ -6,6 +6,7 @@ import {
   adminSubmissionListQuerySchema,
 } from "@workshop/contracts";
 import type { Env } from "../../env.js";
+import { enqueueSubmission } from "../../scheduler.js";
 import {
   changeAdminMemberRole,
   getAdminSubmission,
@@ -15,6 +16,7 @@ import {
   listAdminSubmissions,
   reviewAdminSubmission,
 } from "../../storage/admin.js";
+import { getSubmissionDiff } from "../../storage/diff.js";
 import { jsonError } from "../errors.js";
 import { requireSession } from "../session.js";
 
@@ -75,6 +77,58 @@ adminRoutes.get("/submissions/:id/files/:kind", async c => {
       "cache-control": "private, no-store",
     },
   });
+});
+
+adminRoutes.get("/submissions/:id/diff", async c => {
+  const session = await requireReviewer(c);
+  if (session === null) return jsonError(c, "unauthorized", "Login required");
+  if (session === false) return jsonError(c, "forbidden", "Reviewer role required");
+  const diff = await getSubmissionDiff(c.env.DB, c.env.R2, c.req.param("id"));
+  if (!diff) return jsonError(c, "not_found", "Submission not found");
+  return c.json(diff);
+});
+
+adminRoutes.post("/submissions/:id/recheck", async c => {
+  const session = await requireReviewer(c);
+  if (session === null) return jsonError(c, "unauthorized", "Login required");
+  if (session === false) return jsonError(c, "forbidden", "Reviewer role required");
+  const target = await c.env.DB.prepare(`
+    SELECT status, check_status FROM submissions WHERE id = ?
+  `).bind(c.req.param("id")).first<{ status: string; check_status: string }>();
+  if (!target) return jsonError(c, "not_found", "Submission not found");
+  if (target.status !== "pending" && target.status !== "checking") {
+    return jsonError(c, "conflict", "Submission is already resolved");
+  }
+  if (target.check_status === "queued" || target.check_status === "running") {
+    return jsonError(c, "conflict", "Checker is already running");
+  }
+  const now = new Date().toISOString();
+  await c.env.DB.batch([
+    c.env.DB.prepare(`
+      UPDATE submissions
+      SET status = 'checking', check_status = 'queued', check_attempts = 0,
+          check_lease_until = NULL, check_error = NULL
+      WHERE id = ? AND status IN ('pending', 'checking') AND check_status NOT IN ('queued', 'running')
+    `).bind(c.req.param("id")),
+    c.env.DB.prepare(`
+      INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
+      SELECT ?, 'checker.recheck', 'submission', ?, ?, ?, ?
+      WHERE EXISTS (SELECT 1 FROM submissions WHERE id = ? AND check_status = 'queued')
+    `).bind(
+      crypto.randomUUID(), c.req.param("id"), session.userId,
+      JSON.stringify({ reason: "explicit reviewer recheck" }), now, c.req.param("id"),
+    ),
+  ]);
+  try {
+    c.executionCtx.waitUntil(
+      enqueueSubmission(c.env, c.req.param("id")).catch(error => {
+        console.error("ContentService recheck failed", error);
+      }),
+    );
+  } catch {
+    // Direct route tests have no ExecutionContext.
+  }
+  return c.json({ ok: true, status: "queued" }, 202);
 });
 
 adminRoutes.post("/submissions/:id/review", async c => {

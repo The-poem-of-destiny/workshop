@@ -10,6 +10,7 @@ interface SubmissionRow {
   gate: string | null;
   checker_revision: string | null;
   submitted_at: string;
+  check_status: string;
   project_title: string;
   author_id: string;
   author_name: string;
@@ -46,6 +47,18 @@ interface DetailSubmissionRow extends SubmissionTargetRow {
   revision_metadata: string;
   revision_manifest_hash: string | null;
   revision_created_at: string;
+  client_gate: string | null;
+  client_checker_revision: string | null;
+  client_warning_count: number;
+  client_acknowledged_at: string | null;
+  check_status: string;
+  check_attempts: number;
+  check_error: string | null;
+  check_report: string | null;
+  check_report_hash: string | null;
+  checked_at: string | null;
+  review_checker_revision: string | null;
+  auto_published_at: string | null;
 }
 
 interface AssetRow {
@@ -131,7 +144,7 @@ export async function listAdminSubmissions(db: D1Database, query: AdminSubmissio
   const bindings: unknown[] = query.status ? [query.status] : [];
   const result = await db.prepare(`
     SELECT s.id, s.project_id, s.revision_id, s.status, s.gate,
-           s.checker_revision, s.submitted_at,
+           s.checker_revision, s.submitted_at, s.check_status,
            p.title AS project_title, u.id AS author_id,
            COALESCE(u.global_name, u.username) AS author_name
     FROM submissions s
@@ -152,6 +165,7 @@ export async function listAdminSubmissions(db: D1Database, query: AdminSubmissio
       status: row.status,
       gate: row.gate,
       checkerRevision: row.checker_revision,
+      checkStatus: row.check_status,
       submittedAt: row.submitted_at,
     })),
     nextCursor: result.results.length > query.limit ? encodeCursor(offset + query.limit) : null,
@@ -162,6 +176,9 @@ export async function getAdminSubmission(db: D1Database, id: string) {
   const row = await db.prepare(`
     SELECT s.id, s.project_id, s.revision_id, s.status, s.gate,
            s.checker_revision, s.submitted_by, s.submitted_at, s.resolved_at,
+           s.client_gate, s.client_checker_revision, s.client_warning_count, s.client_acknowledged_at,
+           s.check_status, s.check_attempts, s.check_error, s.check_report, s.check_report_hash,
+           s.checked_at, s.review_checker_revision, s.auto_published_at,
            r.manifest_hash,
            p.title AS project_title, p.description AS project_description,
            p.visibility AS project_visibility, p.author_id AS project_author_id,
@@ -179,7 +196,7 @@ export async function getAdminSubmission(db: D1Database, id: string) {
   `).bind(id).first<DetailSubmissionRow>();
   if (!row) return null;
 
-  const [assets, review] = await Promise.all([
+  const [assets, review, checkRuns] = await Promise.all([
     db.prepare(`
       SELECT id, kind, sha256, bytes, mime, r2_key
       FROM assets WHERE revision_id = ? ORDER BY kind ASC, id ASC
@@ -189,6 +206,18 @@ export async function getAdminSubmission(db: D1Database, id: string) {
              checker_version, report, created_at
       FROM reviews WHERE submission_id = ?
     `).bind(id).first<ReviewRow>(),
+    db.prepare(`
+      SELECT id, review_checker_revision, route_gate, report, report_hash, duration_ms, created_at
+      FROM submission_check_runs WHERE submission_id = ? ORDER BY created_at DESC
+    `).bind(id).all<{
+      id: string;
+      review_checker_revision: string;
+      route_gate: string;
+      report: string;
+      report_hash: string;
+      duration_ms: number;
+      created_at: string;
+    }>(),
   ]);
 
   return {
@@ -202,6 +231,18 @@ export async function getAdminSubmission(db: D1Database, id: string) {
       submittedBy: row.submitted_by,
       submittedAt: row.submitted_at,
       resolvedAt: row.resolved_at,
+      clientGate: row.client_gate,
+      clientCheckerRevision: row.client_checker_revision,
+      clientWarningCount: row.client_warning_count,
+      clientAcknowledgedAt: row.client_acknowledged_at,
+      checkStatus: row.check_status,
+      checkAttempts: row.check_attempts,
+      checkError: row.check_error,
+      checkReport: parseJson(row.check_report),
+      checkReportHash: row.check_report_hash,
+      checkedAt: row.checked_at,
+      reviewCheckerRevision: row.review_checker_revision,
+      autoPublishedAt: row.auto_published_at,
     },
     project: {
       id: row.project_id,
@@ -230,6 +271,15 @@ export async function getAdminSubmission(db: D1Database, id: string) {
       bytes: asset.bytes,
       mime: asset.mime,
       r2Key: asset.r2_key,
+    })),
+    checkRuns: checkRuns.results.map(run => ({
+      id: run.id,
+      reviewCheckerRevision: run.review_checker_revision,
+      routeGate: run.route_gate,
+      report: parseJson(run.report),
+      reportHash: run.report_hash,
+      durationMs: run.duration_ms,
+      createdAt: run.created_at,
     })),
     review: review ? {
       id: review.id,

@@ -9,6 +9,7 @@ interface RunTarget {
   check_status: string;
   check_attempts: number;
   client_gate: string | null;
+  review_checker_revision: string | null;
 }
 
 const LEASE_MS = 5 * 60 * 1000;
@@ -38,7 +39,8 @@ export class ContentService implements DurableObject {
 
     const db = this.env.DB;
     const target = await db.prepare(`
-      SELECT id, project_id, revision_id, status, check_status, check_attempts, client_gate
+      SELECT id, project_id, revision_id, status, check_status, check_attempts, client_gate,
+             review_checker_revision
       FROM submissions WHERE id = ?
     `).bind(submissionId).first<RunTarget>();
     if (!target) return Response.json({ error: "not_found" }, { status: 404 });
@@ -51,6 +53,10 @@ export class ContentService implements DurableObject {
     }
     if (target.check_status === "done" || target.check_status === "needs_human") {
       return Response.json({ skipped: target.check_status });
+    }
+    if (target.review_checker_revision && target.review_checker_revision !== REVIEW_CHECKER_REVISION) {
+      await this.needsHuman(submissionId, "固定检查器版本不可用，转人工审核。", null);
+      return Response.json({ skipped: "checker_revision_unavailable" });
     }
 
     const now = new Date().toISOString();
@@ -66,6 +72,7 @@ export class ContentService implements DurableObject {
     if (claimed.meta.changes === 0) return Response.json({ skipped: "not_claimed" });
 
     try {
+      const startedAt = Date.now();
       const assets = await db.prepare(`
         SELECT kind, r2_key FROM assets WHERE revision_id = ? AND kind IN ('worldbook', 'regex') ORDER BY kind
       `).bind(target.revision_id).all<{ kind: "worldbook" | "regex"; r2_key: string }>();
@@ -87,6 +94,14 @@ export class ContentService implements DurableObject {
       });
       const reportHash = await sha256(storedReport);
       const checkedAt = new Date().toISOString();
+      await db.prepare(`
+        INSERT INTO submission_check_runs
+          (id, submission_id, review_checker_revision, route_gate, report, report_hash, duration_ms, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        crypto.randomUUID(), submissionId, REVIEW_CHECKER_REVISION, route,
+        storedReport, reportHash, Date.now() - startedAt, checkedAt,
+      ).run();
 
       if (route === "block") {
         await this.needsHuman(submissionId, "自动检查要求人工审核。", {

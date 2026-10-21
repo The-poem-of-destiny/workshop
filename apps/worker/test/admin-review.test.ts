@@ -49,6 +49,10 @@ async function seed() {
   `);
   for (const statement of statements) await bindings.DB.prepare(statement).run();
   await bindings.R2.put("covers/p1/r1-cover.webp", new Uint8Array([1, 2, 3]));
+  await bindings.R2.put(
+    "projects/p1/r1/worldbook.json",
+    JSON.stringify({ entries: { 0: { uid: 1, comment: "Entry", content: "hello" } } }),
+  );
   await seedSession("owner-token", "owner");
   await seedSession("reviewer-token", "reviewer");
   await seedSession("member-token", "member");
@@ -124,6 +128,27 @@ describe("admin review and publishing", () => {
       "SELECT checker_version, report FROM reviews WHERE submission_id = 's1'",
     ).first<{ checker_version: string | null; report: string | null }>();
     expect(review).toEqual({ checker_version: "checker-1", report: null });
+  });
+
+  it("returns content diff and queues an explicit recheck", async () => {
+    const diff = await request("/submissions/s1/diff");
+    expect(diff.status).toBe(200);
+    await expect(diff.json()).resolves.toMatchObject({
+      revisionId: "r1",
+      previousRevisionId: null,
+      worldbook: { added: [{ entryKey: expect.any(String) }], unchanged: 0 },
+    });
+
+    const recheck = await request("/submissions/s1/recheck", "reviewer-token", { method: "POST" });
+    expect(recheck.status).toBe(202);
+    const row = await bindings.DB.prepare(
+      "SELECT status, check_status FROM submissions WHERE id = 's1'",
+    ).first<Record<string, unknown>>();
+    expect(row).toMatchObject({ status: "checking", check_status: "queued" });
+    const audit = await bindings.DB.prepare(
+      "SELECT action FROM audit_events WHERE target_id = 's1' ORDER BY created_at DESC LIMIT 1",
+    ).first<{ action: string }>();
+    expect(audit?.action).toBe("checker.recheck");
   });
 
   it("requires a reject reason and exposes it to the author", async () => {

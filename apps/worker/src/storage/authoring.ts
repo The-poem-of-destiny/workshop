@@ -5,6 +5,7 @@ import {
   validateProjectContentText,
   type ProjectEntryKind,
 } from "@workshop/domain";
+import { REVIEW_CHECKER_REVISION } from "../content-checker.js";
 
 interface ProjectAccessRow {
   id: string;
@@ -513,12 +514,13 @@ export async function submitRevision(
       .bind(now, projectId),
     db.prepare(`INSERT INTO submissions
       (id, project_id, revision_id, status, gate, checker_revision, submitted_by, submitted_at,
-       client_gate, client_checker_revision, client_warning_count, client_acknowledged_at, check_status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+       client_gate, client_checker_revision, client_warning_count, client_acknowledged_at, check_status,
+       review_checker_revision)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .bind(
         submissionId, projectId, revisionId, submissionStatus, clientGate, input.checkerRevision ?? null,
         session.userId, now, clientGate, input.checkerRevision ?? null, input.warningCount,
-        input.acknowledged ? now : null, checkStatus,
+        input.acknowledged ? now : null, checkStatus, REVIEW_CHECKER_REVISION,
       ),
   ]);
 

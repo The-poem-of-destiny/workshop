@@ -88,6 +88,13 @@ describe("ContentService", () => {
       review_checker_revision: REVIEW_CHECKER_REVISION,
     });
     expect(submission?.auto_published_at).toBeTruthy();
+    const runs = await bindings.DB.prepare(
+      "SELECT review_checker_revision, route_gate FROM submission_check_runs WHERE submission_id = 's1'",
+    ).all<{ review_checker_revision: string; route_gate: string }>();
+    expect(runs.results).toEqual([{
+      review_checker_revision: REVIEW_CHECKER_REVISION,
+      route_gate: "pass",
+    }]);
     const project = await bindings.DB.prepare(
       "SELECT published_revision_id FROM projects WHERE id = 'p1'",
     ).first<{ published_revision_id: string | null }>();

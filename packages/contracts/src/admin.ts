@@ -70,6 +70,7 @@ export const adminSubmissionListResponseSchema = z.object({
     status: adminSubmissionStatusSchema,
     gate: z.string().nullable(),
     checkerRevision: z.string().nullable(),
+    checkStatus: z.enum(["queued", "running", "done", "needs_human", "failed"]),
     submittedAt: z.string(),
   })),
   nextCursor: z.string().nullable(),
