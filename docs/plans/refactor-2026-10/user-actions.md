@@ -7,9 +7,10 @@
 
 | ID | 需要什么 | 用途 | 设置位置 | 当前状态 |
 |---|---|---|---|---|
-| U-01 | Discord Application `client_id` | 生成 OAuth 授权 URL | Worker 变量 `DISCORD_CLIENT_ID` | staging 为空 |
-| U-02 | Discord Application `client_secret` | 回调换取 Discord token | Worker secret `DISCORD_CLIENT_SECRET` | 未设置 |
-| U-03 | 允许的 Discord Guild ID 列表 | 公会准入校验 | `DISCORD_ALLOWED_GUILD_IDS` | staging 为空；仅负例可测 |
+| U-01 | Discord Application `client_id` | 生成 OAuth 授权 URL | Worker 变量 `DISCORD_CLIENT_ID` | staging 已配置 `1562466173268926575` |
+| U-02 | Discord Application `client_secret` | 回调换取 Discord token | Worker secret `DISCORD_CLIENT_SECRET` | staging 已设置；production 未设置 |
+| U-03 | 允许的 Discord Guild ID 列表 | 公会准入校验 | `DISCORD_ALLOWED_GUILD_IDS` | staging 已配置 `1417861565679669272,1134557553011998840` |
+| U-11 | 指定 Guild 的允许身份组 ID | 登录时额外校验身份组 | `DISCORD_GUILD_ROLE_IDS` | 未设置；未设置时仅校验公会 |
 | U-04 | 允许的工坊 Origin 列表 | `/auth/flows` Origin 白名单 | `ALLOWED_ORIGINS` | staging 已配置 |
 | U-05 | 生产 Cloudflare 账号、D1、R2 目标 | 真实迁移与生产部署 | CI environment / wrangler env | 未授权 |
 | U-06 | `CLOUDFLARE_ZONE_ID`、`CLOUDFLARE_API_TOKEN`、`WORKSHOP_PUBLIC_URL` | 客户端 channel 指针 purge | 发布脚本环境变量 | 未设置；当前 publish 会跳过 purge |
@@ -19,6 +20,8 @@
 | U-10 | 生产发布使用的 `v*` tag | 允许 deploy-production 从 tag 进入 production environment | Git tag + GitHub Environment `production`（只允许 `v*`，1 名 reviewer） | 无 `v*` tag；production Actions 尚未运行 |
 
 注意：凭据不得写入仓库、文档、测试或提交信息；只通过 `wrangler secret put` 或 GitHub Secrets 设置。
+
+`DISCORD_GUILD_ROLE_IDS` 格式为 `guildId:roleId[,roleId][;guildId:roleId...]`。只有列出的 Guild 需要身份组；同一 Guild 可配置多个允许身份组，用户命中任意一个即可。未列出的 Guild 仍只校验公会。配置身份组后，OAuth 会额外请求 `guilds.members.read`。
 
 ## 2. 需要决策的事项
 
@@ -33,7 +36,8 @@
 | ID | 旅程 | 前置条件 | 当前自动验证 |
 |---|---|---|---|
 | M-01 | Discord 登录：浏览器 / 嵌入 / 设备码 | U-01、U-02、U-03、可用 Discord 应用 | callback/redeem/device/state/TTL/guild 拒绝的本地负例已覆盖 |
-| M-02 | 公会准入正例 | U-03 的真实 Guild ID + 测试账号 | 仅拒绝路径 |
+| M-02 | 公会准入正例 | U-03 的真实 Guild ID + 测试账号 | 公会拒绝路径已覆盖 |
+| M-07 | 身份组准入正例/负例 | U-11 的真实 Role ID + 测试账号 | 身份组命中/缺失/多 Guild 回退的本地负例已覆盖 |
 | M-03 | SillyTavern 安装世界书 + 正则 | 运行中的 ST、许可、测试角色 | 客户端纯逻辑与 build 已测；真实 ST 未跑 |
 | M-04 | 更新保留玩家改动、卸载恢复、损坏修复、跨角色转移 | M-03 + Q-05 | 安装/卸载核心逻辑已有；修复/转移/选择性更新未完成 |
 | M-05 | 真实数据迁移彩排 | U-05、Q-10、停写窗口 | 本地 synthetic/SQL 转换与 R2 适配器已测 |
@@ -58,7 +62,7 @@
 最小可继续验收的输入：
 
 1. 在 staging 设置 `DISCORD_CLIENT_ID`、`DISCORD_CLIENT_SECRET`、`DISCORD_ALLOWED_GUILD_IDS`。
-2. 提供一个允许公会内的测试 Discord 账号，完成 M-01/M-02。
+2. 若要限制身份组，提供 `DISCORD_GUILD_ROLE_IDS` 的 Role ID，并提供一个命中身份的测试 Discord 账号，完成 M-01/M-02/M-07。
 3. 提供一个可运行的 SillyTavern 实例与测试角色，完成 M-03/M-04。
 4. 对 Q-05、Q-06、Q-10 给出选择；未决前相应代码保持 BLOCKED。
 5. 若要跑真实迁移：提供目标 Cloudflare 账号/D1/R2 与停写窗口授权。
