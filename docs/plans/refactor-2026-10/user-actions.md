@@ -14,6 +14,7 @@
 | U-05 | 生产 Cloudflare 账号、D1、R2 目标 | 真实迁移与生产部署 | CI environment / wrangler env | 未授权 |
 | U-06 | `CLOUDFLARE_ZONE_ID`、`CLOUDFLARE_API_TOKEN`、`WORKSHOP_PUBLIC_URL` | 客户端 channel 指针 purge | 发布脚本环境变量 | 未设置；当前 publish 会跳过 purge |
 | U-07 | GitHub Actions secret/variable | 让 staging/production workflow 真正运行 | GitHub repo settings | 未验证 |
+| U-08 | 允许 `refactor/2026-10` 部署到 staging 环境 | staging CI 的 deploy job 当前只允许 `main` | GitHub Environment `staging` branch policy | **阻塞**：run 39582600843 build 成功，deploy 被拒绝 |
 
 注意：凭据不得写入仓库、文档、测试或提交信息；只通过 `wrangler secret put` 或 GitHub Secrets 设置。
 
@@ -60,5 +61,14 @@
 4. 对 Q-05、Q-06、Q-10 给出选择；未决前相应代码保持 BLOCKED。
 5. 若要跑真实迁移：提供目标 Cloudflare 账号/D1/R2 与停写窗口授权。
 6. 若要测 purge：提供 zone ID、API token 和公开 URL。
+7. 若要跑 staging CI 的 deploy job：把 `refactor/2026-10` 加入 GitHub Environment `staging` 的 allowed branches，或将分支合入 `main`。当前环境只允许 `main`。
+
+### 已执行的 CI 证据
+
+| Run | 结果 |
+|---|---|
+| `refactor-ci` 39582448150 | ✅ check + e2e 均成功 |
+| `deploy-staging` 39582600843 | ◐ build 成功；deploy 因 environment branch policy 拒绝 |
+| 本地 staging 部署 | ✅ Worker `b3a533dc-9c99-4a8a-8fac-ed57f02ff680`（commit `a5e3c1c`） |
 
 没有这些输入时，代码侧仍可继续做不依赖凭据/决策的部分，但不会把上述旅程标记为已验收。
