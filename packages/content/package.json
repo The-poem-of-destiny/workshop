@@ -1,0 +1,27 @@
+{
+  "name": "@workshop/content",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.mjs"
+    },
+    "./checker": "./src/ejs-checker/index.mjs",
+    "./external-links": "./src/external-links/collect.mjs"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "acorn": "8.18.0",
+    "entities": "8.1.0",
+    "parse5": "8.0.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1"
+  }
+}
