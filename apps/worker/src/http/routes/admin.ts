@@ -106,8 +106,8 @@ adminRoutes.post("/submissions/:id/recheck", async c => {
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false) return jsonError(c, "forbidden", "Reviewer role required");
   const target = await c.env.DB.prepare(`
-    SELECT status, check_status FROM submissions WHERE id = ?
-  `).bind(c.req.param("id")).first<{ status: string; check_status: string }>();
+    SELECT status, check_status, review_checker_revision FROM submissions WHERE id = ?
+  `).bind(c.req.param("id")).first<{ status: string; check_status: string; review_checker_revision: string | null }>();
   if (!target) return jsonError(c, "not_found", "Submission not found");
   if (target.status !== "pending" && target.status !== "checking") {
     return jsonError(c, "conflict", "Submission is already resolved");
@@ -120,7 +120,7 @@ adminRoutes.post("/submissions/:id/recheck", async c => {
     c.env.DB.prepare(`
       UPDATE submissions
       SET status = 'checking', check_status = 'queued', check_attempts = 0,
-          check_lease_until = NULL, check_error = NULL
+          check_lease_until = NULL, check_error = NULL, review_checker_revision = NULL
       WHERE id = ? AND status IN ('pending', 'checking') AND check_status NOT IN ('queued', 'running')
     `).bind(c.req.param("id")),
     c.env.DB.prepare(`
@@ -129,7 +129,7 @@ adminRoutes.post("/submissions/:id/recheck", async c => {
       WHERE EXISTS (SELECT 1 FROM submissions WHERE id = ? AND check_status = 'queued')
     `).bind(
       crypto.randomUUID(), c.req.param("id"), session.userId,
-      JSON.stringify({ reason: "explicit reviewer recheck" }), now, c.req.param("id"),
+      JSON.stringify({ reason: "explicit reviewer recheck", previousRevision: target.review_checker_revision }), now, c.req.param("id"),
     ),
   ]);
   try {

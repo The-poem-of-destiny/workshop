@@ -229,6 +229,15 @@ describe("public read path", () => {
     const replay = await app.request(ticket.files[0]!.url, { headers }, bindings);
     expect(replay.status).toBe(404);
 
+    const concurrentIssue = await app.request("/api/v1/projects/p1/downloads", { method: "POST", headers }, bindings);
+    const concurrentTicket = await concurrentIssue.json() as { files: Array<{ url: string }> };
+    const concurrent = await Promise.all([
+      app.request(concurrentTicket.files[0]!.url, { headers }, bindings),
+      app.request(concurrentTicket.files[0]!.url, { headers }, bindings),
+    ]);
+    expect(concurrent.filter(response => response.status === 200)).toHaveLength(1);
+    expect(concurrent.filter(response => response.status === 404)).toHaveLength(1);
+
     const sessionBound = await app.request("/api/v1/projects/p1/downloads", { method: "POST", headers }, bindings);
     const sessionTicket = await sessionBound.json() as { files: Array<{ url: string }> };
     await bindings.DB.prepare("UPDATE sessions SET session_version = 2 WHERE user_id = 'u1'").run();
@@ -260,6 +269,10 @@ describe("public read path", () => {
     expect(privateCover.status).toBe(404);
 
     const headers = { authorization: "Bearer test-token" };
+    await bindings.DB.prepare("UPDATE projects SET deleted_at = ? WHERE id = 'p1'").bind("2026-10-21T00:00:00.000Z").run();
+    expect((await app.request("/api/v1/assets/covers/p1.webp", undefined, bindings)).status).toBe(404);
+    await bindings.DB.prepare("UPDATE projects SET deleted_at = NULL WHERE id = 'p1'").run();
+
     const ownDraft = await app.request("/api/v1/assets/covers/p1/r3-cover.webp", { headers }, bindings);
     expect(ownDraft.status).toBe(200);
     expect(ownDraft.headers.get("cache-control")).toBe("private, no-store");

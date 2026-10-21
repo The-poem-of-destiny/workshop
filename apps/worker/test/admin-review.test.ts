@@ -205,9 +205,10 @@ describe("admin review and publishing", () => {
     ).first<Record<string, unknown>>();
     expect(row).toMatchObject({ status: "checking", check_status: "queued" });
     const audit = await bindings.DB.prepare(
-      "SELECT action FROM audit_events WHERE target_id = 's1' ORDER BY created_at DESC LIMIT 1",
-    ).first<{ action: string }>();
+      "SELECT action, detail FROM audit_events WHERE target_id = 's1' ORDER BY created_at DESC LIMIT 1",
+    ).first<{ action: string; detail: string }>();
     expect(audit?.action).toBe("checker.recheck");
+    expect(audit?.detail).toContain("previousRevision");
   });
 
   it("classifies accepted, changed, added and removed findings against the previous submission", async () => {
