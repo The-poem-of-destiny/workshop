@@ -166,6 +166,9 @@ interface AuthorProjectRow extends SummaryRow {
   review_decision: "approve" | "reject" | null;
   review_reason: string | null;
   review_created_at: string | null;
+  submission_check_status: AuthorSubmission["checkStatus"];
+  submission_check_error: string | null;
+  submission_checked_at: string | null;
 }
 
 function toAuthorSubmission(row: AuthorProjectRow): AuthorSubmission | null {
@@ -183,6 +186,9 @@ function toAuthorSubmission(row: AuthorProjectRow): AuthorSubmission | null {
     decision: row.review_decision,
     reason: row.review_reason,
     reviewedAt: row.review_created_at,
+    checkStatus: row.submission_check_status,
+    checkError: row.submission_check_error,
+    checkedAt: row.submission_checked_at,
   };
 }
 
@@ -202,6 +208,8 @@ export async function listAuthorProjects(db: D1Database, session: Session): Prom
       s.id AS submission_id, s.revision_id AS submission_revision_id, s.status AS submission_status,
       s.gate AS submission_gate, s.checker_revision AS submission_checker_revision,
       s.submitted_at AS submission_submitted_at, s.resolved_at AS submission_resolved_at,
+      s.check_status AS submission_check_status, s.check_error AS submission_check_error,
+      s.checked_at AS submission_checked_at,
       rv.decision AS review_decision, rv.reason AS review_reason, rv.created_at AS review_created_at
     FROM projects p JOIN users u ON u.id = p.author_id
     LEFT JOIN project_revisions r ON r.id = p.working_revision_id
@@ -230,6 +238,7 @@ export async function listAuthorSubmissions(
   if (!project) return null;
   const result = await db.prepare(`
     SELECT s.id, s.revision_id, s.status, s.gate, s.checker_revision, s.submitted_at, s.resolved_at,
+      s.check_status, s.check_error, s.checked_at,
       rv.decision, rv.reason, rv.created_at
     FROM submissions s LEFT JOIN reviews rv ON rv.submission_id = s.id
     WHERE s.project_id = ?
@@ -242,6 +251,9 @@ export async function listAuthorSubmissions(
     checker_revision: string | null;
     submitted_at: string;
     resolved_at: string | null;
+    check_status: AuthorSubmission["checkStatus"];
+    check_error: string | null;
+    checked_at: string | null;
     decision: "approve" | "reject" | null;
     reason: string | null;
     created_at: string | null;
@@ -257,6 +269,9 @@ export async function listAuthorSubmissions(
     decision: row.decision,
     reason: row.reason,
     reviewedAt: row.created_at,
+    checkStatus: row.check_status,
+    checkError: row.check_error,
+    checkedAt: row.checked_at,
   }));
 }
 
@@ -459,7 +474,7 @@ function extensionForMime(mime: string): string {
 }
 
 export type SubmitRevisionResult =
-  | { ok: true; submissionId: string }
+  | { ok: true; submissionId: string; checkStatus: "queued" | "needs_human" }
   | { ok: false; code: "not_found" | "invalid_content" | "conflict"; message: string };
 
 interface RevisionAssetRow {
@@ -490,13 +505,21 @@ export async function submitRevision(
   // later asset write, so the asset snapshot read below cannot change.
   const submissionId = crypto.randomUUID();
   const now = new Date().toISOString();
+  const clientGate = input.gate ?? "missing";
+  const checkStatus = clientGate === "pass" || clientGate === "warn" ? "queued" : "needs_human";
+  const submissionStatus = checkStatus === "queued" ? "checking" : "pending";
   await db.batch([
     db.prepare("UPDATE submissions SET status = 'superseded', resolved_at = ? WHERE project_id = ? AND status IN ('pending', 'checking')")
       .bind(now, projectId),
     db.prepare(`INSERT INTO submissions
-      (id, project_id, revision_id, status, gate, checker_revision, submitted_by, submitted_at)
-      VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)`)
-      .bind(submissionId, projectId, revisionId, input.gate, input.checkerRevision ?? null, session.userId, now),
+      (id, project_id, revision_id, status, gate, checker_revision, submitted_by, submitted_at,
+       client_gate, client_checker_revision, client_warning_count, client_acknowledged_at, check_status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(
+        submissionId, projectId, revisionId, submissionStatus, clientGate, input.checkerRevision ?? null,
+        session.userId, now, clientGate, input.checkerRevision ?? null, input.warningCount,
+        input.acknowledged ? now : null, checkStatus,
+      ),
   ]);
 
   const assets = await db.prepare("SELECT kind, r2_key, sha256 FROM assets WHERE revision_id = ? ORDER BY kind")
@@ -536,7 +559,7 @@ export async function submitRevision(
 
   if (validationError) {
     const restore = [
-      db.prepare("DELETE FROM submissions WHERE id = ? AND status = 'pending'").bind(submissionId),
+      db.prepare("DELETE FROM submissions WHERE id = ? AND status IN ('pending', 'checking')").bind(submissionId),
       ...previous.results.map(item =>
         db.prepare("UPDATE submissions SET status = ?, resolved_at = NULL WHERE id = ? AND status = 'superseded'")
           .bind(item.status, item.id),
@@ -552,5 +575,5 @@ export async function submitRevision(
   await db.prepare(`UPDATE project_revisions
     SET manifest_hash = ?, worldbook_count = ?, regex_count = ?
     WHERE id = ?`).bind(manifestHash, counts.worldbook, counts.regex, revisionId).run();
-  return { ok: true, submissionId };
+  return { ok: true, submissionId, checkStatus };
 }

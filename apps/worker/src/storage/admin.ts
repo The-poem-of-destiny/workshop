@@ -22,6 +22,8 @@ interface SubmissionTargetRow {
   status: SubmissionRow["status"];
   manifest_hash: string | null;
   checker_revision: string | null;
+  check_status: string;
+  client_gate: string | null;
 }
 
 interface DetailSubmissionRow extends SubmissionTargetRow {
@@ -264,14 +266,22 @@ export async function reviewAdminSubmission(
 ) {
   const target = await db.prepare(`
     SELECT s.id, s.project_id, s.revision_id, s.status,
-           r.manifest_hash, s.checker_revision
+           r.manifest_hash, s.checker_revision, s.check_status, s.client_gate
     FROM submissions s
     JOIN project_revisions r ON r.id = s.revision_id
     WHERE s.id = ?
   `).bind(submissionId).first<SubmissionTargetRow>();
   if (!target) return { kind: "not_found" as const };
   if (target.status !== "pending") return { kind: "conflict" as const };
+  if (target.check_status === "queued" || target.check_status === "running") {
+    return { kind: "conflict" as const };
+  }
   if (request.decision === "reject" && !request.reason?.trim()) {
+    return { kind: "invalid_reason" as const };
+  }
+  if (request.decision === "approve"
+    && (target.client_gate === "block" || target.client_gate === "missing")
+    && !request.reason?.trim()) {
     return { kind: "invalid_reason" as const };
   }
   if (request.decision === "approve" && !target.manifest_hash) return { kind: "conflict" as const };

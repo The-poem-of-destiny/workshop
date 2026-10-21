@@ -16,6 +16,7 @@
     "cf-typegen": "wrangler types --config wrangler.jsonc"
   },
   "dependencies": {
+    "@workshop/content": "workspace:*",
     "@workshop/contracts": "workspace:*",
     "@workshop/domain": "workspace:*",
     "hono": "^4.13.13",

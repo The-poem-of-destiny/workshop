@@ -67,6 +67,10 @@ db.prepare(`INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha25
 db.prepare(`INSERT INTO submissions (id, project_id, revision_id, submitted_by, submitted_at)
   VALUES (?, ?, ?, ?, ?)`)
   .run("s1", "p1", "r1", "u1", now);
+const submission = db.prepare("SELECT check_status, check_attempts FROM submissions WHERE id = 's1'").get();
+if (submission.check_status !== "needs_human" || submission.check_attempts !== 0) {
+  throw new Error(`checker state defaults failed: ${JSON.stringify(submission)}`);
+}
 
 db.prepare("INSERT INTO project_likes (project_id, user_id) VALUES (?, ?)").run("p1", "u1");
 db.prepare("INSERT INTO project_subscriptions (project_id, user_id) VALUES (?, ?)").run("p1", "u1");

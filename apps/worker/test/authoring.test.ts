@@ -137,7 +137,7 @@ describe("authoring write paths", () => {
     expect((await submit()).status).toBe(201);
     const statuses = await bindings.DB.prepare("SELECT status FROM submissions WHERE project_id = ? ORDER BY submitted_at")
       .bind(first.project.id).all<{ status: string }>();
-    expect(statuses.results.map(row => row.status)).toEqual(["superseded", "pending"]);
+    expect(statuses.results.map(row => row.status)).toEqual(["superseded", "checking"]);
     const forbidden = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/nope`, { method: "PUT", body: "x" });
     expect(forbidden.status).toBe(400);
 
@@ -179,6 +179,28 @@ describe("authoring write paths", () => {
       headers: { "content-type": "image/png", "content-length": String(10 * 1024 * 1024 + 1) },
     });
     expect(oversized.status).toBe(413);
+  });
+
+  it("records a missing client gate as human review instead of rejecting the submit", async () => {
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Missing gate", projectType: "角色" }),
+    });
+    const project = await created.json() as { project: { id: string }; workingRevisionId: string };
+    await request(`/${project.project.id}/revisions/${project.workingRevisionId}/files/worldbook`, {
+      method: "PUT",
+      body: validWorldbook,
+      headers: { "content-type": "application/json", "content-length": String(validWorldbookBytes) },
+    });
+    const submitted = await request(
+      `/${project.project.id}/revisions/${project.workingRevisionId}/submit`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
+    expect(submitted.status).toBe(201);
+    const row = await bindings.DB.prepare(
+      "SELECT status, client_gate, check_status FROM submissions WHERE project_id = ?",
+    ).bind(project.project.id).first<Record<string, unknown>>();
+    expect(row).toMatchObject({ status: "pending", client_gate: "missing", check_status: "needs_human" });
   });
 
   it("rejects Discord thread URLs outside the configured guild", async () => {

@@ -10,6 +10,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@workshop/content':
+        specifier: workspace:*
+        version: link:../../packages/content
       '@workshop/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts

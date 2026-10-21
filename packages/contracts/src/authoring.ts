@@ -39,8 +39,10 @@ export const uploadKindSchema = z.enum(["worldbook", "regex", "cover"]);
 export type UploadKind = z.infer<typeof uploadKindSchema>;
 
 export const submitProjectSchema = z.object({
-  gate: z.enum(["pass", "warn", "block", "missing"]),
+  gate: z.enum(["pass", "warn", "block", "missing"]).optional(),
   checkerRevision: z.string().min(1).max(200).optional(),
+  warningCount: z.number().int().min(0).max(10_000).default(0),
+  acknowledged: z.boolean().optional(),
 });
 export type SubmitProject = z.infer<typeof submitProjectSchema>;
 
@@ -83,6 +85,9 @@ export const authorSubmissionSchema = z.object({
   decision: z.enum(["approve", "reject"]).nullable(),
   reason: z.string().nullable(),
   reviewedAt: z.string().nullable(),
+  checkStatus: z.enum(["queued", "running", "done", "needs_human", "failed"]),
+  checkError: z.string().nullable(),
+  checkedAt: z.string().nullable(),
 });
 export type AuthorSubmission = z.infer<typeof authorSubmissionSchema>;
 

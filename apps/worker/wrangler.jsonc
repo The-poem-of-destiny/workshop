@@ -15,6 +15,23 @@
     "binding": "ASSETS",
     "run_worker_first": ["/api/*", "/client/*"]
   },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CONTENT_SERVICE",
+        "class_name": "ContentService"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ContentService"]
+    }
+  ],
+  "triggers": {
+    "crons": ["*/1 * * * *"]
+  },
   "d1_databases": [
     {
       "binding": "DB",
@@ -36,6 +53,14 @@
         "ALLOWED_ORIGINS": "https://workshop-staging.poem-of-destiny.workers.dev",
         "DISCORD_ALLOWED_GUILD_IDS": ""
       },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "CONTENT_SERVICE",
+            "class_name": "ContentService"
+          }
+        ]
+      },
       "d1_databases": [
         {
           "binding": "DB",
@@ -56,6 +81,14 @@
       "vars": {
         "ALLOWED_ORIGINS": "https://workshop.poem-of-destiny.workers.dev",
         "DISCORD_ALLOWED_GUILD_IDS": ""
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "CONTENT_SERVICE",
+            "class_name": "ContentService"
+          }
+        ]
       },
       "d1_databases": [
         {

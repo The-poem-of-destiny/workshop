@@ -10,7 +10,8 @@
       "import": "./src/index.mjs"
     },
     "./checker": "./src/ejs-checker/index.mjs",
-    "./external-links": "./src/external-links/collect.mjs"
+    "./external-links": "./src/external-links/collect.mjs",
+    "./bundle-manifest": "./src/bundle-manifest.json"
   },
   "scripts": {
     "build": "node scripts/build.mjs",

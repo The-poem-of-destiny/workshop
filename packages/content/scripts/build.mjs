@@ -51,5 +51,7 @@ for (const file of bundles) {
 const revision = createHash("sha256")
   .update(bundles.map(file => `${file}:${hashes[file]}`).join("\n"))
   .digest("hex");
-await writeFile(path.join(out, "manifest.json"), JSON.stringify({ revision, files: hashes }, null, 2) + "\n");
+const manifest = JSON.stringify({ revision, files: hashes }, null, 2) + "\n";
+await writeFile(path.join(out, "manifest.json"), manifest);
+await writeFile(path.join(root, "src/bundle-manifest.json"), manifest);
 console.log(`content bundles built: ${revision}`);

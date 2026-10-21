@@ -8,7 +8,7 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -149,8 +149,7 @@ async function main() {
       assert(draft.response.status === 200, `author draft ${draft.response.status}`);
     });
 
-    let submissionId;
-    await check("author publishes and submits", async () => {
+    await check("author publishes and auto-publishes", async () => {
       const visibility = await api(`/api/v1/projects/${project.project.id}/visibility`, {
         method: "PATCH",
         headers: { "content-type": "application/json", "if-match": "1" },
@@ -160,21 +159,22 @@ async function main() {
       const submit = await api(`/api/v1/projects/${project.project.id}/revisions/${project.workingRevisionId}/submit`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ gate: "warn", checkerRevision: "e2e" }),
+        body: JSON.stringify({
+          gate: "warn",
+          checkerRevision: "e2e",
+          warningCount: 1,
+          acknowledged: true,
+        }),
       }, authorToken);
       assert(submit.response.status === 201, `submit ${submit.response.status}: ${submit.body}`);
-      submissionId = JSON.parse(submit.body).submissionId;
-    });
 
-    await check("owner approves and public reads", async () => {
-      const review = await api(`/api/v1/admin/submissions/${submissionId}/review`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ decision: "approve" }),
-      }, ownerToken);
-      assert(review.response.status === 201, `review ${review.response.status}: ${review.body}`);
-      const detail = await api(`/api/v1/projects/${project.project.id}`);
-      assert(detail.response.status === 200, `public detail ${detail.response.status}: ${detail.body}`);
+      let detail;
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        detail = await api(`/api/v1/projects/${project.project.id}`);
+        if (detail.response.status === 200) break;
+        await sleep(250);
+      }
+      assert(detail?.response.status === 200, `public detail ${detail?.response.status}: ${detail?.body}`);
       assert(JSON.parse(detail.body).id === project.project.id, "public id");
       const manifest = await api(`/api/v1/projects/${project.project.id}/releases/${project.workingRevisionId}/manifest`, {}, authorToken);
       assert(manifest.response.status === 200, `manifest ${manifest.response.status}: ${manifest.body}`);
@@ -213,6 +213,9 @@ async function main() {
   } finally {
     if (server?.pid) {
       try { process.kill(-server.pid, "SIGTERM"); } catch { /* already exited */ }
+    }
+    if (process.env.E2E_DEBUG) {
+      try { console.error(readFileSync(logFile, "utf8")); } catch { /* no log */ }
     }
     rmSync(tmp, { recursive: true, force: true });
   }

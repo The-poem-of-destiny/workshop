@@ -20,6 +20,7 @@ import {
   updateVisibility,
   upsertAsset,
 } from "../../storage/authoring.js";
+import { enqueueSubmission } from "../../scheduler.js";
 import { jsonError } from "../errors.js";
 import { requireSession } from "../session.js";
 
@@ -210,6 +211,18 @@ authoringRoutes.post("/:id/revisions/:revisionId/submit", async c => {
     if (result.code === "not_found") return jsonError(c, "not_found", result.message);
     if (result.code === "conflict") return jsonError(c, "conflict", result.message);
     return jsonError(c, "bad_request", result.message);
+  }
+  if (result.checkStatus === "queued") {
+    try {
+      c.executionCtx.waitUntil(
+        enqueueSubmission(c.env, result.submissionId).catch(error => {
+          console.error("ContentService run failed", error);
+        }),
+      );
+    } catch (error) {
+      // Direct route tests have no ExecutionContext; production always does.
+      console.error("ContentService enqueue failed", error);
+    }
   }
   return c.json({ submissionId: result.submissionId, status: "pending" }, 201);
 });
