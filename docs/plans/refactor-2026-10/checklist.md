@@ -151,17 +151,17 @@
 - [x] 静态 hashed 资产 immutable（Worker `/assets/*` 返回 `max-age=31536000, immutable`）。
 - [ ] D-24/D-28 Workers Cache 专项、Cache-Tag/purge、`Cf-Cache-Status` 测量（已实现公共读 Cache API + `cache_epoch` 触发器失效；尚缺 `Cf-Cache-Status`/tag purge 测量）。
 - [x] cron：榜单、7d/30d、清理、过期 session、自动审核。
-- [ ] 可观测性采样率；错误不采样。
+- [x] 可观测性采样率；错误不采样（`shouldSampleRequest` + 单测）。
 - [ ] 定期备份与校验（J6）。
 - [ ] D1 rows read/write 预算测试（J7）。
 
 ## 12. 测试、迁移与上线
 
-- [x] Worker 70 测试、domain 17、content 7、schema 27 表校验。
+- [x] Worker 74 测试、domain 17、content 7、schema 27 表校验。
 - [x] 迁移 synthetic + SQL converter 测试。
 - [x] 真实备份全量两次 + delta + reconcile；隔离本地 D1 load。
 - [x] 本地 HTTP E2E 19/19；真实 Chromium 搜索/排序 DOM、作者工作台+订阅、owner 管理、审核通过/拒绝、拒绝→改稿重提 6 条旅程。
-- [x] staging 部署、D1 migration 0002–0009、Worker `b3a533dc-9c99-4a8a-8fac-ed57f02ff680`（commit `a5e3c1c`）。
+- [x] staging 部署、D1 migration 0002–0009、Worker `8449a9a9-40d7-4772-81bf-027c1396917b`（commit `78c6799`）。
 - [x] R2 批量复制适配器（manifest、SHA/bytes 校验、本地演练、幂等重跑、损坏修复、remote `--apply`）。
 - [ ] staging 真实数据导入与独立 reconcile（需授权目标）。
 - [x] T3 entry-key/fingerprint/玩家修改保留单元测试（tavern-client 4 项）；真实 ST 旅程未验。
