@@ -103,7 +103,7 @@
 
 ## 当前线上
 
-- staging：`https://workshop-staging.poem-of-destiny.workers.dev`，active Worker `b3a533dc-9c99-4a8a-8fac-ed57f02ff680`（commit `a5e3c1c`），D1 0001–0009 已应用；上一版 `808cad22-60ec-40a0-a5e7-c45eea334701` 可回滚。
+- staging：`https://workshop-staging.poem-of-destiny.workers.dev`，active Worker `b3a533dc-9c99-4a8a-8fac-ed57f02ff680`（commit `a5e3c1c`），D1 0001–0009 已应用；上一版 `a6d2cfa5-a03b-4305-95f6-62d3804d7b4c` 可回滚。
 - production：`https://workshop.poem-of-destiny.workers.dev`，未部署；真实生产切换留人工审批。
 - 本轮未 push。
 
