@@ -2,6 +2,7 @@ name: refactor-ci
 
 on:
   push:
+    branches: [main]
     paths:
       - "apps/worker/**"
       - "apps/tavern-client/**"
@@ -11,13 +12,13 @@ on:
       - "docs/**"
       - "AGENTS.md"
       - "README.md"
-      - "LICENSE"
       - ".agents/**"
       - "pnpm-workspace.yaml"
       - "pnpm-lock.yaml"
       - "package.json"
       - ".github/workflows/**"
   pull_request:
+    branches: [main]
     paths:
       - "apps/worker/**"
       - "apps/tavern-client/**"
@@ -27,7 +28,6 @@ on:
       - "docs/**"
       - "AGENTS.md"
       - "README.md"
-      - "LICENSE"
       - ".agents/**"
       - "pnpm-workspace.yaml"
       - "pnpm-lock.yaml"
