@@ -36,6 +36,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await bindings.DB.exec(`
+    DELETE FROM audit_events;
     DELETE FROM reviews;
     DELETE FROM project_likes;
     DELETE FROM project_subscriptions;
@@ -216,6 +217,23 @@ describe("authoring write paths", () => {
       headers: { "content-type": "image/png", "content-length": String(10 * 1024 * 1024 + 1) },
     });
     expect(oversized.status).toBe(413);
+  });
+
+  it("rate limits rapid metadata writes", async () => {
+    const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Rate" }) });
+    const project = await created.json() as { project: { id: string } };
+    const statements = Array.from({ length: 20 }, (_, index) =>
+      bindings.DB.prepare(`INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
+        VALUES (?, 'project.patch', 'project', ?, 'author', '{}', ?)`)
+        .bind(`rate-${index}`, project.project.id, new Date().toISOString()),
+    );
+    await bindings.DB.batch(statements);
+    const blocked = await request(`/${project.project.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "if-match": "1" },
+      body: JSON.stringify({ title: "too many" }),
+    });
+    expect(blocked.status).toBe(429);
   });
 
   it("soft deletes a project and hides it from the author", async () => {

@@ -408,6 +408,14 @@ export async function patchProject(
         values.coverPositionY, values.coverZoom, meta.findings, meta.revision, meta.checkedAt,
         meta.actorId, values.discordThreadUrl, current.working_revision_id, current.published_revision_id,
       ),
+    db.prepare(`INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
+      SELECT ?, 'project.patch', 'project', ?, ?, ?, ?
+      WHERE EXISTS (SELECT 1 FROM projects WHERE id = ? AND row_version = ?)`)
+      .bind(
+        crypto.randomUUID(), projectId, session.userId,
+        JSON.stringify({ fields: Object.keys(input), rowVersion: expectedVersion + 1 }),
+        now, projectId, expectedVersion + 1,
+      ),
   ]);
   if (!updated || updated.meta.changes === 0) return null;
   return { rowVersion: expectedVersion + 1, revisionId: current.working_revision_id };

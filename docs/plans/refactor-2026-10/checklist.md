@@ -25,7 +25,7 @@
 - [x] `scheduled`/cron 入口（榜单、清理、自动审核派发）。
 - [x] 项目版本标签字段（schema/contracts/API/客户端）。
 - [x] 元数据检查字段与 findings（D-30）。
-- [ ] 客户端版本记录表 / channel 指针（当前仅 `site_settings.client_channels` 与 R2 对象）。
+- [x] 客户端版本记录：`site_settings.client_channels`（publish 脚本写入）+ 版本化 R2 对象。
 - [ ] avatar/banner 上传与 `assets.kind` 的写入路径；当前只有 worldbook/regex/cover。
 
 ## 2. 认证与权限
@@ -51,7 +51,8 @@
 - [x] API 默认 24/页；统一 cursor/nextCursor 契约。
 - [x] Web 分页/加载更多与“第 X–Y 条”。
 - [x] 发现栏小时桶 + `discovery_exposures`。
-- [x] 7d/30d 周期热度排序与快照。
+- [x] 7d/30d 周期热度排序与快照写入。
+- [ ] 公开榜单读取 API / UI（当前只读 `discovery_exposures`）。
 - [x] reference version items + hash 指纹（B10/C11）。
 - [ ] 每日抽签接口（Q-10 决定后再做）。
 
@@ -82,7 +83,8 @@
 - [x] AH1–AH4 提示规则。
 - [x] EJS-PARSE / JS-PARSE / FILE / CHECKER-INTERNAL / CHECKER-LIMIT。
 - [x] 预算：2000 条目、500 单元、20 万字符、4 万/10 万 AST、120s。
-- [x] upload-checker 与 review-checker bundle、`?v=` immutable 缓存。
+- [x] upload-checker 与 review-checker bundle 构建；Web 在提交前执行 browser checker。
+- [ ] upload/review bundle 的独立 `?v=` 分发路由与 immutable 缓存。
 - [x] 上传端记录 client gate / warning count / acknowledged / checked_at。
 - [x] DO 权威复核；pass/warn 自动发布，block/missing/超时转人工。
 - [x] 审核绑定 `submission + content hash + checker revision`；本地重跑同 revision。
@@ -144,8 +146,8 @@
 ## 11. 缓存、调度与运维
 
 - [x] 第一阶段动态 API `private, no-store`；文件/审核文件 no-store。
-- [x] 静态资产 immutable；封面缓存策略与内容哈希。
-- [x] D-24/D-28 Workers Cache 专项、Cache-Tag/purge、`Cf-Cache-Status` 测量。
+- [ ] 静态资产 immutable；当前 Workers Assets 对 hashed JS 仍 `max-age=0, must-revalidate`。
+- [ ] D-24/D-28 Workers Cache 专项、Cache-Tag/purge、`Cf-Cache-Status` 测量（当前仅客户端版本化对象缓存）。
 - [x] cron：榜单、7d/30d、清理、过期 session、自动审核。
 - [ ] 可观测性采样率；错误不采样。
 - [ ] 定期备份与校验（J6）。
@@ -156,11 +158,11 @@
 - [x] Worker 58 测试、domain 17、content 7、schema 27 表校验。
 - [x] 迁移 synthetic + SQL converter 测试。
 - [x] 真实备份全量两次 + delta + reconcile；隔离本地 D1 load。
-- [x] 本地 HTTP E2E 15/15；真实 Chromium 搜索/排序/详情/作者/管理/审核通过/审核拒绝 5 条旅程。
-- [x] staging 部署、D1 migration 0002–0006、Worker version 记录。
+- [x] 本地 HTTP E2E 16/16；真实 Chromium 搜索/排序/作者筛选/详情、作者工作台+订阅、owner 管理、审核通过/拒绝 5 条旅程。
+- [x] staging 部署、D1 migration 0002–0008、Worker version 记录。
 - [x] R2 批量复制适配器（manifest、SHA/bytes 校验、本地演练、幂等重跑、损坏修复、remote `--apply`）。
 - [ ] staging 真实数据导入与独立 reconcile（需授权目标）。
-- [x] T3 fingerprint/diff/安装安全测试（单元与 HTTP 覆盖）。
+- [x] T3 entry-key/fingerprint/玩家修改保留单元测试（tavern-client 4 项）；真实 ST 旅程未验。
 - [x] T6 旧公开 API 样本契约测试（17 个 fixtures 已恢复，`tests/legacy-contracts.test.mjs` 防泄露/搜索/类型/分页/条目摘要）。
 - [x] Playwright 5 条真实浏览器旅程（本地 Worker + 真实 Chromium）。
 - [x] staging 远程 HTTP smoke：health/list/root/reference-sets/site/home 200，Origin 拒绝 403，client compatibility 200。

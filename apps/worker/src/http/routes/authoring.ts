@@ -50,6 +50,18 @@ function ifMatchVersion(value: string | undefined): number | null {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+async function metadataRateLimited(db: D1Database, projectId: string, actorId: string): Promise<boolean> {
+  const cutoff = new Date(Date.now() - 60_000).toISOString();
+  const row = await db.prepare(`
+    SELECT
+      (SELECT COUNT(*) FROM audit_events
+        WHERE target_id = ? AND actor_id = ? AND action = 'project.patch' AND created_at > ?)
+      + (SELECT COUNT(*) FROM project_revisions
+        WHERE project_id = ? AND created_by = ? AND created_at > ?) AS total
+  `).bind(projectId, actorId, cutoff, projectId, actorId, cutoff).first<{ total: number }>();
+  return (row?.total ?? 0) >= 20;
+}
+
 async function sessionOrError(c: Context<{ Bindings: Env }>) {
   const session = await requireSession(c);
   if (!session) return { response: jsonError(c, "unauthorized", "Login required") };
@@ -111,6 +123,9 @@ authoringRoutes.patch("/:id", async c => {
   const expectedVersion = ifMatchVersion(c.req.header("if-match"));
   if (expectedVersion === null || expectedVersion !== project.row_version) {
     return jsonError(c, "precondition_failed", "Project version does not match");
+  }
+  if (await metadataRateLimited(c.env.DB, project.id, auth.session.userId)) {
+    return jsonError(c, "rate_limited", "Too many metadata updates; retry in a minute");
   }
   const parsed = patchProjectSchema.safeParse(await bodyJson(c));
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid project metadata", parsed.error.flatten());
@@ -197,6 +212,9 @@ authoringRoutes.post("/:id/revisions", async c => {
   const expectedVersion = ifMatchVersion(c.req.header("if-match"));
   if (expectedVersion === null || expectedVersion !== project.row_version) {
     return jsonError(c, "precondition_failed", "Project version does not match");
+  }
+  if (await metadataRateLimited(c.env.DB, project.id, auth.session.userId)) {
+    return jsonError(c, "rate_limited", "Too many metadata updates; retry in a minute");
   }
   const parsed = patchProjectSchema.safeParse(await bodyJson(c));
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid revision metadata", parsed.error.flatten());
