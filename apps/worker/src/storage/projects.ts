@@ -163,7 +163,11 @@ const ORDER_BY: Record<ProjectListQuery["sort"], string> = {
   likes: "p.likes_count DESC, p.id DESC",
 };
 
-export async function listPublishedProjects(db: D1Database, query: ProjectListQuery) {
+export async function listPublishedProjects(
+  db: D1Database,
+  query: ProjectListQuery,
+  onMeta?: (meta: { rows_read: number; rows_written: number }) => void,
+) {
   const offset = decodeCursor(query.cursor);
   const where = [PUBLIC_PROJECT];
   const bindings: unknown[] = [];
@@ -193,6 +197,7 @@ export async function listPublishedProjects(db: D1Database, query: ProjectListQu
   const result = await db.prepare(sql)
     .bind(...bindings, query.limit + 1, offset)
     .all<ProjectRow>();
+  onMeta?.({ rows_read: result.meta.rows_read, rows_written: result.meta.rows_written });
 
   const rows = result.results.slice(0, query.limit);
   const hasMore = result.results.length > query.limit;

@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { app } from "../src/app";
 import type { Env } from "../src/env";
 import { applySchema } from "./support/schema";
+import { listPublishedProjects } from "../src/storage/projects";
 
 const bindings = env as unknown as Env;
 const now = "2026-10-21T00:00:00.000Z";
@@ -161,6 +162,18 @@ describe("public read path", () => {
     const other = await app.request("/api/v1/projects?authorId=u2", undefined, bindings);
     expect(other.status).toBe(200);
     await expect(other.json()).resolves.toMatchObject({ items: [], nextCursor: null });
+  });
+
+  it("keeps the public list within a bounded rows-read budget", async () => {
+    await seed();
+    const meta = { rows_read: Infinity, rows_written: Infinity };
+    const page = await listPublishedProjects(bindings.DB, { limit: 24, sort: "updated" }, value => {
+      meta.rows_read = value.rows_read;
+      meta.rows_written = value.rows_written;
+    });
+    expect(page.items.length).toBeGreaterThan(0);
+    expect(meta.rows_read).toBeLessThan(200);
+    expect(meta.rows_written).toBe(0);
   });
 
   it("filters by exact tag", async () => {

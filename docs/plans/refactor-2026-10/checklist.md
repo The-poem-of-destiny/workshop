@@ -153,11 +153,11 @@
 - [x] cron：榜单、7d/30d、清理、过期 session、自动审核。
 - [x] 可观测性采样率；错误不采样（`shouldSampleRequest` + 单测）。
 - [ ] 定期备份与校验（J6）。
-- [ ] D1 rows read/write 预算测试（J7）。
+- [x] D1 rows read/write 预算测试：公共列表页 rows_read < 200、rows_written = 0（单测）。
 
 ## 12. 测试、迁移与上线
 
-- [x] Worker 74 测试、domain 17、content 7、schema 27 表校验。
+- [x] Worker 75 测试、domain 17、content 7、schema 27 表校验。
 - [x] 迁移 synthetic + SQL converter 测试。
 - [x] 真实备份全量两次 + delta + reconcile；隔离本地 D1 load。
 - [x] 本地 HTTP E2E 19/19；真实 Chromium 搜索/排序 DOM、作者工作台+订阅、owner 管理、审核通过/拒绝、拒绝→改稿重提 6 条旅程。
