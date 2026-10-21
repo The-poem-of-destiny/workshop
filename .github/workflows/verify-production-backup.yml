@@ -42,23 +42,28 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$BACKUP_BUCKET"
-          mkdir -p backup
+          mkdir -p "$GITHUB_WORKSPACE/backup"
           pnpm --filter @workshop/worker exec wrangler r2 object get \
             "${BACKUP_BUCKET}/${{ inputs.object_key }}" \
-            --file backup/workshop-prod.sql --remote --config wrangler.jsonc --env production
-          test -s backup/workshop-prod.sql
+            --file "$GITHUB_WORKSPACE/backup/workshop-prod.sql" --remote --config wrangler.jsonc --env production
+          test -s "$GITHUB_WORKSPACE/backup/workshop-prod.sql"
       - name: Verify hash
         if: inputs.sha256 != ''
         run: |
           set -euo pipefail
-          echo "${{ inputs.sha256 }}  backup/workshop-prod.sql" | sha256sum -c -
+          echo "${{ inputs.sha256 }}  $GITHUB_WORKSPACE/backup/workshop-prod.sql" | sha256sum -c -
       - name: Verify SQL integrity
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y sqlite3
-          sqlite3 backup/workshop-prod.sql "PRAGMA integrity_check;"
-          tables="$(sqlite3 backup/workshop-prod.sql "SELECT count(*) FROM sqlite_master WHERE type='table';")"
+          db="$GITHUB_WORKSPACE/backup/workshop-prod.sqlite"
+          rm -f "$db"
+          sqlite3 "$db" < "$GITHUB_WORKSPACE/backup/workshop-prod.sql"
+          integrity="$(sqlite3 "$db" "PRAGMA integrity_check;")"
+          echo "integrity=$integrity"
+          test "$integrity" = "ok"
+          tables="$(sqlite3 "$db" "SELECT count(*) FROM sqlite_master WHERE type='table';")"
           echo "tables=$tables"
           if [ "$tables" -eq 0 ]; then
             echo "::warning::backup contains no tables (empty database)"
@@ -68,7 +73,7 @@ jobs:
           set -euo pipefail
           {
             echo "object_key=${{ inputs.object_key }}"
-            echo "sha256=$(sha256sum backup/workshop-prod.sql | cut -d' ' -f1)"
+            echo "sha256=$(sha256sum "$GITHUB_WORKSPACE/backup/workshop-prod.sql" | cut -d' ' -f1)"
             echo "verified_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } | tee verification.txt
       - uses: actions/upload-artifact@v7
