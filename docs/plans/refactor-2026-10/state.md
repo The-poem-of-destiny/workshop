@@ -105,7 +105,7 @@
 - P3 缺口：真实 Discord OAuth callback/redeem（当前只有 flow 创建/状态，PKCE challenge 可选）；内容 checker DO。
 - P4：真实备份全量/两次/delta/对账与隔离本地 D1 load 已完成；R2 对象复制适配器仍未实现。
 - P5：本地与 staging 部署已完成；staging 回滚/恢复演练与 5xx 冒烟已完成；真实生产切换仍留人工审批。
-- P6：`cloudflare/` 已删除；`test-dist` shim 与旧客户端保留到客户端迁移/下架窗口。
+- P6：`cloudflare/`、旧客户端 `src/`、`util/`、`config/`、`test-dist/` 与旧 webpack 构建链已移出当前工作树；旧版本保存在本地 worktree `../workshop-legacy`（`4fdf71a`）仅作对照。客户端需按 checklist 重写，不再从当前树构建。
 - Web UI：已有最小列表/详情页；登录、上传、审核后台未接入。
 - 真实 SillyTavern / Tavern client 验证未做（本机无运行中的 SillyTavern，按 stop condition 记录）。
 
@@ -115,7 +115,7 @@
 - `ContentService` DO + 权威 checker：仓库没有 review checker 实现与 revision 语料，无法在不发明规则的情况下补齐 D-31。
 - 真实 SillyTavern 验证：本机无运行中的 SillyTavern；已按 stop condition 停止该项，不用 mock 冒充。
 - R2 对象复制适配器：本地 D1 已完成 load；未实现批量 R2 复制，也未把真实备份导入 staging。
-- `test-dist` shim / 旧客户端：按计划保留下架窗口，不在本轮删除。
+- 旧客户端 / `test-dist` shim：已从当前工作树移出，旧快照在 `../workshop-legacy`；新客户端尚未实现。
 
 ## 已知约束
 

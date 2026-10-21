@@ -12,6 +12,7 @@
 - [x] pnpm workspace、单 lockfile、Node 版本与 CI 入口。
 - [x] `pnpm check` 覆盖 workspace、strict typecheck、worker/domain 测试、schema、迁移测试、wrangler dry-run。
 - [x] 删除旧 `cloudflare/`、旧 E2E/Playwright、PowerShell 部署器、提交的 `dist/`/`test-bundles/`。
+- [x] 旧客户端 `src/`、`util/`、`config/`、`test-dist/` 与 webpack 构建链移出当前工作树；旧版本在 `../workshop-legacy`（`4fdf71a`）只读对照。
 - [ ] CI 对精确 SHA 构建一次并逐级提升同一 artifact（当前 deploy 每次重装/重建）。
 - [ ] 部署流水线包含 D1 migration、artifact hash、Worker version 记录。
 

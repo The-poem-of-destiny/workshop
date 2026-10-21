@@ -1,11 +1,13 @@
 # 命定创意工坊
 
-这是「命定之诗与黄昏之歌」的**创意工坊**独立仓库，包含两个可独立部署的运行时：
+这是「命定之诗与黄昏之歌」的**创意工坊**独立仓库。
 
-- **SillyTavern 客户端脚本**：在酒馆内打开工坊界面，浏览、安装、更新和修复社区项目；
-- **Cloudflare Worker 后端**：项目上传、审核、发布、点赞、订阅、鉴权与文件分发。
+当前工作树只保留新后端与新 Web：
 
-角色卡本体、世界书、立绘素材和自适应正则美化脚本不在本仓库维护。
+- **Cloudflare Worker 后端**：项目读取、作者写路径、人工审核、发布、互动与文件分发；
+- **Web 站点**：React + Vite 的公开列表/详情页。
+
+酒馆客户端（`src/CreativeWorkshop`）、旧首页、旧 checker bundle、`test-dist` shim 和旧构建链已从本工作树移除。旧实现完整保存在 git 历史与本地 legacy worktree `../workshop-legacy`（基于 `4fdf71a`），仅用于对照，不参与构建。客户端迁移状态见 `docs/plans/refactor-2026-10/checklist.md`。
 
 ## 仓库结构
 
@@ -14,28 +16,16 @@ workshop/
 ├─ apps/worker/              # 唯一后端：Hono + D1 + R2 + Static Assets
 │  ├─ migrations/            # D1 结构演进（唯一迁移序列）
 │  ├─ src/                   # API 与存储层
-│  └─ web/                   # 管理/浏览站点（React + Vite）
+│  └─ web/                   # 公开站点（React + Vite）
 ├─ packages/contracts/       # 共享 Zod 契约与类型
 ├─ packages/domain/          # 分类、内容策略、限额、版本等纯函数
-├─ src/CreativeWorkshop/     # 酒馆客户端脚本（过渡期保留）
-├─ config/workshop.json      # 客户端版本、分发路径与兼容迁移
-├─ data/                     # 官方角色卡基线指纹等运行时数据
-├─ tools/                    # workspace/schema 校验与旧数据迁移 CLI
-├─ docs/plans/refactor-2026-10/  # 重构决策、P0 基线、P5/P6 记录
-└─ tests/fixtures/legacy/    # 旧公开接口匿名响应夹具
+├─ data/                     # 官方角色卡基线数据
+├─ tools/                    # workspace/schema 校验、迁移与本地 E2E
+├─ docs/plans/refactor-2026-10/  # 决策、功能清单、checklist、状态、归档
+└─ tests/fixtures/legacy/    # 旧公开接口匿名响应样本
 ```
 
-`cloudflare/` 旧 Worker 与旧首页 UI 已删除；旧实现只保留在 git 历史中。新的数据库结构只认 `apps/worker/migrations/`。
-
-## 客户端
-
-入口是 [`src/CreativeWorkshop/index.ts`](src/CreativeWorkshop/index.ts)。它在 SillyTavern 中创建 iframe，并通过 postMessage bridge 与宿主页面通信：
-
-- 安装、更新、卸载项目世界书与正则；
-- 项目差异对比与冲突处理；
-- DLC 修复、安装状态登记与脚本依赖检查。
-
-客户端版本、分发路径和兼容迁移由 `config/workshop.json` 决定。`dist/` 与 `test-dist/` 是构建产物，不手工维护。
+`cloudflare/`、`src/`、`util/`、`config/`、`test-dist/` 和旧 webpack 构建链已删除；不要在当前工作树重新引入旧实现。
 
 ## 后端
 
@@ -47,7 +37,9 @@ workshop/
 - 审核：待审队列、发布指针切换、成员角色、审计；
 - 互动：点赞、订阅、评分、按用户/项目/日幂等的下载计数。
 
-接口以 `/api/v1` 为前缀。契约在 `packages/contracts`，领域规则在 `packages/domain`，两者都是唯一来源。
+接口以 `/api/v1` 为前缀。契约在 `packages/contracts`，领域规则在 `packages/domain`。
+
+当前完成度不是“可上线”：checker、OAuth 登录闭环、客户端分发、管理端写接口、cron/cache 等仍未完成，见 `docs/plans/refactor-2026-10/checklist.md` 与 `docs/audits/features-audit-merged.md`。
 
 ## 本地开发
 
@@ -55,10 +47,10 @@ workshop/
 
 ```text
 pnpm install
+pnpm build                 # 构建 apps/worker/web 静态资源
+pnpm dev                   # 本地 Worker
 pnpm check                 # workspace、类型、测试、schema、迁移测试、wrangler dry-run
-pnpm e2e:local             # 启动真实 workerd + 本地 D1/R2，跑 10 条 HTTP E2E
-pnpm --filter @workshop/worker dev
-pnpm --filter @workshop/worker web:build
+pnpm e2e:local             # 真实 workerd + 本地 D1/R2，10 条 HTTP E2E
 ```
 
 本地 D1：
@@ -73,12 +65,10 @@ pnpm exec wrangler d1 migrations apply workshop-staging --local --config wrangle
 Git 仓库与 Cloudflare 运行时是两套独立状态。部署前必须记录被部署的确切提交 SHA，并在部署后单独验证 Worker 版本；推送代码不等于部署。
 
 - 配置与绑定：`apps/worker/wrangler.jsonc`
-- 部署前：`pnpm check`，并先执行 `pnpm --filter @workshop/worker web:build`
+- 部署前：`pnpm check`，并先执行 `pnpm build`
 - 迁移：`wrangler d1 migrations apply <database> --remote --config apps/worker/wrangler.jsonc`
 - 旧备份：`python3 tools/migrate/from_d1_sql.py <dump.sql> <r2-dir> <临时输出目录>`，再用 `tools/migrate/cli.mjs` 执行/校验/对账
 - 密钥只通过 `wrangler secret put` 写入，不进入仓库
-
-P5 切换演练与 P6 清理记录见 `docs/plans/refactor-2026-10/`。
 
 ## 许可证
 

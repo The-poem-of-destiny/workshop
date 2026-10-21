@@ -5,7 +5,6 @@ node_modules/
 .wrangler/
 worker-configuration.d.ts
 .ai-bridge/
-.cotel/local/
 
 # local secrets — never commit
 .env
@@ -24,7 +23,6 @@ data_backup/
 # built web assets
 apps/worker/web/dist/
 
-dist/
 
 __pycache__/
 *.pyc

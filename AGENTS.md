@@ -22,9 +22,9 @@ Work starts from refreshed `origin/main`, never from the local worktree HEAD alo
 
 Root (pnpm):
 
-- `pnpm build` — Tavern client bundles and the legacy-path shim
+- `pnpm build` — build the Worker Static Assets
 - `pnpm check` — workspace, contracts/domain/worker types, tests, schema, migration tests and Wrangler dry-run
-- `pnpm check:workshop-bundles` — built client artifact verification
+- `pnpm e2e:local` — real workerd + local D1/R2 HTTP E2E
 
 Worker (`apps/worker`, pnpm workspace):
 
@@ -32,7 +32,7 @@ Worker (`apps/worker`, pnpm workspace):
 - `pnpm --filter @workshop/worker web:build` — build Static Assets
 - `pnpm --filter @workshop/worker test` — Worker tests
 
-Run `pnpm check` and the bundle verification after any build-pipeline change. Built bundles are generated artifacts; never hand-edit them.
+The legacy Tavern client, old Worker and old build chain are not in this worktree. A read-only reference checkout lives at `../workshop-legacy` (commit `4fdf71a`); never edit or build it from this repo.
 
 ## Agent skills
 
@@ -44,8 +44,8 @@ Read the relevant skill before starting work; do not rely on memory of it.
 
 ## Single sources of truth
 
-- Client version, distribution paths and companion-script dependencies: `config/workshop.json`. Never repeat live values in code, docs, tests or deployment scripts; import the manifest.
 - Worker endpoints and bindings: `apps/worker/wrangler.jsonc`.
+- Client version/distribution paths: not defined in this worktree; the old manifest is only in the legacy worktree.
 - New-database structure: `apps/worker/migrations/0001_initial.sql`. Existing databases evolve only through `apps/worker/migrations/`.
 - Project taxonomy, content policy and runtime limits: `packages/domain/src/`; ranking parameters: `apps/worker/src/storage/home.ts`.
 - Product and creator-facing wording: plain everyday Chinese, no internal field or implementation names in the UI.
