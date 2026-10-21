@@ -95,6 +95,13 @@ export interface AdminSubmissionListItem {
   submittedAt: string;
 }
 export interface AdminSubmissionListResponse {
+  counts: {
+    pending: number;
+    checking: number;
+    approved: number;
+    rejected: number;
+    superseded: number;
+  };
   items: AdminSubmissionListItem[];
   nextCursor: string | null;
 }
@@ -391,8 +398,10 @@ export const api = {
       `/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/submit`,
       { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
     ),
-  adminSubmissions: (status: "pending" | "checking") =>
-    requestJson<AdminSubmissionListResponse>(`/api/v1/admin/submissions?status=${status}`),
+  adminSubmissions: (status: string, cursor?: string) =>
+    requestJson<AdminSubmissionListResponse>(
+      `/api/v1/admin/submissions?status=${encodeURIComponent(status)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+    ),
   adminSubmission: (id: string) =>
     requestJson<AdminSubmissionDetail>(`/api/v1/admin/submissions/${encodeURIComponent(id)}`),
   adminDiff: (id: string) => requestJson<SubmissionDiff>(`/api/v1/admin/submissions/${encodeURIComponent(id)}/diff`),

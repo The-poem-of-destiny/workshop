@@ -14,7 +14,7 @@
 - staging D1 已应用 0001–0011；Worker 版本 `d43d6b00-ac2d-4ffe-8c21-007edf69e01e`（commit `9455c62`），由 `deploy-staging` Actions 流水线部署。
 - staging 远程 smoke 已通过：health 200；此前覆盖 health/list/discovery/root/reference-sets/site/home、Origin 拒绝 403、client compatibility；`client/stable/index.js` 已发布 `0.1.3`。
 - GitHub Actions：`ci` run `39619178757`（main，commit `9455c62`）成功；`deploy-staging` run `39619370797`（commit `9455c62`）部署成功。
-- W21/W24 仍被 Q-05/Q-06/Q-10 阻塞；W23 R2 适配器已完成，真实数据导入与生产 cutover 未做。
+- W21/W24 不再被 Q-06 阻塞；Q-05 已定（D-35），Q-06 已定（D-36），Q-10 暂缓；W23 R2 适配器已完成，真实数据导入与生产 cutover 未做。
 
 ## 已有实现（不等于验收完成）
 
@@ -141,7 +141,7 @@
 - `data_backup/` 已加入 `.gitignore`；P4 前不读取。
 - `main` 通过 PR 合入，要求 `check` / `e2e`；staging 由 `main` 的 CI 成功触发；不部署生产、不操作真实生产 D1/R2/Cloudflare 资源。
 - 每个切片本地 commit；commit 使用 aoo / lxxxaoo@users.noreply.github.com。
-- Q-05、Q-06、Q-10 未定，不自行发明。
+- Q-05 已定（D-35）；Q-06 已定（D-36）；Q-10 暂缓。未定项不自行发明。
 
 ## 新会话先读
 

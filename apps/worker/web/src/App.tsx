@@ -4,6 +4,7 @@ import { AdminTools } from "./AdminTools";
 import {
   type AdminSubmissionDetail,
   type AdminSubmissionListItem,
+  type AdminSubmissionListResponse,
   type AuthorProject,
   api,
   type DiscoveryResponse,
@@ -795,31 +796,109 @@ function AdminPanel({
   const [diff, setDiff] = useState<SubmissionDiff | null>(null);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const [counts, setCounts] = useState<AdminSubmissionListResponse["counts"] | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const selectedRef = useRef<string | null>(null);
+  const cache = useRef(new Map<string, { detail: AdminSubmissionDetail; diff: SubmissionDiff }>());
+  const inflight = useRef(new Map<string, Promise<{ detail: AdminSubmissionDetail; diff: SubmissionDiff }>>());
+
+  async function loadDetail(id: string): Promise<{ detail: AdminSubmissionDetail; diff: SubmissionDiff }> {
+    const cached = cache.current.get(id);
+    if (cached) return cached;
+    const pending = inflight.current.get(id);
+    if (pending) return pending;
+    const request = Promise.all([api.adminSubmission(id), api.adminDiff(id)])
+      .then(([nextDetail, nextDiff]) => {
+        const value = { detail: nextDetail, diff: nextDiff };
+        cache.current.set(id, value);
+        return value;
+      })
+      .finally(() => inflight.current.delete(id));
+    inflight.current.set(id, request);
+    return request;
+  }
+
+  function nextId(id: string): string | null {
+    const index = items.findIndex((item) => item.id === id);
+    return index >= 0 ? (items[index + 1]?.id ?? null) : null;
+  }
+
+  function prefetch(id: string | null): void {
+    if (!id || cache.current.has(id) || inflight.current.has(id)) return;
+    void loadDetail(id).catch(() => undefined);
+  }
+
+  function clearSelection(): void {
+    selectedRef.current = null;
+    setSelectedId(null);
+    setDetail(null);
+    setDiff(null);
+  }
+
   async function refresh(): Promise<void> {
     try {
-      const [pending, checking] = await Promise.all([
-        api.adminSubmissions("pending"),
-        api.adminSubmissions("checking"),
-      ]);
-      const merged = [...pending.items, ...checking.items].filter(
-        (item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index,
-      );
-      setItems(merged);
-      if (selectedId) await select(selectedId);
+      const result = await api.adminSubmissions("pending");
+      setItems(result.items);
+      setCounts(result.counts);
+      setNextCursor(result.nextCursor);
+      if (selectedId && !result.items.some((item) => item.id === selectedId)) clearSelection();
     } catch (value) {
       onError(String(value));
     }
   }
-  async function select(id: string): Promise<void> {
-    setSelectedId(id);
+
+  async function loadMore(): Promise<void> {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
     try {
-      const [nextDetail, nextDiff] = await Promise.all([api.adminSubmission(id), api.adminDiff(id)]);
-      setDetail(nextDetail);
-      setDiff(nextDiff);
+      const result = await api.adminSubmissions("pending", nextCursor);
+      setItems((previous) => {
+        const seen = new Set(previous.map((item) => item.id));
+        return [...previous, ...result.items.filter((item) => !seen.has(item.id))];
+      });
+      setCounts(result.counts);
+      setNextCursor(result.nextCursor);
+    } catch (value) {
+      onError(String(value));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  function advance(currentId: string): void {
+    const index = items.findIndex((item) => item.id === currentId);
+    const remaining = items.filter((item) => item.id !== currentId);
+    const next = remaining.length > 0 ? remaining[Math.min(Math.max(index, 0), remaining.length - 1)] : null;
+    setItems(remaining);
+    if (next) void select(next.id);
+    else clearSelection();
+    if (remaining.length < 5 && nextCursor) void loadMore();
+  }
+
+  async function select(id: string): Promise<void> {
+    selectedRef.current = id;
+    setSelectedId(id);
+    const cached = cache.current.get(id);
+    if (cached) {
+      setDetail(cached.detail);
+      setDiff(cached.diff);
+      prefetch(nextId(id));
+      return;
+    }
+    setDetail(null);
+    setDiff(null);
+    try {
+      const value = await loadDetail(id);
+      if (selectedRef.current !== id) return;
+      setDetail(value.detail);
+      setDiff(value.diff);
+      prefetch(nextId(id));
     } catch (value) {
       onError(String(value));
     }
   }
+
   useEffect(() => {
     void refresh();
   }, []);
@@ -839,12 +918,21 @@ function AdminPanel({
       return;
     }
     if (!selectedId) return;
+    const currentId = selectedId;
     setBusy(true);
     try {
-      await api.adminReview(selectedId, decision, reason.trim() || undefined);
+      await api.adminReview(currentId, decision, reason.trim() || undefined);
       setReason("");
       onNotice(decision === "approve" ? "已通过审核。" : "已拒绝审核。");
-      await refresh();
+      cache.current.delete(currentId);
+      inflight.current.delete(currentId);
+      const nextStatus = decision === "approve" ? "approved" : "rejected";
+      setCounts((previous) =>
+        previous
+          ? { ...previous, pending: Math.max(0, previous.pending - 1), [nextStatus]: previous[nextStatus] + 1 }
+          : previous,
+      );
+      advance(currentId);
     } catch (value) {
       onError(String(value));
     } finally {
@@ -856,8 +944,14 @@ function AdminPanel({
     setBusy(true);
     try {
       await api.adminRecheck(selectedId);
+      setCounts((previous) =>
+        previous
+          ? { ...previous, pending: Math.max(0, previous.pending - 1), checking: previous.checking + 1 }
+          : previous,
+      );
+      cache.current.delete(selectedId);
+      advance(selectedId);
       onNotice("已重新排队检查。");
-      await refresh();
     } catch (value) {
       onError(String(value));
     } finally {
@@ -887,6 +981,11 @@ function AdminPanel({
             刷新
           </button>
         </div>
+        {counts ? (
+          <p className="hint">
+            待审 {counts.pending} · 检查中 {counts.checking} · 已通过 {counts.approved} · 已拒绝 {counts.rejected}
+          </p>
+        ) : null}
         {items.length === 0 ? (
           <p className="hint">暂无待处理提交。</p>
         ) : (
@@ -897,6 +996,8 @@ function AdminPanel({
                 type="button"
                 key={item.id}
                 onClick={() => void select(item.id)}
+                onMouseEnter={() => prefetch(item.id)}
+                onFocus={() => prefetch(item.id)}
               >
                 <span>
                   <strong>{item.projectTitle}</strong>
@@ -909,6 +1010,11 @@ function AdminPanel({
             ))}
           </div>
         )}
+        {nextCursor ? (
+          <button type="button" disabled={loadingMore} onClick={() => void loadMore()}>
+            {loadingMore ? "加载中…" : "加载更多"}
+          </button>
+        ) : null}
       </section>
       {detail ? (
         <section className="panel review-detail">

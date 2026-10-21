@@ -92,6 +92,35 @@ describe("admin review and publishing", () => {
     });
   });
 
+  it("lists multiple statuses in one request and paginates with a keyset cursor", async () => {
+    await bindings.DB.prepare(`
+      INSERT INTO projects (id, author_id, title, visibility, working_revision_id, updated_at)
+      VALUES ('p2', 'member', 'Second project', 'private', 'r2', '2026-10-21T00:00:01.000Z');
+      INSERT INTO project_revisions (id, project_id, revision_no, title, created_by)
+      VALUES ('r2', 'p2', 1, 'Second project', 'member');
+      INSERT INTO submissions
+        (id, project_id, revision_id, status, gate, checker_revision, submitted_by, submitted_at)
+      VALUES ('s2', 'p2', 'r2', 'checking', 'warn', 'checker-1', 'member', '2026-10-21T00:00:01.000Z');
+    `).run();
+
+    const first = await request("/submissions?status=pending,checking&limit=1");
+    expect(first.status).toBe(200);
+    const firstPage = (await first.json()) as {
+      counts: Record<string, number>;
+      items: Array<{ id: string }>;
+      nextCursor: string | null;
+    };
+    expect(firstPage.items.map((item) => item.id)).toEqual(["s1"]);
+    expect(firstPage.counts).toMatchObject({ pending: 1, checking: 1 });
+    expect(firstPage.nextCursor).toEqual(expect.any(String));
+
+    const second = await request(
+      `/submissions?status=pending,checking&limit=1&cursor=${encodeURIComponent(firstPage.nextCursor ?? "")}`,
+    );
+    expect(second.status).toBe(200);
+    await expect(second.json()).resolves.toMatchObject({ items: [{ id: "s2" }], nextCursor: null });
+  });
+
   it("returns detail metadata without file contents", async () => {
     const response = await request("/submissions/s1");
     expect(response.status).toBe(200);

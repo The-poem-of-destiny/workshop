@@ -3,6 +3,7 @@ import type {
   AdminReferenceVersionCreate,
   AdminReviewRequest,
   AdminSubmissionListQuery,
+  AdminSubmissionStatus,
 } from "@workshop/contracts";
 import { z } from "zod";
 
@@ -150,12 +151,42 @@ function decodeCursor(cursor: string | undefined): number {
   }
 }
 
+function encodeSubmissionCursor(row: { submitted_at: string; id: string }): string {
+  return btoa(JSON.stringify([row.submitted_at, row.id]))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+}
+
+function decodeSubmissionCursor(cursor: string | undefined): [string, string] | null {
+  if (!cursor) return null;
+  try {
+    const parsed: unknown = JSON.parse(atob(cursor.replaceAll("-", "+").replaceAll("_", "/")));
+    if (!Array.isArray(parsed) || parsed.length !== 2) return null;
+    const [submittedAt, id] = parsed;
+    return typeof submittedAt === "string" && typeof id === "string" ? [submittedAt, id] : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function listAdminSubmissions(db: D1Database, query: AdminSubmissionListQuery) {
-  const offset = decodeCursor(query.cursor);
-  const where = query.status ? "WHERE s.status = ?" : "";
-  const bindings: unknown[] = query.status ? [query.status] : [];
-  const result = await db
-    .prepare(`
+  const statuses = query.status ?? [];
+  const conditions: string[] = [];
+  const bindings: unknown[] = [];
+  if (statuses.length > 0) {
+    conditions.push(`s.status IN (${statuses.map(() => "?").join(",")})`);
+    bindings.push(...statuses);
+  }
+  const after = decodeSubmissionCursor(query.cursor);
+  if (after) {
+    conditions.push("(s.submitted_at > ? OR (s.submitted_at = ? AND s.id > ?))");
+    bindings.push(after[0], after[0], after[1]);
+  }
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const [result, countRows] = await Promise.all([
+    db
+      .prepare(`
     SELECT s.id, s.project_id, s.revision_id, s.status, s.gate,
            s.checker_revision, s.submitted_at, s.check_status,
            p.title AS project_title, u.id AS author_id,
@@ -165,13 +196,29 @@ export async function listAdminSubmissions(db: D1Database, query: AdminSubmissio
     JOIN users u ON u.id = p.author_id
     ${where}
     ORDER BY s.submitted_at ASC, s.id ASC
-    LIMIT ? OFFSET ?
+    LIMIT ?
   `)
-    .bind(...bindings, query.limit + 1, offset)
-    .all<SubmissionRow>();
+      .bind(...bindings, query.limit + 1)
+      .all<SubmissionRow>(),
+    db.prepare("SELECT status, COUNT(*) AS count FROM submissions GROUP BY status").all<{
+      status: AdminSubmissionStatus;
+      count: number;
+    }>(),
+  ]);
+
+  const counts: Record<AdminSubmissionStatus, number> = {
+    pending: 0,
+    checking: 0,
+    approved: 0,
+    rejected: 0,
+    superseded: 0,
+  };
+  for (const row of countRows.results) counts[row.status] = row.count;
 
   const rows = result.results.slice(0, query.limit);
+  const last = rows.at(-1);
   return {
+    counts,
     items: rows.map((row) => ({
       id: row.id,
       projectId: row.project_id,
@@ -183,7 +230,7 @@ export async function listAdminSubmissions(db: D1Database, query: AdminSubmissio
       checkStatus: row.check_status,
       submittedAt: row.submitted_at,
     })),
-    nextCursor: result.results.length > query.limit ? encodeCursor(offset + query.limit) : null,
+    nextCursor: result.results.length > query.limit && last ? encodeSubmissionCursor(last) : null,
   };
 }
 
