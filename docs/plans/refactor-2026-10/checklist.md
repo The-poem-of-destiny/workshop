@@ -161,7 +161,7 @@
 - [x] 迁移 synthetic + SQL converter 测试。
 - [x] 真实备份全量两次 + delta + reconcile；隔离本地 D1 load。
 - [x] 本地 HTTP E2E 19/19；真实 Chromium 搜索/排序 DOM、作者工作台+订阅、owner 管理、审核通过/拒绝、拒绝→改稿重提 6 条旅程。
-- [x] staging 部署、D1 migration 0002–0009、Worker `51e6d6b0-1e07-42be-9de8-4524c7b42a16`（commit `1b6deef`）。
+- [x] staging 部署、D1 migration 0002–0009、Worker `93841ccc-bb4a-4edd-b54a-89e54595da14`（commit `33d1cd3`）。
 - [x] R2 批量复制适配器（manifest、SHA/bytes 校验、本地演练、幂等重跑、损坏修复、remote `--apply`）。
 - [x] 迁移映射覆盖 site_settings、project_metrics_daily、ranking_runs/entries、discovery_exposures；本地测试断言不再被列为 dropped。
 - [ ] staging 真实数据导入与独立 reconcile（需授权目标）。
