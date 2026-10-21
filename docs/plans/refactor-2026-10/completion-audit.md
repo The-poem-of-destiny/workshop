@@ -9,7 +9,7 @@
 - [x] `pnpm --filter @workshop/worker test` 全绿（83/83）。
 - [x] `pnpm e2e:local` 全绿（21/21）。
 - [~] 关键前端页面有截图（`screenshots/`）；截图已生成，需人工视觉签收。
-- [~] 其余代码可执行项见未勾选项；本轮未完成项已列在第 7 节。
+- [x] 可执行项已关闭或标记 `[~]` 并写明原因；未完成项见第 7 节。
 - [x] 不进行 production 部署，不创建 `v*` tag。
 
 ## 1. API 与领域
@@ -24,7 +24,7 @@
 - [x] 公开项目列表改为固定 24 条 + keyset cursor，不再用 offset 伪装 cursor。
 - [x] 匿名 `entries` 索引在 revision 冻结时生成并持久化，不在读路径解析 R2 原文。
 - [x] 删除条目时复用不可变 R2 对象，不复制全部保留资产。
-- [ ] 所有外部请求/响应进入 `packages/contracts`，Web 不再维护平行 DTO。
+- [~] 公开/作者主路径已有 contracts；审核详情、diff、成员/审计等后台 DTO 仍是 Web 本地类型，统一需要成组 schema 与路由 parse，留待下一轮。
 - [x] 412 响应带 `resource/expectedVersion/currentVersion`，区分 409 状态机冲突。
 - [x] 选择并记录动态 API 缓存阶段：在 D-24 验收前保持 `private,no-store`，或完成 gateway/Public/Viewer 与 tag purge。
 - [x] 参考集详情使用单资源查询，不再全量读取后过滤。
@@ -109,4 +109,4 @@
 - 公开目录：固定 24 + keyset；无效 cursor 返回 400。
 - 条目索引：`revision_entry_index`，提交冻结时写入；旧数据读路径回退解析。
 - 缓存阶段：D-37。
-- 未完成/延期：R2 保留资产复用、Web DTO 统一、本地下载/安装账本、嵌入/设备登录、真实 ST 验收、CI build-once、生产备份演练。
+- 未完成/延期：Web 后台 DTO 统一、独立修复入口、真实 ST 验收、CI build-once、生产备份演练。
