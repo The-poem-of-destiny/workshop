@@ -6,7 +6,7 @@
   "scripts": {
     "build": "pnpm --filter @workshop/worker web:build",
     "dev": "pnpm --filter @workshop/worker dev",
-    "check": "pnpm check:workspace && biome ci . && pnpm -r --if-present typecheck && pnpm -r --if-present test && pnpm check:schema && node tools/migrate/test.mjs && node tools/migrate/test-from-sql.mjs && node tools/backup/test.mjs && node tests/legacy-contracts.test.mjs && pnpm --filter @workshop/worker check:wrangler",
+    "check": "pnpm check:workspace && biome ci . && pnpm -r --if-present typecheck && pnpm -r --if-present test && pnpm check:schema && node tools/migrate/test.mjs && node tools/migrate/test-from-sql.mjs && node tools/backup/test.mjs && pnpm --filter @workshop/worker check:wrangler",
     "check:workspace": "node tools/check-workspace.mjs",
     "check:schema": "node tools/check-schema.mjs",
     "worker:test": "pnpm --filter @workshop/worker test",

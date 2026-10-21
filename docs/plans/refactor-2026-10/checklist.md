@@ -168,7 +168,7 @@
 - [x] 迁移映射覆盖 site_settings、project_metrics_daily、ranking_runs/entries、discovery_exposures；本地测试断言不再被列为 dropped。
 - [ ] staging 真实数据导入与独立 reconcile（需授权目标）。
 - [x] T3 entry-key/fingerprint/玩家修改保留单元测试（tavern-client 4 项）；真实 ST 旅程未验。
-- [x] T6 旧公开 API 样本契约测试（17 个 fixtures 已恢复，`tests/legacy-contracts.test.mjs` 防泄露/搜索/类型/分页/条目摘要）。
+- [x] T6 新公开 API 契约由 `apps/worker/test/read-path.test.ts` 覆盖；旧响应样本与 `tests/legacy-contracts.test.mjs` 已删除，不再维护旧客户端兼容。
 - [x] Playwright 5 条真实浏览器旅程（本地 Worker + 真实 Chromium）。
 - [x] staging 远程 HTTP smoke：health/list/root/reference-sets/site/home 200，Origin 拒绝 403，client compatibility 200。
 - [ ] 生产切换 runbook 执行与人工审批。

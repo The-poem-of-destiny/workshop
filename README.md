@@ -21,7 +21,6 @@ workshop/
 ├─ packages/domain/          # 分类、内容策略、限额、版本等纯函数
 ├─ packages/content/         # EJS checker、内容审计与 bundle 产物
 ├─ tools/                    # workspace/schema 校验、迁移、备份校验与本地 E2E
-├─ tests/                    # 跨包契约与旧桥接兼容测试
 ├─ docs/                     # 当前知识、refactor 计划与审计
 │  ├─ AGENTS.md              # 文档权威归属与写作规则
 │  ├─ plans/refactor-2026-10/
