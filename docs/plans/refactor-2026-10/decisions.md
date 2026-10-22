@@ -67,7 +67,7 @@ Cloudflare **Free** 套餐。普通 Worker 每请求 10ms CPU，Durable Object �
 
 ### D-12 数据迁移
 
-新库从 `0001_initial.sql` 重建，旧库只读保留；迁移保留公开项目 id；逐表映射 + 对账；迁移工具幂等。
+新库应用完整编号 migration 链，旧库只读保留；迁移保留选定公开项目 id。只导入当前产品需要的已发布内容及必要作者，校验实际字节、完整索引与关联；不因旧库存在某类数据就恢复对应结构或历史。范围详见 D-39。
 
 ### D-13 切换与回滚
 
@@ -343,6 +343,25 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
 - 在 D-24/D-28 验收前不扩大缓存范围，也不把公开计数缓存当作权限或写入判断。
 - 客户端/checker 版本化对象使用 immutable 长缓存；channel 指针使用短缓存并回源校验。
 - `/api/v1/client/compatibility` 与 `/client/*` 允许 `Access-Control-Allow-Origin: *`：它们无 session、由任意 SillyTavern 页面加载；其余 `/api/*` 继续使用 Origin 白名单。
+
+### D-38 Workers Cache 入口与公开代际
+
+- D-37 中把旧 `caches.default` 称作 Workers Cache 的表述由本决策取代；旧实现不得继续作为新缓存机制。
+- 默认 gateway 明确不缓存；仅命名 `Public` entrypoint 使用 Workers Cache，且先只在获授权的 staging／预发配置开启，production 保持关闭。
+- gateway 每次公开读取先从 D1 primary 取得公开代际；失败 fail closed。可信代际通过 entrypoint props 参与缓存键，公开状态变更与代际递增同事务。
+- Public 内部响应显式 30 秒 TTL、`stale-if-error=0`、不启用 SWR；gateway 对外改写为 `private, no-store`，去除内部 cache/tag 控制头。正确性不依赖 purge 的接受结果。
+- 私有、作者、审核、票据与字节路径保持 no-store；不可变版本对象可单独使用 immutable 缓存。当前公开封面按 project-level display association 或发布 revision 的回退引用判定，不按共享 key 任意取第一行。
+
+### D-39 重构数据边界与 schema 收敛
+
+- 旧库不是新模型的需求清单。当前用户旅程、不变量和真实读写决定 schema；无用数据可舍弃，不保留历史兼容壳。
+- 只保留一套编号 migrations；`0001` 是历史起点，不是完整当前 schema。新库应用全链，既有库仅应用待执行迁移，不增加平行手写 schema。
+- `0021` 删除 7 个死／镜像字段：OAuth `verifier_hash`、revision `facets/custom_tags/metadata`、submission `gate/checker_revision`、人工 review `report`。客户端检查只存 `client_*`；权威报告保留在 `submission_check_runs`，最新报告投影和类型化 metadata 审计仍有业务用途。
+- assets 仅允许 worldbook／regex／cover；Discord 头像与站点 Banner 不进入项目资产表。保留共享 R2 key、每 revision/kind 唯一、单独公开封面 association 等现行约束。
+- 已发布内容必须具有完整持久索引。保留 `entry_index_ready` 作为显式完整性状态；匿名读取只查 D1，不再通过 DO／R2 兼容历史内容。升级时撤下 ready=0 的旧发布指针并清除其不完整派生索引，内容 revision 留作作者历史；恢复公开需走当前提交路径。
+- 导入工具只接受明确选出的公开发布项目、必要 member 作者与真实可验证文件，建立 canonical manifest、计数及完整索引。不迁草稿族、旧权限、会话、审核历史、互动、历史计数或站点配置；格式不可靠的项目明确排除，不伪造默认记录。
+- 审计确认现有 28 张业务／索引表均有真实读写；不为“删得多”而删除排行、发现曝光、引用、互动等仍在使用的功能。旧状态枚举的历史容许值不等于新增业务状态；当前状态迁移仍以实际生产路径为准。
+- 本地 commit 已获授权，按职责划分；这不授权 push、PR、部署或破坏性远程 D1/R2 操作。
 
 ---
 

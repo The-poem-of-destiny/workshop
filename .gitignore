@@ -39,3 +39,6 @@ __pycache__/
 # build artifacts
 apps/worker/build/
 release/
+
+# local reference research
+/ref/

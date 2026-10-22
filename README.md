@@ -38,7 +38,7 @@ workshop/
 - 审核：待审队列、发布指针切换、成员角色、审计；
 - 互动：点赞、订阅、评分、按用户/项目/日幂等的下载计数；
 - 客户端：版本化分发、安装/更新/卸载与基线校验；
-- 缓存：公开 GET（项目列表/详情、推荐、榜单）使用 Workers Cache API，30 秒 TTL，`cache_epoch` 变更即失效；作者、审核、下载等动态接口保持 `private, no-store`。
+- 缓存：项目列表/详情、发现、榜单使用 Workers Cache API，30 秒 TTL + `cache_epoch`；首页、推荐、参考集、站点当前直读 D1；作者、审核、下载等动态接口保持 `private, no-store`。详见 `docs/plans/refactor-2026-10/api-design.md`。
 
 接口以 `/api/v1` 为前缀。契约在 `packages/contracts`，领域规则在 `packages/domain`，checker 与内容审计在 `packages/content`。
 
@@ -75,6 +75,10 @@ pnpm exec wrangler d1 migrations apply workshop-staging --local --config wrangle
 ```
 
 客户端构建与发布脚本在 `apps/tavern-client/package.json`；checker 构建与发布脚本在 `packages/content/package.json`。
+
+数据库结构以完整编号 migration 链为准，不以旧导出数据要求保留无用字段。当前导入工具只转换已选公开发布内容与必要 member 作者，重建 manifest 和完整条目索引；不会恢复旧管理员权限、会话、草稿、审核或互动历史，见 [`tools/migrate/README.md`](tools/migrate/README.md)。
+
+`0021_remove_obsolete_state.sql` 会删除旧镜像字段、撤下未完成索引的历史发布并清理无用资产关联（保留 revision 和 R2 原文件）。远程执行前必须备份、确认影响与获得授权；本地通过不代表已经应用到 staging／production。
 
 ## 部署
 
