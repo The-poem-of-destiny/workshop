@@ -39,6 +39,20 @@ Schema/data failure:
 4. Time Travel restores in place and is destructive; it cannot restore into a separate temporary database.
 5. Run integrity and smoke checks before reopening writes.
 
+## Client artifact publishing
+
+`pnpm --filter @workshop/tavern-client publish:client --env <staging|production> --channel <staging|stable>` writes two objects (`client/v/<sha>/index.js`, `client/<channel>/index.js`) plus the `client_channels` row in D1.
+
+Objects are uploaded through the **R2 S3 endpoint** (`<account>.r2.cloudflarestorage.com`, SigV4, region `auto`), using the API token id as access key and `SHA-256(token)` as secret. Workflow jobs supply `CLOUDFLARE_API_TOKEN`; D1 bookkeeping still uses Wrangler.
+
+Do not switch the object upload back to `wrangler r2 object put`: that command uses the Cloudflare REST API, where bucket-scoped R2 permissions (`Object Read & Write`, `Bucket Item Write`) do not apply, producing `403 Authentication error` even when the bucket permission is configured correctly. Verified by signing the same PUT over S3 against the same bucket.
+
+CI must use its own dedicated token. Never copy a machine-local token into GitHub secrets or repository files.
+
+## Smoke assertions
+
+Download a response before asserting on it (`curl -o file` then `grep`). Piping `curl` into `grep -q` lets `grep` exit early, which surfaces as `curl: (23)` and fails the step under `set -o pipefail`.
+
 ## Backup verification
 
 The backup workflow downloads an object from the private bucket, verifies an optional SHA-256, runs `PRAGMA integrity_check`, and reports the table count. It does not mutate production D1.
