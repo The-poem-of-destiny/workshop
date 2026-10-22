@@ -22,11 +22,14 @@ import type {
   ProjectDetail,
   ProjectListResponse,
   ProjectSummary,
+  PublishedMetadataResponse,
   ReferenceItem,
   ReferenceSet,
   ReferenceVersion,
   SiteSettings,
   SubmissionDiff,
+  SubmitResponse,
+  UploadResponse,
 } from "@workshop/contracts";
 
 export type {
@@ -51,6 +54,7 @@ export type {
   ProjectDetail,
   ProjectListResponse,
   ProjectSummary,
+  PublishedMetadataResponse,
   ReferenceItem,
   ReferenceSet,
   ReferenceVersion,
@@ -83,21 +87,43 @@ function authHeaders(): Record<string, string> {
   return value ? { authorization: `Bearer ${value}` } : {};
 }
 
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  readonly details: unknown;
+
+  constructor(status: number, statusText: string, code: string | null, message: string, details: unknown) {
+    super(`${status} ${code ? `${code}: ` : ""}${message || statusText}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+    this.details = details;
+  }
+}
+
 async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...init,
     headers: { accept: "application/json", ...authHeaders(), ...(init.headers ?? {}) },
   });
   if (!response.ok) {
-    let message = `${response.status} ${response.statusText}`;
+    let message = "";
+    let code: string | null = null;
+    let details: unknown;
     try {
       const body: unknown = await response.json();
-      if (typeof body === "object" && body !== null && "message" in body && typeof body.message === "string")
-        message = body.message;
+      if (typeof body === "object" && body !== null && !Array.isArray(body)) {
+        if ("message" in body && typeof body.message === "string") message = body.message;
+        if ("error" in body && typeof body.error === "object" && body.error !== null && !Array.isArray(body.error)) {
+          if ("message" in body.error && typeof body.error.message === "string") message = body.error.message;
+          if ("code" in body.error && typeof body.error.code === "string") code = body.error.code;
+          if ("details" in body.error) details = body.error.details;
+        }
+      }
     } catch {
       /* non-json error */
     }
-    throw new Error(message);
+    throw new ApiError(response.status, response.statusText, code, message, details);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -178,19 +204,52 @@ export const api = {
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
     return response.blob();
   },
-  uploadFile: (id: string, revisionId: string, kind: "worldbook" | "regex" | "cover", file: File) =>
-    requestJson<{ kind: string; bytes: number; mime: string }>(
+  publishedMetadata: (id: string) =>
+    requestJson<PublishedMetadataResponse>(`/api/v1/projects/${encodeURIComponent(id)}/published-metadata`),
+  patchPublishedMetadata: (id: string, rowVersion: number, body: Record<string, unknown>) =>
+    requestJson<{ rowVersion: number }>(`/api/v1/projects/${encodeURIComponent(id)}/published-metadata`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "if-match": String(rowVersion) },
+      body: JSON.stringify(body),
+    }),
+  publishedCover: async (id: string): Promise<Blob> => {
+    const response = await fetch(`/api/v1/projects/${encodeURIComponent(id)}/published-cover`, {
+      headers: authHeaders(),
+    });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    return response.blob();
+  },
+  uploadPublishedCover: (id: string, rowVersion: number, file: File) =>
+    requestJson<{ rowVersion: number; sha256: string; bytes: number; mime: string }>(
+      `/api/v1/projects/${encodeURIComponent(id)}/published-cover`,
+      {
+        method: "PUT",
+        headers: { "content-type": file.type || "application/octet-stream", "if-match": String(rowVersion) },
+        body: file,
+      },
+    ),
+  uploadFile: (id: string, revisionId: string, rowVersion: number, kind: "worldbook" | "regex" | "cover", file: File) =>
+    requestJson<UploadResponse>(
       `/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/files/${kind}`,
-      { method: "PUT", headers: { "content-type": file.type || "application/octet-stream" }, body: file },
+      {
+        method: "PUT",
+        headers: { "content-type": file.type || "application/octet-stream", "if-match": String(rowVersion) },
+        body: file,
+      },
     ),
   submitProject: (
     id: string,
     revisionId: string,
+    rowVersion: number,
     body: { gate?: string; checkerRevision?: string; warningCount?: number; acknowledged?: boolean },
   ) =>
-    requestJson<{ submissionId: string; status: string }>(
+    requestJson<SubmitResponse>(
       `/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/submit`,
-      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", "if-match": String(rowVersion) },
+        body: JSON.stringify(body),
+      },
     ),
   adminSubmissions: (status: string, cursor?: string) =>
     requestJson<AdminSubmissionListResponse>(

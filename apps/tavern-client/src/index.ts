@@ -476,15 +476,24 @@ function showOverlay() {
   });
 
   const origin = workshopOrigin();
+  const target = new URL("/", origin);
+  target.searchParams.set("embed", "1");
+  target.searchParams.set("clientVersion", CLIENT_VERSION);
+  target.searchParams.set("clientChannel", SCRIPT_CHANNEL);
   (async () => {
-    const target = `${origin}/?embed=1&clientVersion=${encodeURIComponent(CLIENT_VERSION)}&clientChannel=${SCRIPT_CHANNEL}`;
     try {
       const response = await fetch(
         `${origin}/api/v1/client/compatibility?version=${encodeURIComponent(CLIENT_VERSION)}&channel=${currentChannel()}`,
         { cache: "no-store" },
       );
-      const version = (await response.json()) as { compatible?: boolean; required?: string | null };
-      if (version.compatible === false) {
+      const version = (await response.json()) as {
+        bootstrap?: boolean;
+        compatible?: boolean;
+        required?: string | null;
+      };
+      if (version.bootstrap === true) {
+        console.warn("[CreativeWorkshop] 当前渠道尚未发布客户端，已进入引导模式。");
+      } else if (version.compatible === false) {
         $frame.remove();
         $card.append(
           host$("<div>")
@@ -500,9 +509,9 @@ function showOverlay() {
         return;
       }
     } catch {
-      // Offline/bootstrap: still attempt to open the workshop.
+      // Offline compatibility checks must not prevent opening the workshop.
     }
-    $frame.attr("src", target);
+    $frame.attr("src", target.toString());
   })();
 
   window.addEventListener("message", onMessage);

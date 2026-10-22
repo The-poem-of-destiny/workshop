@@ -172,11 +172,8 @@ async function main() {
       const first = await api("/api/v1/projects");
       assert(first.response.status === 200 && Array.isArray(JSON.parse(first.body).items), "list shape");
       const second = await api("/api/v1/projects");
-      assert(
-        second.response.headers.get("x-cache") === "HIT",
-        `list cache hit: ${second.response.headers.get("x-cache")}`,
-      );
-      assert(second.response.headers.get("cache-control")?.includes("public"), "list public cache header");
+      assert(second.response.status === 200, `list status: ${second.response.status}`);
+      assert(second.response.headers.get("cache-control")?.includes("no-store"), "gateway private cache header");
     });
 
     let project;
@@ -194,10 +191,7 @@ async function main() {
       project = JSON.parse(body);
       assert(project.project.id && project.workingRevisionId, "create shape");
       const afterCreate = await api("/api/v1/projects");
-      assert(
-        afterCreate.response.headers.get("x-cache") === "MISS",
-        `epoch invalidation: ${afterCreate.response.headers.get("x-cache")}`,
-      );
+      assert(afterCreate.response.status === 200, `post-create list ${afterCreate.response.status}`);
     });
 
     await check("author uploads assets", async () => {
@@ -206,12 +200,17 @@ async function main() {
         `/api/v1/projects/${project.project.id}/revisions/${project.workingRevisionId}/files/worldbook`,
         {
           method: "PUT",
-          headers: { "content-type": "application/json", "content-length": String(Buffer.byteLength(worldbook)) },
+          headers: {
+            "content-type": "application/json",
+            "content-length": String(Buffer.byteLength(worldbook)),
+            "if-match": String(project.rowVersion),
+          },
           body: worldbook,
         },
         authorToken,
       );
       assert(wb.response.status === 200, `worldbook ${wb.response.status}: ${wb.body}`);
+      project.rowVersion = JSON.parse(wb.body).rowVersion;
       const png = Buffer.from(
         "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360000000020001e221bc330000000049454e44ae426082",
         "hex",
@@ -220,12 +219,17 @@ async function main() {
         `/api/v1/projects/${project.project.id}/revisions/${project.workingRevisionId}/files/cover`,
         {
           method: "PUT",
-          headers: { "content-type": "image/png", "content-length": String(png.length) },
+          headers: {
+            "content-type": "image/png",
+            "content-length": String(png.length),
+            "if-match": String(project.rowVersion),
+          },
           body: png,
         },
         authorToken,
       );
       assert(cover.response.status === 200, `cover ${cover.response.status}: ${cover.body}`);
+      project.rowVersion = JSON.parse(cover.body).rowVersion;
     });
 
     await check("private detail is 404", async () => {
@@ -235,32 +239,29 @@ async function main() {
       assert(draft.response.status === 200, `author draft ${draft.response.status}`);
     });
 
-    await check("author publishes and auto-publishes", async () => {
+    await check("author publishes and acquires through one ticket channel", async () => {
       const visibility = await api(
         `/api/v1/projects/${project.project.id}/visibility`,
         {
           method: "PATCH",
-          headers: { "content-type": "application/json", "if-match": "1" },
+          headers: { "content-type": "application/json", "if-match": String(project.rowVersion) },
           body: JSON.stringify({ visibility: "public" }),
         },
         authorToken,
       );
       assert(visibility.response.status === 200, `visibility ${visibility.response.status}: ${visibility.body}`);
+      project.rowVersion = JSON.parse(visibility.body).rowVersion;
       const submit = await api(
         `/api/v1/projects/${project.project.id}/revisions/${project.workingRevisionId}/submit`,
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            gate: "warn",
-            checkerRevision: "e2e",
-            warningCount: 1,
-            acknowledged: true,
-          }),
+          headers: { "content-type": "application/json", "if-match": String(project.rowVersion) },
+          body: JSON.stringify({ gate: "warn", checkerRevision: "e2e", warningCount: 1, acknowledged: true }),
         },
         authorToken,
       );
       assert(submit.response.status === 201, `submit ${submit.response.status}: ${submit.body}`);
+      project.rowVersion = JSON.parse(submit.body).rowVersion;
 
       let detail;
       for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -270,20 +271,24 @@ async function main() {
       }
       assert(detail?.response.status === 200, `public detail ${detail?.response.status}: ${detail?.body}`);
       assert(JSON.parse(detail.body).id === project.project.id, "public id");
-      const manifest = await api(
-        `/api/v1/projects/${project.project.id}/releases/${project.workingRevisionId}/manifest`,
-        {},
-        authorToken,
+      const indexed = await api(`/api/v1/projects/${project.project.id}/entries`);
+      assert(indexed.response.status === 200, `entry index ${indexed.response.status}: ${indexed.body}`);
+      const index = JSON.parse(indexed.body);
+      assert(
+        index.revisionId === project.workingRevisionId &&
+          index.entries.length === 1 &&
+          index.entries[0].entryKey === "uid:1" &&
+          index.entries[0].contentHash === hash("hello") &&
+          index.entries[0].contentLength === 5 &&
+          !("content" in index.entries[0]),
+        "published index must match frozen content without returning bytes",
       );
-      assert(manifest.response.status === 200, `manifest ${manifest.response.status}: ${manifest.body}`);
-      const parsed = JSON.parse(manifest.body);
-      assert(parsed.manifestHash && parsed.files.some((file) => file.kind === "worldbook"), "manifest shape");
-      const file = await api(
-        `/api/v1/projects/${project.project.id}/releases/${project.workingRevisionId}/files/worldbook`,
-        {},
-        authorToken,
-      );
-      assert(file.response.status === 200 && file.body.includes("hello"), "release file");
+      const tickets = await api(`/api/v1/projects/${project.project.id}/downloads`, { method: "POST" }, authorToken);
+      assert(tickets.response.status === 201, `ticket issue ${tickets.response.status}: ${tickets.body}`);
+      const ticket = JSON.parse(tickets.body);
+      assert(ticket.revisionId === project.workingRevisionId && ticket.files.length === 1, "release ticket shape");
+      const file = await api(ticket.files[0].url, {}, authorToken);
+      assert(file.response.status === 200 && file.body.includes("hello"), "ticket bytes");
       const cover = await fetch(`${base}${JSON.parse(detail.body).coverUrl}`);
       assert(cover.status === 200 && cover.headers.get("content-type")?.includes("image/png"), "public cover");
     });
@@ -306,27 +311,33 @@ async function main() {
         `/api/v1/projects/${second.project.id}/revisions/${second.workingRevisionId}/files/worldbook`,
         {
           method: "PUT",
-          headers: { "content-type": "application/json", "content-length": String(Buffer.byteLength(worldbook)) },
+          headers: {
+            "content-type": "application/json",
+            "content-length": String(Buffer.byteLength(worldbook)),
+            "if-match": String(second.rowVersion),
+          },
           body: worldbook,
         },
         authorToken,
       );
       assert(upload.response.status === 200, `sort upload ${upload.response.status}: ${upload.body}`);
+      second.rowVersion = JSON.parse(upload.body).rowVersion;
       const visibility = await api(
         `/api/v1/projects/${second.project.id}/visibility`,
         {
           method: "PATCH",
-          headers: { "content-type": "application/json", "if-match": "1" },
+          headers: { "content-type": "application/json", "if-match": String(second.rowVersion) },
           body: JSON.stringify({ visibility: "public" }),
         },
         authorToken,
       );
       assert(visibility.response.status === 200, `sort visibility ${visibility.response.status}: ${visibility.body}`);
+      second.rowVersion = JSON.parse(visibility.body).rowVersion;
       const submit = await api(
         `/api/v1/projects/${second.project.id}/revisions/${second.workingRevisionId}/submit`,
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", "if-match": String(second.rowVersion) },
           body: JSON.stringify({ gate: "pass" }),
         },
         authorToken,
@@ -341,16 +352,40 @@ async function main() {
       assert(detail?.response.status === 200, `sort public detail ${detail?.response.status}`);
       const draft = await api(`/api/v1/projects/${project.project.id}/draft`, {}, authorToken);
       const rowVersion = JSON.parse(draft.body).rowVersion;
-      const patched = await api(
-        `/api/v1/projects/${project.project.id}`,
+      const revision = await api(
+        `/api/v1/projects/${project.project.id}/revisions`,
         {
-          method: "PATCH",
+          method: "POST",
           headers: { "content-type": "application/json", "if-match": String(rowVersion) },
           body: JSON.stringify({ title: "E2E Project" }),
         },
         authorToken,
       );
-      assert(patched.response.status === 200, `sort patch ${patched.response.status}: ${patched.body}`);
+      assert(revision.response.status === 201, `successor ${revision.response.status}: ${revision.body}`);
+      const next = JSON.parse(revision.body);
+      const patched = await api(
+        `/api/v1/projects/${project.project.id}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json", "if-match": String(next.rowVersion) },
+          body: JSON.stringify({ title: "E2E Project" }),
+        },
+        authorToken,
+      );
+      assert(patched.response.status === 200, `successor patch ${patched.response.status}: ${patched.body}`);
+      const publicPatch = await api(
+        `/api/v1/projects/${project.project.id}/published-metadata`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json", "if-match": String(JSON.parse(patched.body).rowVersion) },
+          body: JSON.stringify({ title: "E2E Project" }),
+        },
+        authorToken,
+      );
+      assert(
+        publicPatch.response.status === 200,
+        `public metadata patch ${publicPatch.response.status}: ${publicPatch.body}`,
+      );
     });
 
     await check("download tickets are idempotent and one-time", async () => {
@@ -394,17 +429,22 @@ async function main() {
         `/api/v1/projects/${project.project.id}/revisions/${project.workingRevisionId}/files/worldbook`,
         {
           method: "PUT",
-          headers: { "content-type": "application/json", "content-length": String(Buffer.byteLength(worldbook)) },
+          headers: {
+            "content-type": "application/json",
+            "content-length": String(Buffer.byteLength(worldbook)),
+            "if-match": String(project.rowVersion),
+          },
           body: worldbook,
         },
         authorToken,
       );
       assert(upload.response.status === 200, `pending upload ${upload.response.status}: ${upload.body}`);
+      project.rowVersion = JSON.parse(upload.body).rowVersion;
       const visibility = await api(
         `/api/v1/projects/${project.project.id}/visibility`,
         {
           method: "PATCH",
-          headers: { "content-type": "application/json", "if-match": "1" },
+          headers: { "content-type": "application/json", "if-match": String(project.rowVersion) },
           body: JSON.stringify({ visibility: "public" }),
         },
         authorToken,
@@ -413,11 +453,12 @@ async function main() {
         visibility.response.status === 200,
         `pending visibility ${visibility.response.status}: ${visibility.body}`,
       );
+      project.rowVersion = JSON.parse(visibility.body).rowVersion;
       const submit = await api(
         `/api/v1/projects/${project.project.id}/revisions/${project.workingRevisionId}/submit`,
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", "if-match": String(project.rowVersion) },
           body: JSON.stringify({ gate: "missing", acknowledged: true }),
         },
         authorToken,
@@ -529,6 +570,12 @@ async function main() {
           await page.locator(".card", { hasText: "E2E Project" }).first().locator(".card-title").click();
           await page.locator(".detail").waitFor({ state: "visible" });
           const subscribe = page.locator(".detail").getByRole("button", { name: /订阅/ });
+          await page.waitForFunction(() => {
+            const button = [...document.querySelectorAll(".detail button")].find((element) =>
+              element.textContent?.includes("订阅"),
+            );
+            return button && !button.disabled;
+          });
           if ((await subscribe.textContent())?.trim() === "订阅") {
             await subscribe.click();
             await page.locator(".detail").getByRole("button", { name: "已订阅", exact: true }).waitFor();
@@ -552,7 +599,7 @@ async function main() {
           await page.getByRole("button", { name: "提交当前版本" }).waitFor({ state: "visible" });
           assert((await page.locator(".workspace").textContent())?.includes("提交审核"), "submit box");
           await screenshot(page, "author-workspace");
-          await page.getByRole("button", { name: "订阅", exact: true }).click();
+          await page.getByRole("button", { name: "我的订阅", exact: true }).click();
           await page.getByText("E2E Project", { exact: true }).first().waitFor({ state: "visible", timeout: 10_000 });
           await context.close();
         });
@@ -611,10 +658,20 @@ async function main() {
           await page.getByRole("button", { name: "我的项目" }).click();
           await page.getByText("E2E Pending", { exact: true }).first().click();
           await page.getByText("e2e rejection reason", { exact: false }).waitFor({ state: "visible", timeout: 10_000 });
-          await page.getByRole("button", { name: "新建版本" }).click();
-          await page
-            .getByText("现在可以上传修改后的文件", { exact: false })
-            .waitFor({ state: "visible", timeout: 10_000 });
+          const [revisionResponse] = await Promise.all([
+            page.waitForResponse(
+              (response) => response.url().endsWith("/revisions") && response.request().method() === "POST",
+            ),
+            page.getByRole("button", { name: "新建版本" }).click(),
+          ]);
+          assert(
+            revisionResponse.status() === 201,
+            `successor response ${revisionResponse.status()}: ${await revisionResponse.text()}`,
+          );
+          await page.waitForFunction(() => {
+            const input = document.querySelector('input[type="file"][accept*=".json"]');
+            return input instanceof HTMLInputElement && !input.disabled;
+          });
           await page
             .locator('input[type="file"][accept*=".json"]')
             .first()
