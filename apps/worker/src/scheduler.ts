@@ -6,14 +6,14 @@ const MAX_ATTEMPTS = 3;
 export async function runScheduled(env: Env, scheduledTime?: number): Promise<void> {
   const scheduled = new Date(scheduledTime ?? Date.now());
   if (scheduled.getUTCMinutes() === 5) {
-    await buildRankings(env.DB);
+    await buildRankings(env.DB, scheduled);
   }
   if (scheduled.getUTCHours() === 0 && scheduled.getUTCMinutes() === 5) {
     const dryRun = env.CLEANUP_DRY_RUN === "1";
-    const result = await cleanupExpired(env.DB, dryRun);
+    const result = await cleanupExpired(env.DB, dryRun, scheduled);
     if (dryRun) console.log("cleanup dry-run", result);
   }
-  const now = new Date().toISOString();
+  const now = scheduled.toISOString();
 
   await env.DB.prepare(`
     UPDATE submissions

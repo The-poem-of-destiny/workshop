@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import type { Session } from "@workshop/contracts";
+import { type Session, uploadResponseSchema } from "@workshop/contracts";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Env } from "../src/env";
 import { authoringRoutes } from "../src/http/routes/authoring";
@@ -81,6 +81,12 @@ describe("authoring write paths", () => {
       body: JSON.stringify({ title: "stale" }),
     });
     expect(mismatch.status).toBe(412);
+    await expect(mismatch.json()).resolves.toMatchObject({
+      error: {
+        code: "precondition_failed",
+        details: { resource: "project", expectedVersion: 99, currentVersion: 1 },
+      },
+    });
   });
 
   it("hides projects from non-authors and permits owners", async () => {
@@ -120,17 +126,22 @@ describe("authoring write paths", () => {
       body: JSON.stringify({ title: "Second" }),
     });
     expect(revision.status).toBe(201);
-    const second = (await revision.json()) as { revisionId: string };
+    const second = (await revision.json()) as { revisionId: string; rowVersion: number };
     const upload = await request(`/${first.project.id}/revisions/${second.revisionId}/files/worldbook`, {
       method: "PUT",
       body: validWorldbook,
-      headers: { "content-type": "application/json", "content-length": String(validWorldbookBytes) },
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(validWorldbookBytes),
+        "if-match": String(second.rowVersion),
+      },
     });
     expect(upload.status).toBe(200);
     await expect(upload.json()).resolves.toMatchObject({
       kind: "worldbook",
       bytes: validWorldbookBytes,
       mime: "application/json",
+      rowVersion: 3,
     });
     const listed = await bindings.R2.list({
       prefix: `projects/${first.project.id}/revisions/${second.revisionId}/worldbook-`,
@@ -156,17 +167,19 @@ describe("authoring write paths", () => {
       ],
     });
     const bytes = new TextEncoder().encode(twoEntries).byteLength;
-    await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`, {
+    const initialUpload = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`, {
       method: "PUT",
       body: twoEntries,
-      headers: { "content-type": "application/json", "content-length": String(bytes) },
+      headers: { "content-type": "application/json", "content-length": String(bytes), "if-match": "1" },
     });
+    const uploadedWorldbook = (await initialUpload.json()) as { rowVersion: number };
     const cover = new TextEncoder().encode("cover-bytes").buffer;
-    await upsertAsset(
+    const uploadedCover = await upsertAsset(
       bindings.DB,
       bindings.R2,
       first.project.id,
       first.workingRevisionId,
+      uploadedWorldbook.rowVersion,
       "cover",
       cover,
       "image/webp",
@@ -174,11 +187,12 @@ describe("authoring write paths", () => {
     const regex = new TextEncoder().encode(
       JSON.stringify({ scriptName: "Keep", findRegex: "/a/g", replaceString: "b" }),
     ).buffer;
-    await upsertAsset(
+    const uploadedRegex = await upsertAsset(
       bindings.DB,
       bindings.R2,
       first.project.id,
       first.workingRevisionId,
+      uploadedCover!.rowVersion,
       "regex",
       regex,
       "application/json",
@@ -191,15 +205,15 @@ describe("authoring write paths", () => {
 
     const deleted = await request(
       `/${first.project.id}/revisions/${first.workingRevisionId}/entries/worldbook/${encodeURIComponent("uid:1")}`,
-      { method: "DELETE", headers: { "if-match": "1" } },
+      { method: "DELETE", headers: { "if-match": String(uploadedRegex!.rowVersion) } },
     );
     expect(deleted.status).toBe(200);
     const result = (await deleted.json()) as { rowVersion: number; revisionId: string; entryCount: number };
-    expect(result.rowVersion).toBe(2);
+    expect(result.rowVersion).toBe(5);
     expect(result.entryCount).toBe(1);
     expect(result.revisionId).not.toBe(first.workingRevisionId);
     const draft = await request(`/${first.project.id}/draft`);
-    await expect(draft.json()).resolves.toMatchObject({ workingRevisionId: result.revisionId, rowVersion: 2 });
+    await expect(draft.json()).resolves.toMatchObject({ workingRevisionId: result.revisionId, rowVersion: 5 });
     const asset = await bindings.DB.prepare("SELECT r2_key FROM assets WHERE revision_id = ? AND kind = 'worldbook'")
       .bind(result.revisionId)
       .first<{ r2_key: string }>();
@@ -219,11 +233,9 @@ describe("authoring write paths", () => {
     )
       .bind(result.revisionId)
       .first<{ r2_key: string }>();
-    expect(retainedCover?.r2_key).toBeTruthy();
-    expect(retainedCover?.r2_key).not.toBe(oldCover?.r2_key);
+    expect(retainedCover?.r2_key).toBe(oldCover?.r2_key);
     const retainedObject = await bindings.R2.get(retainedCover!.r2_key);
     await expect(retainedObject?.text()).resolves.toBe("cover-bytes");
-    await expect(bindings.R2.get(oldCover!.r2_key)).resolves.not.toBeNull();
     const counts = await bindings.DB.prepare("SELECT worldbook_count, regex_count FROM project_revisions WHERE id = ?")
       .bind(result.revisionId)
       .first<{ worldbook_count: number; regex_count: number }>();
@@ -239,20 +251,23 @@ describe("authoring write paths", () => {
         { uid: 2, name: "Two", content: "b" },
       ],
     });
-    await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`, {
+    const initialUpload = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`, {
       method: "PUT",
       body: entries,
       headers: {
         "content-type": "application/json",
         "content-length": String(new TextEncoder().encode(entries).byteLength),
+        "if-match": "1",
       },
     });
+    const uploadedWorldbook = (await initialUpload.json()) as { rowVersion: number };
     const cover = new TextEncoder().encode("missing-cover").buffer;
     const uploaded = await upsertAsset(
       bindings.DB,
       bindings.R2,
       first.project.id,
       first.workingRevisionId,
+      uploadedWorldbook.rowVersion,
       "cover",
       cover,
       "image/webp",
@@ -261,13 +276,13 @@ describe("authoring write paths", () => {
 
     const deleted = await request(
       `/${first.project.id}/revisions/${first.workingRevisionId}/entries/worldbook/${encodeURIComponent("uid:1")}`,
-      { method: "DELETE", headers: { "if-match": "1" } },
+      { method: "DELETE", headers: { "if-match": String(uploaded!.rowVersion) } },
     );
     expect(deleted.status).toBe(500);
     const project = await bindings.DB.prepare("SELECT working_revision_id, row_version FROM projects WHERE id = ?")
       .bind(first.project.id)
       .first<{ working_revision_id: string; row_version: number }>();
-    expect(project).toEqual({ working_revision_id: first.workingRevisionId, row_version: 1 });
+    expect(project).toEqual({ working_revision_id: first.workingRevisionId, row_version: 3 });
     const count = await bindings.DB.prepare("SELECT COUNT(*) AS count FROM project_revisions WHERE project_id = ?")
       .bind(first.project.id)
       .first<{ count: number }>();
@@ -280,33 +295,38 @@ describe("authoring write paths", () => {
     const upload = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`, {
       method: "PUT",
       body: validWorldbook,
-      headers: { "content-type": "application/json", "content-length": String(validWorldbookBytes) },
+      headers: { "content-type": "application/json", "content-length": String(validWorldbookBytes), "if-match": "1" },
     });
     expect(upload.status).toBe(200);
-    const submit = async () =>
-      request(`/${first.project.id}/revisions/${first.workingRevisionId}/submit`, {
-        method: "POST",
-        body: JSON.stringify({ gate: "warn", checkerRevision: "c1" }),
-      });
-    expect((await submit()).status).toBe(201);
-    expect((await submit()).status).toBe(201);
-    const statuses = await bindings.DB.prepare(
-      "SELECT status FROM submissions WHERE project_id = ? ORDER BY submitted_at",
-    )
-      .bind(first.project.id)
-      .all<{ status: string }>();
-    expect(statuses.results.map((row) => row.status)).toEqual(["superseded", "checking"]);
+    const uploaded = (await upload.json()) as { rowVersion: number };
+    const submit = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/submit`, {
+      method: "POST",
+      headers: { "if-match": String(uploaded.rowVersion) },
+      body: JSON.stringify({ gate: "warn", checkerRevision: "c1" }),
+    });
+    expect(submit.status).toBe(201);
+    const firstSubmission = (await submit.json()) as { rowVersion: number };
+
+    // A submitted revision cannot be submitted or uploaded again.
+    const resubmit = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/submit`, {
+      method: "POST",
+      headers: { "if-match": String(firstSubmission.rowVersion) },
+      body: JSON.stringify({ gate: "warn", checkerRevision: "c1" }),
+    });
+    expect(resubmit.status).toBe(409);
     const forbidden = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/nope`, {
       method: "PUT",
       body: "x",
     });
     expect(forbidden.status).toBe(400);
-
-    // A submitted revision is frozen: no post-submit byte replacement.
     const frozen = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`, {
       method: "PUT",
       body: validWorldbook,
-      headers: { "content-type": "application/json", "content-length": String(validWorldbookBytes) },
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(validWorldbookBytes),
+        "if-match": String(firstSubmission.rowVersion),
+      },
     });
     expect(frozen.status).toBe(404);
 
@@ -316,6 +336,7 @@ describe("authoring write paths", () => {
       bindings.R2,
       first.project.id,
       first.workingRevisionId,
+      firstSubmission.rowVersion,
       "worldbook",
       new TextEncoder().encode(validWorldbook).buffer,
       "application/json",
@@ -327,30 +348,102 @@ describe("authoring write paths", () => {
       .first<{ manifest_hash: string | null }>();
     expect(manifest?.manifest_hash).toMatch(/^[0-9a-f]{64}$/);
 
-    // A fresh working revision can still be uploaded; size is rejected before buffering.
+    // A successor submission supersedes the earlier unresolved submission.
     const next = await request(`/${first.project.id}/revisions`, {
       method: "POST",
-      headers: { "if-match": "1" },
+      headers: { "if-match": String(firstSubmission.rowVersion) },
       body: JSON.stringify({ title: "Third" }),
     });
     expect(next.status).toBe(201);
-    const third = (await next.json()) as { revisionId: string };
-    const oversized = await request(`/${first.project.id}/revisions/${third.revisionId}/files/cover`, {
+    const third = (await next.json()) as { revisionId: string; rowVersion: number };
+    const successorUpload = await request(`/${first.project.id}/revisions/${third.revisionId}/files/worldbook`, {
+      method: "PUT",
+      body: validWorldbook,
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(validWorldbookBytes),
+        "if-match": String(third.rowVersion),
+      },
+    });
+    const successorAsset = (await successorUpload.json()) as { rowVersion: number };
+    const successorSubmit = await request(`/${first.project.id}/revisions/${third.revisionId}/submit`, {
+      method: "POST",
+      headers: { "if-match": String(successorAsset.rowVersion) },
+      body: JSON.stringify({ gate: "warn", checkerRevision: "c1" }),
+    });
+    expect(successorSubmit.status).toBe(201);
+    const secondSubmission = (await successorSubmit.json()) as { rowVersion: number };
+    const statuses = await bindings.DB.prepare(
+      "SELECT status FROM submissions WHERE project_id = ? ORDER BY submitted_at",
+    )
+      .bind(first.project.id)
+      .all<{ status: string }>();
+    expect(statuses.results.map((row) => row.status)).toEqual(["superseded", "checking"]);
+
+    // A fresh working revision can still be uploaded; size is rejected before buffering.
+    const fresh = await request(`/${first.project.id}/revisions`, {
+      method: "POST",
+      headers: { "if-match": String(secondSubmission.rowVersion) },
+      body: JSON.stringify({ title: "Fourth" }),
+    });
+    const fourth = (await fresh.json()) as { revisionId: string; rowVersion: number };
+    const oversized = await request(`/${first.project.id}/revisions/${fourth.revisionId}/files/cover`, {
       method: "PUT",
       body: "x",
-      headers: { "content-type": "image/png", "content-length": String(10 * 1024 * 1024 + 1) },
+      headers: {
+        "content-type": "image/png",
+        "content-length": String(10 * 1024 * 1024 + 1),
+        "if-match": String(fourth.rowVersion),
+      },
     });
     expect(oversized.status).toBe(413);
+  });
+
+  it("does not allow metadata edits to rewrite a submitted review snapshot", async () => {
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Submitted snapshot", projectType: "角色" }),
+    });
+    const first = (await created.json()) as { project: { id: string }; workingRevisionId: string };
+    const upload = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`, {
+      method: "PUT",
+      body: validWorldbook,
+      headers: { "content-type": "application/json", "content-length": String(validWorldbookBytes), "if-match": "1" },
+    });
+    const uploaded = (await upload.json()) as { rowVersion: number };
+    const submission = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/submit`, {
+      method: "POST",
+      headers: { "if-match": String(uploaded.rowVersion) },
+      body: JSON.stringify({}),
+    });
+    expect(submission.status).toBe(201);
+    const submitted = (await submission.json()) as { rowVersion: number };
+
+    await bindings.DB.prepare("UPDATE projects SET published_revision_id = ? WHERE id = ?")
+      .bind(first.workingRevisionId, first.project.id)
+      .run();
+    const edited = await request(`/${first.project.id}`, {
+      method: "PATCH",
+      headers: { "if-match": String(submitted.rowVersion) },
+      body: JSON.stringify({ title: "Changed after submit", projectType: "扩展", tags: ["规则"] }),
+    });
+    expect(edited.status).toBe(409);
+    const snapshot = await bindings.DB.prepare("SELECT title, project_type, tags FROM project_revisions WHERE id = ?")
+      .bind(first.workingRevisionId)
+      .first<{ title: string; project_type: string; tags: string }>();
+    expect(snapshot).toEqual({ title: "Submitted snapshot", project_type: "角色", tags: "[]" });
   });
 
   it("rejects a submission containing an entry identical to an official baseline item", async () => {
     const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Baseline" }) });
     const project = (await created.json()) as { project: { id: string }; workingRevisionId: string };
-    await request(`/${project.project.id}/revisions/${project.workingRevisionId}/files/worldbook`, {
+    const upload = await request(`/${project.project.id}/revisions/${project.workingRevisionId}/files/worldbook`, {
       method: "PUT",
       body: validWorldbook,
-      headers: { "content-type": "application/json", "content-length": String(validWorldbookBytes) },
+      headers: { "content-type": "application/json", "content-length": String(validWorldbookBytes), "if-match": "1" },
     });
+    expect(upload.status).toBe(200);
+    const uploaded = (await upload.json()) as { rowVersion: number };
     const digest = await crypto.subtle.digest(
       "SHA-256",
       new TextEncoder().encode(JSON.stringify({ name: "Entry", content: "Text" })),
@@ -367,6 +460,7 @@ describe("authoring write paths", () => {
       .run();
     const submitted = await request(`/${project.project.id}/revisions/${project.workingRevisionId}/submit`, {
       method: "POST",
+      headers: { "if-match": String(uploaded.rowVersion) },
       body: JSON.stringify({ gate: "pass" }),
     });
     expect(submitted.status).toBe(400);
@@ -525,13 +619,15 @@ describe("authoring write paths", () => {
       body: JSON.stringify({ title: "Missing gate", projectType: "角色" }),
     });
     const project = (await created.json()) as { project: { id: string }; workingRevisionId: string };
-    await request(`/${project.project.id}/revisions/${project.workingRevisionId}/files/worldbook`, {
+    const upload = await request(`/${project.project.id}/revisions/${project.workingRevisionId}/files/worldbook`, {
       method: "PUT",
       body: validWorldbook,
-      headers: { "content-type": "application/json", "content-length": String(validWorldbookBytes) },
+      headers: { "content-type": "application/json", "content-length": String(validWorldbookBytes), "if-match": "1" },
     });
+    const uploaded = (await upload.json()) as { rowVersion: number };
     const submitted = await request(`/${project.project.id}/revisions/${project.workingRevisionId}/submit`, {
       method: "POST",
+      headers: { "if-match": String(uploaded.rowVersion) },
       body: JSON.stringify({}),
     });
     expect(submitted.status).toBe(201);
@@ -575,12 +671,23 @@ describe("authoring write paths", () => {
       body: JSON.stringify({ title: "Validation", projectType: "角色" }),
     });
     const project = (await created.json()) as { project: { id: string }; workingRevisionId: string };
-    const upload = (kind: string, body: string, mime = "application/json") =>
-      request(`/${project.project.id}/revisions/${project.workingRevisionId}/files/${kind}`, {
+    let rowVersion = 1;
+    const upload = async (kind: string, body: string, mime = "application/json") => {
+      const response = await request(`/${project.project.id}/revisions/${project.workingRevisionId}/files/${kind}`, {
         method: "PUT",
         body,
-        headers: { "content-type": mime, "content-length": String(new TextEncoder().encode(body).byteLength) },
+        headers: {
+          "content-type": mime,
+          "content-length": String(new TextEncoder().encode(body).byteLength),
+          "if-match": String(rowVersion),
+        },
       });
+      if (response.ok) {
+        const result = uploadResponseSchema.parse(await response.clone().json());
+        rowVersion = result.rowVersion;
+      }
+      return response;
+    };
 
     expect((await upload("worldbook", "not json")).status).toBe(400);
     expect((await upload("worldbook", JSON.stringify({ entries: [] }))).status).toBe(400);
@@ -588,6 +695,7 @@ describe("authoring write paths", () => {
 
     const emptySubmit = await request(`/${project.project.id}/revisions/${project.workingRevisionId}/submit`, {
       method: "POST",
+      headers: { "if-match": String(rowVersion) },
       body: JSON.stringify({ gate: "pass" }),
     });
     expect(emptySubmit.status).toBe(400);
@@ -600,6 +708,7 @@ describe("authoring write paths", () => {
     expect((await upload("regex", regex)).status).toBe(200);
     const roleWithoutWorldbook = await request(`/${project.project.id}/revisions/${project.workingRevisionId}/submit`, {
       method: "POST",
+      headers: { "if-match": String(rowVersion) },
       body: JSON.stringify({ gate: "warn" }),
     });
     expect(roleWithoutWorldbook.status).toBe(400);
@@ -607,6 +716,7 @@ describe("authoring write paths", () => {
     expect((await upload("worldbook", validWorldbook)).status).toBe(200);
     const validSubmit = await request(`/${project.project.id}/revisions/${project.workingRevisionId}/submit`, {
       method: "POST",
+      headers: { "if-match": String(rowVersion) },
       body: JSON.stringify({ gate: "warn" }),
     });
     expect(validSubmit.status).toBe(201);

@@ -1,275 +1,70 @@
-export interface ProjectSummary {
-  id: string;
-  title: string;
-  description: string | null;
-  author: { id: string; name: string; avatarUrl: string | null };
-  projectType: string | null;
-  extensionType: string | null;
-  tags: string[];
-  entries: { worldbook: number; regex: number };
-  schemaVersion: string | null;
-  authorNote?: string | null;
-  discordThreadUrl?: string | null;
-  versionLabel?: string | null;
-  counts: { downloads: number; likes: number; subscriptions: number };
-  coverUrl: string | null;
-  coverPositionX: number;
-  coverPositionY: number;
-  coverZoom: number;
-  visibility: "public" | "private";
-  publishedAt: string | null;
-  updatedAt: string;
-}
+import type {
+  AcquisitionResponse,
+  AdminAuditEvent,
+  AdminAuditList,
+  AdminMember,
+  AdminMemberList,
+  AdminProject,
+  AdminProjectList,
+  AdminSubmissionDetail,
+  AdminSubmissionListResponse,
+  AuthorProject,
+  AuthorProjectListResponse,
+  AuthorSubmission,
+  Banner,
+  DiffKind,
+  DiscoveryResponse,
+  FindingDiff,
+  FindingRef,
+  HomeResponse,
+  JsonValue,
+  MeResponse,
+  ProjectDetail,
+  ProjectListResponse,
+  ProjectSummary,
+  PublishedMetadataResponse,
+  ReferenceItem,
+  ReferenceSet,
+  ReferenceVersion,
+  SiteSettings,
+  SubmissionDiff,
+  SubmitResponse,
+  UploadResponse,
+} from "@workshop/contracts";
 
-export interface ProjectDetail extends ProjectSummary {
-  authorNote: string | null;
-  precautions: string | null;
-  discordThreadUrl: string | null;
-}
+export type {
+  AdminAuditEvent,
+  AdminAuditList,
+  AdminMember,
+  AdminMemberList,
+  AdminProject,
+  AdminProjectList,
+  AdminSubmissionDetail,
+  AdminSubmissionListResponse,
+  AuthorProject,
+  AuthorProjectListResponse,
+  AuthorSubmission,
+  DiffKind,
+  DiscoveryResponse,
+  FindingDiff,
+  FindingRef,
+  HomeResponse,
+  JsonValue,
+  MeResponse,
+  ProjectDetail,
+  ProjectListResponse,
+  ProjectSummary,
+  PublishedMetadataResponse,
+  ReferenceItem,
+  ReferenceSet,
+  ReferenceVersion,
+  SiteSettings,
+  SubmissionDiff,
+};
 
-export interface HomeResponse {
-  banner: {
-    imageUrl: string | null;
-    positionX: number;
-    positionY: number;
-    zoom: number;
-    mobilePositionX?: number;
-    mobilePositionY?: number;
-    mobileZoom?: number;
-  } | null;
-  latest: ProjectSummary[];
-  recommendations: ProjectSummary[];
-}
-export interface DiscoveryResponse {
-  bucket?: string;
-  items: ProjectSummary[];
-}
-
-export interface ProjectListResponse {
-  items: ProjectSummary[];
-  nextCursor: string | null;
-}
-export interface MeResponse {
-  user: { id: string; username: string; globalName: string | null; avatarUrl: string | null; role: string };
-}
-export interface InstallPayload {
-  project: { id: string; title: string; version: string; projectType: string | null; extensionType: string | null };
-  files: { worldbook?: string; regex?: string };
-}
-export interface AuthorSubmission {
-  id: string;
-  revisionId: string;
-  status: "pending" | "checking" | "approved" | "rejected" | "superseded";
-  gate: string | null;
-  checkerRevision: string | null;
-  submittedAt: string;
-  resolvedAt: string | null;
-  decision: "approve" | "reject" | null;
-  reason: string | null;
-  reviewedAt: string | null;
-  checkStatus: "queued" | "running" | "done" | "needs_human" | "failed";
-  checkError: string | null;
-  checkedAt: string | null;
-}
-export interface AuthorProject {
-  project: ProjectSummary;
-  rowVersion: number;
-  workingRevisionId: string | null;
-  latestSubmission: AuthorSubmission | null;
-  authorNote?: string | null;
-  precautions?: string | null;
-  metadataFindings?: string | null;
-}
-export interface AuthorProjectListResponse {
-  items: AuthorProject[];
-}
-export interface AdminSubmissionListItem {
-  id: string;
-  projectId: string;
-  projectTitle: string;
-  author: { id: string; name: string };
-  status: string;
-  gate: string | null;
-  checkerRevision: string | null;
-  checkStatus: string;
-  submittedAt: string;
-}
-export interface AdminSubmissionListResponse {
-  items: AdminSubmissionListItem[];
-  nextCursor: string | null;
-}
-export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
-export interface AdminSubmissionDetail {
-  submission: {
-    id: string;
-    projectId: string;
-    revisionId: string;
-    status: string;
-    gate: string | null;
-    checkerRevision: string | null;
-    submittedBy: string;
-    submittedAt: string;
-    resolvedAt: string | null;
-    clientGate: string | null;
-    clientCheckerRevision: string | null;
-    clientWarningCount: number | null;
-    clientAcknowledgedAt: string | null;
-    checkStatus: string;
-    checkAttempts: number;
-    checkError: string | null;
-    checkReport: JsonValue;
-    checkReportHash: string | null;
-    checkedAt: string | null;
-    reviewCheckerRevision: string | null;
-    autoPublishedAt: string | null;
-  };
-  project: {
-    id: string;
-    title: string;
-    description: string | null;
-    visibility: string;
-    author: { id: string; name: string };
-  };
-  revision: {
-    id: string;
-    revisionNo: number;
-    title: string;
-    description: string | null;
-    authorNote: string | null;
-    projectType: string | null;
-    extensionType: string | null;
-    searchTags: JsonValue;
-    metadata: JsonValue;
-    manifestHash: string | null;
-    createdAt: string;
-  };
-  assets: { id: string; kind: string; sha256: string; bytes: number; mime: string; r2Key: string }[];
-  checkRuns: {
-    id: string;
-    reviewCheckerRevision: string;
-    routeGate: string;
-    report: JsonValue;
-    reportHash: string;
-    durationMs: number;
-    createdAt: string;
-  }[];
-  review: {
-    id: string;
-    submissionId: string;
-    reviewerId: string;
-    decision: string;
-    reason: string | null;
-    manifestHash: string;
-    checkerVersion: string;
-    report: JsonValue;
-    createdAt: string;
-  } | null;
-}
-export interface DiffKind {
-  added: { entryKey: string; name: string }[];
-  modified: { entryKey: string; name: string; changedFields?: string[] }[];
-  deleted: { entryKey: string; name: string }[];
-  unchanged: number;
-}
-export interface FindingRef {
-  ruleId: string;
-  severity: string;
-  message: string;
-  file: string | null;
-  line: number | null;
-}
-export interface FindingDiff {
-  accepted: FindingRef[];
-  changed: FindingRef[];
-  added: FindingRef[];
-  removed: FindingRef[];
-}
-export interface SubmissionDiff {
-  revisionId: string;
-  previousRevisionId: string | null;
-  worldbook: DiffKind;
-  regex: DiffKind;
-  cover: { changed: boolean; beforeSha256: string | null; afterSha256: string | null };
-  findings: FindingDiff;
-}
-
-export interface AdminMember {
-  id: string;
-  username: string;
-  globalName: string | null;
-  avatarUrl: string | null;
-  role: string;
-}
-export interface AdminMemberList {
-  items: AdminMember[];
-  nextCursor: string | null;
-}
-export interface AdminProject {
-  id: string;
-  title: string;
-  description: string | null;
-  projectType: string | null;
-  visibility: "public" | "private";
-  author: { id: string; name: string };
-  publishedRevisionId: string | null;
-  deletedAt: string | null;
-  updatedAt: string;
-}
-export interface AdminProjectList {
-  items: AdminProject[];
-  nextCursor: string | null;
-}
-export interface AdminAuditEvent {
-  id: string;
-  action: string;
-  targetType: string;
-  targetId: string | null;
-  actorId: string | null;
-  actorName: string | null;
-  detail: JsonValue;
-  createdAt: string;
-}
-export interface AdminAuditList {
-  items: AdminAuditEvent[];
-  nextCursor: string | null;
-}
-export interface SiteBanner {
-  imageUrl: string | null;
-  positionX: number;
-  positionY: number;
-  zoom: number;
-  mobilePositionX: number;
-  mobilePositionY: number;
-  mobileZoom: number;
-}
-export interface SiteSettings {
-  banner: SiteBanner | null;
-  siteContent: JsonValue;
-}
-export interface ReferenceItem {
-  id: string;
-  kind: "worldbook" | "regex";
-  displayName: string;
-  exactHash: string;
-  normalizedContentHash: string;
-  nameHash: string;
-  structureHash: string;
-}
-export interface ReferenceVersion {
-  id: string;
-  label: string;
-  ordinal: number;
-  graceUntil: string;
-  worldbookCount: number;
-  regexCount: number;
-  items?: ReferenceItem[];
-}
-export interface ReferenceSet {
-  id: string;
-  name: string;
-  description: string | null;
-  versions: ReferenceVersion[];
-}
+export type AcquisitionPayload = AcquisitionResponse;
+export type SiteBanner = Banner;
+export type AdminSubmissionListItem = AdminSubmissionListResponse["items"][number];
 
 const TOKEN_KEY = "cw_session_token";
 function token(): string | null {
@@ -292,21 +87,43 @@ function authHeaders(): Record<string, string> {
   return value ? { authorization: `Bearer ${value}` } : {};
 }
 
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  readonly details: unknown;
+
+  constructor(status: number, statusText: string, code: string | null, message: string, details: unknown) {
+    super(`${status} ${code ? `${code}: ` : ""}${message || statusText}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+    this.details = details;
+  }
+}
+
 async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...init,
     headers: { accept: "application/json", ...authHeaders(), ...(init.headers ?? {}) },
   });
   if (!response.ok) {
-    let message = `${response.status} ${response.statusText}`;
+    let message = "";
+    let code: string | null = null;
+    let details: unknown;
     try {
       const body: unknown = await response.json();
-      if (typeof body === "object" && body !== null && "message" in body && typeof body.message === "string")
-        message = body.message;
+      if (typeof body === "object" && body !== null && !Array.isArray(body)) {
+        if ("message" in body && typeof body.message === "string") message = body.message;
+        if ("error" in body && typeof body.error === "object" && body.error !== null && !Array.isArray(body.error)) {
+          if ("message" in body.error && typeof body.error.message === "string") message = body.error.message;
+          if ("code" in body.error && typeof body.error.code === "string") code = body.error.code;
+          if ("details" in body.error) details = body.error.details;
+        }
+      }
     } catch {
       /* non-json error */
     }
-    throw new Error(message);
+    throw new ApiError(response.status, response.statusText, code, message, details);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -343,6 +160,16 @@ export const api = {
   },
   myProjects: () => requestJson<AuthorProjectListResponse>("/api/v1/me/projects"),
   subscriptions: () => requestJson<{ items: ProjectSummary[] }>("/api/v1/me/subscriptions"),
+  meState: (ids: string[]) =>
+    requestJson<{ items: { projectId: string; liked: boolean; subscribed: boolean; rating: number | null }[] }>(
+      `/api/v1/me/state?ids=${encodeURIComponent(ids.join(","))}`,
+    ),
+  setLike: (id: string, liked: boolean) =>
+    requestJson<null>(`/api/v1/me/likes/${encodeURIComponent(id)}`, { method: liked ? "PUT" : "DELETE" }),
+  setSubscription: (id: string, subscribed: boolean) =>
+    requestJson<null>(`/api/v1/me/subscriptions/${encodeURIComponent(id)}`, {
+      method: subscribed ? "PUT" : "DELETE",
+    }),
   createProject: (body: Record<string, unknown>) =>
     requestJson<AuthorProject>("/api/v1/projects", {
       method: "POST",
@@ -377,22 +204,57 @@ export const api = {
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
     return response.blob();
   },
-  uploadFile: (id: string, revisionId: string, kind: "worldbook" | "regex" | "cover", file: File) =>
-    requestJson<{ kind: string; bytes: number; mime: string }>(
+  publishedMetadata: (id: string) =>
+    requestJson<PublishedMetadataResponse>(`/api/v1/projects/${encodeURIComponent(id)}/published-metadata`),
+  patchPublishedMetadata: (id: string, rowVersion: number, body: Record<string, unknown>) =>
+    requestJson<{ rowVersion: number }>(`/api/v1/projects/${encodeURIComponent(id)}/published-metadata`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "if-match": String(rowVersion) },
+      body: JSON.stringify(body),
+    }),
+  publishedCover: async (id: string): Promise<Blob> => {
+    const response = await fetch(`/api/v1/projects/${encodeURIComponent(id)}/published-cover`, {
+      headers: authHeaders(),
+    });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    return response.blob();
+  },
+  uploadPublishedCover: (id: string, rowVersion: number, file: File) =>
+    requestJson<{ rowVersion: number; sha256: string; bytes: number; mime: string }>(
+      `/api/v1/projects/${encodeURIComponent(id)}/published-cover`,
+      {
+        method: "PUT",
+        headers: { "content-type": file.type || "application/octet-stream", "if-match": String(rowVersion) },
+        body: file,
+      },
+    ),
+  uploadFile: (id: string, revisionId: string, rowVersion: number, kind: "worldbook" | "regex" | "cover", file: File) =>
+    requestJson<UploadResponse>(
       `/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/files/${kind}`,
-      { method: "PUT", headers: { "content-type": file.type || "application/octet-stream" }, body: file },
+      {
+        method: "PUT",
+        headers: { "content-type": file.type || "application/octet-stream", "if-match": String(rowVersion) },
+        body: file,
+      },
     ),
   submitProject: (
     id: string,
     revisionId: string,
+    rowVersion: number,
     body: { gate?: string; checkerRevision?: string; warningCount?: number; acknowledged?: boolean },
   ) =>
-    requestJson<{ submissionId: string; status: string }>(
+    requestJson<SubmitResponse>(
       `/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/submit`,
-      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", "if-match": String(rowVersion) },
+        body: JSON.stringify(body),
+      },
     ),
-  adminSubmissions: (status: "pending" | "checking") =>
-    requestJson<AdminSubmissionListResponse>(`/api/v1/admin/submissions?status=${status}`),
+  adminSubmissions: (status: string, cursor?: string) =>
+    requestJson<AdminSubmissionListResponse>(
+      `/api/v1/admin/submissions?status=${encodeURIComponent(status)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+    ),
   adminSubmission: (id: string) =>
     requestJson<AdminSubmissionDetail>(`/api/v1/admin/submissions/${encodeURIComponent(id)}`),
   adminDiff: (id: string) => requestJson<SubmissionDiff>(`/api/v1/admin/submissions/${encodeURIComponent(id)}/diff`),
@@ -413,25 +275,42 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ decision, reason }),
     }),
-  createFlow: async () =>
-    requestJson<{ id: string; url: string; expiresAt: string }>("/api/v1/auth/flows", {
+  createFlow: async (mode: "browser" | "device" = "browser") =>
+    requestJson<{ id: string; url: string; expiresAt: string; deviceCode?: string }>("/api/v1/auth/flows", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mode: "browser" }),
+      body: JSON.stringify({ mode }),
     }),
-  install: (projectId: string) => {
-    const version = new URLSearchParams(location.search).get("clientVersion");
-    return requestJson<InstallPayload>(
-      `/api/v1/projects/${encodeURIComponent(projectId)}/install`,
-      version
-        ? {
-            headers: {
-              "x-client-version": version,
-              "x-client-channel": location.pathname.includes("staging") ? "staging" : "stable",
-            },
-          }
-        : {},
-    );
+  authFlowStatus: (id: string, deviceCode?: string) =>
+    requestJson<{
+      status: "pending" | "authorized" | "redeemed" | "expired";
+      expiresAt: string;
+      error?: string | null;
+    }>(
+      `/api/v1/auth/flows/${encodeURIComponent(id)}${deviceCode ? `?deviceCode=${encodeURIComponent(deviceCode)}` : ""}`,
+    ),
+  redeemFlow: (id: string, deviceCode: string) =>
+    requestJson<{ token: string; expiresAt: string }>(`/api/v1/auth/flows/${encodeURIComponent(id)}/redeem`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ deviceCode }),
+    }),
+  acquisitions: (projectId: string) => {
+    const params = new URLSearchParams(location.search);
+    const version = params.get("clientVersion");
+    const channel = params.get("clientChannel");
+    const headers: Record<string, string> = {};
+    if (version) headers["x-client-version"] = version;
+    if (channel === "stable" || channel === "staging") headers["x-client-channel"] = channel;
+    return requestJson<AcquisitionPayload>(`/api/v1/projects/${encodeURIComponent(projectId)}/acquisitions`, {
+      method: "POST",
+      headers,
+    });
+  },
+  downloadTicketText: async (url: string) => {
+    const response = await fetch(url, { headers: authHeaders() });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    return response.text();
   },
   downloadTickets: (projectId: string) =>
     requestJson<{ revisionId: string; files: { kind: string; url: string; expiresAt: string }[] }>(

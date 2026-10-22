@@ -29,7 +29,7 @@ beforeEach(async () => {
 });
 
 describe("client distribution", () => {
-  it("serves versioned artifacts as immutable and stable pointers as revalidating", async () => {
+  it("serves versioned artifacts immutably and channel pointers without caching", async () => {
     const versioned = await app.request(
       `/client/v/${sha}/index.js`,
       {
@@ -45,13 +45,13 @@ describe("client distribution", () => {
 
     const stable = await app.request("/client/stable/index.js", undefined, bindings);
     expect(stable.status).toBe(200);
-    expect(stable.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
-    expect(stable.headers.get("cloudflare-cdn-cache-control")).toBe("public, max-age=300");
-    expect(stable.headers.get("cache-tag")).toBe("client:stable");
+    expect(stable.headers.get("cache-control")).toBe("no-store");
+    expect(stable.headers.get("cloudflare-cdn-cache-control")).toBeNull();
+    expect(stable.headers.get("cache-tag")).toBeNull();
 
     for (const channel of ["other", "__proto__", "constructor"]) {
       expect((await app.request(`/client/${channel}/index.js`, undefined, bindings)).status).toBe(404);
-      expect((await app.request(`/client/version?channel=${channel}`, undefined, bindings)).status).toBe(404);
+      expect((await app.request(`/api/v1/client/version?channel=${channel}`, undefined, bindings)).status).toBe(404);
     }
   });
 
@@ -79,7 +79,7 @@ describe("client distribution", () => {
   });
 
   it("returns channel records and enforces exact version compatibility", async () => {
-    const version = await app.request("/client/version?channel=staging", undefined, bindings);
+    const version = await app.request("/api/v1/client/version?channel=staging", undefined, bindings);
     expect(version.status).toBe(200);
     await expect(version.json()).resolves.toMatchObject({
       channel: "staging",
@@ -106,9 +106,15 @@ describe("client distribution", () => {
     }
   });
 
-  it("bootstraps when no channel record exists", async () => {
+  it("returns bootstrap without asserting install compatibility when no channel record exists", async () => {
     await bindings.DB.exec("DELETE FROM site_settings;");
     const response = await app.request("/api/v1/client/compatibility?version=anything", undefined, bindings);
-    await expect(response.json()).resolves.toMatchObject({ compatible: true, bootstrap: true });
+    await expect(response.json()).resolves.toMatchObject({
+      compatible: false,
+      bootstrap: true,
+      required: null,
+      revision: null,
+      reason: "channel_unavailable",
+    });
   });
 });

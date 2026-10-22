@@ -12,22 +12,18 @@ interface ReferenceRow {
   regex_count: number;
 }
 
-export async function listReferenceSets(db: D1Database): Promise<ReferenceSet[]> {
-  const rows = await db
-    .prepare(`
-    SELECT s.id, s.name, s.description,
-           v.id AS version_id, v.version_label, v.version_ordinal, v.grace_until,
-           SUM(CASE WHEN i.kind = 'worldbook' THEN 1 ELSE 0 END) AS worldbook_count,
-           SUM(CASE WHEN i.kind = 'regex' THEN 1 ELSE 0 END) AS regex_count
-    FROM reference_sets s
-    JOIN reference_versions v ON v.reference_set_id = s.id
-    LEFT JOIN reference_items i ON i.reference_version_id = v.id
-    GROUP BY s.id, v.id
-    ORDER BY s.name, v.version_ordinal DESC
-  `)
-    .all<ReferenceRow>();
+const SELECT_REFERENCES = `
+  SELECT s.id, s.name, s.description,
+         v.id AS version_id, v.version_label, v.version_ordinal, v.grace_until,
+         SUM(CASE WHEN i.kind = 'worldbook' THEN 1 ELSE 0 END) AS worldbook_count,
+         SUM(CASE WHEN i.kind = 'regex' THEN 1 ELSE 0 END) AS regex_count
+  FROM reference_sets s
+  JOIN reference_versions v ON v.reference_set_id = s.id
+  LEFT JOIN reference_items i ON i.reference_version_id = v.id
+`;
 
-  const versionIds = [...new Set(rows.results.map((row) => row.version_id))];
+async function hydrateReferenceRows(db: D1Database, rows: ReferenceRow[]): Promise<ReferenceSet[]> {
+  const versionIds = [...new Set(rows.map((row) => row.version_id))];
   const itemRows =
     versionIds.length === 0
       ? null
@@ -66,7 +62,7 @@ export async function listReferenceSets(db: D1Database): Promise<ReferenceSet[]>
   }
 
   const sets = new Map<string, ReferenceSet>();
-  for (const row of rows.results) {
+  for (const row of rows) {
     let set = sets.get(row.id);
     if (!set) {
       set = {
@@ -88,4 +84,20 @@ export async function listReferenceSets(db: D1Database): Promise<ReferenceSet[]>
     });
   }
   return [...sets.values()];
+}
+
+export async function listReferenceSets(db: D1Database): Promise<ReferenceSet[]> {
+  const rows = await db
+    .prepare(`${SELECT_REFERENCES} GROUP BY s.id, v.id ORDER BY s.name, v.version_ordinal DESC`)
+    .all<ReferenceRow>();
+  return hydrateReferenceRows(db, rows.results);
+}
+
+export async function getReferenceSet(db: D1Database, id: string): Promise<ReferenceSet | null> {
+  const rows = await db
+    .prepare(`${SELECT_REFERENCES} WHERE s.id = ? GROUP BY s.id, v.id ORDER BY v.version_ordinal DESC`)
+    .bind(id)
+    .all<ReferenceRow>();
+  const [set] = await hydrateReferenceRows(db, rows.results);
+  return set ?? null;
 }

@@ -5,7 +5,16 @@ export const adminSubmissionStatusSchema = z.enum(["pending", "checking", "appro
 export type AdminSubmissionStatus = z.infer<typeof adminSubmissionStatusSchema>;
 
 export const adminSubmissionListQuerySchema = z.object({
-  status: adminSubmissionStatusSchema.optional(),
+  status: z.preprocess(
+    (value) =>
+      typeof value === "string"
+        ? value
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean)
+        : value,
+    z.array(adminSubmissionStatusSchema).min(1).max(5).default(["pending"]),
+  ),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   cursor: z.string().max(512).optional(),
 });
@@ -59,11 +68,19 @@ export const adminReviewSchema = z.object({
   reason: z.string().nullable(),
   manifestHash: z.string().nullable(),
   checkerVersion: z.string().nullable(),
-  report: z.unknown().nullable(),
   createdAt: z.string(),
 });
 
+export const adminSubmissionCountsSchema = z.object({
+  pending: z.number(),
+  checking: z.number(),
+  approved: z.number(),
+  rejected: z.number(),
+  superseded: z.number(),
+});
+
 export const adminSubmissionListResponseSchema = z.object({
+  counts: adminSubmissionCountsSchema,
   items: z.array(
     z.object({
       id: z.string(),

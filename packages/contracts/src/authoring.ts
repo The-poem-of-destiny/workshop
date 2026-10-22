@@ -76,12 +76,15 @@ export const uploadResponseSchema = z.object({
   bytes: z.number().int().nonnegative(),
   mime: z.string(),
   r2Key: z.string(),
+  rowVersion: z.number().int().positive(),
 });
 export type UploadResponse = z.infer<typeof uploadResponseSchema>;
 
 export const submitResponseSchema = z.object({
   submissionId: z.string(),
-  status: z.literal("pending"),
+  status: z.enum(["pending", "checking"]),
+  checkStatus: z.enum(["queued", "needs_human"]),
+  rowVersion: z.number().int().positive(),
 });
 export type SubmitResponse = z.infer<typeof submitResponseSchema>;
 
@@ -122,3 +125,33 @@ export const authorSubmissionListResponseSchema = z.object({
   items: z.array(authorSubmissionSchema),
 });
 export type AuthorSubmissionListResponse = z.infer<typeof authorSubmissionListResponseSchema>;
+export const publishedMetadataResponseSchema = z.object({
+  rowVersion: z.number().int().positive(),
+  title: z.string(),
+  description: z.string().nullable(),
+  authorNote: z.string().nullable(),
+  projectType: projectTypeSchema.nullable(),
+  extensionType: extensionTypeSchema.nullable(),
+  schemaVersion: z.string().nullable(),
+  discordThreadUrl: z.string().nullable(),
+  tags: z.array(z.string()),
+  versionLabel: z.string().nullable(),
+  precautions: z.string().nullable(),
+  coverPositionX: z.number(),
+  coverPositionY: z.number(),
+  coverZoom: z.number(),
+});
+export type PublishedMetadataResponse = z.infer<typeof publishedMetadataResponseSchema>;
+
+export const publishedMetadataMutationResponseSchema = z.object({
+  rowVersion: z.number().int().positive(),
+});
+export type PublishedMetadataMutationResponse = z.infer<typeof publishedMetadataMutationResponseSchema>;
+
+export const publishedCoverMutationResponseSchema = z.object({
+  rowVersion: z.number().int().positive(),
+  sha256: z.string().length(64),
+  bytes: z.number().int().positive(),
+  mime: z.enum(["image/png", "image/jpeg", "image/webp"]),
+});
+export type PublishedCoverMutationResponse = z.infer<typeof publishedCoverMutationResponseSchema>;

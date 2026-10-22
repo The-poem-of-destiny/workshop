@@ -1,154 +1,78 @@
-# 当前状态（2026-10-21）
+# 当前状态（2026-10-22）
 
-会话交接记录，不是决策源。决策以 [`decisions.md`](decisions.md) 为准，架构与迁移以 [`main.md`](main.md) 为准。
+本文件只记录当前工作状态，不作为设计完成或线上部署证明。设计见 [api-design.md](api-design.md)，发现与验证见 [api-audit.md](api-audit.md)，前端映射见 [frontend-fidelity.md](frontend-fidelity.md)。
 
-## 当前分支
+## Git 与部署边界
 
-`main` 已合并 `refactor/2026-10`（PR #1，merge commit `9b06f24`），并继续合入文档与 CI 修正。重构前状态保留在 `archive/pre-refactor-2026-10`（`4fdf71a`）。
+- 当前分支 `work`；本次纠错前基线为 `8a3643a8f9fb46a1fadbb8e0c6ba67b6f1f0541f`。用户已授权本地 commit，源码分批提交见末节；未 push、未创建或重开 PR。
+- PR #22 已由用户关闭；本地提交授权不包括远端历史、PR、tag、staging 或 production 部署。
+- 原重构阶段未部署或操作远程 D1/R2；随后单独授权了 staging 样例数据导入（见下），不包括新代码部署。当前任务已授权按职责创建本地 commit，仍未授权 push、PR 或部署。
+- 本次提交仅在本地，`origin/main` 不包含这些变更；不以 commit 或 push 代表 Cloudflare 已部署。
+- legacy 参考固定为只读 `../workshop-legacy`，commit `15303df5e3b30aa7f3fc924296ae57497a7ad09a`。
 
-## 2026-10-21 续作
+## 本轮已落地的工作
 
-- W12 客户端、W13/W14 分发、W16 元数据、W18 cron、W19 生命周期/索引、W20 Web 作者/审核/管理、W17 管理写接口已提交。
-- `pnpm check` 绿；worker 81、domain 17、content 7、tavern-client 6。
-- `pnpm e2e:local` 19/19（上一轮完整运行），含真实 Chromium 旅程：匿名搜索/排序/作者筛选/详情、作者工作台+订阅、owner 管理、审核通过、审核拒绝理由。
-- staging D1 已应用 0001–0011；Worker 版本 `d43d6b00-ac2d-4ffe-8c21-007edf69e01e`（commit `9455c62`），由 `deploy-staging` Actions 流水线部署。
-- staging 远程 smoke 已通过：health 200；此前覆盖 health/list/discovery/root/reference-sets/site/home、Origin 拒绝 403、client compatibility；`client/stable/index.js` 已发布 `0.1.3`。
-- GitHub Actions：`ci` run `39619178757`（main，commit `9455c62`）成功；`deploy-staging` run `39619370797`（commit `9455c62`）部署成功。
-- W21/W24 仍被 Q-05/Q-06/Q-10 阻塞；W23 R2 适配器已完成，真实数据导入与生产 cutover 未做。
+- Workers Cache 官方研究保存在被忽略的 `ref/cloudflare-workers-cache/`；入口、性质、使用约束写入 `AGENTS.local.md`，`/ref/` 已忽略。
+- 区分新的 Workers Cache 和旧 Cache API。已移除 `caches.default` helper，加入显式 uncached gateway、命名 `Public`、可信 epoch props、30 秒内部策略与外部 `private, no-store`。production 缓存保持关闭；没有 hosted HIT／tiering／purge 证明。
+- authoring upload/submit 使用 If-Match 和 rowVersion；提交前授权、DO 内容校验／索引，最终 D1 batch 冻结快照、创建任务和捕获发布基线。
+- 冻结快照禁止 PATCH；当前公开展示通过独立 published-metadata／published-cover 读写，与 pending revision 分离。
+- manual/automatic publication 使用持久化发布基线与项目删除状态；ticket 消费和 public 日计量同 batch；旧裸 release manifest/files 路由已移除。
+- 排行使用统一 scheduled reference time、有界日期窗口、准备完毕后的原子可见性切换。
+- React + Vite + Tailwind v4 + Radix/CVA shadcn-compatible primitives 已实际使用。前端按指定 legacy 的卡片顺序、204px sidebar、1480px detail、media/reading/summary rail 重建；不恢复发现页。
 
-## 已有实现（不等于验收完成）
+## 历史独立 review 与停止条件
 
-### P0 基线
+- 原 API 设计第 1–2 轮、实现第 3–4 轮完成后因三个 P2 暂停；用户明确“继续”后已重新开放并修复：
+  1. migration `0020` 增加独立 `entry_index_ready`，提交与完整索引同批写入；历史默认未完成，不再以 manifest 推断。
+  2. 消费时用 D1 当前事务时钟检查 ticket/session 到期，日计量取持久化 consumed_at；后续复核又要求锁定当前精确 session token hash，已实现。
+  3. 历史索引通过 DO `indexRevision` 只读生成，不运行当前提交准入／baseline rules；原 500 回归通过。
+- 前端：第 1 轮修复 7 项布局／可访问性问题；第 2 轮修复 dirty published metadata 丢失与冻结控件静默 no-op；第 3/4 轮只读复核确认这两项修复正确。浏览器证据另记 frontend-fidelity。
+- 续作首轮独立复核确认 index-ready／历史读取／时间一致性，发现同用户多 session 的替代授权边界；已补强原过期回归，保留第二条有效 session，仅使当前 session 过期仍不得消费或计数。
+- 续作最终独立 `SessionBoundaryReviewRetry` 无 findings：精确当前 session 的消费校验不能由另一 session 代替，内部 hash 不进入公共 Session／me／auth；DB consumed_at 与 daily event 同批一致，详情状态未知时不写关系。前一次同范围 review 因上游 HTTP403 失败，未计通过。
 
-- 旧路由/权限/数据/测试盘点：`archive/p0-baseline.md`。
-- 匿名公开 API 样本与抓取脚本已从当前树删除；需要时从 git 历史或 `workshop-legacy` worktree 恢复。
+## 验证证据（本次 schema 收敛后已重跑）
 
-### P3 写路径
+- 当前 `pnpm check` 全链通过：workspace、Biome（无 errors，47 warnings／1 info）、各 package typecheck/tests、schema、migration/export/backup checks、Web build、Wrangler staging dry-run。
+- Worker suite **13/13 files、85/85 tests 通过**；当前索引回归验证 manifest 不代表完成、ready=0 返回 404、持久索引不读取原文件及合法空索引；R2 后 ticket／精确当前 session 到期回归仍通过。
+- 当前 worker/frontend typecheck 与 Web build 通过；bundle 仍有 >500 kB 提示，不以调高阈值隐藏。
+- `pnpm check:schema` 与 migration transformer 检查通过；Web bundle 已构建。
+- 本次 `pnpm e2e:local` **21/21 通过**（subagent `SchemaCutoverE2E`）；含新发布冻结条目索引、普通票据取件、排序、subscription、作者 workspace、owner、审核批准／拒绝及 successor 再提交。后续三个导入工具修复不修改该 Worker/Web 运行路径，另有真实备份样例烟雾覆盖。
+- 视觉 subagent 内部检查了 7 张本轮截图：desktop/mobile browse/detail、作者、owner tools、review；desktop 无可见水平溢出，detail 左 media/reading、右 operations；mobile 为 media→reading→operations。1280px 截图不能证明 1480px cap；mobile detail 截图不能排除所有溢出，未声称逐像素一致。
+- 未验证真实 Workers Cache hosted HIT、tiering、global purge 或费用；没有本地 Cache API fallback／伪造 x-cache。production 缓存仍关闭。
 
-- identity：`POST /api/v1/auth/flows`（Origin 白名单、D1 flow、无 token 返回）、`GET /api/v1/auth/flows/:id`、`GET /api/v1/me`、`DELETE /api/v1/sessions/current`。
-- interactions：`GET /api/v1/me/state`，`PUT/DELETE /api/v1/me/likes/:id`、`subscriptions/:id`、`ratings/:id`；幂等，评分仅本人可见。
-- authoring：创建项目、CAS 更新、不可变 revision、R2 上传（sha256/大小）、提交；`If-Match` 412、非作者 403/404。
-- admin：提交队列/详情、审批（单 batch 切 published 指针，无 R2 复制）、拒绝、项目/成员列表、角色变更（bump session version、最后 owner 保护）。
-- 作者私有详情：`GET /api/v1/projects/:id/draft`，仅作者/owner 可读 working revision 摘要；非作者 404。
-- 新增 `@workshop/domain`：taxonomy、内容策略、上传上限。
-- 新增公开读/写测试通过；P3 路由已接入 `app.ts`。
+## 有意保留与未验证事项
 
-### Web UI / 下载计数
+- 本轮工作树及既有未提交改动全部保留；研究目录和 AGENTS.local.md 是本机材料，不提交。
+- 重构交付时未验证生产、staging 部署、远程数据导入、真实 Discord OAuth、真实 SillyTavern 游玩或全球缓存行为。随后用户单独授权了备份样例导入 staging，结果见下；该授权不包含 Worker／Web 代码部署或 production 操作。
+- 原暂停及续作授权、独立复核、修复证据保留在 api-audit；未把旧结果覆盖为新成功，也未删掉失败用例逃避回归。
 
-- React + Vite 最小可用页面：`apps/worker/web`，消费 `/api/v1/home` 与 `/api/v1/projects`；卡片 16:9、4/3/2/1 响应式、搜索/排序/详情侧栏。
-- 构建产物 `web/dist` 不提交；`check:wrangler` 先构建。
-- `POST /api/v1/projects/:id/downloads`：登录后原子增加 `downloads_count` + 日指标；文件 GET 仍 `private, no-store`。
+## 最终交付状态
 
-### 独立复审修复
+此前把核心实现与本地检查通过记为整体完成，未充分审计 schema 和仅为旧数据保留的兼容路径，结论过早。用户要求先纠错、再完成收敛及本地 commit；本次已按下节完成。该结论只覆盖本次 API／前端重构与 schema／导入工具收敛，不将 `features.md` 中仍列为部分／未实现的其他产品功能宣称为完成，也不代表线上发布。
 
-- P1：已提交/已发布 revision 冻结，上传要求 working + unpublished + 无 submission；R2 key 内容寻址。
-- P2：全局安全头中间件提前注册；`/auth/flows` 改用 `Origin` 头并要求非空；审核者可直接读取 pending submission 文件；下载计数改为 per-user/day 幂等 + DB trigger；短搜索保留 FTS 短索引；上传要求 Content-Length + MIME 白名单；封面按项目可见性授权；manifest hash 在 submit 时计算并绑定；作者可提交 schemaVersion/Discord URL；角色变更写审计并带 actor；最后 owner 检查改为条件更新。
-- P1/P2：迁移 CLI 入口判断修复（CJK 路径）；`--since` 保留完整项目组与 published 指针；verify 期望值改为源数据推导；迁移测试接入 `pnpm check`。
-- 第二轮复审：审核审计绑定本批次 `reviewId`，失败请求不再写假审计；资产写入改为条件 INSERT，堵住 submit 后的 check-then-act 替换；迁移任务的 working 指针取最新 draft，只保留一条 rejected；迁移保留 `submitted_by`/`reviewer_id`/`curator_id`，审计事件不再按事件 id 造幽灵用户；补充对应回归测试。
+## 后续授权：备份样例导入 staging
 
-### P4 迁移工具
+- 用户明确允许将 `data_backup` 部分数据整理进 staging，并提醒旧格式变化。目标仅 `workshop-staging` D1 与 `workshop-client-staging` R2，未操作 production、未 commit／push、未部署 Worker／Web。
+- staging 原 projects／users／assets 均为 0、schema 停在 `0011`。先保留非 FTS 业务表快照与 Time Travel bookmark；Wrangler 全库 export 因虚拟表限制失败，未把该命令记作成功备份。快照、书签、SQL、转换结果及验证回执保存在已忽略的 `data_backup/staging-import-20261022/`，目录 0700、文件 0600。
+- 从旧库严格选 `approved AND is_published=1 AND visibility=1`，最终导入 **9 个公开项目、9 个发布 revision、6 位必要作者（均 member）、21 个文件共 15,678,301 bytes**。未导入旧管理员权限、会话、OAuth、私有／草稿、未完审核、互动、历史计数、排行或站点配置。
+- 格式转换保留公开项目 ID／版本／发布日期，以现行 taxonomy 转换旧 tags；从真实内容按现行 parser 建立 **39 条 worldbook + 4 条 regex 索引**，重算计数／manifest，并原子写完整索引后设置 ready。修正旧导出器将单个 regex 对象的字段数误作条目数的派生数据；没有修改原备份字节。
+- 排除 `819cb54c-7448-42ce-9955-62bcf46e7e99`：其 `regex-*.json` 实际为 worldbook，未猜测合并语义或将它冒充正则。所选扩展缺少旧版 subtype，保留 null；未知 schemaVersion 亦保留 null，不伪造。
+- 本地隔离迁移和同一份 SQL／R2 演练成功，全部 9 个 detail／cover／entries 匹配。随后 staging 应用现有 migrations `0012`–`0020`，先上传文件并逐个下载校验 SHA／bytes，再执行 106 条加法 SQL；无 DELETE／REPLACE 或既有项目覆盖。
+- 线上核验：catalogue 9 项、detail 9 项、cover SHA 9 项、index 43 条、搜索正常；21 个 R2 对象 roundtrip 全匹配，FK 违反 0、索引计数偏差 0。当前 deployed API 未返回工作树新增的 publishedRevisionId 字段，未宣称未部署的新代码已经上线。
 
-- `tools/migrate/`：extract/transform/load/verify/reconcile/all，支持 `--source`、`--target`、`--dry-run`、`--since`。
-- 稳定排序/固定 id 保证幂等；对账检查数量、指针、sha256、FK、重复 id、pending 唯一。
-- `load-local.mjs` 已把 target 导入隔离本地 D1；`r2-copy.mjs` 提供 manifest、本地演练、SHA/bytes 校验、幂等重跑、损坏修复与 remote `--apply`。
-- 文档：`archive/p4-migration.md`。
 
-### P5/P6
+## 本次纠错、收敛与本地提交
 
-- 本地 P5 演练：本地 D1 migration 59 条命令成功；`pnpm e2e:local` 10/10；实际 Chromium 首页读到 E2E 项目；health/list/root/auth-Origin 冒烟通过。
-- 真实备份 P4：`from_d1_sql.py` 导出 7 表 + 935 资产；全量两次字节一致；verify/reconcile 全过；`--since 2026-09-01` delta 通过（20 项目 / 32 revision / 69 资产 / 134 用户）。`load-local.mjs` 导入隔离本地 D1 后，列表/详情/搜索/首页正常；104 条 worldbook 与 10 likes/9 subscriptions 计数正确。
-- Staging：`workshop-staging` D1 远程 migration 成功；Worker `cba07328-3c24-4c70-9cd6-10a162e3ac2d` 部署成功；health/list/root/Origin 冒烟通过。未导入真实备份；200 次 health/list 冒烟 0 个 5xx；回滚/恢复演练已通过。
-- P6 已删除 `cloudflare/`、`tests/e2e/`、`playwright.config.mjs`、`scripts/deployment/`、旧配置检查脚本、`test-bundles/` 与提交的 `dist/`；客户端需要的版本/内容工具移入 `packages/domain`。
-- `archive/p5-cutover.md`：本地/staging 演练 + 生产 runbook + 回滚 + stop conditions。
-- `archive/p6-cleanup.md`：旧代码/表/产物/测试删除顺序与零引用验证；保留项已记录。
+- 按实际 reader／writer 和产品不变量核对 28 张表，均有用途；删的是 7 个死／镜像字段、旧 OAuth helper、两个无项目业务用途的 asset kind 和整个历史索引读取回退，不凭旧库行数决定保留范围。类型化 metadata 审计、最新 checker 报告投影、checker history、排行／发现／引用／互动仍有明确用途，保留。
+- 新增 `0021_remove_obsolete_state.sql`：保留有效 release、共享 R2 引用和作者历史；撤下 ready=0 的旧发布并清除不完整派生索引；不删除原 R2 对象。该迁移只在本地验证，**尚未应用到远程 staging／production**。
+- 导入仅产出 users／projects／当前 revision／assets／完整 entry index，不恢复旧权限、草稿、会话、审核或互动。索引解析／entry key 复用 domain 模块，不再复制一套 legacy parser。
+- `SchemaCutoverReview` 首轮发现三个导入缺陷：旧封面 key 不在 served namespace、缺少内容 key 时可能静默丢掉发布文件、共享对象复制清单重复。已修复：封面进入 `covers/imported/<sha256>`，原 key 只放 `meta.assetSources`（不进 DB）；内容缺 key 拒绝整项目；共享 destination 按 hash／bytes 去重并拒绝冲突。限定复核无剩余 actionable findings，不将其称为全产品无缺陷证明。
+- 修复后完整 `pnpm check` 成功：Worker 85/85、domain 17/17、content 7/7、Tavern client 6/6，schema／导入／SQL export／backup／typecheck／build／staging dry-run 全过。仍有 Biome 47 warnings／1 info、Web bundle >500 kB 提示，未压制。
+- 非空升级烟雾确认：有效发布指针、3 条 revision 历史、2 个共享对象 association、当前公开封面、OAuth PKCE／binding、canonical checker 报告均保留；旧不完整发布撤下；FK、搜索与 epoch 正常。脚本为临时演练，不增加永久测试框架。
+- 原 9 个真实备份项目经新工具重新转换／本地 D1 加载：6 位 member、21 文件、43 索引；copy manifest 对 21 文件逐个 SHA／bytes 校验。以最终映射 R2 启动 workerd，实际验证 catalogue 9、detail 9、封面 SHA 9、索引 43，并通过本地合成会话取得 12 份原始内容文件，全部 bytes／SHA 匹配。这不是 Discord OAuth 或远程部署验证。一次附加并发本地 R2 灌入出现连接错误，最终改顺序灌入 21 个文件成功，未把失败尝试记为通过。
+- 便于追踪的本地源码提交：
+  - `ce63274` — API／schema 不变量与旧状态清理；Web 调用方迁移与下一提交配套。
+  - `fe61959` — legacy 层级前端重建、真实 primitives、API／客户端调用方及 E2E。
+  - `8bdaf97` — 仅导入真实可验证公开内容的本地工具及回归。
+- 设计／审计／状态文档另作独立 docs commit，完整提交 SHA 以 Git 历史为准。机器配置、凭据、研究目录、备份和生成物不纳入提交；真实样例目标与验证摘要保留在已忽略的 `data_backup/schema-cleanup-20261022/`。本次无 push、PR、部署或远程数据清理。
 
-### P2 读路径
-
-- 公开读：`GET /api/v1/projects`（limit/cursor/sort/type/search）、`GET /api/v1/projects/:id`、`GET /api/v1/home`、`GET /api/v1/recommendations`、`GET /api/v1/reference-sets`、`GET /api/v1/site`。
-- 中文搜索：trigram + 1–2 字短索引，走 D1 FTS。
-- 登录后安装：`GET /api/v1/projects/:id/releases/:releaseId/manifest`、`.../files/:kind`；session 查库、过期/撤销校验。
-- 公开封面：`GET /api/v1/assets/*`，只允许 `covers/`、`banners/`。
-- 集成测试：workerd + D1/R2，覆盖列表、搜索、详情、私有 404、manifest/files、home/recommendations/references/banner。
-
-### P1 基础
-
-- pnpm workspace：`apps/*`、`packages/*`。
-- `@workshop/contracts`：zod 错误、health、identity、project 契约。
-- `apps/worker`：
-  - Hono 骨架、`/api/v1/health`、`/api/*` JSON 404、非 API 文本 404。
-  - 统一错误响应、安全头、`private, no-store`。
-  - strict TypeScript、`@cloudflare/vitest-plugin`、workerd D1/R2 冒烟测试。
-  - `wrangler.jsonc`：Static Assets（`web/dist`）、D1/R2、staging/production 环境。
-- `packages/contracts` 严格类型检查。
-- 初始 D1 schema：`apps/worker/migrations/0001_initial.sql`，含 FTS trigram + 1–2 字短索引、外键、pending 唯一约束。
-- 单入口 `pnpm check`：workspace、typecheck、test、schema、wrangler dry-run。
-- CI：`.github/workflows/ci.yml`。
-- 压缩配置：本地 50% 阈值，`handoff/shake/soft` 文本路径，关闭 snapcompact 视觉。
-
-## 独立完成度审计（2026-10-21）
-
-两份只读审计报告：
-
-- `docs/audits/features-audit-a.md`：features §1–6、§13 与 checker 规则内容。
-- `docs/audits/features-audit-b.md`：features §7–12、decisions、API/schema/cache/ops。
-- `docs/audits/features-audit-merged.md`：去重后的完成度结论与 P0–P4 任务清单。
-
-结论：此前的“已完成 P1–P6”表述过强，不能作为交付依据。审计发现：
-
-- features §1–6/§13 只有账号角色/会话撤销、项目创建、两态可见性等少数项真正闭环；checker 规则、DO 权威复核、自动发布、审核绑定整体缺失。
-- features §7–12 为 8 done / 12 partial / 14 missing；decisions 为 6 done / 18 partial / 9 missing。
-- 高优先级缺口：`/client/*` 无处理器与版本门禁；无 cron/榜单；无 Workers Cache；无管理端 site/audit/reference/recommendation 写接口；项目版本标签字段缺失；1–2 字搜索仍走 LIKE；内容策略未接入上传/提交；Web 排序 tab 默认页无效；旧客户端仍指向已删除的 `/api/projects`、`/api/files`。
-- Checker 旧规则内容（L1–L7、M1–M5、U2–U5、API1–API2、AH1–AH4、EJS/JS-PARSE、预算）在当前 `apps/`/`packages/` 中不存在；`util/ejs-checker-v2.js` 只是无法重建的死产物。
-
-在这些缺口关闭前，不应把 P3/P5/P6 视为可生产切换。
-
-## 当前线上
-
-- staging：`https://workshop-staging.poem-of-destiny.workers.dev`，active Worker `d43d6b00-ac2d-4ffe-8c21-007edf69e01e`（commit `9455c62`；HMAC 与 Discord secrets 已设置；公会/身份组已配置），D1 0001–0011 已应用。该版本由 `deploy-staging` Actions 流水线部署。
-- production：`https://workshop.poem-of-destiny.workers.dev` 活跃版本 `c6c81138-dbcf-48aa-b925-4f195e8ef85e`（2026-10-21 secret change；代码仍是旧版 `5d2edd06...`），当前重构版本未提升；生产切换留人工审批。
-- `main` 已包含重构；`archive/pre-refactor-2026-10` 保留旧状态。
-
-## 待办
-
-- 独立完成度审计：`docs/audits/features-audit-merged.md`；结论非 CLEAN，按 `checklist.md` 继续。
-- P3：OAuth callback/redeem/device/公会/身份组校验已实现；staging 凭据与公会/身份组已配置，真实 Discord 账号授权尚未验收。
-- P4：真实备份全量/两次/delta/对账与隔离本地 D1 load 已完成；R2 复制适配器已实现，真实导入未执行。
-- P5：本地与 staging 部署已完成；staging 回滚/恢复演练与 5xx 冒烟已完成；真实生产切换仍留人工审批。
-- P6：`cloudflare/`、旧客户端 `src/`、`util/`、`config/`、`test-dist/` 与旧 webpack 构建链已移出当前工作树；旧版本保存在本地 worktree `../workshop-legacy`（`4fdf71a`）仅作对照。客户端需按 checklist 重写，不再从当前树构建。
-- Web UI：公开列表/详情、Discord 登录、作者工作台、审核台、owner 管理已接入；分页/作者筛选/订阅列表仍缺。
-- 真实 SillyTavern / Tavern client 验证未做（本机无运行中的 SillyTavern，按 stop condition 记录）。
-- W23：R2 批量复制适配器已实现并有本地演练；真实数据导入与独立 reconcile 仍需授权目标。
-
-## 停止条件 / 阻塞
-
-- 真实 Discord OAuth 授权：callback/redeem/device 代码与本地正/负例已完成；staging 凭据、公会与身份组已配置，缺真实账号验收；不伪造登录。
-- Checker：`ContentService` 与移植规则已完成；真实语料扩充仍可继续，但不是当前阻塞。
-- 真实 SillyTavern 验证：本机无运行中的 SillyTavern；已按 stop condition 停止该项，不用 mock 冒充。
-- R2 真实导入：适配器已完成本地演练；未把真实备份导入 staging，需授权目标桶与源桶。
-- 旧客户端 / `test-dist` shim：已从当前工作树移出，旧快照在 `../workshop-legacy`；新客户端 `apps/tavern-client` 已实现，真实 ST 旅程未验证。
-
-## CI/CD 现状
-
-- `ci` 只在 `main` push 和面向 `main` 的 PR 上运行；特性分支 push 不再产生第二套 `check` / `e2e`。
-- `deploy-staging` 由 `ci` 成功后的 `workflow_run` 触发；`main` 分支保护要求 `check` / `e2e`。
-- `deploy-staging` 先检查触发 commit 的改动路径；只有应用代码、packages、tools、tests 或依赖清单变化才构建和部署。纯 docs/AGENTS/CI 变更会跳过 build/deploy。
-- staging build artifact 只包含 `apps/worker/web/dist`；deploy job 仍从同一 commit 重新打包 Worker。当前是“同一 commit + web artifact”，不是完整的 build-once。
-- `deploy-production` 由 `v*` tag push 触发，查找该 commit 的 staging 成功记录并下载 Web artifact；production environment 要求 1 名 reviewer 且只允许 `v*`。
-- 当前没有 `v*` tag，production workflow 没有实际运行过；production 仍为旧版本。
-
-## 已知约束
-
-- `data_backup/` 已加入 `.gitignore`；P4 前不读取。
-- `main` 通过 PR 合入，要求 `check` / `e2e`；staging 由 `main` 的 CI 成功触发；不部署生产、不操作真实生产 D1/R2/Cloudflare 资源。
-- 每个切片本地 commit；commit 使用 aoo / lxxxaoo@users.noreply.github.com。
-- Q-05、Q-06、Q-10 未定，不自行发明。
-
-## 新会话先读
-
-1. `AGENTS.md`
-2. `.agents/skills/autonomous-refactor/SKILL.md`
-3. `checklist.md`
-4. `decisions.md`
-5. `main.md`
-6. `archive/p0-baseline.md`
-7. 本文件

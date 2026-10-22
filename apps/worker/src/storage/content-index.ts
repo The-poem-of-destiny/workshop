@@ -13,40 +13,25 @@ function entryName(entry: Record<string, unknown>, fallback: string): string {
   return fallback;
 }
 
-export async function getProjectEntryIndex(
-  db: D1Database,
-  r2: R2Bucket,
-  projectId: string,
-): Promise<ProjectEntryIndex | null> {
-  const target = await db
-    .prepare(`
-    SELECT p.published_revision_id
-    FROM projects p
-    WHERE p.id = ? AND p.deleted_at IS NULL
-      AND p.visibility = 'public' AND p.published_revision_id IS NOT NULL
-  `)
-    .bind(projectId)
-    .first<{ published_revision_id: string }>();
-  if (!target) return null;
-  const assets = await db
-    .prepare(`
-    SELECT kind, r2_key FROM assets
-    WHERE revision_id = ? AND kind IN ('worldbook', 'regex')
-    ORDER BY kind
-  `)
-    .bind(target.published_revision_id)
-    .all<{ kind: ProjectEntryKind; r2_key: string }>();
+interface IndexedAsset {
+  kind: ProjectEntryKind;
+  r2_key: string;
+}
 
+export async function buildEntryIndex(
+  r2: R2Bucket,
+  assets: ReadonlyArray<IndexedAsset>,
+): Promise<ProjectEntryIndex["entries"]> {
   const entries: ProjectEntryIndex["entries"] = [];
-  for (const asset of assets.results) {
+  for (const asset of assets) {
     const object = await r2.get(asset.r2_key);
-    if (!object) continue;
+    if (!object) throw new Error(`Content index asset is missing: ${asset.kind}`);
     const text = await object.text();
     let raw: unknown;
     try {
       raw = JSON.parse(text);
     } catch {
-      continue;
+      throw new Error(`Content index asset is not valid JSON: ${asset.kind}`);
     }
     for (const ref of extractProjectEntries(raw, asset.kind)) {
       const content =
@@ -64,5 +49,38 @@ export async function getProjectEntryIndex(
       });
     }
   }
-  return { revisionId: target.published_revision_id, entries };
+  return entries;
+}
+
+export async function getProjectEntryIndex(db: D1Database, projectId: string): Promise<ProjectEntryIndex | null> {
+  const target = await db
+    .prepare(`
+    SELECT p.published_revision_id
+    FROM projects p JOIN project_revisions r ON r.id = p.published_revision_id AND r.project_id = p.id
+    WHERE p.id = ? AND p.deleted_at IS NULL
+      AND p.visibility = 'public' AND r.entry_index_ready = 1
+  `)
+    .bind(projectId)
+    .first<{ published_revision_id: string }>();
+  if (!target) return null;
+
+  const indexed = await db
+    .prepare(`
+    SELECT kind, entry_key, name, content_hash, content_length
+    FROM revision_entry_index
+    WHERE revision_id = ?
+    ORDER BY kind, entry_key
+  `)
+    .bind(target.published_revision_id)
+    .all<{ kind: ProjectEntryKind; entry_key: string; name: string; content_hash: string; content_length: number }>();
+  return {
+    revisionId: target.published_revision_id,
+    entries: indexed.results.map((entry) => ({
+      kind: entry.kind,
+      entryKey: entry.entry_key,
+      name: entry.name,
+      contentHash: entry.content_hash,
+      contentLength: entry.content_length,
+    })),
+  };
 }

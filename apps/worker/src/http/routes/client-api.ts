@@ -11,6 +11,16 @@ clientApiRoutes.use("*", async (c, next) => {
   c.header("cache-control", "no-store");
 });
 
+clientApiRoutes.get("/version", async (c) => {
+  const channel = c.req.query("channel") ?? "stable";
+  if (channel !== "stable" && channel !== "staging") {
+    return jsonError(c, "not_found", "Client channel not found");
+  }
+  const current = await getClientChannel(c.env.DB, channel);
+  if (!current) return jsonError(c, "not_found", "Client channel not found");
+  return c.json({ channel, ...current });
+});
+
 clientApiRoutes.get("/compatibility", async (c) => {
   const channel = c.req.query("channel") ?? "stable";
   if (channel !== "stable" && channel !== "staging") {
@@ -19,7 +29,14 @@ clientApiRoutes.get("/compatibility", async (c) => {
   const current = await getClientChannel(c.env.DB, channel);
   const version = c.req.query("version");
   if (!current) {
-    return c.json({ compatible: true, bootstrap: true, channel, required: null });
+    return c.json({
+      compatible: false,
+      bootstrap: true,
+      channel,
+      required: null,
+      revision: null,
+      reason: "channel_unavailable",
+    });
   }
   const compatible = Boolean(version && version === current.version);
   return c.json({

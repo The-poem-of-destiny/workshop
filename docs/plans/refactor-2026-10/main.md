@@ -16,7 +16,7 @@
 2. **鉴权先修，再谈结构。** OAuth 登录当前可被任意站点劫持（已核实）；改成 Origin 白名单 + 一次性 flow + 可撤销 opaque session，角色每请求读库。
 3. **发布改成不可变修订 + D1 指针切换。** 删除“复制草稿行 + 复制 R2 + 失败回滚”的补偿式发布。
 4. **单一 Worker + Static Assets**，不用 Pages；**Free 套餐下保留一个 `ContentService` DO**（Worker 10ms / DO 30s），删除正则分发器与不必要的读路径转发；KV 新系统不用。
-5. **数据从 `0001_initial.sql` 重建**，旧库只读保留；迁移保留公开项目 id，逐表映射 + 对账。
+5. **新库应用完整编号 migration 链**，旧库只读保留；仅转换当前需要的公开发布内容，保留其公开 id，不以旧数据迫使新模型保留无用结构（D-39）。
 6. **一次性切换**：停写屏障必须覆盖旧文件 GET 计数与 OAuth 写路径；开放写入后不承诺无损回切旧库。
 7. **缓存分两步走**：切换时所有动态 API `no-store`；验收后按 D-28 对公开与个人 GET 开 Workers Cache。
 8. **保留中文 FTS 搜索、排行榜、互动计数**；抽签入口收起，去留见 Q-10；只删除确认无生产调用的旧小时榜模块与表。
@@ -124,7 +124,7 @@ Free 套餐的资源预算与实现约束见 D-25；前端方向（单屏列表�
 
 ## 4. 数据模型
 
-新库从 `0001_initial.sql` 建；`schema.sql` 与 migrations 不再并存两份。
+新库应用从 `0001_initial.sql` 开始的完整编号 migration 链；既有库只应用待执行迁移。`0001` 不是完整当前 schema，`schema.sql` 与 migrations 不再并存两份。
 
 | 表 | 关键约束 |
 |---|---|
@@ -132,12 +132,12 @@ Free 套餐的资源预算与实现约束见 D-25；前端方向（单屏列表�
 | `sessions` | token hash、user_id、expires_at、revoked_at |
 | `oauth_flows` | state hash、redeem secret hash、状态、过期、一次性消费 |
 | `projects` | 稳定 id、author、`visibility ∈ public/private`、`published_revision_id`、`working_revision_id`、`row_version`、`deleted_at` |
-| `project_revisions` | 不可变；`UNIQUE(project_id, revision_no)`；metadata + asset 引用 + manifest_hash |
-| `assets` | R2 key（UUID）、sha256、bytes、mime、kind |
-| `submissions` | 一个项目最多一个 pending（partial unique index） |
-| `reviews` | `submission_id UNIQUE`；decision、reason、manifest_hash、checker_version、report |
+| `project_revisions` | 不可变；`UNIQUE(project_id, revision_no)`；类型化元数据、资产引用、manifest、完整索引状态；无泛型 metadata/facets/custom_tags 空壳 |
+| `assets` | R2 key 可被多个 revision 共享；sha256、bytes、mime；kind 仅 worldbook/regex/cover |
+| `submissions` | 一个项目最多一个 unresolved（partial unique）；客户端检查仅 client_*，权威 checker 及发布基线独立 |
+| `reviews` | `submission_id UNIQUE`；decision、reason、manifest_hash、checker_version；权威报告只在 checker history 中保留 |
 | `likes` / `subscriptions` / `ratings` | 复合唯一；评分仅本人可见 |
-| `project_metrics_daily` | 下载/点赞日增量；保留历史基数 |
+| `project_metrics_daily` | 当前下载/点赞日增量；不迁旧历史基数 |
 | `ranking_runs` / `ranking_entries` / `discovery_exposures` | 完整 run 才发布；读请求只查 |
 | `recommendations` / `site_settings` / `reference_*` / `audit_events` | 审计与业务写入同一 batch |
 
@@ -152,7 +152,7 @@ Free 套餐的资源预算与实现约束见 D-25；前端方向（单屏列表�
 7. 下载从 published revision 的 manifest 取 asset；每次检查 session 与项目访问权。
 8. 清理：非 published、非最新 draft、超过 90 天的 revision 与其 R2 前缀由 cron 回收；首次只出 dry-run 报告。
 
-**可见性**：两态。`public` 列表/搜索可见；`private` 仅作者/审核者，列表、详情、文件一律 404。旧 `visibility=0 + approved` 迁移为 `private`；不设 unlisted。
+**可见性**：两态。`public` 列表/搜索可见；`private` 仅作者/审核者，列表、详情、文件向无权者返回 404。不设 unlisted；旧私有项目不在当前导入范围内。
 
 ---
 
@@ -164,7 +164,7 @@ Free 套餐的资源预算与实现约束见 D-25；前端方向（单屏列表�
 | 身份 | `POST /auth/flows`、`GET /auth/flows/:id`、`POST /auth/flows/:id/redeem`、`GET /me`、`DELETE /sessions/current` |
 | 作者 | `POST /projects`、`PATCH /projects/:id`、`POST /projects/:id/revisions`、`PUT /projects/:id/revisions/:rev/files/:kind`、`POST /projects/:id/revisions/:rev/submit`、`PATCH /projects/:id/visibility` |
 | 审核 | `GET /admin/submissions`、`GET /admin/submissions/:id`、`POST /admin/submissions/:id/review` |
-| 安装 | `GET /projects/:id/releases/:releaseId/manifest`、`GET /projects/:id/releases/:releaseId/files/:kind`（需登录） |
+| 获取 | `POST /projects/:id/downloads`、`POST /projects/:id/acquisitions`、`GET /downloads/:token`（需登录且单次消费）；无裸 release manifest/files 路由 |
 | 个人 | `GET /me/state?ids=`、`PUT/DELETE /me/likes/:id`、`/me/subscriptions/:id`、`/me/ratings/:id` |
 | 管理 | `GET /admin/projects`、`GET /admin/members`、`PUT /admin/members/:id/role`、`GET /admin/audit-events`、`PUT /site` |
 
@@ -205,18 +205,17 @@ Workers Cache 的键、头、失效、并发、身份、测量与额度模型，
 | P5 切换 | 停写屏障 → 最终 delta → 部署 → 冒烟 → 开放写入 | 全流程通过；5xx < 0.5% | 开放写入前可回旧；之后只回滚代码 |
 | P6 清理 | 删旧 UI/缓存/死表/死测试/生成物 | 旧路径零引用；CI 全绿 | 不需要 |
 
-### 7.1 迁移映射（A 的逐表映射 + B 的异常清单）
+### 7.1 选定公开内容导入（D-39）
 
-- 逻辑项目分组：`published_project_id → root_project_id → id`；取组内 published 行作为项目身份，**保留公开 id**。
-- published 行 → revision 1；当前 draft 行 → revision 2；其它 pending/rejected 只保留最新 rejected 供作者查看。
-- 文件 key → `projects/{projectId}/revisions/{revId}/{worldbook|regex|cover}`；逐对象校验 sha256/size；不盲 fetch 外链封面。
-- users 合并三套权限来源，冲突列阻塞项；JWT、KV OAuth、旧 session 不迁移（全部重新登录）。
-- 互动、私人评分、精选、banner、基线、审计、曝光状态迁入；抽签状态仅在 Q-10 决定保留时迁入；历史日指标只保留可解释部分。
-- 不迁：`public_project_counts`、`admins`、`super_admins`、`project_rank_snapshots`、`project_ranking_days`、旧搜索派生表、旧缓存 revision、锁 token。
+- 严格选择 `status='approved' AND is_published=1 AND visibility=1` 的旧项目，保留公开 id；不分组恢复 draft/root 家族。
+- 每个选定项目仅建立当前发布 revision，使用实际文件字节重算 hash、条目数、manifest 和完整 `revision_entry_index`，完成后设置 `entry_index_ready=1`。
+- 文件 key 按新模型生成；逐对象校验 sha256/size；不抓取任意外链，不把错误类型的文件冒充正则或世界书。缺文件／格式不可靠的项目明确排除。
+- 只带入所选项目的必要作者公开资料，角色固定 member；管理员通过新系统单独设置。
+- 不迁旧权限、会话／OAuth、草稿、审核历史、互动／评分、历史计数、精选／Banner、基线、站点配置或曝光状态。需要的运营配置通过新系统重新登记。
 
-### 7.2 对账（必须全过）
+### 7.2 对账（选定范围内必须全过）
 
-项目数、published 指针数、每项目文件 sha256、互动数、私人评分、审计条数、FK 完整性、每个 approved 项目满足内容策略、迁移中途失败可恢复、重跑结果一致。
+选定项目与排除原因、published 指针及归属、实际文件 sha256/bytes、有效内容类型／计数、manifest、完整条目索引与 Unicode 长度、FK 完整性、重跑结果一致。对账不能把旧库全量行数或 transform 与自身比较当作成功证明。
 
 ### 7.3 切换
 

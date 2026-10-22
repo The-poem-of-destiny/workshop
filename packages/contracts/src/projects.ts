@@ -42,6 +42,7 @@ export const projectSummarySchema = z.object({
   visibility: visibilitySchema,
   publishedAt: z.string().nullable(),
   updatedAt: z.string(),
+  publishedRevisionId: z.string().nullable().optional(),
 });
 
 export type ProjectSummary = z.infer<typeof projectSummarySchema>;
@@ -55,7 +56,7 @@ export const projectDetailSchema = projectSummarySchema.extend({
 export type ProjectDetail = z.infer<typeof projectDetailSchema>;
 
 export const projectListQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(50).default(20),
+  limit: z.coerce.number().int().min(1).max(50).default(24),
   cursor: z.string().max(512).optional(),
   sort: projectSortSchema.default("updated"),
   projectType: projectTypeSchema.optional(),
@@ -87,3 +88,10 @@ export const projectEntryIndexSchema = z.object({
 });
 
 export type ProjectEntryIndex = z.infer<typeof projectEntryIndexSchema>;
+
+export const discoveryResponseSchema = z.object({
+  bucket: z.string().optional(),
+  items: z.array(projectSummarySchema),
+});
+
+export type DiscoveryResponse = z.infer<typeof discoveryResponseSchema>;

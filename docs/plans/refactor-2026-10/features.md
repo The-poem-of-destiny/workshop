@@ -292,3 +292,20 @@ draft
 ### 待定
 
 产品项只剩 Q-10（抽签去留）；Q-05、Q-06 是技术项。
+
+## 14. 当前实现状态（2026-10-22）
+
+本表只记录功能是否已有当前代码证据；详细验收见 `completion-audit.md`。
+
+| 功能 | 当前状态 | 证据/备注 |
+| --- | --- | --- |
+| A1 Discord 登录 | 已实现 | browser popup；嵌入模式 device flow；Origin 白名单、PKCE、一次性 redeem |
+| A2/A3/A4/A6 准入/角色/登出/CORS | 已实现 | D1 角色、HMAC opaque session、Origin 允许列表 |
+| B1/B2/B5/B6 浏览/发现/分页/Banner | 已实现 | 单一发现栏、24 条 keyset、窄 Banner；多货架删除 |
+| B9/B12 详情/社区入口 | 已实现 | 右侧 dialog、条件 Discord、安装/下载状态 |
+| C5/C8/C9/C12/C13 安装/更新/卸载/登记/扫描 | 已实现 | 票据获取、保留玩家修改、卸载保留修改、本地扫描状态 |
+| C14/C16/C19/C20 修复中心/更新中心/转移/正则迁移 | 部分/未实现 | 修复以“修复安装”重放实现；更新中心/跨角色转移/旧正则迁移仍缺 |
+| G1/G2 点赞/订阅 | 已实现 | 详情内幂等 PUT/DELETE；个人状态 `/me/state` |
+| 获取协议 | 已实现 | `/projects/:id/acquisitions` + 单次票据；旧 `/install` 删除 |
+| 审核队列 | 已实现 | pending 队列、counts、keyset、动作后本地推进 |
+| 共享 DTO | 已实现 | `packages/contracts` 覆盖公开/作者/审核/站点响应，路由 parse |

@@ -1,6 +1,10 @@
 import type { Session } from "@workshop/contracts";
 import { hashSessionToken } from "./session-hash.js";
 
+export interface AuthenticatedSession extends Session {
+  tokenHash: string;
+}
+
 interface SessionRow {
   user_id: string;
   role: Session["role"];
@@ -13,7 +17,11 @@ interface SessionRow {
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const TOUCH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-export async function getSessionByToken(db: D1Database, token: string, secret?: string): Promise<Session | null> {
+export async function getSessionByToken(
+  db: D1Database,
+  token: string,
+  secret?: string,
+): Promise<AuthenticatedSession | null> {
   const tokenHash = await hashSessionToken(token, secret);
   const row = await db
     .prepare(`
@@ -38,6 +46,7 @@ export async function getSessionByToken(db: D1Database, token: string, secret?: 
       .run();
   }
   return {
+    tokenHash,
     userId: row.user_id,
     role: row.role,
     sessionVersion: row.session_version,

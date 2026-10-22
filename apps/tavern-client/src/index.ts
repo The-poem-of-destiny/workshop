@@ -56,9 +56,11 @@ type InstallRegistryEntry = {
   worldbookName: string;
   entries: Record<string, { hash: string; name: string }>;
   regexIds: string[];
+  regexHashes?: Record<string, string>;
   updatedAt: string;
 };
 type InstallRegistry = Record<string, InstallRegistryEntry>;
+type InstallScanState = "clean" | "localChanged" | "scanIncomplete";
 
 let activeFrame: HTMLIFrameElement | null = null;
 
@@ -85,13 +87,17 @@ function workshopOrigin(): string {
   return normalizeWorkshopOrigin(variables[ORIGIN_VARIABLE], DEFAULT_ORIGIN);
 }
 
-function currentChannel(): "stable" | "staging" {
+const SCRIPT_CHANNEL: "stable" | "staging" = (() => {
   try {
     const script = document.currentScript as HTMLScriptElement | null;
     return script?.src && /\/staging\//.test(script.src) ? "staging" : "stable";
   } catch {
     return "stable";
   }
+})();
+
+function currentChannel(): "stable" | "staging" {
+  return SCRIPT_CHANNEL;
 }
 
 function readRegistry(): InstallRegistry {
@@ -117,6 +123,16 @@ async function ensureTargetWorldbook(requested?: string | null): Promise<string>
     });
   }
   return target;
+}
+
+function regexFingerprint(regex: Record<string, unknown>): string {
+  return JSON.stringify({
+    find: regex.find_regex ?? "",
+    replace: regex.replace_string ?? "",
+    trim: regex.trim_strings ?? [],
+    source: regex.source ?? null,
+    destination: regex.destination ?? null,
+  });
 }
 
 async function installProject(project: InstallProject, files: InstallFileSet, targetWorldbook?: string | null) {
@@ -197,6 +213,7 @@ async function installProject(project: InstallProject, files: InstallFileSet, ta
   await updateWorldbookWith(target, () => result);
 
   const regexIds: string[] = [];
+  const regexHashes: Record<string, string> = {};
   if (files.regex) {
     const incomingRegex = regexEntries(JSON.parse(files.regex));
     const all = getTavernRegexes({ scope: "character", enable_state: "all" });
@@ -233,6 +250,9 @@ async function installProject(project: InstallProject, files: InstallFileSet, ta
         max_depth: Number.isFinite(entry.maxDepth) ? entry.maxDepth : null,
       };
     });
+    for (const regex of added) {
+      regexHashes[String(regex.id)] = await hashText(regexFingerprint(regex));
+    }
     await updateTavernRegexesWith(() => [...kept, ...added], { scope: "character" });
   } else if (previous?.regexIds?.length) {
     const prefix = `cw-${project.id}-`;
@@ -256,6 +276,7 @@ async function installProject(project: InstallProject, files: InstallFileSet, ta
     worldbookName: target,
     entries: entryIndex,
     regexIds,
+    regexHashes,
     updatedAt: new Date().toISOString(),
   };
   await writeRegistry(registry);
@@ -265,25 +286,103 @@ async function installProject(project: InstallProject, files: InstallFileSet, ta
 async function uninstallProject(projectId: string) {
   const registry = readRegistry();
   const record = registry[projectId];
+  let preservedEntries = 0;
+  let preservedRegexes = 0;
+
   if (record?.worldbookName && getWorldbookNames().includes(record.worldbookName)) {
-    await updateWorldbookWith(record.worldbookName, (entries) =>
-      entries.filter((entry) => entry?.extensions?.cw_project_id !== projectId),
-    );
+    const current = await getWorldbook(record.worldbookName);
+    const kept: Record<string, unknown>[] = [];
+    for (const [index, entry] of current.entries()) {
+      if (entry?.extensions?.cw_project_id !== projectId) {
+        kept.push(entry);
+        continue;
+      }
+      const installedHash = entry.extensions.cw_installed_hash;
+      const currentHash = await hashText(String(entry.content ?? ""));
+      if (typeof installedHash === "string" && currentHash !== installedHash) {
+        kept.push(entry);
+        preservedEntries += 1;
+      }
+    }
+    await updateWorldbookWith(record.worldbookName, () => kept);
   }
+
   if (record?.regexIds?.length) {
     const ids = new Set(record.regexIds);
-    await updateTavernRegexesWith((regexes) => regexes.filter((regex) => !ids.has(String(regex.id ?? ""))), {
-      scope: "character",
-    });
+    const all = getTavernRegexes({ scope: "character", enable_state: "all" });
+    const kept: Record<string, unknown>[] = [];
+    for (const regex of all) {
+      const id = String(regex.id ?? "");
+      if (!ids.has(id)) {
+        kept.push(regex);
+        continue;
+      }
+      const installedHash = record.regexHashes?.[id];
+      const currentHash = await hashText(regexFingerprint(regex));
+      if (installedHash && currentHash !== installedHash) {
+        kept.push(regex);
+        preservedRegexes += 1;
+      }
+    }
+    await updateTavernRegexesWith(() => kept, { scope: "character" });
   }
+
   delete registry[projectId];
   await writeRegistry(registry);
-  return { removed: Boolean(record) };
+  return { removed: Boolean(record), preservedEntries, preservedRegexes };
 }
 
-function contextPayload() {
+async function scanInstallStates(registry: InstallRegistry): Promise<Record<string, InstallScanState>> {
+  const states: Record<string, InstallScanState> = {};
+  const regexes = getTavernRegexes({ scope: "character", enable_state: "all" });
+  const regexById = new Map(regexes.map((regex) => [String(regex.id ?? ""), regex]));
+  for (const [projectId, record] of Object.entries(registry)) {
+    try {
+      if (!record.worldbookName || !getWorldbookNames().includes(record.worldbookName)) {
+        states[projectId] = "scanIncomplete";
+        continue;
+      }
+      const entries = await getWorldbook(record.worldbookName);
+      const entryByKey = new Map<string, Record<string, unknown>>();
+      for (const [index, entry] of entries.entries()) entryByKey.set(entryKey(entry, index), entry);
+      let changed = false;
+      for (const [key, expected] of Object.entries(record.entries)) {
+        const entry = entryByKey.get(key);
+        if (!entry) {
+          changed = true;
+          break;
+        }
+        if ((await hashText(String(entry.content ?? ""))) !== expected.hash) {
+          changed = true;
+          break;
+        }
+      }
+      for (const id of record.regexIds) {
+        if (changed) break;
+        const regex = regexById.get(id);
+        const expected = record.regexHashes?.[id];
+        if (!regex || !expected) {
+          states[projectId] = "scanIncomplete";
+          break;
+        }
+        if ((await hashText(regexFingerprint(regex))) !== expected) {
+          changed = true;
+          break;
+        }
+      }
+      if (states[projectId]) continue;
+      states[projectId] = changed ? "localChanged" : "clean";
+    } catch {
+      states[projectId] = "scanIncomplete";
+    }
+  }
+  return states;
+}
+
+async function contextPayload() {
   try {
     const bindings = getCharWorldbookNames("current");
+    const registry = readRegistry();
     return {
       connected: true,
       characterName: typeof SillyTavern !== "undefined" ? (SillyTavern.getCurrentCharacterName?.() ?? null) : null,
@@ -292,7 +391,8 @@ function contextPayload() {
         additional: bindings.additional || [],
         available: getWorldbookNames(),
       },
-      registry: readRegistry(),
+      registry,
+      installStates: await scanInstallStates(registry),
       clientVersion: CLIENT_VERSION,
     };
   } catch {
@@ -376,15 +476,24 @@ function showOverlay() {
   });
 
   const origin = workshopOrigin();
+  const target = new URL("/", origin);
+  target.searchParams.set("embed", "1");
+  target.searchParams.set("clientVersion", CLIENT_VERSION);
+  target.searchParams.set("clientChannel", SCRIPT_CHANNEL);
   (async () => {
-    const target = `${origin}/?embed=1&clientVersion=${encodeURIComponent(CLIENT_VERSION)}`;
     try {
       const response = await fetch(
         `${origin}/api/v1/client/compatibility?version=${encodeURIComponent(CLIENT_VERSION)}&channel=${currentChannel()}`,
         { cache: "no-store" },
       );
-      const version = (await response.json()) as { compatible?: boolean; required?: string | null };
-      if (version.compatible === false) {
+      const version = (await response.json()) as {
+        bootstrap?: boolean;
+        compatible?: boolean;
+        required?: string | null;
+      };
+      if (version.bootstrap === true) {
+        console.warn("[CreativeWorkshop] 当前渠道尚未发布客户端，已进入引导模式。");
+      } else if (version.compatible === false) {
         $frame.remove();
         $card.append(
           host$("<div>")
@@ -400,9 +509,9 @@ function showOverlay() {
         return;
       }
     } catch {
-      // Offline/bootstrap: still attempt to open the workshop.
+      // Offline compatibility checks must not prevent opening the workshop.
     }
-    $frame.attr("src", target);
+    $frame.attr("src", target.toString());
   })();
 
   window.addEventListener("message", onMessage);
@@ -415,7 +524,9 @@ function onMessage(event: MessageEvent) {
   if (!data || typeof data !== "object" || typeof data.type !== "string") return;
 
   if (data.type === "cw:ready" || data.type === "cw:request-context") {
-    send({ type: "cw:context", ...contextPayload() });
+    void contextPayload()
+      .then((payload) => send({ type: "cw:context", ...payload }))
+      .catch((error) => send({ type: "cw:context", connected: false, error: String(error?.message ?? error) }));
     return;
   }
   if (data.type === "cw:close") {
@@ -424,7 +535,10 @@ function onMessage(event: MessageEvent) {
     return;
   }
   if (data.type === "cw:scan") {
-    send({ type: "cw:scan-result", ok: true, registry: readRegistry() });
+    const registry = readRegistry();
+    void scanInstallStates(registry)
+      .then((installStates) => send({ type: "cw:scan-result", ok: true, registry, installStates }))
+      .catch((error) => send({ type: "cw:scan-result", ok: false, message: String(error?.message ?? error) }));
     return;
   }
   if (data.type === "cw:uninstall") {

@@ -9,6 +9,16 @@ import likeMetrics from "../../migrations/0008_like_metrics.sql?raw";
 import publicCacheEpoch from "../../migrations/0009_public_cache_epoch.sql?raw";
 import oauthBrowserBinding from "../../migrations/0010_oauth_browser_binding.sql?raw";
 import cacheEpochWriteScope from "../../migrations/0011_cache_epoch_write_scope.sql?raw";
+import revisionEntryIndex from "../../migrations/0012_revision_entry_index.sql?raw";
+import submissionQueueCursor from "../../migrations/0013_submission_queue_cursor.sql?raw";
+import sharedR2Assets from "../../migrations/0014_shared_r2_assets.sql?raw";
+import publicationState from "../../migrations/0015_publication_state.sql?raw";
+import displayCoverEpoch from "../../migrations/0016_display_cover_epoch.sql?raw";
+import publishedDisplayMetadata from "../../migrations/0017_published_display_metadata.sql?raw";
+import cacheEpochSeed from "../../migrations/0018_seed_public_cache_epoch.sql?raw";
+import publicProjectionEpoch from "../../migrations/0019_public_projection_epoch.sql?raw";
+import entryIndexCompletion from "../../migrations/0020_entry_index_completion.sql?raw";
+import removeObsoleteState from "../../migrations/0021_remove_obsolete_state.sql?raw";
 import { splitSql } from "./sql";
 
 export async function applySchema(db: D1Database): Promise<void> {
@@ -24,6 +34,16 @@ export async function applySchema(db: D1Database): Promise<void> {
     publicCacheEpoch,
     oauthBrowserBinding,
     cacheEpochWriteScope,
+    revisionEntryIndex,
+    submissionQueueCursor,
+    sharedR2Assets,
+    publicationState,
+    displayCoverEpoch,
+    publishedDisplayMetadata,
+    cacheEpochSeed,
+    publicProjectionEpoch,
+    entryIndexCompletion,
+    removeObsoleteState,
   ]) {
     const sql = source.replace(/^\s*--.*$/gm, "").replace(/^\s*PRAGMA\b.*$/gm, "");
     for (const statement of splitSql(sql)) await db.prepare(statement).run();

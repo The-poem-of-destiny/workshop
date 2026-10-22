@@ -1,4 +1,4 @@
-import { adminSiteUpdateSchema } from "@workshop/contracts";
+import { adminSiteUpdateSchema, siteSettingsSchema } from "@workshop/contracts";
 import { detectImageDimensions, WORKSHOP_LIMITS } from "@workshop/domain";
 import { Hono } from "hono";
 import type { Env } from "../../env";
@@ -9,10 +9,12 @@ import { requireSession } from "../session.js";
 export const siteRoutes = new Hono<{ Bindings: Env }>();
 
 siteRoutes.get("/", async (c) =>
-  c.json({
-    banner: await getBanner(c.env.DB),
-    siteContent: await getSiteContent(c.env.DB),
-  }),
+  c.json(
+    siteSettingsSchema.parse({
+      banner: await getBanner(c.env.DB),
+      siteContent: await getSiteContent(c.env.DB),
+    }),
+  ),
 );
 
 siteRoutes.post("/banner", async (c) => {
@@ -66,8 +68,10 @@ siteRoutes.put("/", async (c) => {
     return jsonError(c, "bad_request", "No site settings provided");
   }
   const result = await updateAdminSite(c.env.DB, session.userId, parsed.data.banner, parsed.data.siteContent);
-  return c.json({
-    banner: result.banner ?? (await getBanner(c.env.DB)),
-    siteContent: result.siteContent === undefined ? await getSiteContent(c.env.DB) : result.siteContent,
-  });
+  return c.json(
+    siteSettingsSchema.parse({
+      banner: result.banner ?? (await getBanner(c.env.DB)),
+      siteContent: result.siteContent === undefined ? await getSiteContent(c.env.DB) : result.siteContent,
+    }),
+  );
 });

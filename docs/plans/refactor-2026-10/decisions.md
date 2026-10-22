@@ -67,7 +67,7 @@ Cloudflare **Free** 套餐。普通 Worker 每请求 10ms CPU，Durable Object �
 
 ### D-12 数据迁移
 
-新库从 `0001_initial.sql` 重建，旧库只读保留；迁移保留公开项目 id；逐表映射 + 对账；迁移工具幂等。
+新库应用完整编号 migration 链，旧库只读保留；迁移保留选定公开项目 id。只导入当前产品需要的已发布内容及必要作者，校验实际字节、完整索引与关联；不因旧库存在某类数据就恢复对应结构或历史。范围详见 D-39。
 
 ### D-13 切换与回滚
 
@@ -240,7 +240,7 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
   - 订阅/评分等个人写操作：短 TTL（15–30s），不逐次 purge；必要时按 `viewer:<userId>` 强制失效。
   - 发布、下架、改可见性、删除：`Public` 的 `Cache-Tag` purge。
 - **计数分离**：缓存的是展示值；真实值由写路径原子增量维护。下载、订阅动作是 `POST` + `no-store`。
-- **计数下载**：会计数的那次请求不能缓存。先 `POST /api/v1/projects/:id/downloads` 增量并返回一次性地址或重定向，响应 `no-store`；公开文件若走缓存，则不计入下载量。
+- **计数下载**：票据申请不计数；只有票据消费并成功取得字节后才增量，响应 `no-store`。公开文件若走缓存，则不计入下载量。
 - **标签**：`projects`、`project:<id>`、`author:<id>`、`discover:<bucket>`、`taxonomy`、`viewer:<userId>`。
 - **TTL 基线**：列表 30s、详情 60s、作者 300s、分类/发现 1h；个人状态 15–30s；均配 `stale-while-revalidate`。
 - **禁止**：`Vary: Authorization` 代替 bypass；把 viewer 字段塞进 `Public` 共享缓存；对公开 GET 设置 Cookie；依赖 props 之外的客户端可控头做隔离。
@@ -317,15 +317,61 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
 - 服务端校验结构、大小与内容哈希；客户端 gate 仍记录但不信任（D-09）。
 - 理由：收据只证明“字节被某个 checker revision 预检过”，不证明 checker 真的运行；权威结论由 DO 的 review checker 给出（D-31）。
 
+### D-35 安装状态、订阅与下载分离
+
+- 安装状态的权威是本地 SillyTavern 世界书条目元数据 + Tavern client 的 `cw_install_registry` 本地缓存；服务端不建 installs 表，也不用服务端记录判断“已安装”。
+- 订阅是服务端 `project_subscriptions` 记录的用户意图：表示想继续获取更新，不等于已下载或已安装。
+- 下载是取件行为；服务端可保留 `download_events` 的 `user_id`，用于按用户/天幂等计数，但不把它当安装状态，也不向用户暴露下载历史。安装与“我下载了什么”的展示仍以本地为准。
+- 客户端在本地合并三类状态：服务端订阅、本地下载记录、本地安装记录；对用户展示“已订阅 / 已安装 / 有更新 / 已取消订阅但本地保留”等状态。
+- 取消订阅只移除服务端订阅，不自动删除世界书或正则；卸载必须由用户明确触发。
+- 更新比较本地安装的 revision/hash 与当前公开 revision；保留玩家修改的规则不变。
+- 参考 Steam Workshop 的职责划分（订阅=意图、下载=传输、安装=本地客户端），但不采用“退订后自动删除本地内容”的行为。
+
+### D-36 审核队列：放宽去重，优先减少 Worker 调用
+
+- 审核台列表只拉 `pending`，默认 20 条；`checking` 只显示计数，不拉列表。
+- 列表响应同时返回所有状态的 `counts`（pending/checking/approved/rejected/superseded），一次请求拿到列表和计数。
+- 使用 `(submitted_at, id)` keyset cursor；不承诺 snapshot 或跨并发场景的严格无重复/无遗漏。
+- 审核台以减少请求为目标：缓存列表与详情/diff、预取下一条；审核成功后本地移除并切到下一条，不重新拉整页。
+- 管理端队列保持 `private, no-store`；Workers Cache 只用于公开读接口。
+- 服务端仍用条件更新兜底重复审核，不引入 snapshot 存储。
+
+### D-37 缓存阶段：公开投影短 TTL，动态接口保持 no-store
+
+- 当前保留 Workers Cache 仅用于明确标注的公开投影（项目列表/详情/发现/榜单/推荐等），TTL 30 秒，键含 `cache_epoch`；不宣称 tag purge、`Cf-Cache-Status` 或网关级缓存已完成。
+- 登录后读取、下载票据/字节、作者、审核、互动写路径全部 `private, no-store`。
+- 在 D-24/D-28 验收前不扩大缓存范围，也不把公开计数缓存当作权限或写入判断。
+- 客户端/checker 版本化对象使用 immutable 长缓存；channel 指针使用短缓存并回源校验。
+- `/api/v1/client/compatibility` 与 `/client/*` 允许 `Access-Control-Allow-Origin: *`：它们无 session、由任意 SillyTavern 页面加载；其余 `/api/*` 继续使用 Origin 白名单。
+
+### D-38 Workers Cache 入口与公开代际
+
+- D-37 中把旧 `caches.default` 称作 Workers Cache 的表述由本决策取代；旧实现不得继续作为新缓存机制。
+- 默认 gateway 明确不缓存；仅命名 `Public` entrypoint 使用 Workers Cache，且先只在获授权的 staging／预发配置开启，production 保持关闭。
+- gateway 每次公开读取先从 D1 primary 取得公开代际；失败 fail closed。可信代际通过 entrypoint props 参与缓存键，公开状态变更与代际递增同事务。
+- Public 内部响应显式 30 秒 TTL、`stale-if-error=0`、不启用 SWR；gateway 对外改写为 `private, no-store`，去除内部 cache/tag 控制头。正确性不依赖 purge 的接受结果。
+- 私有、作者、审核、票据与字节路径保持 no-store；不可变版本对象可单独使用 immutable 缓存。当前公开封面按 project-level display association 或发布 revision 的回退引用判定，不按共享 key 任意取第一行。
+
+### D-39 重构数据边界与 schema 收敛
+
+- 旧库不是新模型的需求清单。当前用户旅程、不变量和真实读写决定 schema；无用数据可舍弃，不保留历史兼容壳。
+- 只保留一套编号 migrations；`0001` 是历史起点，不是完整当前 schema。新库应用全链，既有库仅应用待执行迁移，不增加平行手写 schema。
+- `0021` 删除 7 个死／镜像字段：OAuth `verifier_hash`、revision `facets/custom_tags/metadata`、submission `gate/checker_revision`、人工 review `report`。客户端检查只存 `client_*`；权威报告保留在 `submission_check_runs`，最新报告投影和类型化 metadata 审计仍有业务用途。
+- assets 仅允许 worldbook／regex／cover；Discord 头像与站点 Banner 不进入项目资产表。保留共享 R2 key、每 revision/kind 唯一、单独公开封面 association 等现行约束。
+- 已发布内容必须具有完整持久索引。保留 `entry_index_ready` 作为显式完整性状态；匿名读取只查 D1，不再通过 DO／R2 兼容历史内容。升级时撤下 ready=0 的旧发布指针并清除其不完整派生索引，内容 revision 留作作者历史；恢复公开需走当前提交路径。
+- 导入工具只接受明确选出的公开发布项目、必要 member 作者与真实可验证文件，建立 canonical manifest、计数及完整索引。不迁草稿族、旧权限、会话、审核历史、互动、历史计数或站点配置；格式不可靠的项目明确排除，不伪造默认记录。
+- 审计确认现有 28 张业务／索引表均有真实读写；不为“删得多”而删除排行、发现曝光、引用、互动等仍在使用的功能。旧状态枚举的历史容许值不等于新增业务状态；当前状态迁移仍以实际生产路径为准。
+- 本地 commit 已获授权，按职责划分；这不授权 push、PR、部署或破坏性远程 D1/R2 操作。
+
 ---
 
 ## 待定
 
 | ID | 问题 | 现状/默认 | 需要谁定 |
 |---|---|---|---|
-| Q-05 | 安装状态的权威记录 | D1 行 / 条目内单一记录 / registry 降级为缓存，三者选一 | 技术 |
-| Q-06 | 审核队列读取契约 | 稳定 cursor 或短期 snapshot | 技术 |
-| Q-10 | 每日抽签是否保留 | UI 入口已收起；接口与配额表暂留 | 产品 |
+| Q-10 | 每日抽签是否保留 | UI 入口已收起；接口与配额表暂留；已暂缓 | 产品 |
+
+Q-05 已定：见 D-35。Q-06 已定：见 D-36。
 
 ---
 

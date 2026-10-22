@@ -14,3 +14,11 @@ export function jsonError(c: Context, code: ErrorCode, message: string, details?
     ERROR_STATUS[code] as ContentfulStatusCode,
   );
 }
+
+export function versionConflict(c: Context, resource: string, expectedVersion: number | null, currentVersion: number) {
+  return jsonError(c, "precondition_failed", "Resource version does not match", {
+    resource,
+    expectedVersion,
+    currentVersion,
+  });
+}

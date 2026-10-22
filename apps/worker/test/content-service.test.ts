@@ -52,16 +52,15 @@ async function seedProject(id: string, content: string) {
 async function seedSubmission(id: string, projectId: string, gate = "warn", checkStatus = "queued", attempts = 0) {
   await bindings.DB.prepare(`
     INSERT INTO submissions
-      (id, project_id, revision_id, status, gate, checker_revision, submitted_by, submitted_at,
+      (id, project_id, revision_id, status, submitted_by, submitted_at,
        client_gate, client_checker_revision, client_warning_count, check_status, check_attempts)
-    VALUES (?, ?, ?, ?, ?, 'client-1', ?, ?, ?, 'client-1', 1, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'client-1', 1, ?, ?)
   `)
     .bind(
       id,
       projectId,
       `r-${projectId}`,
       checkStatus === "queued" ? "checking" : "pending",
-      gate,
       `u-${projectId}`,
       now,
       gate,

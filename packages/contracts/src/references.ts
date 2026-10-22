@@ -10,6 +10,8 @@ export const referenceItemSchema = z.object({
   structureHash: z.string(),
 });
 
+export type ReferenceItem = z.infer<typeof referenceItemSchema>;
+
 export const referenceVersionSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -19,6 +21,8 @@ export const referenceVersionSchema = z.object({
   regexCount: z.number().int().nonnegative(),
   items: z.array(referenceItemSchema).optional(),
 });
+
+export type ReferenceVersion = z.infer<typeof referenceVersionSchema>;
 
 export const referenceSetSchema = z.object({
   id: z.string(),

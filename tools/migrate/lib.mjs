@@ -1,975 +1,504 @@
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { extractProjectEntries, validateProjectContentText } from "../../packages/domain/src/project-content.ts";
+import {
+  normalizeExtensionType,
+  normalizeProjectType,
+  resolveProjectType,
+} from "../../packages/domain/src/taxonomy.ts";
 
-const TABLES = [
-  "users",
-  "projects",
-  "project_revisions",
-  "assets",
-  "submissions",
-  "reviews",
-  "project_likes",
-  "project_subscriptions",
-  "project_ratings",
-  "project_metrics_daily",
-  "ranking_runs",
-  "ranking_entries",
-  "discovery_exposures",
-  "recommendations",
-  "site_settings",
-  "reference_sets",
-  "reference_versions",
-  "reference_items",
-  "audit_events",
-];
-const aliases = new Map([
-  ["user", "users"],
-  ["users", "users"],
-  ["project", "projects"],
-  ["projects", "projects"],
-  ["projectrevision", "projects"],
-  ["projectrevisions", "projects"],
-  ["revision", "projects"],
-  ["asset", "assets"],
-  ["assets", "assets"],
-  ["file", "assets"],
-  ["files", "assets"],
-  ["submission", "submissions"],
-  ["submissions", "submissions"],
-  ["pending", "submissions"],
-  ["review", "reviews"],
-  ["reviews", "reviews"],
-  ["like", "project_likes"],
-  ["likes", "project_likes"],
-  ["projectlikes", "project_likes"],
-  ["subscription", "project_subscriptions"],
-  ["subscriptions", "project_subscriptions"],
-  ["projectsubscribes", "project_subscriptions"],
-  ["projectsubscriptions", "project_subscriptions"],
-  ["rating", "project_ratings"],
-  ["ratings", "project_ratings"],
-  ["projectratings", "project_ratings"],
-  ["recommendation", "recommendations"],
-  ["recommendations", "recommendations"],
-  ["devteamrecommendations", "recommendations"],
-  ["sitesetting", "site_settings"],
-  ["sitesettings", "site_settings"],
-  ["referenceset", "reference_sets"],
-  ["referencesets", "reference_sets"],
-  ["characterreferences", "reference_sets"],
-  ["referenceversion", "reference_versions"],
-  ["referenceversions", "reference_versions"],
-  ["characterreferenceversions", "reference_versions"],
-  ["referenceitem", "reference_items"],
-  ["referenceitems", "reference_items"],
-  ["characterreferenceitems", "reference_items"],
-  ["audit", "audit_events"],
-  ["auditevents", "audit_events"],
-  ["adminactionlogs", "audit_events"],
-  ["projectmetricsdaily", "project_metrics_daily"],
-  ["rankingrun", "ranking_runs"],
-  ["rankingruns", "ranking_runs"],
-  ["rankingentry", "ranking_entries"],
-  ["rankingentries", "ranking_entries"],
-  ["discoveryexposure", "discovery_exposures"],
-  ["discoveryexposures", "discovery_exposures"],
-]);
+const SOURCE_TABLES = ["users", "projects", "assets"];
+const TABLES = ["users", "projects", "project_revisions", "assets", "revision_entry_index"];
+const SHA256 = /^[a-f0-9]{64}$/i;
 
-const text = (value, fallback = "") => (value == null ? fallback : String(value));
-const first = (row, keys, fallback = undefined) => {
-  for (const key of keys) if (row?.[key] != null) return row[key];
-  return fallback;
-};
-const dateOf = (row) => text(first(row, ["updated_at", "updatedAt", "created_at", "createdAt", "submitted_at"], ""));
-const hash = (value) => createHash("sha256").update(String(value)).digest("hex");
-const safe = (value) => text(value).replace(/[^a-zA-Z0-9_.:-]/g, "_");
-const idFor = (prefix, ...parts) => `${prefix}-${parts.map(safe).join("-")}`;
-const json = (value) => (typeof value === "string" ? value : JSON.stringify(value ?? {}));
-const array = (value) =>
-  Array.isArray(value)
-    ? value
-    : value == null
-      ? []
-      : typeof value === "string"
-        ? (() => {
-            try {
-              const x = JSON.parse(value);
-              return Array.isArray(x) ? x : [value];
-            } catch {
-              return [value];
-            }
-          })()
-        : [value];
-const compare = (a, b) => {
-  const x = stableStringify(a),
-    y = stableStringify(b);
-  return x < y ? -1 : x > y ? 1 : 0;
-};
-const stableRows = (rows) => [...rows].sort(compare);
+const text = (value) => (typeof value === "string" ? value : value == null ? "" : String(value));
+const hash = (value) => createHash("sha256").update(value).digest("hex");
+const stableRows = (rows) =>
+  [...rows].sort((left, right) => stableStringify(left).localeCompare(stableStringify(right)));
+const generatedId = (prefix, value) => `${prefix}-${hash(value).slice(0, 24)}`;
 
 export function stableStringify(value) {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   if (value && typeof value === "object")
     return `{${Object.keys(value)
       .sort()
-      .map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`)
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
       .join(",")}}`;
   return JSON.stringify(value);
 }
 
-async function filesUnder(dir) {
-  const entries = await fs.readdir(dir, { withFileTypes: true });
-  const out = [];
-  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...(await filesUnder(full)));
-    else out.push(full);
-  }
-  return out;
-}
-function tableName(name) {
-  const stem = path
-    .basename(name)
-    .replace(/\.(jsonl?|ndjson)$/i, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-  return aliases.get(stem) ?? null;
-}
-function rowsFrom(value, stem) {
-  if (Array.isArray(value)) return value.filter((x) => x && typeof x === "object");
+function rowsFrom(value) {
+  if (Array.isArray(value)) return value.filter((row) => row && typeof row === "object");
   if (!value || typeof value !== "object") return [];
-  if (Array.isArray(value.rows)) return value.rows;
-  if (Array.isArray(value.items)) return value.items;
-  const result = [];
-  for (const [key, child] of Object.entries(value)) {
-    const table = aliases.get(key.toLowerCase().replace(/[^a-z0-9]/g, ""));
-    if (table === stem && Array.isArray(child)) result.push(...child);
-  }
-  return result.length ? result : [value];
+  if (Array.isArray(value.rows)) return value.rows.filter((row) => row && typeof row === "object");
+  if (Array.isArray(value.items)) return value.items.filter((row) => row && typeof row === "object");
+  return [];
 }
 
-/** Read only the caller-provided source directory. It never has a default source. */
-export async function extract(sourceDir, options = {}) {
+/** Read only explicitly named JSON/JSONL source exports. */
+export async function extract(sourceDir) {
   const root = path.resolve(sourceDir);
-  const stat = await fs.stat(root);
-  if (!stat.isDirectory()) throw new Error(`source is not a directory: ${sourceDir}`);
-  const tables = Object.fromEntries(TABLES.map((name) => [name, []]));
-  for (const file of await filesUnder(root)) {
-    if (!/\.(json|jsonl|ndjson)$/i.test(file)) continue;
-    const name = tableName(file);
-    if (!name) continue;
-    const raw = await fs.readFile(file, "utf8");
-    let value;
-    if (/\.(jsonl|ndjson)$/i.test(file))
-      value = raw
-        .split(/\r?\n/)
-        .filter(Boolean)
-        .map((line) => JSON.parse(line));
-    else value = JSON.parse(raw);
-    tables[name].push(...rowsFrom(value, name));
+  if (!(await fs.stat(root)).isDirectory()) throw new Error(`source is not a directory: ${sourceDir}`);
+  const tables = Object.fromEntries(SOURCE_TABLES.map((name) => [name, []]));
+  for (const name of SOURCE_TABLES) {
+    for (const extension of ["json", "jsonl", "ndjson"]) {
+      const file = path.join(root, `${name}.${extension}`);
+      try {
+        const raw = await fs.readFile(file, "utf8");
+        const value = extension === "json" ? JSON.parse(raw) : raw.split(/\r?\n/).filter(Boolean).map(JSON.parse);
+        tables[name].push(...rowsFrom(value));
+      } catch (error) {
+        if (error && error.code === "ENOENT") continue;
+        throw error;
+      }
+    }
+    tables[name] = stableRows(tables[name]);
   }
-  const since = options.since ? new Date(options.since) : null;
-  if (since && Number.isNaN(since.valueOf())) throw new Error(`invalid --since timestamp: ${options.since}`);
-  if (since) {
-    const changedProjects = new Set(
-      tables.projects
-        .filter((row) => {
-          const stamp = dateOf(row);
-          return stamp && !Number.isNaN(new Date(stamp).valueOf()) && new Date(stamp) >= since;
-        })
-        .map((row) => text(first(row, ["id", "project_id"]))),
-    );
-    let expanded = true;
-    while (expanded) {
-      expanded = false;
-      for (const row of tables.projects) {
-        const id = text(first(row, ["id", "project_id"]));
-        const links = [row.root_project_id, row.published_project_id].filter((value) => value != null).map(text);
-        if (changedProjects.has(id) || links.some((link) => changedProjects.has(link))) {
-          if (!changedProjects.has(id)) {
-            changedProjects.add(id);
-            expanded = true;
+  return { format: "workshop-public-export-v1", tables };
+}
+
+function publicProject(row) {
+  return row?.status === "approved" && Number(row.is_published) === 1 && Number(row.visibility) === 1;
+}
+
+function timestamps(row) {
+  const createdAt = text(row.created_at || row.createdAt);
+  const updatedAt = text(row.updated_at || row.updatedAt || createdAt);
+  return createdAt && updatedAt ? { created_at: createdAt, updated_at: updatedAt } : null;
+}
+
+function stringArray(value) {
+  const parsed =
+    typeof value === "string"
+      ? (() => {
+          try {
+            return JSON.parse(value);
+          } catch {
+            return null;
           }
-          for (const link of links)
-            if (!changedProjects.has(link)) {
-              changedProjects.add(link);
-              expanded = true;
-            }
-        }
-      }
-    }
-    for (const name of TABLES)
-      tables[name] = tables[name].filter((row) => {
-        if (name === "projects") return changedProjects.has(text(first(row, ["id", "project_id"])));
-        const projectId = text(first(row, ["project_id", "projectId"]));
-        if (projectId && changedProjects.has(projectId)) return true;
-        const stamp = dateOf(row);
-        return Boolean(stamp && !Number.isNaN(new Date(stamp).valueOf()) && new Date(stamp) >= since);
-      });
-  }
-  for (const name of TABLES) tables[name] = stableRows(tables[name]);
-  return { format: "workshop-legacy-extract-v1", since: options.since ?? null, tables };
+        })()
+      : value;
+  return Array.isArray(parsed) && parsed.every((item) => typeof item === "string") ? parsed : [];
 }
 
-function mergeUsers(source) {
-  const byId = new Map();
-  const add = (row, forcedRole) => {
-    const rawId = first(row, ["id", "user_id", "discord_id", "discordId", "author_id", "actor_id"]);
-    const id = text(
-      rawId,
-      idFor("legacy-user", hash(`${first(row, ["username", "name"], "")}:${first(row, ["email"], "")}`)).slice(0, 16),
-    );
-    const old = byId.get(id) ?? {
-      id,
-      username: text(first(row, ["username", "name", "global_name"], id), id),
-      global_name: first(row, ["global_name", "globalName", "display_name"]) ?? null,
-      avatar: first(row, ["avatar", "avatar_url", "avatarUrl"]) ?? null,
-      role: "member",
-      created_at: text(first(row, ["created_at", "createdAt"], "1970-01-01T00:00:00.000Z")),
-      updated_at: text(first(row, ["updated_at", "updatedAt"], "1970-01-01T00:00:00.000Z")),
+function decodeAsset(row) {
+  const encoded = row.content_base64;
+  if (typeof encoded !== "string" || encoded.length === 0) return { ok: false, reason: "missing_content_base64" };
+  const normalized = encoded.replace(/\s/g, "");
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(normalized) || normalized.length % 4 !== 0)
+    return { ok: false, reason: "invalid_content_base64" };
+  const bytes = Buffer.from(normalized, "base64");
+  if (bytes.toString("base64") !== normalized) return { ok: false, reason: "invalid_content_base64" };
+  const sha256 = text(row.sha256).toLowerCase();
+  if (!SHA256.test(sha256)) return { ok: false, reason: "invalid_sha256" };
+  if (hash(bytes) !== sha256) return { ok: false, reason: "sha256_mismatch" };
+  if (!Number.isInteger(row.bytes) || row.bytes !== bytes.byteLength || row.bytes < 0)
+    return { ok: false, reason: "byte_count_mismatch" };
+  return { ok: true, bytes, sha256 };
+}
+
+function indexedEntries(raw, kind) {
+  return extractProjectEntries(raw, kind).map(({ entry, entryKey }) => {
+    const entry_key = entryKey;
+    const content =
+      typeof entry.content === "string"
+        ? entry.content
+        : typeof entry.replaceString === "string"
+          ? entry.replaceString
+          : "";
+    const name =
+      [entry.name, entry.comment, entry.scriptName].find((value) => typeof value === "string" && value.trim()) ||
+      entry_key;
+    return {
+      kind,
+      entry_key,
+      name,
+      content_hash: hash(content),
+      content_length: Array.from(content).length,
     };
-    const role =
-      forcedRole ??
-      first(
-        row,
-        ["role"],
-        row.is_owner || row.is_super_admin || row.super_admin
-          ? "owner"
-          : row.is_admin || row.admin
-            ? "reviewer"
-            : "member",
-      );
-    const rank = { member: 0, reviewer: 1, owner: 2 };
-    if ((rank[role] ?? 0) > (rank[old.role] ?? 0)) old.role = rank[role] ? role : old.role;
-    byId.set(id, {
-      ...old,
-      username: text(first(row, ["username", "name", "global_name"], old.username), old.username),
-      global_name: first(row, ["global_name", "globalName"], old.global_name),
-      avatar: first(row, ["avatar", "avatar_url", "avatarUrl"], old.avatar),
-      updated_at: text(first(row, ["updated_at", "updatedAt"], old.updated_at)),
-    });
-    return id;
-  };
-  for (const row of source.tables.users) add(row);
-  for (const row of [
-    ...source.tables.projects,
-    ...source.tables.project_likes,
-    ...source.tables.project_subscriptions,
-    ...source.tables.project_ratings,
-    ...source.tables.recommendations,
-    ...source.tables.reviews,
-  ]) {
-    const uid = first(row, ["user_id", "author_id", "submitted_by", "reviewer_id", "curator_id"]);
-    if (uid != null) add({ id: uid, username: text(uid) });
-  }
-  for (const row of source.tables.audit_events ?? []) {
-    const actor = first(row, ["actor_id", "user_id"]);
-    if (actor != null) add({ id: actor });
-  }
-  return [...byId.values()].sort(compare);
+  });
 }
 
-function projectMap(source) {
-  const rows = source.tables.projects;
-  const parent = new Map(
-    rows.map((row, i) => [
-      text(first(row, ["id", "project_id"]), `row-${i}`),
-      text(first(row, ["id", "project_id"]), `row-${i}`),
-    ]),
-  );
-  const find = (x) => {
-    let p = parent.get(x) ?? x;
-    while (parent.get(p) && parent.get(p) !== p) p = parent.get(p);
-    return p;
-  };
-  const union = (a, b) => {
-    const x = find(a),
-      y = find(b);
-    if (x !== y) {
-      if (x < y) parent.set(y, x);
-      else parent.set(x, y);
+function validateContentAsset(asset) {
+  const decoded = decodeAsset(asset);
+  if (!decoded.ok) return decoded;
+  const content = decoded.bytes.toString("utf8");
+  if (!Buffer.from(content, "utf8").equals(decoded.bytes)) return { ok: false, reason: "content_not_utf8" };
+  try {
+    const validation = validateProjectContentText(content, asset.kind);
+    if (!validation.valid) return { ok: false, reason: `invalid_${asset.kind}_content:${validation.error}` };
+    const entries = indexedEntries(JSON.parse(content), asset.kind);
+    if (validation.entryCount !== entries.length) return { ok: false, reason: "content_index_mismatch" };
+    return { ok: true, sha256: decoded.sha256, entries };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: `invalid_${asset.kind}_content:${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+function assetRows(project, revision, sourceAssets, skipped) {
+  const byKind = new Map();
+  for (const source of sourceAssets) {
+    const kind = text(source.kind);
+    if (!["worldbook", "regex", "cover"].includes(kind)) {
+      skipped.push({ project_id: project.id, reason: `unsupported_asset_kind:${kind || "missing"}` });
+      continue;
     }
-  };
-  for (const row of rows) {
-    const id = text(first(row, ["id", "project_id"]));
-    for (const key of ["published_project_id", "root_project_id"])
-      if (row[key] != null) {
-        if (!parent.has(text(row[key]))) parent.set(text(row[key]), text(row[key]));
-        union(id, text(row[key]));
+    if (!text(source.r2_key)) {
+      const reason = `asset_${kind}_missing_r2_key`;
+      if (kind !== "cover") return { ok: false, reason };
+      skipped.push({ project_id: project.id, reason });
+      continue;
+    }
+    if (byKind.has(kind)) return { ok: false, reason: `duplicate_${kind}_asset` };
+    const decoded = decodeAsset(source);
+    if (!decoded.ok) {
+      if (kind === "cover") {
+        skipped.push({ project_id: project.id, reason: `cover_${decoded.reason}` });
+        continue;
       }
+      return { ok: false, reason: `${kind}_${decoded.reason}` };
+    }
+    const content = kind === "cover" ? { ok: true, sha256: decoded.sha256, entries: [] } : validateContentAsset(source);
+    if (!content.ok) return { ok: false, reason: `${kind}_${content.reason}` };
+    byKind.set(kind, {
+      id: generatedId("asset", `${project.id}:${revision.id}:${kind}`),
+      project_id: project.id,
+      revision_id: revision.id,
+      kind,
+      r2_key: kind === "cover" ? `covers/imported/${content.sha256}` : text(source.r2_key),
+      source_key: text(source.r2_key),
+      sha256: content.sha256,
+      bytes: source.bytes,
+      mime: text(source.mime || (kind === "cover" ? "application/octet-stream" : "application/json")),
+      created_at: revision.created_at,
+      entries: content.entries,
+    });
   }
-  const groups = new Map();
-  for (const row of rows) {
-    const id = text(first(row, ["id", "project_id"]));
-    const key = find(id);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(row);
-  }
-  const canonical = new Map();
-  for (const group of groups.values()) {
-    const info = { pid: "", group };
-    const published = [...group].sort((a, b) => {
-      const ap = Number(Boolean(a.is_published || a.published || a.status === "approved" || a.approved)),
-        bp = Number(Boolean(b.is_published || b.published || b.status === "approved" || b.approved));
-      return bp - ap || dateOf(b).localeCompare(dateOf(a)) || text(a.id).localeCompare(text(b.id));
-    })[0];
-    info.pid = text(first(published, ["id", "project_id"]));
-    for (const row of group) canonical.set(text(first(row, ["id", "project_id"])), info);
-  }
-  return canonical;
+  if (!byKind.has("worldbook") && !byKind.has("regex")) return { ok: false, reason: "missing_released_content" };
+  return { ok: true, values: [...byKind.values()] };
 }
-function visibility(row) {
-  const value = first(row, ["visibility", "is_public", "public"]);
-  if (value === "public" || value === true || value === 1 || value === "1") return "public";
-  return "private";
-}
-function revisionRows(info) {
-  const sorted = [...info.group].sort((a, b) => {
-    const rank = (row) =>
-      row.is_published || row.published || row.status === "approved" || row.approved
-        ? 0
-        : row.status === "rejected"
-          ? 2
-          : 1;
-    return rank(a) - rank(b) || dateOf(b).localeCompare(dateOf(a)) || text(a.id).localeCompare(text(b.id));
-  });
-  const picked = [];
-  for (const row of sorted) {
-    if (picked.some((x) => text(x.id) === text(row.id))) continue;
-    const rejected = row.status === "rejected" && !(row.is_published || row.published || row.approved);
-    if (picked.length < 2 || (rejected && !picked.some((x) => x.status === "rejected"))) picked.push(row);
-  }
-  return picked;
-}
-function roleUser(id, users) {
-  return users.some((x) => x.id === id) ? id : (users[0]?.id ?? idFor("legacy-user", "unknown"));
-}
-function extensionFor(value, mime) {
-  const match = /\.([a-z0-9]+)(?:[?#]|$)/i.exec(text(value));
-  if (match) return match[1].toLowerCase();
-  const known = {
-    "application/json": "json",
-    "application/zip": "zip",
-    "text/plain": "txt",
-    "image/png": "png",
-    "image/jpeg": "jpg",
-    "image/webp": "webp",
-    "image/gif": "gif",
-  };
-  return known[mime] ?? "bin";
+
+function manifestHash(assets) {
+  return hash(
+    [...assets]
+      .sort((left, right) => left.kind.localeCompare(right.kind) || left.r2_key.localeCompare(right.r2_key))
+      .map((asset) => `${asset.kind}:${asset.sha256}`)
+      .join("\n"),
+  );
 }
 
 export function transform(source) {
-  const users = mergeUsers(source),
-    map = projectMap(source);
+  const skipped = [];
+  const sourceTables = source?.tables ?? {};
+  const rawUsers = Array.isArray(sourceTables.users) ? sourceTables.users : [];
+  const userById = new Map();
+  for (const user of rawUsers) {
+    const id = text(user.id);
+    const username = text(user.username);
+    const times = timestamps(user);
+    if (id && username && times && !userById.has(id)) userById.set(id, { ...user, id, username, times });
+  }
+  const rawAssets = Array.isArray(sourceTables.assets) ? sourceTables.assets : [];
+  const assetsByProject = new Map();
+  for (const asset of rawAssets) {
+    const projectId = text(asset.project_id);
+    if (!projectId) continue;
+    const rows = assetsByProject.get(projectId) ?? [];
+    rows.push(asset);
+    assetsByProject.set(projectId, rows);
+  }
+
   const tables = Object.fromEntries(TABLES.map((name) => [name, []]));
-  tables.users = users;
-  const revByLegacy = new Map(),
-    projectInfo = new Map();
-  for (const info of new Set([...map.values()])) {
-    const rows = revisionRows(info);
-    const pub = rows[0];
-    const base = pub ?? info.group[0];
-    const project = {
-      id: info.pid,
-      author_id: roleUser(text(first(base, ["author_id", "user_id", "owner_id"]), users[0]?.id), users),
-      title: text(first(base, ["title", "name"], info.pid), info.pid),
-      description: first(base, ["description", "summary"]) ?? null,
-      author_note: first(base, ["author_note", "authorNote"]) ?? null,
-      project_type: first(base, ["project_type", "type"]) ?? null,
-      extension_type: first(base, ["extension_type", "extension"]) ?? null,
-      search_tags: json(array(first(base, ["search_tags", "tags"], []))),
-      visibility: visibility(base),
-      working_revision_id: null,
-      published_revision_id: null,
-      published_at: first(base, ["published_at", "publishedAt"]) ?? null,
-      downloads_count: Number(first(base, ["downloads_count", "downloads"], 0)) || 0,
-      likes_count: 0,
-      subscriptions_count: 0,
-      row_version: 1,
-      created_at: text(first(base, ["created_at", "createdAt"], "1970-01-01T00:00:00.000Z")),
-      updated_at: text(first(base, ["updated_at", "updatedAt"], dateOf(base))) || "1970-01-01T00:00:00.000Z",
-      deleted_at: first(base, ["deleted_at", "deletedAt"]) ?? null,
-    };
-    const revisions = rows.map((row, index) => {
-      const sourceId = text(first(row, ["id", "project_id"]), String(index));
-      const id = idFor("revision", project.id, sourceId);
-      revByLegacy.set(sourceId, id);
-      const isPub = index === 0 && (row.is_published || row.published || row.status === "approved" || row.approved);
-      const rev = {
-        id,
-        project_id: project.id,
-        revision_no: index + 1,
-        title: text(first(row, ["title", "name"], project.title), project.title),
-        description: first(row, ["description", "summary"], project.description) ?? null,
-        author_note: first(row, ["author_note", "authorNote"], project.author_note) ?? null,
-        project_type: first(row, ["project_type", "type"], project.project_type) ?? null,
-        extension_type: first(row, ["extension_type", "extension"], project.extension_type) ?? null,
-        facets: json(first(row, ["facets", "metadata.facets"], {})),
-        custom_tags: json(array(first(row, ["custom_tags", "customTags"], []))),
-        tags: json(array(first(row, ["tags", "search_tags"], []))),
-        metadata: json(first(row, ["metadata"], {})),
-        manifest_hash: first(row, ["manifest_hash", "manifestHash"]) ?? null,
-        worldbook_count: Number(first(row, ["worldbook_count", "worldbookCount"], 0)) || 0,
-        regex_count: Number(first(row, ["regex_count", "regexCount"], 0)) || 0,
-        schema_version: first(row, ["schema_version", "schemaVersion"]) ?? null,
-        discord_thread_url: first(row, ["discord_thread_url", "discordThreadUrl"]) ?? null,
-        created_by: project.author_id,
-        created_at: text(first(row, ["created_at", "createdAt"], project.created_at), project.created_at),
-      };
-      if (isPub) project.published_revision_id = id;
-      return rev;
-    });
-    const currentDraft = rows.find(
-      (row) =>
-        !(row.is_published || row.published || row.status === "approved" || row.approved) && row.status !== "rejected",
-    );
-    project.working_revision_id =
-      revByLegacy.get(text(first(currentDraft ?? pub, ["id", "project_id"]))) ?? revisions[0]?.id ?? null;
-    tables.projects.push(project);
-    tables.project_revisions.push(...revisions);
-    projectInfo.set(project.id, { project, revisions });
-  }
-  for (const row of source.tables.assets) {
-    const oldProject = text(first(row, ["project_id", "projectId"]));
-    const info = map.get(oldProject);
-    if (!info) continue;
-    const project = projectInfo.get(info.pid)?.project;
-    if (!project) continue;
-    const revisionId =
-      revByLegacy.get(text(first(row, ["revision_id", "revisionId", "project_id"]))) ?? project.working_revision_id;
-    const kind = text(first(row, ["kind", "type"], "worldbook"));
-    if (!["worldbook", "regex", "cover", "avatar", "banner"].includes(kind)) continue;
-    const sourceKey = text(first(row, ["r2_key", "key", "path"]));
-    const mime = text(first(row, ["mime", "content_type"], kind === "cover" ? "image/*" : "application/json"));
-    const sha256 = text(first(row, ["sha256", "hash"], hash(`${project.id}:${revisionId}:${kind}`)));
-    const r2Key =
-      kind === "cover"
-        ? `covers/${project.id}/${revisionId}-${sha256}.${extensionFor(sourceKey, mime)}`
-        : `projects/${project.id}/revisions/${revisionId}/${kind}-${sha256}.${extensionFor(sourceKey, mime)}`;
-    tables.assets.push({
-      id: text(first(row, ["id"]), idFor("asset", project.id, revisionId, kind)),
-      project_id: project.id,
-      revision_id: revisionId,
-      kind,
-      r2_key: r2Key,
-      source_key: sourceKey || null,
-      sha256,
-      bytes: Number(first(row, ["bytes", "size"], 0)) || 0,
-      mime,
-      entry_count: Number(first(row, ["entry_count"], 0)) || 0,
-      created_at: text(first(row, ["created_at", "createdAt"], project.created_at), project.created_at),
-    });
-  }
-  const entryCounts = new Map();
-  for (const asset of tables.assets) {
-    const counts = entryCounts.get(asset.revision_id) ?? { worldbook: 0, regex: 0 };
-    if (asset.kind === "worldbook" || asset.kind === "regex") {
-      counts[asset.kind] += Number(asset.entry_count ?? 0) || 0;
+  const assetSources = {};
+  const selected = (Array.isArray(sourceTables.projects) ? sourceTables.projects : []).filter(publicProject);
+  for (const sourceProject of selected) {
+    const id = text(sourceProject.id);
+    const authorId = text(sourceProject.author_id);
+    const author = userById.get(authorId);
+    const times = timestamps(sourceProject);
+    const title = text(sourceProject.name);
+    const tags = stringArray(sourceProject.tags);
+    const projectType =
+      normalizeProjectType(sourceProject.project_type) ??
+      (tags.some((tag) => normalizeProjectType(tag)) ? resolveProjectType(null, tags) : null);
+    const extensionType = normalizeExtensionType(sourceProject.extension_type);
+    if (!id || !author || !times || !title.trim()) {
+      skipped.push({
+        project_id: id || null,
+        reason: !author ? "missing_member_author" : "missing_required_project_fields",
+      });
+      continue;
     }
-    entryCounts.set(asset.revision_id, counts);
-  }
-  for (const revision of tables.project_revisions) {
-    const counts = entryCounts.get(revision.id);
-    revision.worldbook_count = counts?.worldbook ?? 0;
-    revision.regex_count = counts?.regex ?? 0;
-  }
-  const userId = (row) =>
-    roleUser(
-      text(first(row, ["user_id", "author_id", "actor_id", "submitted_by", "reviewer_id", "curator_id"])),
-      users,
-    );
-  for (const row of source.tables.project_likes) {
-    const p = map.get(text(first(row, ["project_id", "projectId"])));
-    if (p)
-      tables.project_likes.push({
-        project_id: p.pid,
-        user_id: userId(row),
-        created_at: text(first(row, ["created_at", "createdAt"], "1970-01-01T00:00:00.000Z")),
-      });
-  }
-  for (const row of source.tables.project_subscriptions) {
-    const p = map.get(text(first(row, ["project_id", "projectId"])));
-    if (p)
-      tables.project_subscriptions.push({
-        project_id: p.pid,
-        user_id: userId(row),
-        created_at: text(first(row, ["created_at", "createdAt"], "1970-01-01T00:00:00.000Z")),
-      });
-  }
-  for (const row of source.tables.project_ratings) {
-    const p = map.get(text(first(row, ["project_id", "projectId"])));
-    if (p)
-      tables.project_ratings.push({
-        project_id: p.pid,
-        user_id: userId(row),
-        rating: Math.max(1, Math.min(5, Number(first(row, ["rating", "score"], 1)) || 1)),
-        comment_text: first(row, ["comment_text", "comment"]) ?? null,
-        created_at: text(first(row, ["created_at", "createdAt"], "1970-01-01T00:00:00.000Z")),
-        updated_at: text(first(row, ["updated_at", "updatedAt"], "1970-01-01T00:00:00.000Z")),
-      });
-  }
-  for (const project of tables.projects) {
-    project.likes_count = tables.project_likes.filter((x) => x.project_id === project.id).length;
-    project.subscriptions_count = tables.project_subscriptions.filter((x) => x.project_id === project.id).length;
-  }
-  const pending = new Set();
-  for (const row of source.tables.submissions.sort((a, b) => dateOf(b).localeCompare(dateOf(a)))) {
-    const p = map.get(text(first(row, ["project_id", "projectId"])));
-    if (!p) continue;
-    const project = projectInfo.get(p.pid)?.project;
-    const status = text(first(row, ["status"], "pending")).toLowerCase();
-    const normalized = ["checking", "approved", "rejected", "superseded"].includes(status) ? status : "pending";
-    if ((normalized === "pending" || normalized === "checking") && pending.has(p.pid)) continue;
-    if (normalized === "pending" || normalized === "checking") pending.add(p.pid);
-    const id = text(
-      first(row, ["id", "submission_id"]),
-      idFor("submission", p.pid, first(row, ["revision_id"], project?.working_revision_id)),
-    );
-    const revisionId = revByLegacy.get(text(first(row, ["revision_id", "revisionId"]))) ?? project?.working_revision_id;
-    tables.submissions.push({
+    if (tables.projects.some((project) => project.id === id)) {
+      skipped.push({ project_id: id, reason: "duplicate_project_id" });
+      continue;
+    }
+    const revision = {
+      id: generatedId("revision", id),
+      project_id: id,
+      revision_no: 1,
+      title,
+      description: sourceProject.description ?? null,
+      author_note: null,
+      project_type: projectType,
+      extension_type: extensionType,
+      tags: JSON.stringify(tags),
+      manifest_hash: null,
+      worldbook_count: 0,
+      regex_count: 0,
+      schema_version: null,
+      discord_thread_url: sourceProject.discord_thread_url ?? null,
+      created_by: authorId,
+      created_at: times.created_at,
+      version_label: sourceProject.version_label ?? sourceProject.version ?? null,
+      precautions: sourceProject.precautions ?? null,
+      cover_position_x: Number.isFinite(sourceProject.cover_position_x) ? sourceProject.cover_position_x : 50,
+      cover_position_y: Number.isFinite(sourceProject.cover_position_y) ? sourceProject.cover_position_y : 50,
+      cover_zoom: Number.isFinite(sourceProject.cover_zoom) ? sourceProject.cover_zoom : 1,
+      metadata_findings: "[]",
+      metadata_checker_revision: null,
+      metadata_checked_at: null,
+      metadata_checked_by: null,
+      entry_index_ready: 1,
+    };
+    const project = {
       id,
-      project_id: p.pid,
-      revision_id: revisionId,
-      status: normalized,
-      gate: first(row, ["gate", "client_gate"]) ?? "missing",
-      checker_revision: first(row, ["checker_revision", "checkerVersion"]) ?? null,
-      submitted_by: userId(row),
-      submitted_at: text(first(row, ["submitted_at", "created_at", "createdAt"], "1970-01-01T00:00:00.000Z")),
-      resolved_at: first(row, ["resolved_at", "resolvedAt"]) ?? null,
-    });
-  }
-  for (const row of source.tables.reviews) {
-    const sid = text(first(row, ["submission_id", "submissionId"]));
-    const sub = tables.submissions.find((x) => x.id === sid);
-    if (!sub) continue;
-    tables.reviews.push({
-      id: text(first(row, ["id"]), idFor("review", sid)),
-      submission_id: sid,
-      reviewer_id: userId(row),
-      decision: first(row, ["decision"], "reject") === "approve" ? "approve" : "reject",
-      reason: first(row, ["reason"]) ?? null,
-      manifest_hash: first(row, ["manifest_hash", "manifestHash"]) ?? null,
-      checker_version: first(row, ["checker_version", "checkerVersion"]) ?? null,
-      report: json(first(row, ["report"], {})),
-      created_at: text(first(row, ["created_at", "createdAt"], "1970-01-01T00:00:00.000Z")),
-    });
-  }
-  for (const row of source.tables.recommendations) {
-    const p = map.get(text(first(row, ["project_id", "projectId"])));
-    if (p)
-      tables.recommendations.push({
-        id: text(first(row, ["id"]), idFor("recommendation", p.pid, first(row, ["curator_id", "user_id"], "unknown"))),
-        curator_id: userId(row),
-        project_id: p.pid,
-        comment: text(first(row, ["comment"], "")),
-        reaction: text(first(row, ["reaction"], "")),
-        created_at: text(first(row, ["created_at", "createdAt"], "1970-01-01T00:00:00.000Z")),
-        updated_at: text(first(row, ["updated_at", "updatedAt"], "1970-01-01T00:00:00.000Z")),
+      author_id: authorId,
+      title,
+      description: sourceProject.description ?? null,
+      author_note: null,
+      project_type: projectType,
+      extension_type: extensionType,
+      search_tags: JSON.stringify(tags),
+      visibility: "public",
+      working_revision_id: revision.id,
+      published_revision_id: revision.id,
+      published_at: sourceProject.latest_approved_at ?? sourceProject.reviewed_at ?? times.updated_at,
+      row_version: 1,
+      created_at: times.created_at,
+      updated_at: times.updated_at,
+      version_label: revision.version_label,
+      precautions: revision.precautions,
+      cover_position_x: revision.cover_position_x,
+      cover_position_y: revision.cover_position_y,
+      cover_zoom: revision.cover_zoom,
+      metadata_findings: "[]",
+      metadata_checker_revision: null,
+      metadata_checked_at: null,
+      metadata_checked_by: null,
+      published_schema_version: null,
+      published_discord_thread_url: revision.discord_thread_url,
+    };
+    const builtAssets = assetRows(project, revision, assetsByProject.get(id) ?? [], skipped);
+    if (!builtAssets.ok) {
+      skipped.push({ project_id: id, reason: builtAssets.reason });
+      continue;
+    }
+    const assets = builtAssets.values;
+    const indexes = assets.flatMap((asset) => asset.entries.map((entry) => ({ revision_id: revision.id, ...entry })));
+    revision.worldbook_count = indexes.filter((entry) => entry.kind === "worldbook").length;
+    revision.regex_count = indexes.filter((entry) => entry.kind === "regex").length;
+    revision.manifest_hash = manifestHash(assets);
+    tables.projects.push(project);
+    tables.project_revisions.push(revision);
+    for (const { entries, source_key, ...asset } of assets) {
+      tables.assets.push(asset);
+      assetSources[asset.id] = source_key;
+    }
+    tables.revision_entry_index.push(...indexes);
+    if (!tables.users.some((user) => user.id === authorId)) {
+      tables.users.push({
+        id: author.id,
+        username: author.username,
+        global_name: author.global_name ?? null,
+        avatar: author.avatar ?? null,
+        role: "member",
+        created_at: author.times.created_at,
+        updated_at: author.times.updated_at,
       });
-  }
-  const referenceSetIds = new Map();
-  for (const row of source.tables.reference_sets) {
-    const legacyId = text(
-      first(row, ["id", "reference_set_id"]),
-      idFor("reference-set", first(row, ["name"], "unnamed")),
-    );
-    const creator = roleUser(text(first(row, ["created_by", "user_id", "author_id"])), users);
-    const id = text(first(row, ["id", "reference_set_id"]), idFor("reference-set", first(row, ["name"], "unnamed")));
-    referenceSetIds.set(legacyId, id);
-    tables.reference_sets.push({
-      id,
-      name: text(first(row, ["name", "title"], "Unnamed reference set")),
-      description: first(row, ["description"]) ?? null,
-      created_by: creator,
-      created_at: text(first(row, ["created_at", "createdAt"], "1970-01-01T00:00:00.000Z")),
-      updated_at: text(first(row, ["updated_at", "updatedAt"], "1970-01-01T00:00:00.000Z")),
-    });
-  }
-  const referenceSetIdValues = new Set(tables.reference_sets.map((x) => x.id));
-  const referenceVersionIds = new Map();
-  for (const row of source.tables.reference_versions) {
-    const legacySetId = text(first(row, ["reference_set_id", "set_id"]));
-    const setId = referenceSetIds.get(legacySetId) ?? legacySetId;
-    if (!referenceSetIdValues.has(setId)) continue;
-    const id = text(
-      first(row, ["id", "version_id"]),
-      idFor("reference-version", setId, first(row, ["version_label", "version"], "1")),
-    );
-    referenceVersionIds.set(text(first(row, ["id", "version_id"]), id), id);
-    tables.reference_versions.push({
-      id,
-      reference_set_id: setId,
-      version_label: text(first(row, ["version_label", "version"], "1")),
-      version_ordinal: Number(first(row, ["version_ordinal", "ordinal"], 1)) || 1,
-      grace_until: text(first(row, ["grace_until", "graceUntil"], "9999-12-31T00:00:00.000Z")),
-      created_by: roleUser(text(first(row, ["created_by", "user_id", "author_id"])), users),
-      created_at: text(first(row, ["created_at", "createdAt"], "1970-01-01T00:00:00.000Z")),
-    });
-  }
-  const referenceVersionIdValues = new Set(tables.reference_versions.map((x) => x.id));
-  for (const row of source.tables.reference_items) {
-    const legacyVersionId = text(first(row, ["reference_version_id", "version_id"]));
-    const versionId = referenceVersionIds.get(legacyVersionId) ?? legacyVersionId;
-    if (!referenceVersionIdValues.has(versionId)) continue;
-    const exact = text(first(row, ["exact_hash", "hash"], hash(json(row))));
-    tables.reference_items.push({
-      id: text(first(row, ["id", "item_id"]), idFor("reference-item", versionId, exact)),
-      reference_version_id: versionId,
-      kind: first(row, ["kind", "type"], "worldbook") === "regex" ? "regex" : "worldbook",
-      source_key: first(row, ["source_key", "key"]) ?? null,
-      display_name: text(first(row, ["display_name", "name"], "Unnamed item")),
-      exact_hash: exact,
-      normalized_content_hash: text(first(row, ["normalized_content_hash", "normalized_hash"], exact)),
-      name_hash: text(first(row, ["name_hash"], hash(first(row, ["display_name", "name"], "")))),
-      keys_hash: first(row, ["keys_hash"]) ?? null,
-      structure_hash: text(first(row, ["structure_hash"], exact)),
-      created_at: text(first(row, ["created_at", "createdAt"], "1970-01-01T00:00:00.000Z")),
-    });
-  }
-  for (const row of source.tables.ranking_runs) {
-    const kind = text(first(row, ["kind"], "daily"));
-    if (!["daily", "7d", "30d"].includes(kind)) continue;
-    tables.ranking_runs.push({
-      id: text(first(row, ["id", "run_id"]), idFor("ranking-run", kind, first(row, ["bucket"], "legacy"))),
-      kind,
-      bucket: text(first(row, ["bucket"], "legacy")),
-      status: "complete",
-      created_at: text(first(row, ["created_at", "createdAt"], "1970-01-01T00:00:00.000Z")),
-      completed_at: first(row, ["completed_at", "completedAt"]) ?? null,
-    });
-  }
-  const rankingRunIds = new Set(tables.ranking_runs.map((x) => x.id));
-  for (const row of source.tables.ranking_entries) {
-    const runId = text(first(row, ["run_id", "runId"]));
-    if (!rankingRunIds.has(runId)) continue;
-    const p = map.get(text(first(row, ["project_id", "projectId"])));
-    if (!p) continue;
-    tables.ranking_entries.push({
-      run_id: runId,
-      rank: Number(first(row, ["rank"], 0)) || 0,
-      project_id: p.pid,
-      score: Number(first(row, ["score"], 0)) || 0,
-    });
-  }
-  for (const row of source.tables.discovery_exposures) {
-    const p = map.get(text(first(row, ["project_id", "projectId"])));
-    if (!p) continue;
-    tables.discovery_exposures.push({
-      bucket: text(first(row, ["bucket"], "legacy")),
-      project_id: p.pid,
-      rank: Number(first(row, ["rank"], 0)) || 0,
-      created_at: text(first(row, ["created_at", "createdAt"], "1970-01-01T00:00:00.000Z")),
-    });
-  }
-  for (const row of source.tables.project_metrics_daily) {
-    const p = map.get(text(first(row, ["project_id", "projectId"])));
-    if (!p) continue;
-    tables.project_metrics_daily.push({
-      day_key: text(first(row, ["day_key", "dayKey", "day"], "1970-01-01")),
-      project_id: p.pid,
-      downloads: Number(first(row, ["downloads"], 0)) || 0,
-      likes_delta: Number(first(row, ["likes_delta", "likesDelta"], 0)) || 0,
-    });
-  }
-  for (const row of source.tables.site_settings) {
-    const key = text(first(row, ["key", "name"]));
-    if (!key) continue;
-    tables.site_settings.push({
-      key,
-      value: text(first(row, ["value"], "")),
-      updated_at: text(first(row, ["updated_at", "updatedAt"], "1970-01-01T00:00:00.000Z")),
-      updated_by: null,
-    });
-  }
-  for (const row of source.tables.audit_events) {
-    tables.audit_events.push({
-      id: text(
-        first(row, ["id", "event_id"]),
-        idFor("audit", first(row, ["action"], "event"), first(row, ["target_id"], "unknown")),
-      ),
-      action: text(first(row, ["action"], "migration")),
-      target_type: text(first(row, ["target_type", "targetType"], "legacy")),
-      target_id: first(row, ["target_id", "targetId"]) ?? null,
-      actor_id: first(row, ["actor_id", "user_id"]) ?? null,
-      detail: first(row, ["detail", "metadata"]) == null ? null : json(first(row, ["detail", "metadata"])),
-      created_at: text(first(row, ["created_at", "createdAt"], "1970-01-01T00:00:00.000Z")),
-    });
-  }
-  const assetSha256 = {};
-  for (const row of source.tables.assets) {
-    const oldProject = text(first(row, ["project_id", "projectId"]));
-    const info = map.get(oldProject);
-    const project = info && projectInfo.get(info.pid)?.project;
-    if (!project) continue;
-    const revisionId =
-      revByLegacy.get(text(first(row, ["revision_id", "revisionId", "project_id"]))) ?? project.working_revision_id;
-    const kind = text(first(row, ["kind", "type"], "worldbook"));
-    if (!["worldbook", "regex", "cover", "avatar", "banner"].includes(kind)) continue;
-    const id = text(first(row, ["id"]), idFor("asset", project.id, revisionId, kind));
-    assetSha256[id] = text(first(row, ["sha256", "hash"], hash(`${project.id}:${revisionId}:${kind}`)));
-    const asset = tables.assets.find((candidate) => candidate.id === id);
-    if (asset && row.content_base64 != null) asset.content_base64 = row.content_base64;
+    }
   }
   for (const name of TABLES) tables[name] = stableRows(tables[name]);
-  const sourceGroups = [...new Set([...map.values()])];
-  const projectCount = sourceGroups.length;
-  const publishedGroups = sourceGroups.filter((info) =>
-    info.group.some((row) => row.is_published || row.published || row.status === "approved" || row.approved),
-  );
-  const publishedCount = publishedGroups.length;
-  const expectedProjectIds = sourceGroups.map((info) => info.pid).sort();
-  const expectedPublishedProjectIds = publishedGroups.map((info) => info.pid).sort();
-  const roleById = new Map(),
-    roleConflicts = [];
-  for (const row of source.tables.users) {
-    const id = text(first(row, ["id", "user_id", "discord_id", "discordId"]));
-    const role = text(
-      first(
-        row,
-        ["role"],
-        row.is_owner || row.is_super_admin || row.super_admin
-          ? "owner"
-          : row.is_admin || row.admin
-            ? "reviewer"
-            : "member",
-      ),
-    );
-    if (!id) continue;
-    if (roleById.has(id) && roleById.get(id) !== role) roleConflicts.push({ id, roles: [roleById.get(id), role] });
-    else roleById.set(id, role);
-  }
-  const supported = new Set([
-    "users",
-    "projects",
-    "project_revisions",
-    "assets",
-    "submissions",
-    "reviews",
-    "project_likes",
-    "project_subscriptions",
-    "project_ratings",
-    "project_metrics_daily",
-    "ranking_runs",
-    "ranking_entries",
-    "discovery_exposures",
-    "site_settings",
-    "recommendations",
-    "reference_sets",
-    "reference_versions",
-    "reference_items",
-    "audit_events",
-  ]);
-  const droppedTables = TABLES.filter((name) => !supported.has(name) && (source.tables[name] ?? []).length > 0);
+  const expectedProjectIds = tables.projects.map((project) => project.id).sort();
+  const assetSha256 = Object.fromEntries(tables.assets.map((asset) => [asset.id, asset.sha256]));
   return {
-    format: "workshop-migration-v1",
+    format: "workshop-public-migration-v2",
     meta: {
-      expectedProjectCount: projectCount,
+      selectedSourceProjects: selected.length,
+      expectedProjectCount: expectedProjectIds.length,
       expectedProjectIds,
-      expectedPublishedPointerCount: publishedCount,
-      expectedPublishedProjectIds,
+      expectedPublishedPointerCount: expectedProjectIds.length,
+      expectedPublishedProjectIds: expectedProjectIds,
       assetSha256,
-      sourceCounts: { projects: projectCount, users: users.length },
-      roleConflicts,
-      droppedTables,
+      assetSources,
+      skipped: stableRows(skipped),
     },
     tables,
   };
 }
 
-function rowKey(row) {
-  if (row?.id != null) return `id:${row.id}`;
-  if (row?.project_id != null && row?.user_id != null)
-    return `pu:${row.project_id}:${row.user_id}:${row.day_key ?? ""}`;
-  if (row?.project_id != null && row?.day_key != null) return `pd:${row.project_id}:${row.day_key}`;
-  return null;
-}
-function duplicateIds(rows) {
-  const seen = new Set(),
-    duplicate = [];
+function duplicateValues(rows, key) {
+  const seen = new Set();
+  const duplicate = [];
   for (const row of rows) {
-    const keys = [rowKey(row)];
-    if (row?.r2_key != null) keys.push(`r2:${row.r2_key}`);
-    for (const key of keys) {
-      if (key == null) continue;
-      if (seen.has(key)) duplicate.push(key);
-      seen.add(key);
-    }
+    const value = key(row);
+    if (seen.has(value)) duplicate.push(value);
+    seen.add(value);
   }
   return duplicate;
 }
+
 export function verify(target) {
-  const mismatches = [],
-    tables = target?.tables ?? {};
+  const mismatches = [];
+  const tables = target?.tables ?? {};
+  for (const name of TABLES) if (!Array.isArray(tables[name])) mismatches.push({ check: "missing_table", table: name });
+  for (const [name, rows] of Object.entries(tables))
+    if (!TABLES.includes(name) && Array.isArray(rows) && rows.length)
+      mismatches.push({ check: "unsupported_table", table: name });
   const projects = Array.isArray(tables.projects) ? tables.projects : [];
-  if ((target?.meta?.roleConflicts ?? []).length > 0)
-    mismatches.push({ check: "role_conflict", conflicts: target.meta.roleConflicts });
-  if ((target?.meta?.droppedTables ?? []).length > 0)
-    mismatches.push({ check: "source_not_migrated", tables: target.meta.droppedTables });
+  const revisions = Array.isArray(tables.project_revisions) ? tables.project_revisions : [];
+  const assets = Array.isArray(tables.assets) ? tables.assets : [];
+  const indexes = Array.isArray(tables.revision_entry_index) ? tables.revision_entry_index : [];
+  const users = Array.isArray(tables.users) ? tables.users : [];
+  const expectedIds = target?.meta?.expectedProjectIds;
   if (target?.meta?.expectedProjectCount !== projects.length)
     mismatches.push({ check: "project_count", expected: target?.meta?.expectedProjectCount, actual: projects.length });
-  const published = projects.filter((x) => x.published_revision_id).length;
-  if (target?.meta?.expectedPublishedPointerCount !== published)
+  if (
+    Array.isArray(expectedIds) &&
+    stableStringify(expectedIds) !== stableStringify(projects.map((row) => row.id).sort())
+  )
+    mismatches.push({ check: "project_identity", expected: expectedIds, actual: projects.map((row) => row.id).sort() });
+  const publishedProjectIds = projects
+    .filter((project) => project.published_revision_id)
+    .map((project) => project.id)
+    .sort();
+  if (target?.meta?.expectedPublishedPointerCount !== publishedProjectIds.length)
     mismatches.push({
       check: "published_pointer_count",
       expected: target?.meta?.expectedPublishedPointerCount,
-      actual: published,
+      actual: publishedProjectIds.length,
     });
-  const actualProjectIds = projects.map((row) => row.id).sort();
-  const actualPublishedProjectIds = projects
-    .filter((row) => row.published_revision_id)
-    .map((row) => row.id)
-    .sort();
-  if (
-    Array.isArray(target?.meta?.expectedProjectIds) &&
-    stableStringify(target.meta.expectedProjectIds) !== stableStringify(actualProjectIds)
-  )
-    mismatches.push({ check: "project_identity", expected: target.meta.expectedProjectIds, actual: actualProjectIds });
   if (
     Array.isArray(target?.meta?.expectedPublishedProjectIds) &&
-    stableStringify(target.meta.expectedPublishedProjectIds) !== stableStringify(actualPublishedProjectIds)
+    stableStringify(target.meta.expectedPublishedProjectIds) !== stableStringify(publishedProjectIds)
   )
-    mismatches.push({
-      check: "published_project_identity",
-      expected: target.meta.expectedPublishedProjectIds,
-      actual: actualPublishedProjectIds,
-    });
-  for (const name of TABLES) {
-    const dup = duplicateIds(tables[name] ?? []);
-    if (dup.length) mismatches.push({ check: "duplicate_ids", table: name, ids: dup });
+    mismatches.push({ check: "published_project_identity", actual: publishedProjectIds });
+  for (const [table, rows, key] of [
+    ["users", users, (row) => row.id],
+    ["projects", projects, (row) => row.id],
+    ["project_revisions", revisions, (row) => row.id],
+    ["assets", assets, (row) => row.id],
+    ["revision_entry_index", indexes, (row) => `${row.revision_id}:${row.kind}:${row.entry_key}`],
+  ]) {
+    const duplicate = duplicateValues(rows, key);
+    if (duplicate.length) mismatches.push({ check: "duplicate_ids", table, ids: duplicate });
   }
-  const ids = new Set(projects.map((x) => x.id)),
-    revisions = new Set((tables.project_revisions ?? []).map((x) => x.id)),
-    users = new Set((tables.users ?? []).map((x) => x.id));
-  const revisionProject = new Map((tables.project_revisions ?? []).map((row) => [row.id, row.project_id]));
-  const revisionById = new Map((tables.project_revisions ?? []).map((row) => [row.id, row]));
-  for (const row of projects) {
-    if (!users.has(row.author_id)) mismatches.push({ check: "fk", table: "projects", id: row.id, field: "author_id" });
-    for (const key of ["working_revision_id", "published_revision_id"]) {
-      if (!row[key]) continue;
-      if (!revisions.has(row[key])) mismatches.push({ check: "fk", table: "projects", id: row.id, field: key });
-      else if (revisionProject.get(row[key]) !== row.id)
-        mismatches.push({
-          check: "pointer_owner",
-          table: "projects",
-          id: row.id,
-          field: key,
-          revisionId: row[key],
-          revisionProject: revisionProject.get(row[key]),
-        });
-    }
-    if (row.published_revision_id) {
-      const revision = revisionById.get(row.published_revision_id);
-      if (revision && Number(revision.worldbook_count ?? 0) + Number(revision.regex_count ?? 0) === 0) {
-        mismatches.push({
-          check: "published_empty_content",
-          table: "projects",
-          id: row.id,
-          revisionId: row.published_revision_id,
-        });
-      }
+  const userIds = new Set(users.map((row) => row.id));
+  const projectIds = new Set(projects.map((row) => row.id));
+  const revisionsById = new Map(revisions.map((row) => [row.id, row]));
+  const revisionCounts = new Map();
+  for (const revision of revisions)
+    revisionCounts.set(revision.project_id, (revisionCounts.get(revision.project_id) ?? 0) + 1);
+  for (const user of users) if (user.role !== "member") mismatches.push({ check: "legacy_role", id: user.id });
+  for (const project of projects) {
+    if (project.visibility !== "public") mismatches.push({ check: "project_visibility", id: project.id });
+    if (!userIds.has(project.author_id))
+      mismatches.push({ check: "fk", table: "projects", id: project.id, field: "author_id" });
+    if (revisionCounts.get(project.id) !== 1) mismatches.push({ check: "current_revision_count", id: project.id });
+    for (const field of ["working_revision_id", "published_revision_id"]) {
+      const revision = revisionsById.get(project[field]);
+      if (!revision || revision.project_id !== project.id)
+        mismatches.push({ check: "pointer_owner", table: "projects", id: project.id, field });
     }
   }
-  for (const [name, rows] of Object.entries(tables))
-    for (const row of rows ?? []) {
-      if (row.project_id && !ids.has(row.project_id)) mismatches.push({ check: "fk", table: name, id: row.id });
-      if (row.user_id && !users.has(row.user_id)) mismatches.push({ check: "fk", table: name, id: row.id });
-    }
-  for (const row of tables.project_revisions ?? []) {
-    if (!ids.has(row.project_id) || !users.has(row.created_by))
-      mismatches.push({ check: "fk", table: "project_revisions", id: row.id });
+  for (const revision of revisions) {
+    if (!projectIds.has(revision.project_id) || !userIds.has(revision.created_by))
+      mismatches.push({ check: "fk", table: "project_revisions", id: revision.id });
+    if (revision.entry_index_ready !== 1) mismatches.push({ check: "entry_index_ready", id: revision.id });
+    for (const field of ["facets", "custom_tags", "metadata"])
+      if (field in revision) mismatches.push({ check: "dead_revision_field", id: revision.id, field });
   }
-  for (const row of tables.assets ?? []) {
-    if (!ids.has(row.project_id) || (row.revision_id && !revisions.has(row.revision_id)))
-      mismatches.push({ check: "fk", table: "assets", id: row.id });
-  }
-  const assetCounts = new Map();
-  for (const asset of tables.assets ?? []) {
-    const counts = assetCounts.get(asset.revision_id) ?? { worldbook: 0, regex: 0 };
-    if (asset.kind === "worldbook" || asset.kind === "regex") {
-      counts[asset.kind] += Number(asset.entry_count ?? 0) || 0;
-    }
-    assetCounts.set(asset.revision_id, counts);
-  }
-  for (const revision of tables.project_revisions ?? []) {
-    const expected = assetCounts.get(revision.id) ?? { worldbook: 0, regex: 0 };
-    if (revision.worldbook_count !== expected.worldbook || revision.regex_count !== expected.regex) {
+  for (const asset of assets) {
+    const revision = revisionsById.get(asset.revision_id);
+    if (!projectIds.has(asset.project_id) || !revision || revision.project_id !== asset.project_id)
+      mismatches.push({ check: "fk", table: "assets", id: asset.id });
+    if (!["worldbook", "regex", "cover"].includes(asset.kind))
+      mismatches.push({ check: "asset_kind", id: asset.id, kind: asset.kind });
+    if (!text(asset.r2_key) || !text(target?.meta?.assetSources?.[asset.id]))
+      mismatches.push({ check: "asset_copy_mapping", id: asset.id });
+    if (asset.kind === "cover" && !text(asset.r2_key).startsWith("covers/"))
+      mismatches.push({ check: "cover_namespace", id: asset.id });
+    if (!SHA256.test(text(asset.sha256)))
+      mismatches.push({ check: "asset_sha256", id: asset.id, actual: asset.sha256 });
+    if (target?.meta?.assetSha256?.[asset.id] !== asset.sha256)
       mismatches.push({
-        check: "entry_counts",
-        id: revision.id,
-        expected,
-        actual: { worldbook: revision.worldbook_count, regex: revision.regex_count },
+        check: "asset_sha256",
+        id: asset.id,
+        expected: target?.meta?.assetSha256?.[asset.id],
+        actual: asset.sha256,
       });
-    }
   }
-  const submissions = new Set((tables.submissions ?? []).map((x) => x.id));
-  for (const row of tables.submissions ?? []) {
-    if (!ids.has(row.project_id) || !revisions.has(row.revision_id) || !users.has(row.submitted_by))
-      mismatches.push({ check: "fk", table: "submissions", id: row.id });
+  const assetsByRevision = new Map();
+  for (const asset of assets) {
+    const rows = assetsByRevision.get(asset.revision_id) ?? [];
+    rows.push(asset);
+    assetsByRevision.set(asset.revision_id, rows);
   }
-  for (const row of tables.reviews ?? []) {
-    if (!submissions.has(row.submission_id) || !users.has(row.reviewer_id))
-      mismatches.push({ check: "fk", table: "reviews", id: row.id });
+  for (const [revisionId, revisionAssets] of assetsByRevision) {
+    const duplicateKinds = duplicateValues(revisionAssets, (asset) => asset.kind);
+    if (duplicateKinds.length)
+      mismatches.push({ check: "duplicate_asset_kind", revision_id: revisionId, kinds: duplicateKinds });
   }
-  const referenceSets = new Set((tables.reference_sets ?? []).map((x) => x.id)),
-    referenceVersions = new Set((tables.reference_versions ?? []).map((x) => x.id));
-  for (const row of tables.reference_sets ?? [])
-    if (!users.has(row.created_by)) mismatches.push({ check: "fk", table: "reference_sets", id: row.id });
-  for (const row of tables.reference_versions ?? [])
-    if (!referenceSets.has(row.reference_set_id) || !users.has(row.created_by))
-      mismatches.push({ check: "fk", table: "reference_versions", id: row.id });
-  for (const row of tables.reference_items ?? [])
-    if (!referenceVersions.has(row.reference_version_id))
-      mismatches.push({ check: "fk", table: "reference_items", id: row.id });
-  for (const asset of tables.assets ?? []) {
-    const expectedHash = target?.meta?.assetSha256?.[asset.id];
-    if (expectedHash && expectedHash.toLowerCase() !== text(asset.sha256).toLowerCase())
-      mismatches.push({ check: "asset_sha256", id: asset.id, expected: expectedHash, actual: asset.sha256 });
-    if (!/^[a-f0-9]{64}$/i.test(text(asset.sha256)))
-      mismatches.push({ check: "asset_sha256", id: asset.id, sha256: asset.sha256 });
-    if (asset.content_base64) {
-      const actual = createHash("sha256").update(Buffer.from(asset.content_base64, "base64")).digest("hex");
-      if (actual !== asset.sha256.toLowerCase())
-        mismatches.push({ check: "asset_sha256", id: asset.id, expected: asset.sha256, actual });
-    }
+  const indexCounts = new Map();
+  for (const index of indexes) {
+    const revisionAssets = assetsByRevision.get(index.revision_id) ?? [];
+    if (!revisionsById.has(index.revision_id) || !["worldbook", "regex"].includes(index.kind))
+      mismatches.push({ check: "fk", table: "revision_entry_index", id: index.revision_id });
+    else if (!revisionAssets.some((asset) => asset.kind === index.kind))
+      mismatches.push({ check: "index_asset_kind", revision_id: index.revision_id, kind: index.kind });
+    const counts = indexCounts.get(index.revision_id) ?? { worldbook: 0, regex: 0 };
+    if (index.kind === "worldbook" || index.kind === "regex") counts[index.kind] += 1;
+    indexCounts.set(index.revision_id, counts);
   }
-  const pending = new Set();
-  for (const row of tables.submissions ?? [])
-    if (row.status === "pending" || row.status === "checking") {
-      if (pending.has(row.project_id))
-        mismatches.push({ check: "pending_submission_unique", project_id: row.project_id });
-      pending.add(row.project_id);
-    }
-  const has = (check) => mismatches.some((item) => item.check === check);
+  for (const revision of revisions) {
+    const counts = indexCounts.get(revision.id) ?? { worldbook: 0, regex: 0 };
+    if (revision.worldbook_count !== counts.worldbook || revision.regex_count !== counts.regex)
+      mismatches.push({ check: "entry_counts", id: revision.id, expected: counts });
+    if (counts.worldbook + counts.regex === 0) mismatches.push({ check: "published_empty_content", id: revision.id });
+    const actualManifest = manifestHash(assetsByRevision.get(revision.id) ?? []);
+    if (revision.manifest_hash !== actualManifest)
+      mismatches.push({
+        check: "manifest_hash",
+        id: revision.id,
+        expected: actualManifest,
+        actual: revision.manifest_hash,
+      });
+  }
   return {
     ok: mismatches.length === 0,
-    checks: {
-      projectCount: projects.length,
-      publishedPointerCount: published,
-      assets: (tables.assets ?? []).length,
-      foreignKeys: !has("fk"),
-      duplicateIds: !has("duplicate_ids"),
-      pendingSubmissionUniqueness: !has("pending_submission_unique"),
-    },
+    checks: { projects: projects.length, assets: assets.length, indexedEntries: indexes.length },
     mismatches,
   };
 }
 
 export function reconcile(expected, target) {
-  const mismatches = [],
-    counts = {};
+  const counts = {};
+  const mismatches = [];
   for (const name of TABLES) {
-    const left = expected.tables?.[name] ?? [],
-      right = target.tables?.[name] ?? [];
+    const left = stableRows(expected.tables?.[name] ?? []);
+    const right = stableRows(target.tables?.[name] ?? []);
     counts[name] = { expected: left.length, actual: right.length };
-    if (stableStringify(stableRows(left)) !== stableStringify(stableRows(right))) {
-      const rightSet = new Set(right.map(stableStringify));
-      const leftSet = new Set(left.map(stableStringify));
+    if (stableStringify(left) !== stableStringify(right)) {
+      const actual = new Set(right.map(stableStringify));
+      const expectedRows = new Set(left.map(stableStringify));
       mismatches.push({
         table: name,
-        missing: left.filter((x) => !rightSet.has(stableStringify(x))).slice(0, 20),
-        unexpected: right.filter((x) => !leftSet.has(stableStringify(x))).slice(0, 20),
+        missing: left.filter((row) => !actual.has(stableStringify(row))).slice(0, 20),
+        unexpected: right.filter((row) => !expectedRows.has(stableStringify(row))).slice(0, 20),
       });
     }
   }
@@ -980,7 +509,9 @@ export async function writeJson(file, value) {
   await fs.mkdir(path.dirname(path.resolve(file)), { recursive: true });
   await fs.writeFile(file, `${stableStringify(value)}\n`, "utf8");
 }
+
 export async function readJson(file) {
   return JSON.parse(await fs.readFile(file, "utf8"));
 }
+
 export { TABLES };

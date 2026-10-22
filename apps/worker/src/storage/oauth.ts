@@ -36,13 +36,12 @@ export async function insertOAuthFlow(db: D1Database, flow: NewOAuthFlow): Promi
   await db
     .prepare(`
     INSERT INTO oauth_flows
-      (id, state_hash, verifier_hash, code_verifier, code_challenge, redeem_hash, origin, mode, expires_at, browser_binding_hash)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, state_hash, code_verifier, code_challenge, redeem_hash, origin, mode, expires_at, browser_binding_hash)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
     .bind(
       flow.id,
       await sha256Hex(flow.state),
-      flow.codeChallenge,
       flow.verifier,
       flow.codeChallenge,
       flow.redeemHash,

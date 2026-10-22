@@ -2,10 +2,10 @@
 
 这是「命定之诗与黄昏之歌」的**创意工坊**独立仓库。
 
-当前工作树包含新后端、公开 Web 站点和酒馆客户端 bundle：
+当前工作树包含一个 Cloudflare Worker（API + Web 静态托管）和酒馆客户端 bundle：
 
-- **Cloudflare Worker 后端**：项目读取、作者写路径、人工审核、发布、互动与文件分发；
-- **Web 站点**：React + Vite 的公开列表、详情与作者/审核界面；
+- **Cloudflare Worker 后端**：项目读取、作者写路径、人工审核、发布、互动与文件分发；同时通过 Static Assets 托管 Web 构建产物。
+- **Web 站点**：React + Vite 的公开列表、详情与作者/审核界面。它不是独立服务，构建产物由上面的 Worker 同源提供，页面里的 `/api/v1` 请求也回到这个 Worker。
 - **酒馆客户端**：安装、更新、卸载和内容基线桥接。
 
 ## 仓库结构
@@ -28,8 +28,6 @@ workshop/
 └─ .agents/                  # 项目级 Agent 规则、notes、skills 与共享规范
 ```
 
-`cloudflare/`、`src/`、`util/`、`config/`、`test-dist/` 和旧 webpack 构建链已删除；不要在当前工作树重新引入旧实现。
-
 ## 后端与客户端
 
 唯一 Worker 位于 [`apps/worker/src/index.ts`](apps/worker/src/index.ts)，技术栈为 Cloudflare Workers + Hono，数据存储为 D1，文件存储为 R2，静态站点通过 Static Assets 提供。
@@ -40,7 +38,7 @@ workshop/
 - 审核：待审队列、发布指针切换、成员角色、审计；
 - 互动：点赞、订阅、评分、按用户/项目/日幂等的下载计数；
 - 客户端：版本化分发、安装/更新/卸载与基线校验；
-- 缓存：公开 GET（项目列表/详情、推荐、榜单）使用 Workers Cache API，30 秒 TTL，`cache_epoch` 变更即失效；作者、审核、下载等动态接口保持 `private, no-store`。
+- 缓存：项目列表/详情、发现、榜单使用 Workers Cache API，30 秒 TTL + `cache_epoch`；首页、推荐、参考集、站点当前直读 D1；作者、审核、下载等动态接口保持 `private, no-store`。详见 `docs/plans/refactor-2026-10/api-design.md`。
 
 接口以 `/api/v1` 为前缀。契约在 `packages/contracts`，领域规则在 `packages/domain`，checker 与内容审计在 `packages/content`。
 
@@ -78,6 +76,10 @@ pnpm exec wrangler d1 migrations apply workshop-staging --local --config wrangle
 
 客户端构建与发布脚本在 `apps/tavern-client/package.json`；checker 构建与发布脚本在 `packages/content/package.json`。
 
+数据库结构以完整编号 migration 链为准，不以旧导出数据要求保留无用字段。当前导入工具只转换已选公开发布内容与必要 member 作者，重建 manifest 和完整条目索引；不会恢复旧管理员权限、会话、草稿、审核或互动历史，见 [`tools/migrate/README.md`](tools/migrate/README.md)。
+
+`0021_remove_obsolete_state.sql` 会删除旧镜像字段、撤下未完成索引的历史发布并清理无用资产关联（保留 revision 和 R2 原文件）。远程执行前必须备份、确认影响与获得授权；本地通过不代表已经应用到 staging／production。
+
 ## 部署
 
 部署由 GitHub Actions 执行；本地 `wrangler deploy` 只用于验证或故障处理，不作为发布依据。
@@ -85,7 +87,7 @@ pnpm exec wrangler d1 migrations apply workshop-staging --local --config wrangle
 - **CI**：`.github/workflows/ci.yml` 在相关路径 push/PR 时运行 `pnpm check` 和 `pnpm e2e:local`。
 - **Staging**：`ci` 在 `main` 成功后，`.github/workflows/deploy-staging.yml` 自动触发；staging environment 只允许 `main`，没有额外 reviewer gate。流水线构建 Web artifact 并记录 SHA-256，然后执行 D1 migration、Worker 部署、记录 Worker version 和 health smoke。
 - **Production**：推送 `v*` tag 触发 `.github/workflows/deploy-production.yml`；production environment 要求 1 名 reviewer，并只允许 `v*` tag。流水线查找该 commit 的 staging 成功记录，下载同一 Web artifact，审批后校验 SHA 与 artifact hash，再执行 migration、部署、记录 Worker version 和 health smoke。
-- 生产发布必须使用 staging 已验证的同一 commit，不接受本地或其他分支的构建。当前流水线对 Web artifact 做 hash 校验，Worker 仍由该 commit 在 production job 重新打包；完整 build-once 仍是待改进项。
+- 生产发布必须使用 staging 已验证的同一 commit，不接受本地或其他分支的构建。staging artifact 现在包含 Web 静态资源、Worker bundle 与 Tavern client；production 下载并校验同一 artifact，再发布 stable client。
 - Git 仓库与 Cloudflare 运行时是两套独立状态：推送不等于部署，部署后必须单独核对 Worker version。
 - 密钥通过 GitHub Actions secrets 或 `wrangler secret put` 写入，不进入仓库。
 - 生产 D1 不手工修改；schema 变更只通过 migration，并先在本地和 staging 验证。

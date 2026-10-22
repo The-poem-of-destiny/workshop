@@ -1,13 +1,18 @@
 import {
   adminAuditEventListQuerySchema,
+  adminAuditListSchema,
   adminListQuerySchema,
+  adminMemberListSchema,
+  adminProjectListSchema,
   adminRecommendationUpdateSchema,
   adminReferenceSetCreateSchema,
   adminReferenceSetUpdateSchema,
   adminReferenceVersionCreateSchema,
   adminReviewRequestSchema,
   adminRoleRequestSchema,
+  adminSubmissionDetailSchema,
   adminSubmissionListQuerySchema,
+  submissionDiffSchema,
 } from "@workshop/contracts";
 import { Hono } from "hono";
 import type { Env } from "../../env.js";
@@ -67,7 +72,7 @@ adminRoutes.get("/submissions/:id", async (c) => {
   if (session === false) return jsonError(c, "forbidden", "Reviewer role required");
   const submission = await getAdminSubmission(c.env.DB, c.req.param("id"));
   if (!submission) return jsonError(c, "not_found", "Submission not found");
-  return c.json(submission);
+  return c.json(adminSubmissionDetailSchema.parse(submission));
 });
 
 adminRoutes.get("/submissions/:id/files/:kind", async (c) => {
@@ -96,7 +101,7 @@ adminRoutes.get("/submissions/:id/diff", async (c) => {
   if (session === false) return jsonError(c, "forbidden", "Reviewer role required");
   const diff = await getSubmissionDiff(c.env.DB, c.env.R2, c.req.param("id"));
   if (!diff) return jsonError(c, "not_found", "Submission not found");
-  return c.json(diff);
+  return c.json(submissionDiffSchema.parse(diff));
 });
 
 adminRoutes.post("/submissions/:id/recheck", async (c) => {
@@ -175,11 +180,13 @@ adminRoutes.get("/projects", async (c) => {
   });
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid query", parsed.error.flatten());
   return c.json(
-    await listAdminProjects(c.env.DB, parsed.data.limit, parsed.data.cursor, {
-      search: parsed.data.search,
-      projectType: parsed.data.projectType,
-      includeDeleted: parsed.data.includeDeleted,
-    }),
+    adminProjectListSchema.parse(
+      await listAdminProjects(c.env.DB, parsed.data.limit, parsed.data.cursor, {
+        search: parsed.data.search,
+        projectType: parsed.data.projectType,
+        includeDeleted: parsed.data.includeDeleted,
+      }),
+    ),
   );
 });
 
@@ -192,7 +199,7 @@ adminRoutes.get("/members", async (c) => {
     cursor: c.req.query("cursor"),
   });
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid query", parsed.error.flatten());
-  return c.json(await listAdminMembers(c.env.DB, parsed.data.limit, parsed.data.cursor));
+  return c.json(adminMemberListSchema.parse(await listAdminMembers(c.env.DB, parsed.data.limit, parsed.data.cursor)));
 });
 
 adminRoutes.put("/members/:id/role", async (c) => {
@@ -219,7 +226,11 @@ adminRoutes.get("/audit-events", async (c) => {
     action: c.req.query("action"),
   });
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid query", parsed.error.flatten());
-  return c.json(await listAdminAuditEvents(c.env.DB, parsed.data.limit, parsed.data.cursor, parsed.data.action));
+  return c.json(
+    adminAuditListSchema.parse(
+      await listAdminAuditEvents(c.env.DB, parsed.data.limit, parsed.data.cursor, parsed.data.action),
+    ),
+  );
 });
 
 adminRoutes.put("/recommendations/:projectId", async (c) => {

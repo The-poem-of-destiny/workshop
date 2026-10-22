@@ -11,12 +11,21 @@ Read the relevant skill before starting work; do not rely on memory of it.
 
 ## Canonical refs
 
-- `origin/main` is the only long-lived branch and the base for all new work.
+- `origin/main` is the integration branch and the base for all work.
+- `work` is the daily working branch. Start or rebase it from refreshed `origin/main`.
 - `archive/release-*` branches are frozen historical refs. Do not build, merge or deploy from them.
-- Task branches are short-lived: `fix/*`, `feature/*`, `chore/*`. Integrate into `main`, then delete.
+- Task branches are optional and short-lived: `fix/*`, `feature/*`, `chore/*`. Integrate into `main`, then delete.
 - Tags are immutable release markers. Never move or re-push an existing tag.
 
 Work starts from refreshed `origin/main`, never from the local worktree HEAD alone.
+
+## PR rules
+
+- Do not commit directly to `main`; integrate through a PR from `work`.
+- Batch related code, tests, config and docs into one PR.
+- Do not open a PR for docs, comments or small config alone; fold them into the next change.
+- Run `pnpm check` and the relevant E2E tests before opening; report what actually ran.
+- Merge only when `check` and `e2e` pass; delete task branches afterwards.
 
 ## Repository boundaries
 

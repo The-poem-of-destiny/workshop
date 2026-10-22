@@ -13,8 +13,8 @@
 - [x] `pnpm check` 覆盖 workspace、strict typecheck、worker/domain/content 测试、schema、迁移测试、wrangler dry-run。
 - [x] 删除旧 `cloudflare/`、旧 E2E/Playwright、PowerShell 部署器、提交的 `dist/`/`test-bundles/`。
 - [x] 旧客户端 `src/`、`util/`、`config/`、`test-dist/` 与 webpack 构建链移出当前工作树；旧版本在 `../workshop-legacy`（`4fdf71a`）只读对照。
-- [ ] CI 对精确 SHA 构建一次并逐级提升同一 artifact（workflow 已改；ci 已跑；deploy-staging build 已跑，deploy 被环境策略拒绝；production 未跑）。
-- [ ] 部署流水线包含 D1 migration、artifact hash、Worker version 记录（workflow 已改；staging build 成功，deploy 未通过环境门禁；production 未跑）。
+- [x] CI 对精确 SHA 构建一次并逐级提升同一 artifact；artifact 现含 Web、Worker bundle、Tavern client（当前未在 staging 实际部署验证）。
+- [x] 部署流水线包含 D1 migration、artifact hash、Worker version 记录、client 发布与 smoke（workflow 已实现；真实部署仍需环境审批）。
 
 ## 1. 平台与数据模型
 
@@ -54,9 +54,9 @@
 - [x] Web 分页/加载更多与“第 X–Y 条”。
 - [x] 发现栏小时桶 + `discovery_exposures`。
 - [x] 7d/30d 周期热度排序与快照写入。
-- [x] 公开榜单读取 API / UI（`GET /projects/rankings?kind=7d` + 周热度）。
+- [x] 公开榜单读取 API（`GET /projects/rankings?kind=7d`）保留；UI 不再展示周热度货架（D-26）。
 - [x] reference version items + hash 指纹（B10/C11）。
-- [ ] 每日抽签接口（Q-10 决定后再做）。
+- [ ] 每日抽签接口（Q-10 暂缓，不阻塞当前开发）。
 
 ## 4. 创作与内容
 
@@ -102,14 +102,14 @@
 - [x] 拒绝理由必填并写审计。
 - [x] 审核 request 不得覆盖 submission `checker_revision`（D-31）。
 - [x] 自动结果与人工结果都写审计；人工覆盖自动结果写理由。
-- [ ] 审核队列稳定 cursor / 筛选 / 排序（Q-06 决定后）。
+- [x] 审核队列只拉 `pending`，一次返回全状态 counts，keyset cursor，动作后本地推进（D-36）。
 - [x] 管理项目列表过滤已删除项目并支持筛选。
 
 ## 7. 互动与下载
 
 - [x] 点赞/订阅/评分幂等；评分仅本人可见。
-- [x] 下载计数按 user/project/day 幂等，触发器原子增量。
-- [x] `POST /downloads` 返回一次性地址；文件路由消费 token。
+- [x] 下载计数按 user/project/day 幂等，触发器原子增量；只在票据消费成功时计数。
+- [x] `POST /acquisitions` 返回一次性票据；文件路由消费 token 后才计数。
 - [x] 公开计数/周期计数的展示口径与 D-27 对齐。
 
 ## 8. 客户端与分发
@@ -122,7 +122,7 @@
 - [x] D-08：移除配套脚本展示/依赖健康检查（config + bridge + service）。
 - [x] 固定导入 URL、Workers Cache、Cache-Tag/purge（D-22）。
 - [ ] 真实 SillyTavern 安装/更新/修复旅程。
-- [ ] 安装状态权威记录（Q-05）。
+- [~] 安装状态：本地世界书为权威，订阅/下载/安装分离（D-35）；已显示未安装/已安装/可更新，本地修改与扫描状态待客户端扩展。
 
 ## 9. 管理后台
 
@@ -139,7 +139,7 @@
 - [x] 公开单屏列表、详情侧栏、搜索框、4/3/2/1 响应式。
 - [x] 排序 tab 在默认视图生效。
 - [x] 作者筛选（详情点作者名 → `authorId` 过滤 + 清除）；分页、“我的项目”已完成。
-- [x] 发现栏（最新上架/编辑精选）、我的订阅 UI。
+- [x] 发现栏只保留 4 卡发现；移除最新/推荐/周热度重复货架；保留我的订阅 UI。
 - [x] 登录态、作者创建/编辑/上传/提交后台。
 - [x] 审核队列/详情/批准拒绝后台。
 - [x] Toast、弹窗集合、警告标记、Discord 按钮、Banner 位置缩放。
