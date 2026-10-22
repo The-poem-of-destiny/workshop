@@ -1,0 +1,35 @@
+name: r2-bucket-scope-probe
+
+# Temporary read-only probe: does the staging CI token authorize each bucket?
+# Only GET requests for a non-existent key; nothing is written or deleted.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    environment: staging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Token identity
+        run: |
+          node -e 'const c=require("crypto");const t=process.env.CLOUDFLARE_API_TOKEN||"";console.log(JSON.stringify({tokenLength:t.length,fingerprint:c.createHash("sha256").update(t).digest("hex").slice(0,12)}))'
+          curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify" | head -c 200; echo
+
+      - name: Read-only object probes per bucket
+        run: |
+          set +e
+          for bucket in workshop-client-staging workshop-client-prod workshop-backups-prod; do
+            code=$(curl -s -o "$RUNNER_TEMP/body.json" -w '%{http_code}' \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets/$bucket/objects/diagnostics/missing-probe")
+            echo "BUCKET=$bucket HTTP=$code"
+            head -c 200 "$RUNNER_TEMP/body.json"; echo
+          done
