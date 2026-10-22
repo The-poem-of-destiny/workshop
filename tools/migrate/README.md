@@ -1,44 +1,52 @@
-# P4 migration tool
+# Local public-release migration
 
-This local-only tool turns a directory of legacy JSON/JSONL table exports into a deterministic JSON representation of the new Worker tables. It deliberately has **no default source directory** and never reads `data_backup/` automatically.
+This tool consumes an **explicitly provided** legacy export and produces a deterministic local JSON target. It never discovers a default source, contacts remote D1/R2, assigns a legacy privilege, or writes deployment state.
 
-## Legacy SQL dump input
+## Exported subset
 
-`from_d1_sql.py` converts a legacy D1 SQL dump plus its R2 tree into the JSON files this tool reads. It derives `assets.json` from each project row's `cover_image`/`download_url` and hashes the matching local R2 object.
+Only projects satisfying all three legacy conditions are considered:
+
+- `status = 'approved'`
+- `is_published = 1`
+- `visibility = 1`
+
+For each selected project, the importer retains its public project ID, its existing member author profile (always with role `member`), one published revision, validated current worldbook/regex/cover assets, and a complete persisted `revision_entry_index`. It calculates entry counts, Unicode content lengths, per-entry SHA-256 values, and the canonical manifest hash from the retained assets.
+
+The importer reads only the explicitly named source files `users.json`, `projects.json`, and `assets.json` (or their JSONL/NDJSON equivalents). Each retained asset must include `r2_key`, `sha256`, exact `bytes`, and `content_base64`; the importer verifies the bytes before stripping `content_base64` from the target. Worldbook and regex kinds are explicit source data: a worldbook payload is never reclassified as regex from its filename or shape. Malformed content, hashes, byte counts, duplicate kinds, and missing authors cause the project or optional cover to be skipped with a reason in `meta.skipped`.
+
+Cover destinations are remapped into the served `covers/imported/<sha256>` namespace. `meta.assetSources` records each retained asset's original source key outside the database rows, so the local copy manifest moves the correct bytes to the new key. Shared destination objects are copied once; conflicting hashes or byte counts are rejected.
+
+The target deliberately excludes drafts, unpublished/private/rejected rows, old revisions, submissions, reviews, sessions, administrator roles, likes, subscriptions, ratings, download and ranking counters, social/recommendation data, audit history, reference data, and site configuration.
+
+## Creating a disposable source export
+
+`from_d1_sql.py` reads a legacy D1 SQL dump plus a local mirror of its R2 objects. It writes only the three source files above and embeds local asset bytes for offline verification. Use a disposable directory outside the repository.
 
 ```sh
-python3 tools/migrate/from_d1_sql.py data_backup/d1-export.sql data_backup/r2 /tmp/legacy-export
+python3 tools/migrate/from_d1_sql.py legacy.sql legacy-r2 /tmp/workshop-public-export
 ```
 
-Use a disposable directory outside the repository; never commit the dump or generated target.
-
-`load-local.mjs` applies a migrated target to an isolated local D1 state directory (never remote):
+## Local commands
 
 ```sh
-node tools/migrate/load-local.mjs --target /tmp/migration.json --persist-to /tmp/d1-state
+node tools/migrate/cli.mjs all --source /tmp/workshop-public-export --target /tmp/workshop-public-target.json
+node tools/migrate/cli.mjs verify --target /tmp/workshop-public-target.json
+node tools/migrate/cli.mjs reconcile --source /tmp/workshop-public-export --target /tmp/workshop-public-target.json
+node tools/migrate/load-local.mjs --target /tmp/workshop-public-target.json --persist-to /tmp/workshop-d1-state
 ```
 
-## Commands
+`load-local.mjs` applies the current numbered Worker migrations to an isolated local Wrangler D1 state directory and inserts only the target tables. It has no remote mode.
+
+`r2-copy.mjs` is also local-only: it builds an asset manifest from a target or copies between two local directories while verifying bytes and SHA-256. It has no bucket or remote mode.
 
 ```sh
-node tools/migrate/cli.mjs --help
-node tools/migrate/cli.mjs all --source ./legacy-export --target ./migration-target.json
-node tools/migrate/cli.mjs verify --target ./migration-target.json
-node tools/migrate/cli.mjs reconcile --source ./legacy-export --target ./migration-target.json
+node tools/migrate/r2-copy.mjs --target /tmp/workshop-public-target.json
+node tools/migrate/r2-copy.mjs --manifest /tmp/workshop-public-target.json.assets.json --source-dir /tmp/legacy-r2 --target-dir /tmp/target-r2
 ```
 
-`extract`, `transform`, `load`, `reconcile`, and `all` require `--source`; `verify` only needs `--target`. `--dry-run` performs the phase without writing the target. `--since 2026-01-01T00:00:00Z` filters rows by their update/create/submission timestamp for a delta rehearsal.
-
-The source directory contains one JSON or JSONL file per legacy table (for example `users.json`, `projects.json`, `assets.json`, `project_likes.json`). A JSON file may be an array, `{ "rows": [...] }`, or `{ "items": [...] }`. Unknown filenames are ignored. The accepted legacy aliases include old names such as `project_subscribes`, `project_ratings`, `character_references`, and `devteam_recommendations`.
-
-`all` writes only a local target JSON file. It uses stable ordering and deterministic IDs, so repeating it against an unchanged source produces identical bytes. It keeps the selected published project's public id while grouping published/root/draft rows, maps revisions and assets, preserves decidable interactions/reviews/submissions/recommendations/reference/site rows, and records expected project/published-pointer counts in `meta`.
-
-`verify` checks project and published-pointer counts, revision and project/user foreign keys, duplicate IDs, asset SHA-256 values (and optional `content_base64`), and one pending/checking submission per project. `reconcile` emits JSON containing per-table expected/actual counts and bounded missing/unexpected rows; it exits 1 when any mismatch is present.
-
-The tool is an offline rehearsal skeleton: `load` writes a portable JSON target rather than contacting D1 or R2. A production load adapter must be added only after a real backup export and target-binding runbook are available.
-
-Run the self-contained synthetic tests with:
+Run the focused local regressions with:
 
 ```sh
 node tools/migrate/test.mjs
+node tools/migrate/test-from-sql.mjs
 ```
