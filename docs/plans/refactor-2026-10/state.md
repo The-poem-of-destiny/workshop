@@ -76,3 +76,13 @@
   - `8bdaf97` — 仅导入真实可验证公开内容的本地工具及回归。
 - 设计／审计／状态文档另作独立 docs commit，完整提交 SHA 以 Git 历史为准。机器配置、凭据、研究目录、备份和生成物不纳入提交；真实样例目标与验证摘要保留在已忽略的 `data_backup/schema-cleanup-20261022/`。本次无 push、PR、部署或远程数据清理。
 
+## 合并、部署与客户端发布（2026-10-22）
+
+- PR #23 合并到 `main`（merge `8e3567f`），PR CI 与合并后 main CI 均通过。deploy-staging 首次运行完成 `0021` 迁移与 Worker/Web 部署，但在 `Publish staging client` 失败。
+- 故障归因：`wrangler r2 object put` 使用 Cloudflare REST API，而桶级 R2 权限（Object Read & Write / Bucket Item Write）只对 S3 API 生效。用同一凭据按 SigV4 写同一桶返回 200，证明不是权限缺失，而是调用方式不匹配。此前“该 token 完全没有 R2 权限”的判断已更正。
+- 修复：`apps/tavern-client/scripts/publish.mjs` 的对象上传改为 SigV4 直连 `<account>.r2.cloudflarestorage.com`（access key = token id，secret = SHA-256(token)），D1 记录仍用 Wrangler，写入顺序不变。
+- 同时修复 deploy smoke 的断言写法：`curl | grep -q` 会让 `grep` 提前退出，在 `pipefail` 下表现为 `curl (23)`；现改为先落盘再断言，staging 与 production 工作流同步。
+- 最终 deploy-staging（`7b0719e`）**全绿**：迁移、Worker/Web 部署、客户端发布（bucket `workshop-client-staging`）、版本记录与 smoke 全通过。当前 staging Worker 版本 `3e3f7d8b-995d-4d32-89a2-bb0d7174aff0`；`/client/staging/index.js` 的 SHA 与 `/api/v1/client/version?channel=staging` 的 revision 一致。
+- 两个环境经配置、部署绑定与实测确认分开：staging = `workshop-staging` D1 + `workshop-client-staging` R2；production = `workshop-prod` D1 + `workshop-client-prod` R2。production 本次未被部署或修改。
+- 临时诊断工作流与任务分支均已删除，`main` 仅保留原有四个 workflow。本机 token 未上传到 GitHub；该约束记录在机器本地 `AGENTS.local.md`。
+
