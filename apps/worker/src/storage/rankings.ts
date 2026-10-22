@@ -1,52 +1,52 @@
 import { getPublishedProjectsByIds } from "./projects.js";
 
-function dayKey(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
+type RankingKind = "daily" | "7d" | "30d";
 
-function bucketStart(days: number): string {
-  return new Date(Date.now() - Math.max(0, days - 1) * 86_400_000).toISOString().slice(0, 10);
-}
+const DAY_MS = 86_400_000;
 
-export async function buildRankings(db: D1Database): Promise<void> {
-  const today = dayKey(new Date());
-  const kinds: Array<{ kind: "daily" | "7d" | "30d"; days: number }> = [
+export async function buildRankings(db: D1Database, referenceTime: Date | number): Promise<void> {
+  const reference = new Date(referenceTime);
+  const referenceIso = reference.toISOString();
+  const today = referenceIso.slice(0, 10);
+  const kinds: Array<{ kind: RankingKind; days: number }> = [
     { kind: "daily", days: 1 },
     { kind: "7d", days: 7 },
     { kind: "30d", days: 30 },
   ];
 
   for (const { kind, days } of kinds) {
-    const hour = new Date().toISOString().slice(11, 13);
+    const hour = referenceIso.slice(11, 13);
     const bucket = kind === "daily" ? `${today}T${hour}` : `${today}:${days}d`;
+    const previous = await db
+      .prepare(`
+        SELECT id FROM ranking_runs
+        WHERE kind = ? AND status = 'complete'
+        ORDER BY created_at DESC
+        LIMIT 1
+      `)
+      .bind(kind)
+      .first<{ id: string }>();
     const runId = crypto.randomUUID();
     await db
       .prepare(`
-      INSERT INTO ranking_runs (id, kind, bucket, status, created_at)
-      VALUES (?, ?, ?, 'building', ?)
-      ON CONFLICT(kind, bucket) DO UPDATE SET status = 'building', created_at = excluded.created_at, completed_at = NULL
-    `)
-      .bind(runId, kind, bucket, new Date().toISOString())
+        INSERT INTO ranking_runs (id, kind, bucket, status, created_at)
+        VALUES (?, ?, ?, 'building', ?)
+      `)
+      .bind(runId, kind, `${bucket}:building:${runId}`, referenceIso)
       .run();
-    const run = await db
-      .prepare("SELECT id FROM ranking_runs WHERE kind = ? AND bucket = ?")
-      .bind(kind, bucket)
-      .first<{ id: string }>();
-    if (!run) continue;
-    await db.prepare("DELETE FROM ranking_entries WHERE run_id = ?").bind(run.id).run();
 
     const rows = await db
       .prepare(`
-      SELECT p.id AS project_id, COALESCE(SUM(m.downloads + m.likes_delta * 3), 0) AS score
-      FROM projects p
-      LEFT JOIN project_metrics_daily m
-        ON m.project_id = p.id AND m.day_key >= ?
-      WHERE p.visibility = 'public' AND p.published_revision_id IS NOT NULL AND p.deleted_at IS NULL
-      GROUP BY p.id
-      ORDER BY score DESC, p.updated_at DESC
-      LIMIT 50
-    `)
-      .bind(bucketStart(days))
+        SELECT p.id AS project_id, COALESCE(SUM(m.downloads + m.likes_delta * 3), 0) AS score
+        FROM projects p
+        LEFT JOIN project_metrics_daily m
+          ON m.project_id = p.id AND m.day_key >= ? AND m.day_key <= ?
+        WHERE p.visibility = 'public' AND p.published_revision_id IS NOT NULL AND p.deleted_at IS NULL
+        GROUP BY p.id
+        ORDER BY score DESC, p.updated_at DESC
+        LIMIT 50
+      `)
+      .bind(new Date(reference.getTime() - Math.max(0, days - 1) * DAY_MS).toISOString().slice(0, 10), today)
       .all<{ project_id: string; score: number }>();
 
     if (rows.results.length > 0) {
@@ -54,36 +54,104 @@ export async function buildRankings(db: D1Database): Promise<void> {
         rows.results.map((row, index) =>
           db
             .prepare("INSERT INTO ranking_entries (run_id, rank, project_id, score) VALUES (?, ?, ?, ?)")
-            .bind(run.id, index + 1, row.project_id, row.score),
+            .bind(runId, index + 1, row.project_id, row.score),
         ),
       );
     }
-    await db
-      .prepare("UPDATE ranking_runs SET status = 'complete', completed_at = ? WHERE id = ?")
-      .bind(new Date().toISOString(), run.id)
-      .run();
 
-    if (kind === "daily") {
-      await db.prepare("DELETE FROM discovery_exposures WHERE bucket = ?").bind(bucket).run();
-      await db.batch(
-        rows.results
-          .slice(0, 8)
-          .map((row, index) =>
-            db
-              .prepare("INSERT OR REPLACE INTO discovery_exposures (bucket, project_id, rank) VALUES (?, ?, ?)")
-              .bind(bucket, row.project_id, index + 1),
-          ),
+    // This batch is the visibility boundary: it retires the observed complete
+    // run and publishes this candidate together, so only one contender wins.
+    const finalize: D1PreparedStatement[] = [];
+    if (previous) {
+      finalize.push(
+        db
+          .prepare(`
+            UPDATE ranking_runs
+            SET status = 'building', bucket = bucket || ':replaced:' || id
+            WHERE kind = ? AND status = 'complete'
+              AND EXISTS (
+                SELECT 1 FROM ranking_runs AS observed
+                WHERE observed.id = ? AND observed.kind = ? AND observed.status = 'complete'
+              )
+          `)
+          .bind(kind, previous.id, kind),
       );
+    }
+    const completedIndex = finalize.length;
+    finalize.push(
+      db
+        .prepare(`
+          UPDATE ranking_runs
+          SET status = 'complete', bucket = ?, completed_at = ?
+          WHERE id = ? AND status = 'building'
+            AND NOT EXISTS (
+              SELECT 1 FROM ranking_runs
+              WHERE kind = ? AND status = 'complete'
+            )
+        `)
+        .bind(bucket, referenceIso, runId, kind),
+    );
+    if (kind === "daily") {
+      finalize.push(
+        db
+          .prepare(`
+            DELETE FROM discovery_exposures
+            WHERE bucket = ?
+              AND EXISTS (
+                SELECT 1 FROM ranking_runs
+                WHERE id = ? AND kind = ? AND bucket = ? AND status = 'complete'
+              )
+          `)
+          .bind(bucket, runId, kind, bucket),
+      );
+      for (const [index, row] of rows.results.slice(0, 8).entries()) {
+        finalize.push(
+          db
+            .prepare(`
+              INSERT INTO discovery_exposures (bucket, project_id, rank, created_at)
+              SELECT ?, ?, ?, ?
+              WHERE EXISTS (
+                SELECT 1 FROM ranking_runs
+                WHERE id = ? AND kind = ? AND bucket = ? AND status = 'complete'
+              )
+            `)
+            .bind(bucket, row.project_id, index + 1, referenceIso, runId, kind, bucket),
+        );
+      }
+    }
+    finalize.push(
+      db
+        .prepare(`
+          INSERT INTO site_settings (key, value, updated_at)
+          SELECT 'cache_epoch', '1', ?
+          WHERE EXISTS (
+            SELECT 1 FROM ranking_runs
+            WHERE id = ? AND kind = ? AND bucket = ? AND status = 'complete'
+          )
+          ON CONFLICT(key) DO UPDATE SET
+            value = CAST(CAST(value AS INTEGER) + 1 AS TEXT),
+            updated_at = excluded.updated_at
+        `)
+        .bind(referenceIso, runId, kind, bucket),
+    );
+
+    const results = await db.batch(finalize);
+    if ((results[completedIndex]?.meta.changes ?? 0) === 0) {
+      await db.prepare("DELETE FROM ranking_runs WHERE id = ? AND status = 'building'").bind(runId).run();
     }
   }
 }
 
-export async function cleanupExpired(db: D1Database, dryRun = false): Promise<Record<string, number>> {
-  const now = Date.now();
+export async function cleanupExpired(
+  db: D1Database,
+  dryRun = false,
+  referenceTime: Date | number = new Date(),
+): Promise<Record<string, number>> {
+  const now = new Date(referenceTime).getTime();
   const iso = new Date(now).toISOString();
-  const weekAgo = new Date(now - 7 * 86_400_000).toISOString();
-  const dayAgo = new Date(now - 86_400_000).toISOString();
-  const ninetyDaysAgo = new Date(now - 90 * 86_400_000).toISOString();
+  const weekAgo = new Date(now - 7 * DAY_MS).toISOString();
+  const dayAgo = new Date(now - DAY_MS).toISOString();
+  const ninetyDaysAgo = new Date(now - 90 * DAY_MS).toISOString();
   if (dryRun) {
     const row = await db
       .prepare("SELECT COUNT(*) AS count FROM projects WHERE deleted_at IS NOT NULL AND deleted_at < ?")

@@ -3,6 +3,17 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-10-20",
   "workers_dev": true,
+  "cache": {
+    "enabled": false
+  },
+  "exports": {
+    "default": {
+      "type": "worker",
+      "cache": {
+        "enabled": false
+      }
+    }
+  },
   "observability": {
     "enabled": true
   },
@@ -82,7 +93,24 @@
           "binding": "R2",
           "bucket_name": "workshop-client-staging"
         }
-      ]
+      ],
+      "cache": {
+        "enabled": false
+      },
+      "exports": {
+        "default": {
+          "type": "worker",
+          "cache": {
+            "enabled": false
+          }
+        },
+        "Public": {
+          "type": "worker",
+          "cache": {
+            "enabled": true
+          }
+        }
+      }
     },
     "production": {
       "name": "workshop",
@@ -114,7 +142,10 @@
           "binding": "R2",
           "bucket_name": "workshop-client-prod"
         }
-      ]
+      ],
+      "cache": {
+        "enabled": false
+      }
     }
   }
 }

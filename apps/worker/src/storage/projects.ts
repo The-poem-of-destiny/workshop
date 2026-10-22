@@ -44,16 +44,27 @@ const SELECT_PROJECT = `
     u.id AS author_id,
     COALESCE(u.global_name, u.username) AS author_name,
     u.avatar AS author_avatar,
-    r.tags, r.worldbook_count, r.regex_count, r.schema_version,
-    COALESCE(r.version_label, p.version_label) AS version_label,
-    COALESCE(r.precautions, p.precautions) AS precautions,
-    COALESCE(r.cover_position_x, p.cover_position_x) AS cover_position_x,
-    COALESCE(r.cover_position_y, p.cover_position_y) AS cover_position_y,
-    COALESCE(r.cover_zoom, p.cover_zoom) AS cover_zoom,
-    r.discord_thread_url,
-    (SELECT a.r2_key FROM assets a
-      WHERE a.revision_id = p.published_revision_id AND a.kind = 'cover'
-      LIMIT 1) AS cover_key
+    p.search_tags AS tags, r.worldbook_count, r.regex_count,
+    p.published_schema_version AS schema_version,
+    p.version_label, p.precautions,
+    p.cover_position_x, p.cover_position_y, p.cover_zoom,
+    p.published_discord_thread_url AS discord_thread_url,
+    COALESCE(
+      (
+        SELECT a.r2_key
+        FROM assets a
+        WHERE a.id = p.published_cover_asset_id
+          AND a.project_id = p.id
+          AND a.revision_id IS NULL
+          AND a.kind = 'cover'
+      ),
+      (
+        SELECT a.r2_key
+        FROM assets a
+        WHERE a.revision_id = p.published_revision_id AND a.kind = 'cover'
+        LIMIT 1
+      )
+    ) AS cover_key
   FROM projects p
   JOIN users u ON u.id = p.author_id
   JOIN project_revisions r ON r.id = p.published_revision_id

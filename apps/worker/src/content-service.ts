@@ -1,11 +1,13 @@
 import { extractProjectEntries, type ProjectEntryKind, validateProjectContentText } from "@workshop/domain";
 import { analyzeFiles, REVIEW_CHECKER_REVISION, routeGate } from "./content-checker";
 import type { Env } from "./env";
+import { buildEntryIndex } from "./storage/content-index";
 
 interface RunTarget {
   id: string;
   project_id: string;
   revision_id: string;
+  base_published_revision_id: string | null;
   status: string;
   check_status: string;
   check_attempts: number;
@@ -115,7 +117,12 @@ export class ContentService implements DurableObject {
           if (conflict) break;
         }
       }
-      return Response.json({ presence, counts, hashes, conflict, error });
+      const indexAssets = assets.results.filter(
+        (asset): asset is { kind: ProjectEntryKind; r2_key: string } =>
+          asset.kind === "worldbook" || asset.kind === "regex",
+      );
+      const entries = error || conflict ? [] : await buildEntryIndex(this.env.R2, indexAssets);
+      return Response.json({ presence, counts, hashes, conflict, error, entries });
     }
     if (validation) {
       if ((validation.kind !== "worldbook" && validation.kind !== "regex") || typeof validation.text !== "string") {
@@ -129,7 +136,7 @@ export class ContentService implements DurableObject {
     const db = this.env.DB;
     const target = await db
       .prepare(`
-      SELECT id, project_id, revision_id, status, check_status, check_attempts, client_gate,
+      SELECT id, project_id, revision_id, base_published_revision_id, status, check_status, check_attempts, client_gate,
              review_checker_revision
       FROM submissions WHERE id = ?
     `)
@@ -276,24 +283,51 @@ export class ContentService implements DurableObject {
   private async autoPublish(target: RunTarget, report: string, reportHash: string, checkedAt: string) {
     const now = new Date().toISOString();
     const results = await this.env.DB.batch([
+      // Publish before resolving the submission. All later writes are
+      // conditional on this successful pointer transition.
+      this.env.DB.prepare(`
+        UPDATE projects
+        SET published_revision_id = ?, published_at = ?,
+            title = r.title, description = r.description, author_note = r.author_note,
+            project_type = r.project_type, extension_type = r.extension_type,
+            search_tags = r.tags, published_schema_version = r.schema_version,
+            published_discord_thread_url = r.discord_thread_url,
+            version_label = r.version_label, precautions = r.precautions,
+            cover_position_x = r.cover_position_x, cover_position_y = r.cover_position_y,
+            cover_zoom = r.cover_zoom, metadata_findings = r.metadata_findings,
+            metadata_checker_revision = r.metadata_checker_revision,
+            metadata_checked_at = r.metadata_checked_at, metadata_checked_by = r.metadata_checked_by,
+            row_version = row_version + 1, updated_at = ?
+        FROM submissions s
+        JOIN project_revisions r ON r.id = s.revision_id
+        WHERE projects.id = s.project_id
+          AND s.id = ? AND s.status = 'checking' AND s.check_status = 'running'
+          AND s.revision_id = ?
+          AND projects.deleted_at IS NULL
+          AND projects.published_revision_id IS s.base_published_revision_id
+          AND projects.published_revision_id IS NOT s.revision_id
+      `).bind(target.revision_id, now, now, target.id, target.revision_id),
       this.env.DB.prepare(`
         UPDATE submissions
         SET status = 'approved', check_status = 'done', check_lease_until = NULL,
             resolved_at = ?, checked_at = ?, check_report = ?, check_report_hash = ?,
             review_checker_revision = ?, auto_published_at = ?, check_error = NULL
         WHERE id = ? AND status = 'checking' AND check_status = 'running'
-      `).bind(now, checkedAt, report, reportHash, REVIEW_CHECKER_REVISION, now, target.id),
-      this.env.DB.prepare(`
-        UPDATE projects
-        SET published_revision_id = ?, published_at = ?,
-            title = r.title, description = r.description, author_note = r.author_note,
-            project_type = r.project_type, extension_type = r.extension_type,
-            search_tags = r.tags, row_version = row_version + 1, updated_at = ?
-        FROM project_revisions r
-        WHERE projects.id = ? AND r.id = ?
-          AND projects.deleted_at IS NULL
-          AND EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = 'approved')
-      `).bind(target.revision_id, now, now, target.project_id, target.revision_id, target.id),
+          AND EXISTS (
+            SELECT 1 FROM projects
+            WHERE id = ? AND deleted_at IS NULL AND published_revision_id = ?
+          )
+      `).bind(
+        now,
+        checkedAt,
+        report,
+        reportHash,
+        REVIEW_CHECKER_REVISION,
+        now,
+        target.id,
+        target.project_id,
+        target.revision_id,
+      ),
       this.env.DB.prepare(`
         INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
         SELECT ?, 'review.auto_publish', 'submission', ?, NULL, ?, ?
@@ -311,6 +345,41 @@ export class ContentService implements DurableObject {
         target.id,
       ),
     ]);
-    if ((results[0]?.meta.changes ?? 0) === 0) throw new Error("自动发布状态已变化");
+    if ((results[1]?.meta.changes ?? 0) !== 0) return;
+
+    // A competing publication or deletion invalidated the captured baseline.
+    // Keep that outcome as history instead of retrying a stale publication.
+    await this.env.DB.batch([
+      this.env.DB.prepare(`
+          UPDATE submissions
+          SET status = 'superseded', resolved_at = ?, check_lease_until = NULL,
+              check_error = '发布基线已变化，请创建新修订后重新提交'
+          WHERE id = ? AND status = 'checking' AND check_status = 'running'
+            AND (
+              NOT EXISTS (SELECT 1 FROM projects WHERE id = ?)
+              OR EXISTS (
+                SELECT 1 FROM projects
+                WHERE id = ? AND (
+                  deleted_at IS NOT NULL OR published_revision_id IS NOT ?
+                )
+              )
+            )
+        `).bind(now, target.id, target.project_id, target.project_id, target.base_published_revision_id),
+      this.env.DB.prepare(`
+          INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
+          SELECT ?, 'review.auto_publish_conflict', 'submission', ?, NULL, ?, ?
+          WHERE changes() = 1
+        `).bind(
+        crypto.randomUUID(),
+        target.id,
+        JSON.stringify({
+          projectId: target.project_id,
+          revisionId: target.revision_id,
+          basePublishedRevisionId: target.base_published_revision_id,
+        }),
+        now,
+      ),
+    ]);
+    throw new Error("自动发布前置条件已变化");
   }
 }

@@ -36,9 +36,9 @@ async function seed() {
       '["draft"]', 'private', 'r1', '${now}');
     INSERT INTO project_revisions
       (id, project_id, revision_no, title, description, author_note, project_type, extension_type,
-       tags, metadata, manifest_hash, created_by, created_at)
+       tags, manifest_hash, created_by, created_at)
     VALUES ('r1', 'p1', 1, 'Submitted title', 'Submitted description', 'Submitted note', '事件', '规则',
-      '["submitted"]', '{"schema":"4.3"}', 'manifest-1', 'member', '${now}');
+      '["submitted"]', 'manifest-1', 'member', '${now}');
     INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
     VALUES ('a1', 'p1', 'r1', 'worldbook', 'projects/p1/r1/worldbook.json', 'hash', 12,
       'application/json', '${now}');
@@ -46,8 +46,8 @@ async function seed() {
     VALUES ('a2', 'p1', 'r1', 'cover', 'covers/p1/r1-cover.webp', 'hash2', 3,
       'image/webp', '${now}');
     INSERT INTO submissions
-      (id, project_id, revision_id, status, gate, checker_revision, submitted_by, submitted_at)
-    VALUES ('s1', 'p1', 'r1', 'pending', 'warn', 'checker-1', 'member', '${now}');
+      (id, project_id, revision_id, status, client_gate, client_checker_revision, review_checker_revision, submitted_by, submitted_at)
+    VALUES ('s1', 'p1', 'r1', 'pending', 'warn', 'client-1', 'checker-1', 'member', '${now}');
   `);
   for (const statement of statements) await bindings.DB.prepare(statement).run();
   await bindings.R2.put("covers/p1/r1-cover.webp", new Uint8Array([1, 2, 3]));
@@ -88,7 +88,7 @@ describe("admin review and publishing", () => {
     const response = await request("/submissions?status=pending");
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      items: [{ id: "s1", projectTitle: "Draft title", gate: "warn", checkerRevision: "checker-1" }],
+      items: [{ id: "s1", projectTitle: "Draft title", gate: "warn", checkerRevision: "client-1" }],
     });
   });
 
@@ -99,7 +99,7 @@ describe("admin review and publishing", () => {
       INSERT INTO project_revisions (id, project_id, revision_no, title, created_by)
       VALUES ('r2', 'p2', 1, 'Second project', 'member');
       INSERT INTO submissions
-        (id, project_id, revision_id, status, gate, checker_revision, submitted_by, submitted_at)
+        (id, project_id, revision_id, status, client_gate, client_checker_revision, submitted_by, submitted_at)
       VALUES ('s2', 'p2', 'r2', 'checking', 'warn', 'checker-1', 'member', '2026-10-21T00:00:01.000Z');
     `).run();
 
@@ -240,10 +240,10 @@ describe("admin review and publishing", () => {
       headers: { "content-type": "application/json" },
     });
     expect(response.status).toBe(201);
-    const review = await bindings.DB.prepare(
-      "SELECT checker_version, report FROM reviews WHERE submission_id = 's1'",
-    ).first<{ checker_version: string | null; report: string | null }>();
-    expect(review).toEqual({ checker_version: "checker-1", report: null });
+    const review = await bindings.DB.prepare("SELECT checker_version FROM reviews WHERE submission_id = 's1'").first<{
+      checker_version: string | null;
+    }>();
+    expect(review).toEqual({ checker_version: "checker-1" });
   });
 
   it("returns content diff and queues an explicit recheck", async () => {
@@ -271,7 +271,7 @@ describe("admin review and publishing", () => {
 
   it("classifies accepted, changed, added and removed findings against the previous submission", async () => {
     await bindings.DB.prepare(`
-      INSERT INTO submissions (id, project_id, revision_id, status, gate, checker_revision, submitted_by, submitted_at, check_report)
+      INSERT INTO submissions (id, project_id, revision_id, status, client_gate, client_checker_revision, submitted_by, submitted_at, check_report)
       VALUES ('s0', 'p1', 'r1', 'rejected', 'warn', 'checker-1', 'member', '2026-10-20T00:00:00.000Z', ?)
     `)
       .bind(

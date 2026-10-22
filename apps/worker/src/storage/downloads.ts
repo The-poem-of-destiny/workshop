@@ -1,26 +1,4 @@
-export type DownloadResult = "counted" | "duplicate" | "not_found";
-
-export async function recordDownload(db: D1Database, projectId: string, userId: string): Promise<DownloadResult> {
-  const project = await db
-    .prepare(`
-    SELECT visibility FROM projects
-    WHERE id = ? AND published_revision_id IS NOT NULL AND deleted_at IS NULL
-  `)
-    .bind(projectId)
-    .first<{ visibility: "public" | "private" }>();
-  if (!project) return "not_found";
-  if (project.visibility !== "public") return "duplicate";
-
-  const dayKey = new Date().toISOString().slice(0, 10);
-  const inserted = await db
-    .prepare(`
-    INSERT OR IGNORE INTO download_events (user_id, project_id, day_key)
-    VALUES (?, ?, ?)
-  `)
-    .bind(userId, projectId, dayKey)
-    .run();
-  return inserted.meta.changes === 0 ? "duplicate" : "counted";
-}
+import type { AuthenticatedSession } from "./sessions.js";
 
 async function tokenHash(token: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
@@ -79,17 +57,18 @@ export async function consumeDownloadToken(
   db: D1Database,
   r2: R2Bucket,
   token: string,
-  session: { userId: string; role: string; sessionVersion: number },
+  session: AuthenticatedSession,
 ): Promise<"not_found" | "expired" | ConsumedDownload> {
   const hash = await tokenHash(token);
   const now = new Date().toISOString();
   const row = await db
     .prepare(`
-    SELECT t.user_id, t.project_id, t.expires_at, t.consumed_at, a.r2_key, a.mime, a.bytes
+    SELECT t.project_id, a.r2_key, a.mime, a.bytes
     FROM download_tokens t
     JOIN assets a
       ON a.project_id = t.project_id AND a.revision_id = t.revision_id AND a.kind = t.kind
     JOIN projects p ON p.id = t.project_id
+    JOIN users u ON u.id = t.user_id
     WHERE t.token_hash = ?
       AND t.user_id = ?
       AND t.session_version = ?
@@ -97,14 +76,11 @@ export async function consumeDownloadToken(
       AND t.expires_at > ?
       AND p.deleted_at IS NULL
       AND p.published_revision_id = t.revision_id
-      AND (p.visibility = 'public' OR p.author_id = ? OR ? IN ('reviewer', 'owner'))
+      AND (p.visibility = 'public' OR p.author_id = t.user_id OR u.role IN ('reviewer', 'owner'))
   `)
-    .bind(hash, session.userId, session.sessionVersion, now, session.userId, session.role)
+    .bind(hash, session.userId, session.sessionVersion, now)
     .first<{
-      user_id: string;
       project_id: string;
-      expires_at: string;
-      consumed_at: string | null;
       r2_key: string;
       mime: string;
       bytes: number;
@@ -121,15 +97,57 @@ export async function consumeDownloadToken(
   const object = await r2.get(row.r2_key);
   if (!object) return "not_found";
 
-  const consumed = await db
-    .prepare(`
-    UPDATE download_tokens SET consumed_at = ?
-    WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?
-  `)
-    .bind(now, hash, now)
-    .run();
-  if (consumed.meta.changes === 0) return "not_found";
-  await recordDownload(db, row.project_id, session.userId).catch(() => undefined);
+  const results = await db.batch([
+    db
+      .prepare(`
+      UPDATE download_tokens
+      SET consumed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+      WHERE token_hash = ? AND user_id = ? AND session_version = ?
+        AND consumed_at IS NULL AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        AND EXISTS (
+          SELECT 1
+          FROM projects p
+          JOIN users u ON u.id = download_tokens.user_id
+          WHERE p.id = download_tokens.project_id
+            AND p.deleted_at IS NULL
+            AND p.published_revision_id = download_tokens.revision_id
+            AND (
+              p.visibility = 'public'
+              OR p.author_id = download_tokens.user_id
+              OR u.role IN ('reviewer', 'owner')
+            )
+        )
+        AND EXISTS (
+          SELECT 1 FROM sessions s
+          WHERE s.token_hash = ?
+            AND s.user_id = download_tokens.user_id
+            AND s.session_version = download_tokens.session_version
+            AND s.revoked_at IS NULL
+            AND s.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        )
+        AND EXISTS (
+          SELECT 1 FROM assets a
+          WHERE a.project_id = download_tokens.project_id
+            AND a.revision_id = download_tokens.revision_id
+            AND a.kind = download_tokens.kind
+            AND a.r2_key = ?
+        )
+    `)
+      .bind(hash, session.userId, session.sessionVersion, session.tokenHash, row.r2_key),
+    // Only public release consumption creates the idempotent daily event.
+    // Its trigger updates both aggregate count and daily metric in this same
+    // D1 transaction; private author/reviewer access remains uncounted.
+    db
+      .prepare(`
+      INSERT OR IGNORE INTO download_events (user_id, project_id, day_key, created_at)
+      SELECT t.user_id, t.project_id, substr(t.consumed_at, 1, 10), t.consumed_at
+      FROM download_tokens t JOIN projects p ON p.id = t.project_id
+      WHERE changes() = 1 AND t.token_hash = ?
+        AND p.visibility = 'public' AND p.deleted_at IS NULL
+    `)
+      .bind(hash),
+  ]);
+  if ((results[0]?.meta.changes ?? 0) === 0) return "not_found";
   return {
     object,
     mime: row.mime,

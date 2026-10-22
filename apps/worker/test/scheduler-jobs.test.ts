@@ -55,7 +55,7 @@ describe("scheduled jobs", () => {
   it("builds daily, 7d and 30d rankings and discovery exposure", async () => {
     await seedProject("p1", 10);
     await seedProject("p2", 3);
-    await buildRankings(bindings.DB);
+    await buildRankings(bindings.DB, new Date(now));
 
     const runs = await bindings.DB.prepare("SELECT kind, status FROM ranking_runs ORDER BY kind").all<{
       kind: string;

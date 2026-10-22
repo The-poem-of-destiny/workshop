@@ -115,44 +115,61 @@ app.get("/api/v1/assets/*", async (c) => {
 
   let publiclyCacheable = false;
   if (key.startsWith("covers/")) {
-    const asset = await c.env.DB.prepare(`
-      SELECT a.revision_id, a.kind, p.author_id, p.visibility,
-             p.working_revision_id, p.published_revision_id, p.deleted_at,
-             EXISTS (
-               SELECT 1 FROM submissions s
-               WHERE s.revision_id = a.revision_id AND s.status IN ('pending', 'checking')
-             ) AS in_review
-      FROM assets a JOIN projects p ON p.id = a.project_id
-      WHERE a.r2_key = ? AND a.kind = 'cover'
+    // A content-addressed R2 key can be associated with more than one asset.
+    // Resolve authorization by a currently permitted association, rather than
+    // whichever joined row SQLite happens to return first.
+    const publicAssociation = await c.env.DB.prepare(`
+      SELECT EXISTS (
+        SELECT 1
+        FROM assets a
+        JOIN projects p ON p.id = a.project_id
+        WHERE a.r2_key = ? AND a.kind = 'cover'
+          AND p.deleted_at IS NULL
+          AND p.visibility = 'public'
+          AND p.published_revision_id IS NOT NULL
+          AND (
+            (a.id = p.published_cover_asset_id AND a.revision_id IS NULL)
+            OR (
+              p.published_cover_asset_id IS NULL
+              AND a.revision_id = p.published_revision_id
+            )
+          )
+      ) AS permitted
     `)
       .bind(key)
-      .first<{
-        revision_id: string | null;
-        kind: string;
-        author_id: string;
-        visibility: "public" | "private";
-        working_revision_id: string | null;
-        published_revision_id: string | null;
-        deleted_at: string | null;
-        in_review: number;
-      }>();
-    if (!asset) return jsonError(c, "not_found", "Asset not found");
+      .first<{ permitted: number }>();
+    publiclyCacheable = Boolean(publicAssociation?.permitted);
 
-    const isPublished =
-      !asset.deleted_at &&
-      asset.visibility === "public" &&
-      asset.published_revision_id !== null &&
-      asset.revision_id === asset.published_revision_id;
-    if (isPublished) {
-      publiclyCacheable = true;
-    } else {
+    if (!publiclyCacheable) {
       const session = await requireSession(c);
       if (!session) return jsonError(c, "not_found", "Asset not found");
-      const isOwnDraft =
-        (session.userId === asset.author_id || session.role === "owner") &&
-        asset.revision_id === asset.working_revision_id;
-      const isReviewCover = (session.role === "reviewer" || session.role === "owner") && Boolean(asset.in_review);
-      if (!isOwnDraft && !isReviewCover) return jsonError(c, "not_found", "Asset not found");
+      const privateAssociation = await c.env.DB.prepare(`
+        SELECT EXISTS (
+          SELECT 1
+          FROM assets a
+          JOIN projects p ON p.id = a.project_id
+          WHERE a.r2_key = ? AND a.kind = 'cover' AND p.deleted_at IS NULL
+            AND (
+              (
+                (p.author_id = ? OR ? = 'owner')
+                AND (a.revision_id = p.working_revision_id OR a.id = p.published_cover_asset_id)
+              )
+              OR (
+                ? IN ('reviewer', 'owner')
+                AND a.revision_id IS NOT NULL
+                AND EXISTS (
+                  SELECT 1
+                  FROM submissions s
+                  WHERE s.revision_id = a.revision_id
+                    AND s.status IN ('pending', 'checking')
+                )
+              )
+            )
+        ) AS permitted
+      `)
+        .bind(key, session.userId, session.role, session.role)
+        .first<{ permitted: number }>();
+      if (!privateAssociation?.permitted) return jsonError(c, "not_found", "Asset not found");
     }
   } else {
     const registered = await c.env.DB.prepare("SELECT value FROM site_settings WHERE key = 'discover_banner'").first<{
@@ -177,7 +194,7 @@ app.get("/api/v1/assets/*", async (c) => {
     headers: {
       "content-type": object.httpMetadata?.contentType ?? "application/octet-stream",
       "content-length": String(object.size),
-      "cache-control": publiclyCacheable ? "public, max-age=60, must-revalidate" : "private, no-store",
+      "cache-control": "private, no-store",
       vary: "Authorization",
     },
   });

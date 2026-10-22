@@ -45,28 +45,6 @@ export async function sha256Hex(value: string): Promise<string> {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export interface NewAuthFlow {
-  id: string;
-  state: string;
-  verifier?: string;
-  codeChallenge?: string;
-  origin: string;
-  mode: AuthFlowMode;
-  expiresAt: string;
-}
-
-export async function insertAuthFlow(db: D1Database, flow: NewAuthFlow): Promise<void> {
-  const stateHash = await sha256Hex(flow.state);
-  const challenge = flow.codeChallenge ?? (flow.verifier ? await sha256Hex(flow.verifier) : null);
-  await db
-    .prepare(`
-    INSERT INTO oauth_flows (id, state_hash, verifier_hash, origin, mode, expires_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `)
-    .bind(flow.id, stateHash, challenge, flow.origin, flow.mode, flow.expiresAt)
-    .run();
-}
-
 export async function getAuthFlowStatus(
   db: D1Database,
   id: string,

@@ -31,6 +31,11 @@ import {
   updateVisibility,
   upsertAsset,
 } from "../../storage/authoring.js";
+import {
+  getPublishedMetadata,
+  updatePublishedCover,
+  updatePublishedMetadata,
+} from "../../storage/published-display.js";
 import { jsonError, versionConflict } from "../errors.js";
 import { requireSession } from "../session.js";
 
@@ -80,7 +85,9 @@ async function metadataRateLimited(db: D1Database, projectId: string, actorId: s
     .prepare(`
     SELECT
       (SELECT COUNT(*) FROM audit_events
-        WHERE target_id = ? AND actor_id = ? AND action = 'project.patch' AND created_at > ?)
+        WHERE target_id = ? AND actor_id = ?
+          AND action IN ('project.patch', 'project.published_metadata.patch', 'project.published_cover.put')
+          AND created_at > ?)
       + (SELECT COUNT(*) FROM project_revisions
         WHERE project_id = ? AND created_by = ? AND created_at > ?) AS total
   `)
@@ -169,6 +176,9 @@ authoringRoutes.patch("/:id", async (c) => {
   if (expectedVersion === null || expectedVersion !== project.row_version) {
     return versionConflict(c, "project", expectedVersion, project.row_version);
   }
+  if (project.working_revision_frozen) {
+    return jsonError(c, "conflict", "Submitted metadata is frozen; create a new revision to edit it");
+  }
   if (await metadataRateLimited(c.env.DB, project.id, auth.session.userId)) {
     return jsonError(c, "rate_limited", "Too many metadata updates; retry in a minute");
   }
@@ -196,6 +206,113 @@ authoringRoutes.patch("/:id", async (c) => {
   const result = await patchProject(c.env.DB, auth.session, project.id, expectedVersion, parsed.data);
   if (!result) return versionConflict(c, "project", expectedVersion, project.row_version);
   return c.json(result);
+});
+authoringRoutes.get("/:id/published-metadata", async (c) => {
+  const auth = await sessionOrError(c);
+  if (!auth.session) return auth.response;
+  const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
+  if (!project || !project.published_revision_id) return jsonError(c, "not_found", "Published project not found");
+  const metadata = await getPublishedMetadata(c.env.DB, project.id, auth.session);
+  if (!metadata) return jsonError(c, "not_found", "Published project not found");
+  return c.json({ rowVersion: project.row_version, ...metadata });
+});
+
+authoringRoutes.get("/:id/published-cover", async (c) => {
+  const auth = await sessionOrError(c);
+  if (!auth.session) return auth.response;
+  const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
+  if (!project || !project.published_revision_id) return jsonError(c, "not_found", "Published cover not found");
+  const asset = await c.env.DB.prepare(`
+    SELECT COALESCE(
+      (
+        SELECT a.r2_key FROM assets a
+        WHERE a.id = p.published_cover_asset_id AND a.project_id = p.id
+          AND a.revision_id IS NULL AND a.kind = 'cover'
+      ),
+      (
+        SELECT a.r2_key FROM assets a
+        WHERE a.revision_id = p.published_revision_id AND a.kind = 'cover' LIMIT 1
+      )
+    ) AS r2_key
+    FROM projects p WHERE p.id = ? AND p.deleted_at IS NULL
+  `)
+    .bind(project.id)
+    .first<{ r2_key: string | null }>();
+  if (!asset?.r2_key) return jsonError(c, "not_found", "Published cover not found");
+  const object = await c.env.R2.get(asset.r2_key);
+  if (!object) return jsonError(c, "not_found", "Published cover not found");
+  return new Response(object.body, {
+    headers: {
+      "content-type": object.httpMetadata?.contentType ?? "application/octet-stream",
+      "content-length": String(object.size),
+      "cache-control": "private, no-store",
+      "x-content-type-options": "nosniff",
+    },
+  });
+});
+
+authoringRoutes.patch("/:id/published-metadata", async (c) => {
+  const auth = await sessionOrError(c);
+  if (!auth.session) return auth.response;
+  const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
+  if (!project) return jsonError(c, "not_found", "Project not found");
+  const expectedVersion = ifMatchVersion(c.req.header("if-match"));
+  if (expectedVersion === null || expectedVersion !== project.row_version) {
+    return versionConflict(c, "project", expectedVersion, project.row_version);
+  }
+  if (await metadataRateLimited(c.env.DB, project.id, auth.session.userId)) {
+    return jsonError(c, "rate_limited", "Too many metadata updates; retry in a minute");
+  }
+  const parsed = patchProjectSchema.safeParse(await bodyJson(c));
+  if (!parsed.success) return jsonError(c, "bad_request", "Invalid project metadata", parsed.error.flatten());
+  if (parsed.data.discordThreadUrl !== undefined) {
+    const discord = normalizeThreadUrl(c, parsed.data.discordThreadUrl);
+    if (!discord.ok) return jsonError(c, "bad_request", `Discord 线程地址无效：${discord.reason}`);
+    parsed.data.discordThreadUrl = discord.value;
+  }
+  const result = await updatePublishedMetadata(c.env.DB, auth.session, project.id, expectedVersion, parsed.data);
+  if (result.kind === "conflict") {
+    const latest = await getAuthoringProject(c.env.DB, project.id, auth.session);
+    return versionConflict(c, "project", expectedVersion, latest?.row_version ?? project.row_version);
+  }
+  if (result.kind === "invalid") {
+    return jsonError(c, "bad_request", "Project metadata failed validation", result.findings);
+  }
+  return c.json({ rowVersion: result.rowVersion });
+});
+
+authoringRoutes.put("/:id/published-cover", async (c) => {
+  const auth = await sessionOrError(c);
+  if (!auth.session) return auth.response;
+  const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
+  if (!project) return jsonError(c, "not_found", "Project not found");
+  const expectedVersion = ifMatchVersion(c.req.header("if-match"));
+  if (expectedVersion === null || expectedVersion !== project.row_version) {
+    return versionConflict(c, "project", expectedVersion, project.row_version);
+  }
+  if (await metadataRateLimited(c.env.DB, project.id, auth.session.userId)) {
+    return jsonError(c, "rate_limited", "Too many metadata updates; retry in a minute");
+  }
+  const declaredLength = Number(c.req.header("content-length"));
+  if (!Number.isFinite(declaredLength) || declaredLength <= 0) {
+    return jsonError(c, "bad_request", "Content-Length required");
+  }
+  if (declaredLength > MAX_UPLOAD_BYTES) {
+    return jsonError(c, "payload_too_large", "File exceeds 10 MiB limit");
+  }
+  const mime = (c.req.header("content-type") ?? "").split(";", 1)[0]!.trim().toLowerCase();
+  if (!["image/png", "image/jpeg", "image/webp"].includes(mime)) {
+    return jsonError(c, "unsupported_media_type", "Unsupported content type");
+  }
+  const body = await c.req.raw.arrayBuffer();
+  if (body.byteLength > MAX_UPLOAD_BYTES) return jsonError(c, "payload_too_large", "File exceeds 10 MiB limit");
+  const result = await updatePublishedCover(c.env.DB, c.env.R2, auth.session, project.id, expectedVersion, body, mime);
+  if (result.kind === "conflict") {
+    const latest = await getAuthoringProject(c.env.DB, project.id, auth.session);
+    return versionConflict(c, "project", expectedVersion, latest?.row_version ?? project.row_version);
+  }
+  if (result.kind === "invalid") return jsonError(c, "bad_request", result.message);
+  return c.json({ rowVersion: result.rowVersion, sha256: result.sha256, bytes: result.bytes, mime: result.mime });
 });
 
 authoringRoutes.delete("/:id/revisions/:revisionId/entries/:kind/:entryKey", async (c) => {
@@ -322,7 +439,14 @@ authoringRoutes.put("/:id/revisions/:revisionId/files/:kind", async (c) => {
   if (!auth.session) return auth.response;
   const parsedKind = uploadKindSchema.safeParse(c.req.param("kind"));
   if (!parsedKind.success) return jsonError(c, "bad_request", "Unsupported file kind");
-  const revision = await getRevisionForProject(c.env.DB, c.req.param("id"), c.req.param("revisionId"), auth.session);
+  const expectedVersion = ifMatchVersion(c.req.header("if-match"));
+  if (expectedVersion === null) return jsonError(c, "precondition_failed", "If-Match is required");
+  const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
+  if (!project) return jsonError(c, "not_found", "Project not found");
+  if (expectedVersion !== project.row_version) {
+    return versionConflict(c, "project", expectedVersion, project.row_version);
+  }
+  const revision = await getRevisionForProject(c.env.DB, project.id, c.req.param("revisionId"), auth.session);
   if (!revision) return jsonError(c, "not_found", "Revision not found");
   const declaredLength = Number(c.req.header("content-length"));
   if (!Number.isFinite(declaredLength) || declaredLength <= 0) {
@@ -357,40 +481,67 @@ authoringRoutes.put("/:id/revisions/:revisionId/files/:kind", async (c) => {
   const result = await upsertAsset(
     c.env.DB,
     c.env.R2,
-    c.req.param("id"),
+    project.id,
     revision.id,
+    expectedVersion,
     parsedKind.data,
     body,
     mime,
     entryCount,
   );
-  if (!result) return jsonError(c, "conflict", "Revision is no longer editable");
+  if (!result) {
+    const latest = await getAuthoringProject(c.env.DB, project.id, auth.session);
+    if (latest && latest.row_version !== expectedVersion) {
+      return versionConflict(c, "project", expectedVersion, latest.row_version);
+    }
+    return jsonError(c, "conflict", "Revision is no longer editable");
+  }
   return c.json(result);
 });
 
 authoringRoutes.post("/:id/revisions/:revisionId/submit", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
+  const expectedVersion = ifMatchVersion(c.req.header("if-match"));
+  if (expectedVersion === null) return jsonError(c, "precondition_failed", "If-Match is required");
+  const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
+  if (!project) return jsonError(c, "not_found", "Project not found");
+  if (expectedVersion !== project.row_version) {
+    return versionConflict(c, "project", expectedVersion, project.row_version);
+  }
+  if (project.working_revision_id !== c.req.param("revisionId")) {
+    return jsonError(c, "not_found", "Working revision not found");
+  }
+  if (project.working_revision_frozen) {
+    return jsonError(c, "conflict", "Revision is already submitted; create a new revision");
+  }
   const parsed = submitProjectSchema.safeParse(await bodyJson(c));
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid submission", parsed.error.flatten());
   let prevalidated: PrevalidatedContent;
   try {
-    prevalidated = await validateRevisionViaDo(c.env, c.req.param("id"), c.req.param("revisionId"));
+    prevalidated = await validateRevisionViaDo(c.env, project.id, c.req.param("revisionId"));
   } catch {
     return jsonError(c, "internal", "Content validation service unavailable");
   }
   const result = await submitRevision(
     c.env.DB,
-    c.env.R2,
     auth.session,
-    c.req.param("id"),
+    project.id,
     c.req.param("revisionId"),
+    expectedVersion,
+    project.published_revision_id,
     parsed.data,
     prevalidated,
   );
   if (!result.ok) {
     if (result.code === "not_found") return jsonError(c, "not_found", result.message);
-    if (result.code === "conflict") return jsonError(c, "conflict", result.message);
+    if (result.code === "conflict") {
+      const latest = await getAuthoringProject(c.env.DB, project.id, auth.session);
+      if (latest && latest.row_version !== expectedVersion) {
+        return versionConflict(c, "project", expectedVersion, latest.row_version);
+      }
+      return jsonError(c, "conflict", result.message);
+    }
     return jsonError(c, "bad_request", result.message);
   }
   if (result.checkStatus === "queued") {
@@ -405,5 +556,13 @@ authoringRoutes.post("/:id/revisions/:revisionId/submit", async (c) => {
       console.error("ContentService enqueue failed", error);
     }
   }
-  return c.json({ submissionId: result.submissionId, status: "pending" }, 201);
+  return c.json(
+    {
+      submissionId: result.submissionId,
+      status: result.status,
+      checkStatus: result.checkStatus,
+      rowVersion: result.rowVersion,
+    },
+    201,
+  );
 });

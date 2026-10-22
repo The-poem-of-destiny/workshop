@@ -76,22 +76,6 @@ db.prepare(`INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha25
 
 db.prepare(`INSERT INTO submissions (id, project_id, revision_id, submitted_by, submitted_at)
   VALUES (?, ?, ?, ?, ?)`).run("s1", "p1", "r1", "u1", now);
-const projectColumns = db
-  .prepare("PRAGMA table_info(projects)")
-  .all()
-  .map((column) => column.name);
-for (const column of ["version_label", "precautions", "cover_position_x", "metadata_findings"]) {
-  if (!projectColumns.includes(column)) throw new Error(`projects missing ${column}`);
-}
-
-const flowColumns = db
-  .prepare("PRAGMA table_info(oauth_flows)")
-  .all()
-  .map((column) => column.name);
-for (const column of ["code_verifier", "code_challenge", "redeem_hash", "guild_id"]) {
-  if (!flowColumns.includes(column)) throw new Error(`oauth_flows missing ${column}`);
-}
-
 const submission = db.prepare("SELECT check_status, check_attempts FROM submissions WHERE id = 's1'").get();
 if (submission.check_status !== "needs_human" || submission.check_attempts !== 0) {
   throw new Error(`checker state defaults failed: ${JSON.stringify(submission)}`);

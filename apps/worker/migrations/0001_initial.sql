@@ -1,6 +1,6 @@
--- Creative Workshop initial schema.
--- This file is the only source of truth for a new database. Existing databases
--- evolve through numbered migrations.
+-- Creative Workshop schema baseline.
+-- New databases apply the entire numbered migration chain; this historical
+-- baseline alone is not the current schema. Existing databases apply pending migrations.
 
 PRAGMA foreign_keys = ON;
 

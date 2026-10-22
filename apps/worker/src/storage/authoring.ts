@@ -3,6 +3,7 @@ import type {
   AuthorSubmission,
   CreateProject,
   PatchProject,
+  ProjectEntryIndex,
   ProjectSummary,
   Session,
   SubmitProject,
@@ -16,11 +17,9 @@ import {
   type MetadataInput,
   type ProjectEntryKind,
   validateProjectContentPolicy,
-  validateProjectContentText,
 } from "@workshop/domain";
 import { z } from "zod";
 import { REVIEW_CHECKER_REVISION } from "../content-checker.js";
-import { buildEntryIndex, saveEntryIndex } from "./content-index.js";
 
 interface ProjectAccessRow {
   id: string;
@@ -34,6 +33,7 @@ interface ProjectAccessRow {
   visibility: "public" | "private";
   working_revision_id: string | null;
   published_revision_id: string | null;
+  working_revision_frozen: number;
   row_version: number;
   version_label: string | null;
   precautions: string | null;
@@ -104,6 +104,7 @@ export interface UploadResult {
   bytes: number;
   mime: string;
   r2Key: string;
+  rowVersion: number;
 }
 
 function parseTags(value: string): string[] {
@@ -174,7 +175,8 @@ export async function getAuthoringProject(
     .prepare(`
     SELECT id, author_id, title, description, author_note, project_type, extension_type,
       search_tags, visibility, working_revision_id, published_revision_id, row_version,
-      version_label, precautions, cover_position_x, cover_position_y, cover_zoom
+      version_label, precautions, cover_position_x, cover_position_y, cover_zoom,
+      EXISTS (SELECT 1 FROM submissions s WHERE s.revision_id = projects.working_revision_id) AS working_revision_frozen
     FROM projects
     WHERE id = ? AND deleted_at IS NULL AND (author_id = ? OR ? = 'owner')
   `)
@@ -198,7 +200,8 @@ async function getWorkingRevision(
       r.schema_version AS revision_schema_version, r.discord_thread_url AS revision_discord_thread_url,
       r.version_label AS revision_version_label, r.precautions AS revision_precautions,
       r.cover_position_x AS revision_cover_position_x, r.cover_position_y AS revision_cover_position_y,
-      r.cover_zoom AS revision_cover_zoom
+      r.cover_zoom AS revision_cover_zoom,
+      EXISTS (SELECT 1 FROM submissions s WHERE s.revision_id = p.working_revision_id) AS working_revision_frozen
     FROM projects p LEFT JOIN project_revisions r ON r.id = p.working_revision_id
     WHERE p.id = ? AND p.deleted_at IS NULL AND (p.author_id = ? OR ? = 'owner')
   `)
@@ -274,7 +277,7 @@ export async function listAuthorProjects(db: D1Database, session: Session): Prom
       (SELECT a.r2_key FROM assets a WHERE a.revision_id = p.working_revision_id AND a.kind = 'cover' LIMIT 1) AS cover_key,
       p.row_version, p.working_revision_id,
       s.id AS submission_id, s.revision_id AS submission_revision_id, s.status AS submission_status,
-      s.gate AS submission_gate, s.checker_revision AS submission_checker_revision,
+      s.client_gate AS submission_gate, s.client_checker_revision AS submission_checker_revision,
       s.submitted_at AS submission_submitted_at, s.resolved_at AS submission_resolved_at,
       s.check_status AS submission_check_status, s.check_error AS submission_check_error,
       s.checked_at AS submission_checked_at,
@@ -313,7 +316,7 @@ export async function listAuthorSubmissions(
   if (!project) return null;
   const result = await db
     .prepare(`
-    SELECT s.id, s.revision_id, s.status, s.gate, s.checker_revision, s.submitted_at, s.resolved_at,
+    SELECT s.id, s.revision_id, s.status, s.client_gate AS gate, s.client_checker_revision AS checker_revision, s.submitted_at, s.resolved_at,
       s.check_status, s.check_error, s.checked_at,
       rv.decision, rv.reason, rv.created_at
     FROM submissions s LEFT JOIN reviews rv ON rv.submission_id = s.id
@@ -449,6 +452,7 @@ export async function patchProject(
 ): Promise<RevisionResult | null> {
   const current = await getWorkingRevision(db, projectId, session);
   if (!current || current.row_version !== expectedVersion || !current.working_revision_id) return null;
+  if (current.working_revision_frozen) return null;
   const values = revisionValues(current, input);
   const now = new Date().toISOString();
   const meta = metadataSnapshot(values, session.userId, now);
@@ -459,7 +463,9 @@ export async function patchProject(
     ? db
         .prepare(`UPDATE projects
       SET row_version = row_version + 1
-      WHERE id = ? AND row_version = ? AND working_revision_id = ?`)
+      WHERE id = ? AND row_version = ? AND working_revision_id = ?
+        AND deleted_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM submissions WHERE revision_id = projects.working_revision_id)`)
         .bind(projectId, expectedVersion, current.working_revision_id)
     : db
         .prepare(`UPDATE projects
@@ -468,7 +474,9 @@ export async function patchProject(
           cover_position_y = ?, cover_zoom = ?, metadata_findings = ?,
           metadata_checker_revision = ?, metadata_checked_at = ?, metadata_checked_by = ?,
           row_version = row_version + 1, updated_at = ?
-      WHERE id = ? AND row_version = ? AND working_revision_id = ?`)
+      WHERE id = ? AND row_version = ? AND working_revision_id = ?
+        AND deleted_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM submissions WHERE revision_id = projects.working_revision_id)`)
         .bind(
           values.title,
           values.description,
@@ -499,7 +507,7 @@ export async function patchProject(
           cover_position_x = ?, cover_position_y = ?, cover_zoom = ?, metadata_findings = ?,
           metadata_checker_revision = ?, metadata_checked_at = ?, metadata_checked_by = ?,
           discord_thread_url = ?
-      WHERE id = ?`)
+      WHERE id = ? AND changes() = 1`)
       .bind(
         values.title,
         values.description,
@@ -523,15 +531,13 @@ export async function patchProject(
     db
       .prepare(`INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
       SELECT ?, 'project.patch', 'project', ?, ?, ?, ?
-      WHERE EXISTS (SELECT 1 FROM projects WHERE id = ? AND row_version = ?)`)
+      WHERE changes() = 1`)
       .bind(
         crypto.randomUUID(),
         projectId,
         session.userId,
         JSON.stringify({ fields: Object.keys(input), rowVersion: expectedVersion + 1 }),
         now,
-        projectId,
-        expectedVersion + 1,
       ),
   ]);
   if (!updated || updated.meta.changes === 0) return null;
@@ -970,6 +976,7 @@ export async function upsertAsset(
   r2: R2Bucket,
   projectId: string,
   revisionId: string,
+  expectedVersion: number,
   kind: UploadResult["kind"],
   body: ArrayBuffer,
   mime: string,
@@ -981,16 +988,26 @@ export async function upsertAsset(
   // points at the new key, and identical bytes reuse the same object.
   await r2.put(r2Key, body, { httpMetadata: { contentType: mime } });
 
+  if (kind !== "cover" && (!Number.isInteger(entryCount) || (entryCount ?? 0) < 0)) {
+    throw new Error("Validated entry count is required for content uploads");
+  }
+
+  const assetId = crypto.randomUUID();
+  const now = new Date().toISOString();
   const statements = [
     db
-      .prepare(`INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime)
-      SELECT ?, ?, ?, ?, ?, ?, ?, ?
-      WHERE EXISTS (SELECT 1 FROM projects WHERE id = ? AND working_revision_id = ?)
-        AND NOT EXISTS (SELECT 1 FROM submissions WHERE revision_id = ?)
-      ON CONFLICT(revision_id, kind) DO UPDATE SET r2_key = excluded.r2_key, sha256 = excluded.sha256,
-        bytes = excluded.bytes, mime = excluded.mime, created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`)
+      .prepare(`INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+      WHERE EXISTS (
+        SELECT 1 FROM projects
+        WHERE id = ? AND deleted_at IS NULL AND working_revision_id = ? AND row_version = ?
+          AND NOT EXISTS (SELECT 1 FROM submissions WHERE revision_id = ?)
+      )
+      ON CONFLICT(revision_id, kind) DO UPDATE SET
+        id = excluded.id, r2_key = excluded.r2_key, sha256 = excluded.sha256,
+        bytes = excluded.bytes, mime = excluded.mime, created_at = excluded.created_at`)
       .bind(
-        crypto.randomUUID(),
+        assetId,
         projectId,
         revisionId,
         kind,
@@ -998,30 +1015,37 @@ export async function upsertAsset(
         sha256,
         body.byteLength,
         mime,
+        now,
         projectId,
         revisionId,
+        expectedVersion,
         revisionId,
       ),
   ];
 
   if (kind !== "cover") {
-    if (!Number.isInteger(entryCount) || (entryCount ?? 0) < 0) {
-      throw new Error("Validated entry count is required for content uploads");
-    }
     const column = kind === "worldbook" ? "worldbook_count" : "regex_count";
     statements.push(
       db
         .prepare(`UPDATE project_revisions SET ${column} = ?
-      WHERE id = ?
-        AND EXISTS (SELECT 1 FROM projects WHERE id = ? AND working_revision_id = ?)
-        AND NOT EXISTS (SELECT 1 FROM submissions WHERE revision_id = ?)`)
-        .bind(entryCount, revisionId, projectId, revisionId, revisionId),
+        WHERE id = ? AND EXISTS (
+          SELECT 1 FROM assets WHERE id = ? AND project_id = ? AND revision_id = ? AND kind = ?
+        )`)
+        .bind(entryCount, revisionId, assetId, projectId, revisionId, kind),
     );
   }
 
-  const [inserted] = await db.batch(statements);
-  if (!inserted || inserted.meta.changes === 0) return null;
-  return { kind, sha256, bytes: body.byteLength, mime, r2Key };
+  statements.push(
+    db
+      .prepare(`UPDATE projects SET row_version = row_version + 1, updated_at = ?
+      WHERE id = ? AND EXISTS (
+        SELECT 1 FROM assets WHERE id = ? AND project_id = ? AND revision_id = ? AND kind = ?
+      )`)
+      .bind(now, projectId, assetId, projectId, revisionId, kind),
+  );
+  const results = await db.batch(statements);
+  if ((results.at(-1)?.meta.changes ?? 0) === 0) return null;
+  return { kind, sha256, bytes: body.byteLength, mime, r2Key, rowVersion: expectedVersion + 1 };
 }
 
 function extensionForMime(mime: string): string {
@@ -1043,10 +1067,17 @@ export interface PrevalidatedContent {
   hashes: Partial<Record<ProjectEntryKind, string>>;
   conflict: string | null;
   error: string | null;
+  entries: ProjectEntryIndex["entries"];
 }
 
 export type SubmitRevisionResult =
-  | { ok: true; submissionId: string; checkStatus: "queued" | "needs_human" }
+  | {
+      ok: true;
+      submissionId: string;
+      status: "pending" | "checking";
+      checkStatus: "queued" | "needs_human";
+      rowVersion: number;
+    }
   | { ok: false; code: "not_found" | "invalid_content" | "conflict"; message: string };
 
 interface RevisionAssetRow {
@@ -1055,161 +1086,70 @@ interface RevisionAssetRow {
   sha256: string;
 }
 
-async function baselineEntryConflict(db: D1Database, text: string): Promise<string | null> {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return null;
+function assetSnapshotCondition(revisionId: string, assets: readonly RevisionAssetRow[]) {
+  if (assets.length === 0) {
+    return {
+      sql: "(SELECT COUNT(*) FROM assets WHERE revision_id = ?) = 0",
+      bindings: [revisionId],
+    };
   }
-  const refs = extractProjectEntries(parsed, "worldbook");
-  if (refs.length === 0) return null;
-  const fingerprints = await Promise.all(
-    refs.map(async (ref) => {
-      const entry = ref.entry;
-      const rawName = entry.comment ?? entry.name;
-      const name = String(rawName ?? "")
-        .replace(/\r\n/g, "\n")
-        .trim();
-      const content = String(entry.content ?? "")
-        .replace(/\r\n/g, "\n")
-        .trim();
-      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify({ name, content })));
-      return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-    }),
-  );
-  const match = await db
-    .prepare(`
-    SELECT display_name FROM reference_items
-    WHERE kind = 'worldbook' AND exact_hash IN (${fingerprints.map(() => "?").join(", ")})
-    LIMIT 1
-  `)
-    .bind(...fingerprints)
-    .first<{ display_name: string }>();
-  return match?.display_name ?? null;
+  return {
+    sql: `(SELECT COUNT(*) FROM assets WHERE revision_id = ?) = ?
+      AND NOT EXISTS (
+        SELECT 1 FROM assets
+        WHERE revision_id = ? AND NOT (${assets.map(() => "(kind = ? AND r2_key = ? AND sha256 = ?)").join(" OR ")})
+      )`,
+    bindings: [
+      revisionId,
+      assets.length,
+      revisionId,
+      ...assets.flatMap((asset) => [asset.kind, asset.r2_key, asset.sha256]),
+    ],
+  };
 }
 
 export async function submitRevision(
   db: D1Database,
-  r2: R2Bucket,
   session: Session,
   projectId: string,
   revisionId: string,
+  expectedVersion: number,
+  basePublishedRevisionId: string | null,
   input: SubmitProject,
-  prevalidated?: PrevalidatedContent,
+  prevalidated: PrevalidatedContent,
 ): Promise<SubmitRevisionResult> {
   const current = await getWorkingRevision(db, projectId, session);
   if (!current || current.working_revision_id !== revisionId) {
     return { ok: false, code: "not_found", message: "Working revision not found" };
   }
-
-  const previous = await db
-    .prepare(`
-    SELECT id, status FROM submissions
-    WHERE project_id = ? AND status IN ('pending', 'checking')
-  `)
-    .bind(projectId)
-    .all<{ id: string; status: string }>();
-
-  // Freeze first: the pending submission makes the upload guard reject any
-  // later asset write, so the asset snapshot read below cannot change.
-  const submissionId = crypto.randomUUID();
-  const now = new Date().toISOString();
-  const clientGate = input.gate ?? "missing";
-  const checkStatus = clientGate === "pass" || clientGate === "warn" ? "queued" : "needs_human";
-  const submissionStatus = checkStatus === "queued" ? "checking" : "pending";
-  await db.batch([
-    db
-      .prepare(
-        "UPDATE submissions SET status = 'superseded', resolved_at = ? WHERE project_id = ? AND status IN ('pending', 'checking')",
-      )
-      .bind(now, projectId),
-    db
-      .prepare(`INSERT INTO submissions
-      (id, project_id, revision_id, status, gate, checker_revision, submitted_by, submitted_at,
-       client_gate, client_checker_revision, client_warning_count, client_acknowledged_at, check_status,
-       review_checker_revision)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(
-        submissionId,
-        projectId,
-        revisionId,
-        submissionStatus,
-        clientGate,
-        input.checkerRevision ?? null,
-        session.userId,
-        now,
-        clientGate,
-        input.checkerRevision ?? null,
-        input.warningCount,
-        input.acknowledged ? now : null,
-        checkStatus,
-        REVIEW_CHECKER_REVISION,
-      ),
-  ]);
+  if (
+    current.row_version !== expectedVersion ||
+    current.published_revision_id !== basePublishedRevisionId ||
+    current.working_revision_frozen
+  ) {
+    return { ok: false, code: "conflict", message: "Revision is no longer editable" };
+  }
 
   const assets = await db
     .prepare("SELECT kind, r2_key, sha256 FROM assets WHERE revision_id = ? ORDER BY kind")
     .bind(revisionId)
     .all<RevisionAssetRow>();
-
   const presence: Record<ProjectEntryKind, boolean> = { worldbook: false, regex: false };
   const counts: Record<ProjectEntryKind, number> = { worldbook: 0, regex: 0 };
-  let validationError: string | null = null;
+  let validationError = prevalidated.error;
 
-  if (prevalidated) {
-    for (const asset of assets.results) {
-      if (asset.kind !== "worldbook" && asset.kind !== "regex") continue;
-      if (prevalidated.hashes[asset.kind] !== asset.sha256) {
-        validationError = "内容在检查期间发生变化，请重新提交";
-        break;
-      }
+  for (const kind of ["worldbook", "regex"] as const) {
+    const asset = assets.results.find((item) => item.kind === kind);
+    if (Boolean(asset) !== prevalidated.presence[kind] || (asset && prevalidated.hashes[kind] !== asset.sha256)) {
+      validationError = "内容在检查期间发生变化，请重新提交";
+      break;
     }
-    for (const kind of ["worldbook", "regex"] as const) {
-      const present = assets.results.some((asset) => asset.kind === kind);
-      if (!validationError && present !== prevalidated.presence[kind]) {
-        validationError = "内容在检查期间发生变化，请重新提交";
-      }
-    }
-    presence.worldbook = prevalidated.presence.worldbook;
-    presence.regex = prevalidated.presence.regex;
-    counts.worldbook = prevalidated.counts.worldbook;
-    counts.regex = prevalidated.counts.regex;
-    if (prevalidated.error) validationError = prevalidated.error;
-    if (prevalidated.conflict) {
-      validationError = `世界书条目与官方基线「${prevalidated.conflict}」完全相同，请基于基线修改后再提交`;
-    }
-  } else {
-    try {
-      for (const asset of assets.results) {
-        if (asset.kind !== "worldbook" && asset.kind !== "regex") continue;
-        const kind = asset.kind as ProjectEntryKind;
-        const object = await r2.get(asset.r2_key);
-        if (!object) {
-          validationError = "项目文件缺失，请重新上传";
-          break;
-        }
-        const text = await object.text();
-        const validation = validateProjectContentText(text, kind);
-        if (!validation.valid) {
-          validationError = validation.error;
-          break;
-        }
-        presence[kind] = true;
-        counts[kind] = validation.entryCount;
-        if (kind === "worldbook") {
-          const conflict = await baselineEntryConflict(db, text);
-          if (conflict) {
-            validationError = `世界书条目与官方基线「${conflict}」完全相同，请基于基线修改后再提交`;
-            break;
-          }
-        }
-      }
-    } catch (error) {
-      validationError = error instanceof Error ? `项目文件读取失败：${error.message}` : "项目文件读取失败";
-    }
+    presence[kind] = prevalidated.presence[kind];
+    counts[kind] = prevalidated.counts[kind];
   }
-
+  if (!validationError && prevalidated.conflict) {
+    validationError = `世界书条目与官方基线「${prevalidated.conflict}」完全相同，请基于基线修改后再提交`;
+  }
   if (!validationError) {
     const policy = validateProjectContentPolicy(
       {
@@ -1220,41 +1160,100 @@ export async function submitRevision(
     );
     if (!policy.valid) validationError = policy.error;
   }
+  if (validationError) return { ok: false, code: "invalid_content", message: validationError };
 
-  if (validationError) {
-    const restore = [
-      db.prepare("DELETE FROM submissions WHERE id = ? AND status IN ('pending', 'checking')").bind(submissionId),
-      ...previous.results.map((item) =>
-        db
-          .prepare("UPDATE submissions SET status = ?, resolved_at = NULL WHERE id = ? AND status = 'superseded'")
-          .bind(item.status, item.id),
-      ),
-    ];
-    await db.batch(restore);
-    return { ok: false, code: "invalid_content", message: validationError };
+  const entries = prevalidated.entries;
+  for (const kind of ["worldbook", "regex"] as const) {
+    if (entries.filter((entry) => entry.kind === kind).length !== counts[kind]) {
+      return { ok: false, code: "invalid_content", message: "项目文件在建立索引时发生变化，请重新提交" };
+    }
   }
 
   const manifest = assets.results.map((asset) => `${asset.kind}:${asset.sha256}`).join("\n");
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(manifest));
   const manifestHash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  await db
-    .prepare(`UPDATE project_revisions
-    SET manifest_hash = ?, worldbook_count = ?, regex_count = ?
-    WHERE id = ?`)
-    .bind(manifestHash, counts.worldbook, counts.regex, revisionId)
-    .run();
-  try {
-    const indexAssets = assets.results
-      .filter(
-        (asset): asset is typeof asset & { kind: ProjectEntryKind } =>
-          asset.kind === "worldbook" || asset.kind === "regex",
-      )
-      .map((asset) => ({ kind: asset.kind, r2_key: asset.r2_key }));
-    const entries = await buildEntryIndex(r2, indexAssets);
-    await saveEntryIndex(db, revisionId, entries);
-  } catch (error) {
-    // The public index is a read optimization; submission must still succeed.
-    console.warn("entry index build failed", error);
+  const submissionId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const clientGate = input.gate ?? "missing";
+  const checkStatus = clientGate === "pass" || clientGate === "warn" ? "queued" : "needs_human";
+  const submissionStatus = checkStatus === "queued" ? "checking" : "pending";
+  const snapshot = assetSnapshotCondition(revisionId, assets.results);
+  const statements: D1PreparedStatement[] = [
+    // This marker row is deliberately non-queueable. Every later mutation
+    // depends on its unique ID, so a failed CAS cannot write side effects.
+    db
+      .prepare(`INSERT INTO submissions
+        (id, project_id, revision_id, status, submitted_by, submitted_at,
+         client_gate, client_checker_revision, client_warning_count, client_acknowledged_at, check_status,
+         review_checker_revision, base_published_revision_id)
+      SELECT ?, p.id, ?, 'superseded', ?, ?, ?, ?, ?, ?, ?, ?, ?
+      FROM projects p
+      JOIN project_revisions r ON r.id = ? AND r.project_id = p.id
+      WHERE p.id = ? AND p.deleted_at IS NULL AND p.working_revision_id = ? AND p.row_version = ?
+        AND p.published_revision_id IS ?
+        AND (p.author_id = ? OR ? = 'owner')
+        AND NOT EXISTS (SELECT 1 FROM submissions WHERE revision_id = ?)
+        AND ${snapshot.sql}`)
+      .bind(
+        submissionId,
+        revisionId,
+        session.userId,
+        now,
+        clientGate,
+        input.checkerRevision ?? null,
+        input.warningCount,
+        input.acknowledged ? now : null,
+        checkStatus,
+        REVIEW_CHECKER_REVISION,
+        basePublishedRevisionId,
+        revisionId,
+        projectId,
+        revisionId,
+        expectedVersion,
+        basePublishedRevisionId,
+        session.userId,
+        session.role,
+        revisionId,
+        ...snapshot.bindings,
+      ),
+    db
+      .prepare(`UPDATE project_revisions
+        SET manifest_hash = ?, worldbook_count = ?, regex_count = ?, entry_index_ready = 1
+        WHERE id = ? AND EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = 'superseded')`)
+      .bind(manifestHash, counts.worldbook, counts.regex, revisionId, submissionId),
+    db
+      .prepare(`DELETE FROM revision_entry_index
+        WHERE revision_id = ? AND EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = 'superseded')`)
+      .bind(revisionId, submissionId),
+  ];
+  for (const entry of entries) {
+    statements.push(
+      db
+        .prepare(`INSERT INTO revision_entry_index
+          (revision_id, kind, entry_key, name, content_hash, content_length)
+        SELECT ?, ?, ?, ?, ?, ?
+        WHERE EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = 'superseded')`)
+        .bind(revisionId, entry.kind, entry.entryKey, entry.name, entry.contentHash, entry.contentLength, submissionId),
+    );
   }
-  return { ok: true, submissionId, checkStatus };
+  statements.push(
+    db
+      .prepare(`UPDATE submissions SET status = 'superseded', resolved_at = ?
+        WHERE project_id = ? AND id <> ? AND status IN ('pending', 'checking')
+          AND EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = 'superseded')`)
+      .bind(now, projectId, submissionId, submissionId),
+    db
+      .prepare(`UPDATE submissions SET status = ?, resolved_at = NULL
+        WHERE id = ? AND status = 'superseded'`)
+      .bind(submissionStatus, submissionId),
+    db
+      .prepare(`UPDATE projects SET row_version = row_version + 1, updated_at = ?
+        WHERE id = ? AND EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = ?)`)
+      .bind(now, projectId, submissionId, submissionStatus),
+  );
+  const results = await db.batch(statements);
+  if ((results.at(-1)?.meta.changes ?? 0) === 0) {
+    return { ok: false, code: "conflict", message: "Revision changed while submitting" };
+  }
+  return { ok: true, submissionId, status: submissionStatus, checkStatus, rowVersion: expectedVersion + 1 };
 }

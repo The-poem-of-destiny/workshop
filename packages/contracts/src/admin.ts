@@ -68,7 +68,6 @@ export const adminReviewSchema = z.object({
   reason: z.string().nullable(),
   manifestHash: z.string().nullable(),
   checkerVersion: z.string().nullable(),
-  report: z.unknown().nullable(),
   createdAt: z.string(),
 });
 

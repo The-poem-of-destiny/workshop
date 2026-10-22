@@ -1,8 +1,10 @@
 import { env } from "cloudflare:test";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { app } from "../src/app";
 import type { Env } from "../src/env";
+import { consumeDownloadToken } from "../src/storage/downloads";
 import { listPublishedProjects } from "../src/storage/projects";
+import { hashSessionToken } from "../src/storage/session-hash";
 import { applySchema } from "./support/schema";
 
 const bindings = env as unknown as Env;
@@ -67,6 +69,12 @@ async function seed() {
     .bind(now)
     .run();
   await bindings.DB.prepare("UPDATE projects SET working_revision_id = 'r3' WHERE id = 'p1'").run();
+  await bindings.DB.prepare(`
+    UPDATE projects
+    SET published_schema_version = '4.3',
+        published_discord_thread_url = 'https://discord.com/channels/1/2'
+    WHERE id = 'p1'
+  `).run();
 
   await bindings.DB.prepare(`
     INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
@@ -367,11 +375,63 @@ describe("public read path", () => {
     expect(metric?.downloads).toBe(1);
   });
 
+  it.each(["ticket", "session"] as const)("rechecks %s expiry after opening R2 without counting", async (boundary) => {
+    await seed();
+    const issued = await app.request(
+      "/api/v1/projects/p1/downloads",
+      { method: "POST", headers: { authorization: "Bearer test-token" } },
+      bindings,
+    );
+    const ticket = (await issued.json()) as { files: Array<{ url: string }> };
+    const token = ticket.files[0]!.url.split("/").pop()!;
+    const currentSessionHash = await hashSessionToken("test-token");
+    const otherSessionHash = await hashSessionToken("other-session-token");
+    await bindings.DB.prepare(`
+      INSERT INTO sessions (token_hash, user_id, session_version, expires_at, created_at, last_seen_at)
+      VALUES (?, 'u1', 1, '2099-01-01T00:00:00.000Z', ?, ?)
+    `)
+      .bind(otherSessionHash, now, now)
+      .run();
+    const getObject = bindings.R2.get.bind(bindings.R2);
+    const spy = vi.spyOn(bindings.R2, "get").mockImplementationOnce(async (key) => {
+      const object = await getObject(key);
+      // The pre-read occurred before the deadline, but consumption is now
+      // after it. Only Date is faked; D1's transaction clock remains current.
+      const sql =
+        boundary === "ticket"
+          ? "UPDATE download_tokens SET expires_at = '2001-01-01T00:00:00.000Z'"
+          : `UPDATE sessions SET expires_at = '2001-01-01T00:00:00.000Z' WHERE token_hash = '${currentSessionHash}'`;
+      await bindings.DB.prepare(sql).run();
+      return object;
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2000-01-01T00:00:00.000Z"));
+    try {
+      const result = await consumeDownloadToken(bindings.DB, bindings.R2, token, {
+        userId: "u1",
+        role: "member",
+        sessionVersion: 1,
+        tokenHash: currentSessionHash,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      });
+      expect(result).toBe("not_found");
+      const persisted = await bindings.DB.prepare(`
+        SELECT (SELECT consumed_at FROM download_tokens LIMIT 1) AS consumed_at,
+          (SELECT downloads_count FROM projects WHERE id = 'p1') AS downloads,
+          (SELECT COUNT(*) FROM download_events WHERE project_id = 'p1') AS events
+      `).first<{ consumed_at: string | null; downloads: number; events: number }>();
+      expect(persisted).toEqual({ consumed_at: null, downloads: 12, events: 0 });
+    } finally {
+      vi.useRealTimers();
+      spy.mockRestore();
+    }
+  });
+
   it("serves only published public covers anonymously", async () => {
     await seed();
     const publicCover = await app.request("/api/v1/assets/covers/p1.webp", undefined, bindings);
     expect(publicCover.status).toBe(200);
-    expect(publicCover.headers.get("cache-control")).toContain("public");
+    expect(publicCover.headers.get("cache-control")).toBe("private, no-store");
 
     const unpublished = await app.request("/api/v1/assets/covers/p1/r3-cover.webp", undefined, bindings);
     expect(unpublished.status).toBe(404);
@@ -392,14 +452,35 @@ describe("public read path", () => {
     expect(ownPrivate.status).toBe(200);
   });
 
-  it("returns an anonymous entry index without content", async () => {
+  it("serves only completed persisted indexes without reading original assets", async () => {
     await seed();
+    await bindings.DB.prepare(
+      "UPDATE project_revisions SET manifest_hash = 'unindexed-manifest' WHERE id = 'r1'",
+    ).run();
+    expect((await app.request("/api/v1/projects/p1/entries", undefined, bindings)).status).toBe(404);
+
+    const content = "stored 😀";
+    const contentHash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content)))]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+    await bindings.DB.batch([
+      bindings.DB.prepare(`
+        INSERT INTO revision_entry_index (revision_id, kind, entry_key, name, content_hash, content_length)
+        VALUES ('r1', 'worldbook', 'uid:1', 'Stored entry', ?, ?)
+      `).bind(contentHash, Array.from(content).length),
+      bindings.DB.prepare("UPDATE project_revisions SET entry_index_ready = 1 WHERE id = 'r1'"),
+    ]);
+    await bindings.R2.delete("projects/p1/revisions/r1/worldbook.json");
     const response = await app.request("/api/v1/projects/p1/entries", undefined, bindings);
     expect(response.status).toBe(200);
-    const body = (await response.json()) as { revisionId: string; entries: Array<Record<string, unknown>> };
-    expect(body.revisionId).toBe("r1");
-    expect(Array.isArray(body.entries)).toBe(true);
-    expect(JSON.stringify(body)).not.toContain('"content"');
+    await expect(response.json()).resolves.toEqual({
+      revisionId: "r1",
+      entries: [{ kind: "worldbook", entryKey: "uid:1", name: "Stored entry", contentHash, contentLength: 8 }],
+    });
+
+    await bindings.DB.prepare("DELETE FROM revision_entry_index WHERE revision_id = 'r1'").run();
+    const empty = await app.request("/api/v1/projects/p1/entries", undefined, bindings);
+    await expect(empty.json()).resolves.toEqual({ revisionId: "r1", entries: [] });
   });
 
   it("returns acquisition tickets only after client version and channel checks", async () => {
@@ -470,27 +551,6 @@ describe("public read path", () => {
     );
     expect(file.status).toBe(200);
     await expect(file.text()).resolves.toBe('{"entries":[]}');
-  });
-
-  it("requires login for release manifest and files", async () => {
-    await seed();
-    const anonymous = await app.request("/api/v1/projects/p1/releases/r1/manifest", undefined, bindings);
-    expect(anonymous.status).toBe(401);
-
-    const headers = { authorization: "Bearer test-token" };
-    const manifest = await app.request("/api/v1/projects/p1/releases/r1/manifest", { headers }, bindings);
-    expect(manifest.status).toBe(200);
-    await expect(manifest.json()).resolves.toMatchObject({
-      revisionId: "r1",
-      files: [{ kind: "worldbook", bytes: 20, mime: "application/json" }],
-    });
-
-    const file = await app.request("/api/v1/projects/p1/releases/r1/files/worldbook", { headers }, bindings);
-    expect(file.status).toBe(200);
-    await expect(file.text()).resolves.toBe('{"entries":[]}');
-
-    const forbiddenKind = await app.request("/api/v1/projects/p1/releases/r1/files/cover", { headers }, bindings);
-    expect(forbiddenKind.status).toBe(400);
   });
 
   it("serves home, recommendations, references and banner", async () => {

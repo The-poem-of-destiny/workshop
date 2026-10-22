@@ -25,9 +25,9 @@ interface SubmissionTargetRow {
   id: string;
   project_id: string;
   revision_id: string;
+  base_published_revision_id: string | null;
   status: SubmissionRow["status"];
   manifest_hash: string | null;
-  checker_revision: string | null;
   review_checker_revision: string | null;
   check_status: string;
   check_report: string | null;
@@ -41,7 +41,6 @@ function reportGate(value: string | null): string | null {
 }
 
 interface DetailSubmissionRow extends SubmissionTargetRow {
-  gate: string | null;
   submitted_by: string;
   submitted_at: string;
   resolved_at: string | null;
@@ -57,7 +56,6 @@ interface DetailSubmissionRow extends SubmissionTargetRow {
   revision_project_type: string | null;
   revision_extension_type: string | null;
   revision_tags: string;
-  revision_metadata: string;
   revision_manifest_hash: string | null;
   revision_created_at: string;
   client_gate: string | null;
@@ -91,7 +89,6 @@ interface ReviewRow {
   reason: string | null;
   manifest_hash: string | null;
   checker_version: string | null;
-  report: string | null;
   created_at: string;
 }
 
@@ -187,8 +184,8 @@ export async function listAdminSubmissions(db: D1Database, query: AdminSubmissio
   const [result, countRows] = await Promise.all([
     db
       .prepare(`
-    SELECT s.id, s.project_id, s.revision_id, s.status, s.gate,
-           s.checker_revision, s.submitted_at, s.check_status,
+    SELECT s.id, s.project_id, s.revision_id, s.status, s.client_gate AS gate,
+           s.client_checker_revision AS checker_revision, s.submitted_at, s.check_status,
            p.title AS project_title, u.id AS author_id,
            COALESCE(u.global_name, u.username) AS author_name
     FROM submissions s
@@ -237,8 +234,8 @@ export async function listAdminSubmissions(db: D1Database, query: AdminSubmissio
 export async function getAdminSubmission(db: D1Database, id: string) {
   const row = await db
     .prepare(`
-    SELECT s.id, s.project_id, s.revision_id, s.status, s.gate,
-           s.checker_revision, s.submitted_by, s.submitted_at, s.resolved_at,
+    SELECT s.id, s.project_id, s.revision_id, s.status,
+           s.submitted_by, s.submitted_at, s.resolved_at,
            s.client_gate, s.client_checker_revision, s.client_warning_count, s.client_acknowledged_at,
            s.check_status, s.check_attempts, s.check_error, s.check_report, s.check_report_hash,
            s.checked_at, s.review_checker_revision, s.auto_published_at,
@@ -249,7 +246,7 @@ export async function getAdminSubmission(db: D1Database, id: string) {
            r.revision_no, r.title AS revision_title, r.description AS revision_description,
            r.author_note AS revision_author_note, r.project_type AS revision_project_type,
            r.extension_type AS revision_extension_type, r.tags AS revision_tags,
-           r.metadata AS revision_metadata, r.manifest_hash AS revision_manifest_hash,
+           r.manifest_hash AS revision_manifest_hash,
            r.created_at AS revision_created_at
     FROM submissions s
     JOIN projects p ON p.id = s.project_id
@@ -272,7 +269,7 @@ export async function getAdminSubmission(db: D1Database, id: string) {
     db
       .prepare(`
       SELECT id, submission_id, reviewer_id, decision, reason, manifest_hash,
-             checker_version, report, created_at
+             checker_version, created_at
       FROM reviews WHERE submission_id = ?
     `)
       .bind(id)
@@ -300,8 +297,6 @@ export async function getAdminSubmission(db: D1Database, id: string) {
       projectId: row.project_id,
       revisionId: row.revision_id,
       status: row.status,
-      gate: row.gate,
-      checkerRevision: row.checker_revision,
       submittedBy: row.submitted_by,
       submittedAt: row.submitted_at,
       resolvedAt: row.resolved_at,
@@ -334,7 +329,6 @@ export async function getAdminSubmission(db: D1Database, id: string) {
       projectType: row.revision_project_type,
       extensionType: row.revision_extension_type,
       searchTags: parseJson(row.revision_tags),
-      metadata: parseJson(row.revision_metadata),
       manifestHash: row.revision_manifest_hash,
       createdAt: row.revision_created_at,
     },
@@ -364,7 +358,6 @@ export async function getAdminSubmission(db: D1Database, id: string) {
           reason: review.reason,
           manifestHash: review.manifest_hash,
           checkerVersion: review.checker_version,
-          report: parseJson(review.report),
           createdAt: review.created_at,
         }
       : null,
@@ -391,8 +384,8 @@ export async function reviewAdminSubmission(
 ) {
   const target = await db
     .prepare(`
-    SELECT s.id, s.project_id, s.revision_id, s.status,
-           r.manifest_hash, s.checker_revision, s.review_checker_revision,
+    SELECT s.id, s.project_id, s.revision_id, s.base_published_revision_id, s.status,
+           r.manifest_hash, s.review_checker_revision,
            s.check_status, s.check_report, s.check_report_hash, s.client_gate
     FROM submissions s
     JOIN project_revisions r ON r.id = s.revision_id
@@ -423,24 +416,63 @@ export async function reviewAdminSubmission(
 
   const now = new Date().toISOString();
   const nextStatus = request.decision === "approve" ? "approved" : "rejected";
-  const checkerVersion = target.review_checker_revision ?? target.checker_revision;
-  const report = null;
+  const checkerVersion = target.review_checker_revision;
   const reviewId = crypto.randomUUID();
+  const approval = request.decision === "approve";
+  const statements: D1PreparedStatement[] = [];
 
-  const statements = [
+  if (approval) {
+    // This guarded project update is the linearization point for approval.
+    // Subsequent writes in the same batch require the resulting pointer.
+    statements.push(
+      db
+        .prepare(`
+        UPDATE projects
+        SET published_revision_id = ?, published_at = ?,
+            title = r.title, description = r.description, author_note = r.author_note,
+            project_type = r.project_type, extension_type = r.extension_type,
+            search_tags = r.tags, published_schema_version = r.schema_version,
+            published_discord_thread_url = r.discord_thread_url,
+            version_label = r.version_label, precautions = r.precautions,
+            cover_position_x = r.cover_position_x, cover_position_y = r.cover_position_y,
+            cover_zoom = r.cover_zoom, metadata_findings = r.metadata_findings,
+            metadata_checker_revision = r.metadata_checker_revision,
+            metadata_checked_at = r.metadata_checked_at, metadata_checked_by = r.metadata_checked_by,
+            row_version = row_version + 1, updated_at = ?
+        FROM submissions s
+        JOIN project_revisions r ON r.id = s.revision_id
+        WHERE projects.id = s.project_id
+          AND s.id = ? AND s.status = 'pending'
+          AND s.revision_id = ?
+          AND projects.deleted_at IS NULL
+          AND projects.published_revision_id IS s.base_published_revision_id
+          AND projects.published_revision_id IS NOT s.revision_id
+          AND NOT EXISTS (SELECT 1 FROM reviews WHERE submission_id = s.id)
+      `)
+        .bind(target.revision_id, now, now, submissionId, target.revision_id),
+    );
+  }
+
+  statements.push(
     db
       .prepare(`
       UPDATE submissions
       SET status = ?, resolved_at = ?
       WHERE id = ? AND status = 'pending'
         AND NOT EXISTS (SELECT 1 FROM reviews WHERE submission_id = ?)
+        AND (
+          ? = 0 OR EXISTS (
+            SELECT 1 FROM projects
+            WHERE id = ? AND deleted_at IS NULL AND published_revision_id = ?
+          )
+        )
     `)
-      .bind(nextStatus, now, submissionId, submissionId),
+      .bind(nextStatus, now, submissionId, submissionId, approval ? 1 : 0, target.project_id, target.revision_id),
     db
       .prepare(`
       INSERT INTO reviews
-        (id, submission_id, reviewer_id, decision, reason, manifest_hash, checker_version, report, created_at)
-      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+        (id, submission_id, reviewer_id, decision, reason, manifest_hash, checker_version, created_at)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?
       WHERE EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = ?)
     `)
       .bind(
@@ -451,7 +483,6 @@ export async function reviewAdminSubmission(
         request.reason ?? null,
         target.manifest_hash,
         checkerVersion,
-        report,
         now,
         submissionId,
         nextStatus,
@@ -476,32 +507,14 @@ export async function reviewAdminSubmission(
         now,
         reviewId,
       ),
-  ];
-
-  if (request.decision === "approve") {
-    statements.push(
-      db
-        .prepare(`
-      UPDATE projects
-      SET published_revision_id = ?, published_at = ?,
-          title = r.title, description = r.description, author_note = r.author_note,
-          project_type = r.project_type, extension_type = r.extension_type,
-          search_tags = r.tags, row_version = row_version + 1, updated_at = ?
-      FROM project_revisions r
-      WHERE projects.id = ? AND r.id = ?
-        AND projects.deleted_at IS NULL
-        AND EXISTS (SELECT 1 FROM reviews WHERE submission_id = ?)
-        AND EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = 'approved')
-    `)
-        .bind(target.revision_id, now, now, target.project_id, target.revision_id, submissionId, submissionId),
-    );
-  }
+  );
 
   try {
     const results = await db.batch(statements);
-    if ((results[1]?.meta.changes ?? 0) === 0) return { kind: "conflict" as const };
+    const statusIndex = approval ? 1 : 0;
+    if ((results[statusIndex]?.meta.changes ?? 0) === 0) return { kind: "conflict" as const };
   } catch (error) {
-    // UNIQUE(reviews.submission_id) and the conditional update make races a 409.
+    // UNIQUE(reviews.submission_id) and the conditional transition make races a 409.
     if (error instanceof Error && /unique|constraint/i.test(error.message)) {
       return { kind: "conflict" as const };
     }
