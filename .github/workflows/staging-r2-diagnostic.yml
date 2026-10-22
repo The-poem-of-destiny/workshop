@@ -1,0 +1,91 @@
+name: staging-r2-diagnostic
+
+# Temporary read-only diagnostic for the staging R2 client upload failure.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-r2-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    environment: staging
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.24.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Token fingerprint (no secret value)
+        run: |
+          node -e 'const c=require("crypto");const t=process.env.CLOUDFLARE_API_TOKEN||"";console.log(JSON.stringify({tokenLength:t.length,fingerprint:c.createHash("sha256").update(t).digest("hex").slice(0,12)}))'
+
+      - name: Identity
+        run: pnpm --filter @workshop/worker exec wrangler whoami 2>&1 | grep -Ev '^\s*$' || true
+
+      - name: R2 read access
+        run: |
+          set +e
+          pnpm --filter @workshop/worker exec wrangler r2 bucket list --config wrangler.jsonc >"$RUNNER_TEMP/r2list.txt" 2>&1
+          echo "R2_LIST_EXIT=$?"
+          grep -E 'workshop-client-(staging|prod)|ERROR|error' "$RUNNER_TEMP/r2list.txt" || true
+
+      - name: D1 read access
+        run: |
+          set +e
+          pnpm --filter @workshop/worker exec wrangler d1 list --config wrangler.jsonc >"$RUNNER_TEMP/d1list.txt" 2>&1
+          echo "D1_LIST_EXIT=$?"
+          grep -E 'workshop-(staging|prod)|ERROR|error' "$RUNNER_TEMP/d1list.txt" || true
+
+      - name: Token verify endpoint
+        run: |
+          set +e
+          code=$(curl -s -o "$RUNNER_TEMP/verify.json" -w '%{http_code}' \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify")
+          echo "VERIFY_HTTP=$code"
+          head -c 400 "$RUNNER_TEMP/verify.json"; echo
+
+      - name: Wrangler object put probe
+        run: |
+          set +e
+          printf 'ci-probe' > "$RUNNER_TEMP/probe.txt"
+          pnpm --filter @workshop/worker exec wrangler r2 object put \
+            "workshop-client-staging/diagnostics/ci-probe-$GITHUB_RUN_ID.txt" \
+            --remote --file "$RUNNER_TEMP/probe.txt" --content-type text/plain \
+            --config wrangler.jsonc --env staging
+          echo "WRANGLER_PUT_EXIT=$?"
+
+      - name: Raw REST object put probe
+        run: |
+          set +e
+          code=$(curl -s -o "$RUNNER_TEMP/r2put.json" -w '%{http_code}' -X PUT \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H 'content-type: text/plain' \
+            --data-binary 'probe' \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets/workshop-client-staging/objects/diagnostics/curl-$GITHUB_RUN_ID.txt")
+          echo "RAW_REST_PUT_HTTP=$code"
+          head -c 400 "$RUNNER_TEMP/r2put.json"; echo
+
+      - name: Cleanup probe objects
+        if: always()
+        run: |
+          set +e
+          pnpm --filter @workshop/worker exec wrangler r2 object delete \
+            "workshop-client-staging/diagnostics/ci-probe-$GITHUB_RUN_ID.txt" \
+            --remote --config wrangler.jsonc --env staging
+          echo "DELETE_EXIT=$?"
