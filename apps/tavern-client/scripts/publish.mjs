@@ -6,8 +6,14 @@ import { spawnSync } from "node:child_process";
  * Order: versioned object -> channel pointer -> channel record -> cache purge.
  * Never writes production unless --env production is explicit and the caller
  * has already been authorized outside this repository.
+ *
+ * Objects are written through the R2 S3 endpoint (SigV4) rather than Wrangler's
+ * REST helper: bucket-scoped R2 credentials ("Object Read & Write") only apply
+ * to the S3 API, so the S3 path keeps CI credentials least-privilege. The S3
+ * access key is the API token id and the secret is the SHA-256 of its value.
+ * D1 bookkeeping still uses Wrangler.
  */
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -37,6 +43,9 @@ const database = env === "staging" ? "workshop-staging" : "workshop-prod";
 const versionedKey = `client/v/${sha}/index.js`;
 const channelKey = `client/${channel}/index.js`;
 
+const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+
 function wrangler(wranglerArgs, capture = false) {
   if (dryRun) {
     console.log(`[dry-run] wrangler ${wranglerArgs.join(" ")}`);
@@ -52,21 +61,65 @@ function wrangler(wranglerArgs, capture = false) {
   return result.stdout;
 }
 
-function upload(key) {
-  wrangler([
-    "r2",
-    "object",
-    "put",
-    `${bucket}/${key}`,
-    "--file",
-    dist,
-    "--content-type",
-    "text/javascript",
-    "--remote",
-  ]);
+const hex = (buffer) => buffer.toString("hex");
+const sha256Hex = (input) => hex(createHash("sha256").update(input).digest());
+const hmac = (key, data) => createHmac("sha256", key).update(data).digest();
+
+async function s3Credentials() {
+  if (!accountId) throw new Error("CLOUDFLARE_ACCOUNT_ID is required");
+  if (!apiToken) throw new Error("CLOUDFLARE_API_TOKEN is required");
+  if (dryRun) return { accessKeyId: "dry-run", secretAccessKey: "dry-run" };
+  const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/tokens/verify`, {
+    headers: { authorization: `Bearer ${apiToken}` },
+  });
+  const payload = await response.json();
+  if (!response.ok || !payload?.success || typeof payload.result?.id !== "string")
+    throw new Error(`token verification failed: ${response.status}`);
+  return { accessKeyId: payload.result.id, secretAccessKey: sha256Hex(apiToken) };
 }
 
-upload(versionedKey);
+function signedPut({ accessKeyId, secretAccessKey }, key) {
+  const host = `${accountId}.r2.cloudflarestorage.com`;
+  const canonicalUri = `/${bucket}/${key.split("/").map(encodeURIComponent).join("/")}`;
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const dateStamp = amzDate.slice(0, 8);
+  const payloadHash = sha256Hex(body);
+  const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
+  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+  const canonicalRequest = `PUT\n${canonicalUri}\n\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
+  const scope = `${dateStamp}/auto/s3/aws4_request`;
+  const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${scope}\n${sha256Hex(canonicalRequest)}`;
+  let signingKey = hmac(`AWS4${secretAccessKey}`, dateStamp);
+  signingKey = hmac(signingKey, "auto");
+  signingKey = hmac(signingKey, "s3");
+  signingKey = hmac(signingKey, "aws4_request");
+  const signature = hex(hmac(signingKey, stringToSign));
+  return fetch(`https://${host}${canonicalUri}`, {
+    method: "PUT",
+    headers: {
+      authorization: `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
+      "content-type": "text/javascript",
+      "x-amz-content-sha256": payloadHash,
+      "x-amz-date": amzDate,
+    },
+    body,
+  });
+}
+
+async function upload(key) {
+  if (dryRun) {
+    console.log(`[dry-run] s3 put ${bucket}/${key}`);
+    return;
+  }
+  const response = await signedPut(credentials, key);
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 300);
+    throw new Error(`R2 upload failed for ${key}: ${response.status} ${detail}`);
+  }
+}
+
+const credentials = await s3Credentials();
+await upload(versionedKey);
 
 const query = `SELECT value FROM site_settings WHERE key = 'client_channels'`;
 const output = wrangler(
@@ -89,7 +142,7 @@ wrangler(["d1", "execute", database, "--remote", "--config", "wrangler.jsonc", "
 
 // The channel pointer is written only after the version object and its D1
 // record exist, so a failed publish cannot point at a missing artifact.
-upload(channelKey);
+await upload(channelKey);
 
 async function purgeChannel() {
   const zone = process.env.CLOUDFLARE_ZONE_ID;
