@@ -168,5 +168,14 @@ async function purgeChannel() {
 await purgeChannel();
 
 console.log(
-  JSON.stringify({ ok: true, env, channel, version: manifest.version, revision: sha, versionedKey, channelKey }),
+  JSON.stringify({
+    ok: true,
+    env,
+    channel,
+    bucket,
+    version: manifest.version,
+    revision: sha,
+    versionedKey,
+    channelKey,
+  }),
 );

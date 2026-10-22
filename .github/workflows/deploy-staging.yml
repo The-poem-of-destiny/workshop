@@ -163,12 +163,20 @@ jobs:
         run: |
           set -euo pipefail
           base="${{ vars.STAGING_URL }}"
+          probe="$RUNNER_TEMP/smoke"
+          mkdir -p "$probe"
+          # Download first, then assert: piping curl into `grep -q` lets grep exit
+          # early, which surfaces as curl (23) under `pipefail`.
           for i in 1 2 3 4 5; do
-            if curl -fsS "$base/api/v1/health" | grep -q '"ok":true'; then break; fi
+            if curl -fsS --max-time 20 "$base/api/v1/health" -o "$probe/health.json"; then break; fi
             if [ "$i" = 5 ]; then exit 1; fi
             sleep 5
           done
-          curl -fsS "$base/api/v1/projects" | grep -q '"items"'
-          curl -fsS "$base/" | grep -q 'id="root"'
-          curl -fsS "$base/client/staging/index.js" | grep -q 'CreativeWorkshop'
+          grep -q '"ok":true' "$probe/health.json"
+          curl -fsS --max-time 20 "$base/api/v1/projects" -o "$probe/projects.json"
+          grep -q '"items"' "$probe/projects.json"
+          curl -fsS --max-time 20 "$base/" -o "$probe/index.html"
+          grep -q 'id="root"' "$probe/index.html"
+          curl -fsS --max-time 20 "$base/client/staging/index.js" -o "$probe/client.js"
+          grep -q 'CreativeWorkshop' "$probe/client.js"
           test "$(curl -s -o /dev/null -w '%{http_code}' "$base/api/v1/me")" = "401"
