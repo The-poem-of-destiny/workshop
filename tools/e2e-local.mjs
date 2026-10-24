@@ -515,8 +515,23 @@ async function main() {
             (await page.locator(".detail").textContent())?.includes("SillyTavern"),
             "unauthenticated install hint",
           );
+          const authorResults = page.waitForResponse((response) => {
+            const url = new URL(response.url());
+            return url.pathname === "/api/v1/projects" && url.searchParams.get("authorId") === "e2e-author";
+          });
           await page.locator(".detail .author.link").click();
-          await page.getByText("作者：E2E Author", { exact: false }).waitFor({ state: "visible" });
+          const filteredResponse = await authorResults;
+          assert(filteredResponse.ok(), "author filter request succeeds");
+          const filtered = await filteredResponse.json();
+          assert(
+            filtered.items.some((item) => item.id === project.project.id),
+            "author filter includes the published project",
+          );
+          assert(
+            filtered.items.every((project) => project.author.id === "e2e-author"),
+            "author filter excludes other authors",
+          );
+          await page.locator(".detail").waitFor({ state: "hidden" });
           await page.getByRole("button", { name: "清除", exact: true }).click();
           await page.close();
         });

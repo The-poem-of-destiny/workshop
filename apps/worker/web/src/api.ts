@@ -135,21 +135,16 @@ export const api = {
   home: () => requestJson<HomeResponse>("/api/v1/home"),
   discovery: () => requestJson<DiscoveryResponse>("/api/v1/projects/discovery"),
   project: (id: string) => requestJson<ProjectDetail>(`/api/v1/projects/${encodeURIComponent(id)}`),
-  rankings: (kind: "daily" | "7d" | "30d") =>
-    requestJson<{
-      kind: string;
-      bucket: string | null;
-      items: { rank: number; score: number; project: ProjectSummary }[];
-    }>(`/api/v1/projects/rankings?kind=${kind}`),
   projects: (params: {
     search?: string;
     sort?: string;
     cursor?: string;
+    limit?: number;
     projectType?: string;
     authorId?: string;
     tag?: string;
   }) => {
-    const query = new URLSearchParams({ limit: "24" });
+    const query = new URLSearchParams({ limit: String(params.limit ?? 24) });
     if (params.search) query.set("search", params.search);
     if (params.sort) query.set("sort", params.sort);
     if (params.cursor) query.set("cursor", params.cursor);

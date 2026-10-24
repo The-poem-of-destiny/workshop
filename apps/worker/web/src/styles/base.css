@@ -1,0 +1,53 @@
+:root {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  color: #ececea;
+  background: #0f1012;
+  --bg: #0f1012;
+  --surface: #18191c;
+  --surface-raised: #1b1c1f;
+  --surface-muted: #151619;
+  --text: #ececea;
+  --muted: #aaa8a3;
+  --dim: #73726e;
+  --accent: #bea47d;
+  --accent-strong: #cdb38b;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --danger: #e58a83;
+  --warning: #d9b66e;
+}
+
+* {
+  box-sizing: border-box;
+}
+html {
+  min-width: 320px;
+  background: var(--bg);
+}
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+a {
+  color: inherit;
+}

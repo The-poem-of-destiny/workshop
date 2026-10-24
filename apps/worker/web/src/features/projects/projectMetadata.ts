@@ -1,0 +1,77 @@
+import type { AuthorProject, ProjectSummary, PublishedMetadataResponse } from "../../api";
+
+export const PROJECT_TYPES = ["事件", "系统核心", "角色", "扩展"] as const;
+export const EXTENSION_TYPES = ["规则", "内容"] as const;
+
+export interface ProjectForm {
+  title: string;
+  description: string;
+  authorNote: string;
+  precautions: string;
+  versionLabel: string;
+  projectType: string;
+  extensionType: string;
+  schemaVersion: string;
+  discordThreadUrl: string;
+  coverPositionX: string;
+  coverPositionY: string;
+  coverZoom: string;
+  tags: string;
+}
+
+export function projectForm(project: ProjectSummary, entry?: AuthorProject): ProjectForm {
+  return {
+    title: project.title,
+    description: project.description ?? "",
+    authorNote: entry?.authorNote ?? project.authorNote ?? "",
+    precautions: entry?.precautions ?? "",
+    versionLabel: project.versionLabel ?? "",
+    projectType: project.projectType ?? "",
+    extensionType: project.extensionType ?? "",
+    schemaVersion: project.schemaVersion ?? "",
+    discordThreadUrl: project.discordThreadUrl ?? "",
+    coverPositionX: String(project.coverPositionX ?? 50),
+    coverPositionY: String(project.coverPositionY ?? 50),
+    coverZoom: String(project.coverZoom ?? 1),
+    tags: project.tags.join(", "),
+  };
+}
+
+export function metadataPayload(form: ProjectForm): Record<string, unknown> {
+  return {
+    title: form.title,
+    description: form.description || null,
+    authorNote: form.authorNote || null,
+    precautions: form.precautions || null,
+    versionLabel: form.versionLabel || null,
+    projectType: form.projectType || null,
+    extensionType: form.extensionType || null,
+    coverPositionX: Number(form.coverPositionX),
+    coverPositionY: Number(form.coverPositionY),
+    coverZoom: Number(form.coverZoom),
+    schemaVersion: form.schemaVersion || null,
+    discordThreadUrl: form.discordThreadUrl || null,
+    tags: form.tags
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean),
+  };
+}
+
+export function displayForm(metadata: PublishedMetadataResponse): ProjectForm {
+  return {
+    title: metadata.title,
+    description: metadata.description ?? "",
+    authorNote: metadata.authorNote ?? "",
+    precautions: metadata.precautions ?? "",
+    versionLabel: metadata.versionLabel ?? "",
+    projectType: metadata.projectType ?? "",
+    extensionType: metadata.extensionType ?? "",
+    schemaVersion: metadata.schemaVersion ?? "",
+    discordThreadUrl: metadata.discordThreadUrl ?? "",
+    coverPositionX: String(metadata.coverPositionX),
+    coverPositionY: String(metadata.coverPositionY),
+    coverZoom: String(metadata.coverZoom),
+    tags: metadata.tags.join(", "),
+  };
+}
