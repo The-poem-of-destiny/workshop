@@ -1,0 +1,59 @@
+.sorts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 8px;
+  padding: 6px 0;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+}
+.sorts button {
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.sorts button:hover {
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text);
+}
+.sorts button.active {
+  border-color: rgba(190, 164, 125, 0.25);
+  background: rgba(190, 164, 125, 0.11);
+  color: #e2d1b3;
+}
+.list-range {
+  margin: 8px 0;
+}
+.panel > button,
+.button-row button,
+.actions button,
+.file-button {
+  min-height: 33px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: #212226;
+  color: #dddcd8;
+  font-size: 12px;
+}
+.panel > button:hover,
+.button-row button:hover,
+.actions button:hover,
+.file-button:hover {
+  border-color: rgba(190, 164, 125, 0.38);
+  background: rgba(190, 164, 125, 0.1);
+}
+.primary,
+.actions .primary,
+.panel button.primary {
+  border-color: #cdb38b !important;
+  background: #bea47d !important;
+  color: #151619 !important;
+  font-weight: 650;
+}
