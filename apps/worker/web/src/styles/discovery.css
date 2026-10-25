@@ -1,0 +1,120 @@
+.discovery {
+  margin: 0 0 26px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+.discovery > h2 {
+  margin: 0 0 14px;
+  font-size: 18px;
+  font-weight: 650;
+}
+.discovery-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.discovery-item {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  grid-template-rows: auto 1fr auto;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+}
+.discovery-item:hover {
+  border-color: var(--accent);
+  background: var(--surface-raised);
+}
+.discovery-cover,
+.discovery-mark {
+  width: 104px;
+  height: 65px;
+  border-radius: 3px;
+  object-fit: cover;
+  background: var(--surface-muted);
+}
+.discovery-mark {
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+}
+.discovery-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.discovery-heading > strong {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.discovery-author {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.discovery-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.discovery-tags > span {
+  color: var(--accent-strong);
+  font-size: 12px;
+}
+.discovery-note {
+  grid-column: 1 / -1;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  min-height: 44px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.discovery-stats {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.discovery-stats > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.discovery-stats svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+@media (max-width: 1600px) {
+  .discovery-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .discovery-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .discovery-item {
+    padding: 12px;
+    gap: 10px 12px;
+  }
+}

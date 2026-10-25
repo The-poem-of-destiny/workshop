@@ -225,7 +225,7 @@
   gap: 5px;
   margin: 0;
   color: #c2c0bc;
-  font-size: 11px;
+  font-size: 13px;
 }
 .byline > span:last-child {
   min-width: 0;
@@ -258,20 +258,20 @@
 .list-range,
 .status {
   color: var(--muted);
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.6;
 }
 .card .meta {
   margin: 0;
 }
 .card-note {
   display: -webkit-box;
-  min-height: 38px;
+  min-height: 44px;
   margin: 0;
   overflow: hidden;
   color: #cac8c2;
-  font-size: 12px;
-  line-height: 19px;
+  font-size: 14px;
+  line-height: 22px;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   -webkit-box-orient: vertical;
@@ -295,7 +295,7 @@
   flex-wrap: wrap;
   gap: 7px 10px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.4;
   font-variant-numeric: tabular-nums;
 }
@@ -334,10 +334,24 @@
   display: flex;
   width: 100%;
   flex-wrap: wrap;
+  align-items: center;
   gap: 4px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
 }
 .card-dates span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   white-space: nowrap;
+}
+.card .card-dates svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  stroke-width: 2;
 }
 .tags {
   display: flex;
@@ -351,11 +365,11 @@
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.05);
   color: #aaa8a3;
-  font-size: 10px;
+  font-size: 12px;
 }
 .card .tags {
-  flex-wrap: nowrap;
-  height: 20px;
+  flex-wrap: wrap;
+  max-height: 52px;
   overflow: hidden;
 }
 .card .tags span {

@@ -11,6 +11,7 @@ import type {
   AuthorProject,
   AuthorProjectListResponse,
   AuthorSubmission,
+  AuthorSubmissionListResponse,
   Banner,
   DiffKind,
   DiscoveryResponse,
@@ -20,9 +21,13 @@ import type {
   JsonValue,
   MeResponse,
   ProjectDetail,
+  ProjectGalleryResponse,
   ProjectListResponse,
+  ProjectPreview,
+  ProjectPreviewKind,
   ProjectSummary,
   PublishedMetadataResponse,
+  Recommendation,
   ReferenceItem,
   ReferenceSet,
   ReferenceVersion,
@@ -52,9 +57,13 @@ export type {
   JsonValue,
   MeResponse,
   ProjectDetail,
+  ProjectGalleryResponse,
   ProjectListResponse,
+  ProjectPreview,
+  ProjectPreviewKind,
   ProjectSummary,
   PublishedMetadataResponse,
+  Recommendation,
   ReferenceItem,
   ReferenceSet,
   ReferenceVersion,
@@ -135,6 +144,29 @@ export const api = {
   home: () => requestJson<HomeResponse>("/api/v1/home"),
   discovery: () => requestJson<DiscoveryResponse>("/api/v1/projects/discovery"),
   project: (id: string) => requestJson<ProjectDetail>(`/api/v1/projects/${encodeURIComponent(id)}`),
+  projectPreview: (id: string, kind: ProjectPreviewKind) =>
+    requestJson<ProjectPreview>(`/api/v1/projects/${encodeURIComponent(id)}/preview/${encodeURIComponent(kind)}`),
+  projectGallery: (id: string) =>
+    requestJson<ProjectGalleryResponse>(`/api/v1/projects/${encodeURIComponent(id)}/gallery`),
+  galleryImage: async (url: string): Promise<Blob> => {
+    const response = await fetch(url, { headers: authHeaders() });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    return response.blob();
+  },
+  uploadGalleryImage: (id: string, slot: number, rowVersion: number, file: File) =>
+    requestJson<{ rowVersion: number; sha256: string; bytes: number; mime: string }>(
+      `/api/v1/projects/${encodeURIComponent(id)}/gallery/${slot}`,
+      {
+        method: "PUT",
+        headers: { "content-type": file.type || "application/octet-stream", "if-match": String(rowVersion) },
+        body: file,
+      },
+    ),
+  deleteGalleryImage: (id: string, slot: number, rowVersion: number) =>
+    requestJson<{ rowVersion: number }>(`/api/v1/projects/${encodeURIComponent(id)}/gallery/${slot}`, {
+      method: "DELETE",
+      headers: { "if-match": String(rowVersion) },
+    }),
   projects: (params: {
     search?: string;
     sort?: string;
@@ -144,7 +176,7 @@ export const api = {
     authorId?: string;
     tag?: string;
   }) => {
-    const query = new URLSearchParams({ limit: String(params.limit ?? 24) });
+    const query = new URLSearchParams({ limit: String(params.limit ?? 25) });
     if (params.search) query.set("search", params.search);
     if (params.sort) query.set("sort", params.sort);
     if (params.cursor) query.set("cursor", params.cursor);
@@ -155,6 +187,16 @@ export const api = {
   },
   myProjects: () => requestJson<AuthorProjectListResponse>("/api/v1/me/projects"),
   subscriptions: () => requestJson<{ items: ProjectSummary[] }>("/api/v1/me/subscriptions"),
+  authorSubmissions: (id: string) =>
+    requestJson<AuthorSubmissionListResponse>(`/api/v1/me/projects/${encodeURIComponent(id)}/submissions`),
+  setRating: (id: string, rating: number, comment?: string) =>
+    requestJson<null>(`/api/v1/me/ratings/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ rating, comment }),
+    }),
+  deleteRating: (id: string) => requestJson<null>(`/api/v1/me/ratings/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  recommendations: () => requestJson<{ items: Recommendation[] }>("/api/v1/recommendations"),
   meState: (ids: string[]) =>
     requestJson<{ items: { projectId: string; liked: boolean; subscribed: boolean; rating: number | null }[] }>(
       `/api/v1/me/state?ids=${encodeURIComponent(ids.join(","))}`,
@@ -264,11 +306,20 @@ export const api = {
     requestJson<{ ok: boolean; status: string }>(`/api/v1/admin/submissions/${encodeURIComponent(id)}/recheck`, {
       method: "POST",
     }),
-  adminReview: (id: string, decision: "approve" | "reject", reason?: string) =>
+  adminReview: (
+    id: string,
+    body: {
+      decision: "approve" | "reject";
+      reason?: string;
+      revisionId?: string;
+      manifestHash?: string;
+      reportHash?: string;
+    },
+  ) =>
     requestJson<{ id: string; status: string }>(`/api/v1/admin/submissions/${encodeURIComponent(id)}/review`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ decision, reason }),
+      body: JSON.stringify(body),
     }),
   createFlow: async (mode: "browser" | "device" = "browser") =>
     requestJson<{ id: string; url: string; expiresAt: string; deviceCode?: string }>("/api/v1/auth/flows", {
@@ -342,10 +393,12 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     }),
-  auditEvents: (action?: string) =>
-    requestJson<AdminAuditList>(
-      `/api/v1/admin/audit-events?limit=20${action ? `&action=${encodeURIComponent(action)}` : ""}`,
-    ),
+  auditEvents: (params: { action?: string; cursor?: string } = {}) => {
+    const query = new URLSearchParams({ limit: "20" });
+    if (params.action) query.set("action", params.action);
+    if (params.cursor) query.set("cursor", params.cursor);
+    return requestJson<AdminAuditList>(`/api/v1/admin/audit-events?${query}`);
+  },
   updateRecommendation: (projectId: string, body: { comment?: string; reaction?: string }) =>
     requestJson<{ id: string; comment: string; reaction: string }>(
       `/api/v1/admin/recommendations/${encodeURIComponent(projectId)}`,

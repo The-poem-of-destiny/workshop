@@ -1,18 +1,18 @@
 @media (min-width: 1024px) {
   .shell-body {
     display: grid;
-    grid-template-columns: 238px minmax(0, 1fr);
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
     align-items: start;
   }
   .sidebar {
     position: sticky;
     inset: auto;
-    top: 58px;
+    top: var(--header-height);
     z-index: 1;
     display: flex;
     width: auto;
     max-width: none;
-    height: calc(100vh - 58px);
+    height: calc(100dvh - var(--header-height));
     padding: 16px 14px 24px;
     overflow-y: auto;
     border-right: 1px solid var(--border);
@@ -58,13 +58,13 @@
 }
 
 @media (max-width: 1360px) {
-  .grid:not(.discovery-grid) {
+  .grid.catalogue-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 1180px) {
-  .grid:not(.discovery-grid) {
+  .grid.catalogue-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .workspace,
@@ -81,15 +81,7 @@
     display: block;
   }
   .workshop-main {
-    padding: 14px 16px calc(88px + env(safe-area-inset-bottom));
-  }
-  .header-tools {
-    min-width: 0;
-  }
-  .header-search {
-    width: auto;
-    min-width: 0;
-    flex: 1 1 auto;
+    padding: 18px 16px 32px;
   }
   .drawer-toggle {
     position: relative;
@@ -119,80 +111,37 @@
     border-radius: 50%;
     background: var(--accent);
   }
-  .mobile-nav {
-    position: fixed;
-    inset: auto 0 0;
-    z-index: 30;
-    display: flex;
-    justify-content: space-around;
-    min-height: 64px;
-    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
-    border-top: 1px solid var(--border-strong);
-    background: rgba(21, 22, 25, 0.97);
-    backdrop-filter: blur(12px);
-  }
-  .mobile-nav button {
-    display: flex;
-    min-width: 0;
-    min-height: 48px;
-    flex: 1;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    padding: 4px 2px;
-    border: 0;
-    background: transparent;
-    color: var(--muted);
-    font-size: 11px;
-  }
-  .mobile-nav button[aria-current="page"] {
-    color: #dfca9e;
-  }
-  .mobile-nav svg {
-    width: 20px;
-    height: 20px;
-  }
-  .discovery-grid {
-    display: flex;
-    overflow-x: auto;
-    gap: 10px;
-    padding: 2px 0 10px;
-    scroll-snap-type: x proximity;
-  }
-  .discovery-item {
-    flex: 0 0 270px;
-    scroll-snap-align: start;
-  }
-}
-
-@media (max-width: 1050px) {
-  .detail-layout {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto auto;
-  }
-  .media-stage {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .reading-column {
-    grid-column: 1;
-    grid-row: 2;
-  }
-  .summary-rail {
-    grid-column: 1;
-    grid-row: 3;
-    position: static;
-  }
 }
 
 @media (max-width: 820px) {
   .workshop-main {
-    padding: 12px 12px calc(88px + env(safe-area-inset-bottom));
+    padding: 16px 12px 32px;
   }
   .site-header {
-    gap: 10px;
-    padding: 0 12px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    padding: 14px 16px;
+  }
+  .header-brand {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .header-account {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .header-search {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+  }
+  .personal-nav {
+    grid-row: 3;
+    margin-top: 0;
+    flex-wrap: wrap;
+  }
+  .tavern-status span {
+    display: none;
   }
   .admin-tools {
     grid-template-columns: 1fr;
@@ -204,44 +153,48 @@
 
 @media (max-width: 640px) {
   .workshop-main {
-    padding: 10px 12px calc(88px + env(safe-area-inset-bottom));
+    padding: 16px 12px 32px;
   }
   .site-header {
-    height: auto;
-    min-height: 54px;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding: 8px 12px;
+    gap: 12px 8px;
+    padding: 12px;
   }
-  .brand-lockup {
-    order: 1;
-    flex: 1;
+  .site-header h1 {
+    font-size: 20px;
   }
-  .brand-latin {
-    display: none;
+  .eyebrow {
+    font-size: 11px;
   }
-  .drawer-toggle {
-    order: 2;
-  }
-  .header-tools {
-    order: 3;
-    flex: 1 1 100%;
-    justify-content: stretch;
-  }
-  .header-search {
-    width: 100%;
-    min-width: 0;
-    flex: 1 1 auto;
+  .account > span:not(.account-avatar) {
+    max-width: 76px;
   }
   .account {
-    margin-left: auto;
+    gap: 5px;
+  }
+  .header-account {
+    gap: 8px;
+  }
+  .account button {
+    padding: 4px;
+    font-size: 12px;
+  }
+  .personal-nav {
+    gap: 2px;
+  }
+  .personal-nav button {
+    padding: 6px 8px;
+    font-size: 13px;
+  }
+  .header-account .login {
+    padding: 8px 10px;
+    font-size: 13px;
   }
   .banner {
     height: 72px;
     background-position: var(--banner-mobile-x) var(--banner-mobile-y);
     background-size: var(--banner-mobile-size);
   }
-  .grid:not(.discovery-grid) {
+  .grid.catalogue-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
@@ -250,7 +203,7 @@
     padding: 9px;
   }
   .card h3 {
-    font-size: 13px;
+    font-size: 15px;
   }
   .sorts {
     gap: 2px;
@@ -258,7 +211,7 @@
   }
   .sorts button {
     padding: 6px 7px;
-    font-size: 11px;
+    font-size: 13px;
   }
   .detail {
     width: 100vw !important;
@@ -312,5 +265,55 @@
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .active-filters {
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .active-filters-label {
+    display: none;
+  }
+  .active-filters .filter-chip {
+    max-width: 100%;
+  }
+  .close-workshop {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+  .installed-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .installed-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px;
+  }
+  .installed-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+  .installed-actions > button {
+    flex: 1 1 auto;
+  }
+  .installed-meta {
+    gap: 2px 10px;
+  }
+  .install-dialog {
+    width: calc(100vw - 24px);
+    max-width: none;
+  }
+  .install-targets {
+    max-height: 45vh;
+  }
+  .install-dialog-actions {
+    flex-direction: column-reverse;
+  }
+  .install-dialog-actions > button {
+    width: 100%;
   }
 }

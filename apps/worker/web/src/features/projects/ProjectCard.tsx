@@ -52,6 +52,22 @@ export function ProjectCard({
   }
   const open = (event: MouseEvent<HTMLElement>): void => onOpen(project, event.currentTarget);
   const preview = project.authorNote?.trim() || project.description?.trim() || "暂无文字简介";
+  const dateMeta = (
+    <div className="card-dates">
+      <span title="更新">
+        <i className="sr-only">更新 </i>
+        <History aria-hidden="true" />
+        <time dateTime={project.updatedAt}>{project.updatedAt.slice(0, 10)}</time>
+      </span>
+      {project.publishedAt ? (
+        <span title="初次上传">
+          <i className="sr-only">初次上传 </i>
+          <Upload aria-hidden="true" />
+          <time dateTime={project.publishedAt}>{project.publishedAt.slice(0, 10)}</time>
+        </span>
+      ) : null}
+    </div>
+  );
   const moreMenu = (
     <details className="card-more" ref={menuRef} onToggle={(event) => setMenuOpen(event.currentTarget.open)}>
       <summary title="更多" aria-label={`${project.title}：更多`}>
@@ -136,6 +152,7 @@ export function ProjectCard({
           )}
           <span>{project.author.name}</span>
         </p>
+        {layout === "cards" ? dateMeta : null}
         <p className="card-note">{preview}</p>
         <div
           className="tags"
@@ -183,20 +200,7 @@ export function ProjectCard({
             </span>
           </div>
           {project.schemaVersion ? <span className="card-compatibility">适配 {project.schemaVersion}</span> : null}
-          <div className="card-dates">
-            <span title="更新">
-              <i className="sr-only">更新 </i>
-              <History aria-hidden="true" />
-              <time dateTime={project.updatedAt}>{project.updatedAt.slice(0, 10)}</time>
-            </span>
-            {project.publishedAt ? (
-              <span title="初次上传">
-                <i className="sr-only">初次上传 </i>
-                <Upload aria-hidden="true" />
-                <time dateTime={project.publishedAt}>{project.publishedAt.slice(0, 10)}</time>
-              </span>
-            ) : null}
-          </div>
+          {layout === "list" ? dateMeta : null}
           {layout === "list" && project.versionLabel ? (
             <span className="list-version" title={`版本 ${project.versionLabel}`}>
               {project.versionLabel}

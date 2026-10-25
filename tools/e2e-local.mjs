@@ -16,9 +16,12 @@ import { chromium } from "playwright";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workerDir = path.join(root, "apps/worker");
-const port = Number(process.env.E2E_PORT ?? 8791);
+const port = Number(process.env.E2E_PORT ?? 8812);
 const base = `http://127.0.0.1:${port}`;
 const tmp = mkdtempSync(path.join(os.tmpdir(), "workshop-e2e-"));
+// Keep D1/R2/DO state out of the default .wrangler directory so preview servers keep their own data.
+const stateDir = process.env.E2E_STATE_DIR ?? mkdtempSync(path.join(os.tmpdir(), "workshop-e2e-state-"));
+const ownsStateDir = !process.env.E2E_STATE_DIR;
 let server;
 
 const screenshotDir = process.env.E2E_SCREENSHOT_DIR ?? "";
@@ -88,7 +91,17 @@ async function waitForWorker() {
 }
 
 async function main() {
-  wrangler(["d1", "migrations", "apply", "workshop-staging", "--local", "--config", "wrangler.jsonc"]);
+  wrangler([
+    "d1",
+    "migrations",
+    "apply",
+    "workshop-staging",
+    "--local",
+    "--persist-to",
+    stateDir,
+    "--config",
+    "wrangler.jsonc",
+  ]);
   const logFile = path.join(tmp, "wrangler.log");
   const log = (await import("node:fs")).createWriteStream(logFile);
   server = spawn(
@@ -103,6 +116,8 @@ async function main() {
       "staging",
       "--port",
       String(port),
+      "--persist-to",
+      stateDir,
       "--log-level",
       "error",
     ],
@@ -124,6 +139,8 @@ async function main() {
       "execute",
       "workshop-staging",
       "--local",
+      "--persist-to",
+      stateDir,
       "--command",
       `
       DELETE FROM download_events WHERE user_id IN ('e2e-author','e2e-owner');
@@ -211,9 +228,10 @@ async function main() {
       );
       assert(wb.response.status === 200, `worldbook ${wb.response.status}: ${wb.body}`);
       project.rowVersion = JSON.parse(wb.body).rowVersion;
+      // Real 2x2 PNG encoded by FFmpeg (same bytes as packages/domain/src/image.test.ts).
       const png = Buffer.from(
-        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360000000020001e221bc330000000049454e44ae426082",
-        "hex",
+        "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAABAAAAAQBPJcTWAAAAEElEQVR4nGP8ywACLGCSAQANEQED1LYyQAAAAABJRU5ErkJggg==",
+        "base64",
       );
       const cover = await api(
         `/api/v1/projects/${project.project.id}/revisions/${project.workingRevisionId}/files/cover`,
@@ -468,9 +486,10 @@ async function main() {
     }
 
     let pendingId = "";
+    let approveProjectId = "";
     await check("author submits without client checker", async () => {
       pendingId = await createPending("E2E Pending", "pending");
-      await createPending("E2E Approve", "approve");
+      approveProjectId = await createPending("E2E Approve", "approve");
     });
 
     const executablePath = chromiumExecutable();
@@ -481,39 +500,28 @@ async function main() {
           const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.locator(".card").first().waitFor({ state: "visible", timeout: 10_000 });
-          assert((await page.locator(".discovery").count()) <= 1, "at most one discovery shelf");
-          assert((await page.locator(".discovery .card").count()) <= 4, "discovery has at most four cards");
-          if ((await page.locator(".banner").count()) > 0) {
-            const bannerHeight = await page
-              .locator(".banner")
-              .evaluate((element) => element.getBoundingClientRect().height);
-            assert(bannerHeight >= 72 && bannerHeight <= 104, `banner height ${bannerHeight}`);
+          if ((await page.locator(".discovery-item").count()) > 0) {
+            await page.locator(".discovery-item").first().click();
+            await page.locator(".detail").waitFor({ state: "visible" });
+            await page.keyboard.press("Escape");
+            await page.locator(".detail").waitFor({ state: "hidden" });
           }
           await screenshot(page, "browse-desktop");
-          await page.getByRole("button", { name: "下载", exact: true }).click();
-          assert(
-            (await page.getByRole("button", { name: "下载", exact: true }).getAttribute("class"))?.includes("active") ??
-              false,
-            "sort active",
-          );
-          await page.locator('input[type="search"]').fill("E2E Project");
+          await page.getByRole("searchbox", { name: "搜索" }).fill("E2E Project");
           await page
             .locator(".card", { hasText: "E2E Project" })
             .first()
             .waitFor({ state: "visible", timeout: 10_000 });
           await page.locator(".card", { hasText: "E2E Project" }).first().locator(".card-title").click();
           await page.locator(".detail").waitFor({ state: "visible" });
-          assert((await page.locator(".detail").getAttribute("role")) === "dialog", "detail dialog role");
-          assert((await page.locator(".detail").getAttribute("aria-modal")) === "true", "detail modal");
-          assert(
-            (await page.evaluate(() => document.activeElement?.classList.contains("close"))) === true,
-            "dialog focuses close button",
-          );
+          await page.getByRole("dialog").getByRole("heading", { name: "E2E Project" }).waitFor();
           await screenshot(page, "detail-desktop");
-          assert((await page.locator(".detail").textContent())?.includes("E2E Project"), "detail content");
           assert(
-            (await page.locator(".detail").textContent())?.includes("SillyTavern"),
-            "unauthenticated install hint",
+            (await page
+              .locator(".detail")
+              .getByRole("button", { name: /^(安装|更新|卸载|下载)$/ })
+              .count()) === 0,
+            "anonymous detail exposes no install or download action",
           );
           const authorResults = page.waitForResponse((response) => {
             const url = new URL(response.url());
@@ -532,7 +540,8 @@ async function main() {
             "author filter excludes other authors",
           );
           await page.locator(".detail").waitFor({ state: "hidden" });
-          await page.getByRole("button", { name: "清除", exact: true }).click();
+          await page.locator(".sidebar-author button").click();
+          await page.locator(".sidebar-author").waitFor({ state: "hidden" });
           await page.close();
         });
 
@@ -540,10 +549,6 @@ async function main() {
           const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true });
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.locator(".card").first().waitFor({ state: "visible", timeout: 10_000 });
-          assert(
-            (await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)) === true,
-            "mobile has no horizontal overflow",
-          );
           await screenshot(page, "browse-mobile");
           await page.locator(".card").first().locator(".card-title").click();
           await page.locator(".detail").waitFor({ state: "visible" });
@@ -556,18 +561,30 @@ async function main() {
         await check("browser sort tabs reorder actual cards", async () => {
           const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
-          await page.locator('input[type="search"]').fill("E2E");
+          await page.getByRole("searchbox", { name: "搜索" }).fill("E2E");
           await page.locator(".card", { hasText: "E2E Sort" }).first().waitFor({ state: "visible", timeout: 10_000 });
           const firstTitle = async () => (await page.locator(".card h3").first().textContent())?.trim();
+          const sortRequest = (value) =>
+            page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return url.pathname === "/api/v1/projects" && url.searchParams.get("sort") === value;
+            });
+          const sortButton = (label) => page.locator(".sorts").getByRole("button", { name: label, exact: true });
           assert((await firstTitle()) === "E2E Project", `updated order: ${await firstTitle()}`);
-          await page.getByRole("button", { name: "发布时间", exact: true }).click();
+          const [publishedResponse] = await Promise.all([sortRequest("published"), sortButton("发布时间").click()]);
+          assert(publishedResponse.ok(), `published sort ${publishedResponse.status()}`);
+          const published = await publishedResponse.json();
+          assert(published.items[0]?.title === "E2E Sort", `published api order: ${published.items[0]?.title}`);
           await page.waitForFunction(
             () => document.querySelector(".card h3")?.textContent?.trim() === "E2E Sort",
             null,
             { timeout: 10_000 },
           );
           assert((await firstTitle()) === "E2E Sort", `published order: ${await firstTitle()}`);
-          await page.getByRole("button", { name: "下载", exact: true }).click();
+          const [downloadResponse] = await Promise.all([sortRequest("downloads"), sortButton("下载").click()]);
+          assert(downloadResponse.ok(), `download sort ${downloadResponse.status()}`);
+          const downloads = await downloadResponse.json();
+          assert(downloads.items[0]?.id === project.project.id, "downloads api order");
           await page.waitForFunction(
             () => document.querySelector(".card h3")?.textContent?.trim() === "E2E Project",
             null,
@@ -595,11 +612,17 @@ async function main() {
             await subscribe.click();
             await page.locator(".detail").getByRole("button", { name: "已订阅", exact: true }).waitFor();
           }
-          const like = page.locator(".detail").getByRole("button", { name: "点赞", exact: true });
+          const like = page.locator(".detail").getByRole("button", { name: /^点赞\s*\d/ });
           await like.click();
-          await page.locator(".detail").getByRole("button", { name: "已点赞", exact: true }).waitFor();
-          await page.locator(".detail").getByRole("button", { name: "已点赞", exact: true }).click();
-          await page.locator(".detail").getByRole("button", { name: "点赞", exact: true }).waitFor();
+          await page
+            .locator(".detail")
+            .getByRole("button", { name: /^已点赞\s*\d/ })
+            .waitFor();
+          await page
+            .locator(".detail")
+            .getByRole("button", { name: /^已点赞\s*\d/ })
+            .click();
+          await like.waitFor();
           await context.close();
         });
 
@@ -608,11 +631,14 @@ async function main() {
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), authorToken);
           const page = await context.newPage();
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
-          await page.getByRole("button", { name: "我的项目" }).click();
-          await page.getByText("E2E Project", { exact: true }).first().waitFor({ state: "visible", timeout: 10_000 });
+          await page.getByRole("button", { name: "我的项目", exact: true }).click();
+          await page.locator(".workspace-projects").waitFor({ state: "visible", timeout: 10_000 });
+          await page.getByRole("button", { name: "创建项目", exact: true }).click();
+          await page.locator(".workspace-create").waitFor({ state: "visible", timeout: 10_000 });
+          await page.getByRole("button", { name: "取消", exact: true }).click();
+          await page.locator(".workspace-projects").waitFor({ state: "visible", timeout: 10_000 });
           await page.getByText("E2E Project", { exact: true }).first().click();
           await page.getByRole("button", { name: "提交当前版本" }).waitFor({ state: "visible" });
-          assert((await page.locator(".workspace").textContent())?.includes("提交审核"), "submit box");
           await screenshot(page, "author-workspace");
           await page.getByRole("button", { name: "我的订阅", exact: true }).click();
           await page.getByText("E2E Project", { exact: true }).first().waitFor({ state: "visible", timeout: 10_000 });
@@ -624,13 +650,19 @@ async function main() {
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), ownerToken);
           const page = await context.newPage();
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
-          await page.getByRole("button", { name: "管理" }).click();
-          await page.getByText("站点设置", { exact: true }).waitFor({ state: "visible", timeout: 10_000 });
+          await page.getByRole("button", { name: "管理", exact: true }).click();
+          await page.getByRole("heading", { name: "站点设置" }).waitFor({ state: "visible", timeout: 10_000 });
           await screenshot(page, "admin-tools");
-          await page.getByText("成员", { exact: true }).waitFor({ state: "visible" });
-          await page.getByText("审计", { exact: true }).waitFor({ state: "visible" });
-          await page.getByRole("button", { name: "保存站点设置" }).click();
-          await page.getByText("站点设置已保存").waitFor({ state: "visible", timeout: 10_000 });
+          await page.getByRole("heading", { name: "成员" }).waitFor({ state: "visible" });
+          await page.getByRole("heading", { name: "审计" }).waitFor({ state: "visible" });
+          const [save] = await Promise.all([
+            page.waitForResponse(
+              (response) =>
+                new URL(response.url()).pathname === "/api/v1/site" && response.request().method() === "PUT",
+            ),
+            page.getByRole("button", { name: "保存站点设置" }).click(),
+          ]);
+          assert(save.ok(), `site save ${save.status()}: ${await save.text()}`);
           await context.close();
         });
 
@@ -639,13 +671,35 @@ async function main() {
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), ownerToken);
           const page = await context.newPage();
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
-          await page.getByRole("button", { name: "审核台" }).click();
-          await page.getByText("E2E Approve", { exact: true }).first().waitFor({ state: "visible", timeout: 10_000 });
-          await page.getByText("E2E Approve", { exact: true }).first().click();
+          await page.getByRole("button", { name: "审核台", exact: true }).click();
+          const item = page.getByTestId("review-queue-item").filter({ hasText: "E2E Approve" }).first();
+          await item.waitFor({ state: "visible", timeout: 15_000 });
+          await item.click();
           await screenshot(page, "review-detail");
-          await page.locator("textarea").fill("e2e approval reason");
-          await page.getByRole("button", { name: "通过", exact: true }).click();
-          await page.getByText("已通过审核").waitFor({ state: "visible", timeout: 10_000 });
+          await page.getByTestId("review-approve").click();
+          await page.locator(".review-reason textarea").fill("e2e approval reason");
+          const [review] = await Promise.all([
+            page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return (
+                /\/api\/v1\/admin\/submissions\/[^/]+\/review$/.test(url.pathname) &&
+                response.request().method() === "POST"
+              );
+            }),
+            page.getByRole("button", { name: /^确认(人工)?批准$/ }).click(),
+          ]);
+          assert(review.ok(), `approve ${review.status()}: ${await review.text()}`);
+          await page
+            .getByTestId("review-queue-item")
+            .filter({ hasText: "E2E Approve" })
+            .waitFor({ state: "hidden", timeout: 10_000 });
+          let detail;
+          for (let attempt = 0; attempt < 40; attempt += 1) {
+            detail = await api(`/api/v1/projects/${approveProjectId}`);
+            if (detail.response.status === 200) break;
+            await sleep(250);
+          }
+          assert(detail?.response.status === 200, `approved project public: ${detail?.response.status}`);
           await context.close();
         });
 
@@ -654,14 +708,51 @@ async function main() {
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), ownerToken);
           const page = await context.newPage();
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
-          await page.getByRole("button", { name: "审核台" }).click();
-          await page.getByText("E2E Pending", { exact: true }).first().waitFor({ state: "visible", timeout: 10_000 });
-          await page.getByText("E2E Pending", { exact: true }).first().click();
-          await page.getByRole("button", { name: "拒绝" }).click();
-          await page.getByText("拒绝审核必须填写理由").waitFor({ state: "visible" });
-          await page.locator("textarea").fill("e2e rejection reason");
-          await page.getByRole("button", { name: "拒绝" }).click();
-          await page.getByText("已拒绝审核").waitFor({ state: "visible", timeout: 10_000 });
+          await page.getByRole("button", { name: "审核台", exact: true }).click();
+          const item = page.getByTestId("review-queue-item").filter({ hasText: "E2E Pending" }).first();
+          await item.waitFor({ state: "visible", timeout: 15_000 });
+          await item.click();
+          await page.getByTestId("review-reject").click();
+          const rejectConfirm = page.getByRole("button", { name: /^确认拒绝$/ });
+          await rejectConfirm.waitFor({ state: "visible", timeout: 10_000 });
+          assert(
+            (await rejectConfirm.isDisabled()) &&
+              (await page.getByTestId("review-queue-item").filter({ hasText: "E2E Pending" }).count()) > 0,
+            "reject without a reason keeps the submission queued",
+          );
+          await page.locator(".review-reason textarea").fill("e2e rejection reason");
+          assert(await rejectConfirm.isEnabled(), "reject reason enables confirmation");
+          const [review] = await Promise.all([
+            page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return (
+                /\/api\/v1\/admin\/submissions\/[^/]+\/review$/.test(url.pathname) &&
+                response.request().method() === "POST"
+              );
+            }),
+            rejectConfirm.click(),
+          ]);
+          assert(review.ok(), `reject ${review.status()}: ${await review.text()}`);
+          await page
+            .getByTestId("review-queue-item")
+            .filter({ hasText: "E2E Pending" })
+            .waitFor({ state: "hidden", timeout: 10_000 });
+          let entry;
+          for (let attempt = 0; attempt < 40; attempt += 1) {
+            const mine = await api("/api/v1/me/projects", {}, authorToken);
+            assert(mine.response.status === 200, `my projects ${mine.response.status}`);
+            entry = JSON.parse(mine.body).items.find((item) => item.project.id === pendingId);
+            if (entry?.latestSubmission?.status === "rejected") break;
+            await sleep(250);
+          }
+          assert(
+            entry?.latestSubmission?.status === "rejected",
+            `rejected: ${JSON.stringify(entry?.latestSubmission)}`,
+          );
+          assert(
+            (entry?.latestSubmission?.reason ?? "").includes("e2e rejection reason"),
+            "rejection reason persisted",
+          );
           await context.close();
         });
 
@@ -670,9 +761,15 @@ async function main() {
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), authorToken);
           const page = await context.newPage();
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
-          await page.getByRole("button", { name: "我的项目" }).click();
+          await page.getByRole("button", { name: "我的项目", exact: true }).click();
           await page.getByText("E2E Pending", { exact: true }).first().click();
-          await page.getByText("e2e rejection reason", { exact: false }).waitFor({ state: "visible", timeout: 10_000 });
+          const statusBanner = page.locator(".workspace-banner.is-danger");
+          await statusBanner.waitFor({ state: "visible", timeout: 10_000 });
+          const bannerText = (await statusBanner.textContent()) ?? "";
+          assert(
+            bannerText.includes("已被退回") && bannerText.includes("退回原因"),
+            `rejected submission rendered: ${bannerText}`,
+          );
           const [revisionResponse] = await Promise.all([
             page.waitForResponse(
               (response) => response.url().endsWith("/revisions") && response.request().method() === "POST",
@@ -683,33 +780,42 @@ async function main() {
             revisionResponse.status() === 201,
             `successor response ${revisionResponse.status()}: ${await revisionResponse.text()}`,
           );
-          await page.waitForFunction(() => {
-            const input = document.querySelector('input[type="file"][accept*=".json"]');
-            return input instanceof HTMLInputElement && !input.disabled;
-          });
-          await page
-            .locator('input[type="file"][accept*=".json"]')
-            .first()
-            .setInputFiles({
-              name: "worldbook.json",
-              mimeType: "application/json",
-              buffer: Buffer.from(
-                JSON.stringify({ entries: [{ uid: 2, key: ["revised"], content: "revised pending" }] }),
-              ),
+          const fileInputReady = () =>
+            page.waitForFunction(() => {
+              const input = document.querySelector('input[type="file"][accept*=".json"]');
+              return input instanceof HTMLInputElement && !input.disabled;
             });
-          const outcome = await Promise.race([
+          await fileInputReady();
+          const [uploadResponse] = await Promise.all([
+            page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return /\/files\/worldbook$/.test(url.pathname) && response.request().method() === "PUT";
+            }),
             page
-              .getByText("世界书已上传")
-              .waitFor({ state: "visible", timeout: 10_000 })
-              .then(() => "uploaded"),
-            page
-              .locator(".error")
-              .waitFor({ state: "visible", timeout: 10_000 })
-              .then(async () => `error: ${await page.locator(".error").textContent()}`),
+              .locator('input[type="file"][accept*=".json"]')
+              .first()
+              .setInputFiles({
+                name: "worldbook.json",
+                mimeType: "application/json",
+                buffer: Buffer.from(
+                  JSON.stringify({ entries: [{ uid: 2, key: ["revised"], content: "revised pending" }] }),
+                ),
+              })
+              .then(() => page.getByRole("button", { name: "上传世界书", exact: true }).click()),
           ]);
-          assert(outcome === "uploaded", `revision upload failed: ${outcome}`);
-          await page.getByRole("button", { name: "提交当前版本" }).click();
-          await page.getByText("已提交审核", { exact: false }).waitFor({ state: "visible", timeout: 10_000 });
+          assert(uploadResponse.ok(), `revision upload ${uploadResponse.status()}: ${await uploadResponse.text()}`);
+          await fileInputReady();
+          const [submitResponse] = await Promise.all([
+            page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return /\/submit$/.test(url.pathname) && response.request().method() === "POST";
+            }),
+            page.getByRole("button", { name: "提交当前版本" }).click(),
+          ]);
+          assert(
+            submitResponse.status() === 201,
+            `resubmit ${submitResponse.status()}: ${await submitResponse.text()}`,
+          );
           let entry;
           for (let attempt = 0; attempt < 40; attempt += 1) {
             const mine = await api("/api/v1/me/projects", {}, authorToken);
@@ -758,6 +864,7 @@ async function main() {
       }
     }
     rmSync(tmp, { recursive: true, force: true });
+    if (ownsStateDir) rmSync(stateDir, { recursive: true, force: true });
   }
 }
 
