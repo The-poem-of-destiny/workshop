@@ -34,6 +34,7 @@ interface ProjectRow {
   discord_thread_url: string | null;
   cover_key: string | null;
   published_revision_id: string | null;
+  gallery: string;
 }
 
 const SELECT_PROJECT = `
@@ -64,7 +65,14 @@ const SELECT_PROJECT = `
         WHERE a.revision_id = p.published_revision_id AND a.kind = 'cover'
         LIMIT 1
       )
-    ) AS cover_key
+    ) AS cover_key,
+    COALESCE(
+      (
+        SELECT json_group_array(json_object('slot', g.slot, 'url', '/api/v1/assets/' || g.r2_key))
+        FROM project_gallery g WHERE g.project_id = p.id
+      ),
+      '[]'
+    ) AS gallery
   FROM projects p
   JOIN users u ON u.id = p.author_id
   JOIN project_revisions r ON r.id = p.published_revision_id
@@ -84,7 +92,23 @@ function parseTags(value: string): string[] {
     return [];
   }
 }
-
+function parseGallery(value: string): Array<{ slot: number; url: string }> {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is { slot: number; url: string } =>
+        typeof item === "object" &&
+        item !== null &&
+        "slot" in item &&
+        typeof item.slot === "number" &&
+        "url" in item &&
+        typeof item.url === "string",
+    );
+  } catch {
+    return [];
+  }
+}
 function avatarUrl(userId: string, avatar: string | null): string | null {
   if (!avatar) return null;
   if (avatar.startsWith("https://")) return avatar;
@@ -121,6 +145,7 @@ function toSummary(row: ProjectRow): ProjectSummary {
       subscriptions: row.subscriptions_count,
     },
     coverUrl: row.cover_key ? `/api/v1/assets/${row.cover_key}` : null,
+    gallery: parseGallery(row.gallery),
     visibility: row.visibility,
     publishedAt: row.published_at,
     updatedAt: row.updated_at,

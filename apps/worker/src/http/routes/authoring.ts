@@ -31,6 +31,7 @@ import {
   updateVisibility,
   upsertAsset,
 } from "../../storage/authoring.js";
+import { deleteGalleryImage, getAuthorGallery, uploadGalleryImage } from "../../storage/project-gallery.js";
 import {
   getPublishedMetadata,
   updatePublishedCover,
@@ -207,6 +208,76 @@ authoringRoutes.patch("/:id", async (c) => {
   if (!result) return versionConflict(c, "project", expectedVersion, project.row_version);
   return c.json(result);
 });
+authoringRoutes.get("/:id/gallery", async (c) => {
+  const auth = await sessionOrError(c);
+  if (!auth.session) return auth.response;
+  const gallery = await getAuthorGallery(c.env.DB, c.req.param("id"), auth.session);
+  if (!gallery) return jsonError(c, "not_found", "Project not found");
+  return c.json(gallery);
+});
+
+authoringRoutes.put("/:id/gallery/:slot", async (c) => {
+  const auth = await sessionOrError(c);
+  if (!auth.session) return auth.response;
+  const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
+  if (!project) return jsonError(c, "not_found", "Project not found");
+  const expectedVersion = ifMatchVersion(c.req.header("if-match"));
+  if (expectedVersion === null || expectedVersion !== project.row_version) {
+    return versionConflict(c, "project", expectedVersion, project.row_version);
+  }
+  const declaredLength = Number(c.req.header("content-length"));
+  if (!Number.isFinite(declaredLength) || declaredLength <= 0)
+    return jsonError(c, "bad_request", "Content-Length required");
+  if (declaredLength > WORKSHOP_LIMITS.projectImageUploadBytes) {
+    return jsonError(c, "payload_too_large", "Gallery image exceeds 5MiB limit");
+  }
+  const mime = (c.req.header("content-type") ?? "").split(";", 1)[0]!.trim().toLowerCase();
+  if (!["image/png", "image/jpeg", "image/webp"].includes(mime)) {
+    return jsonError(c, "unsupported_media_type", "Unsupported content type");
+  }
+  const body = await c.req.raw.arrayBuffer();
+  if (body.byteLength > WORKSHOP_LIMITS.projectImageUploadBytes) {
+    return jsonError(c, "payload_too_large", "Gallery image exceeds 5MiB limit");
+  }
+  const result = await uploadGalleryImage(
+    c.env.DB,
+    c.env.R2,
+    auth.session,
+    project.id,
+    Number(c.req.param("slot")),
+    expectedVersion,
+    body,
+    mime,
+  );
+  if (result.kind === "conflict") {
+    const latest = await getAuthoringProject(c.env.DB, project.id, auth.session);
+    return versionConflict(c, "project", expectedVersion, latest?.row_version ?? project.row_version);
+  }
+  if (result.kind === "invalid") return jsonError(c, "bad_request", result.message);
+  return c.json({ rowVersion: result.rowVersion, sha256: result.sha256, bytes: result.bytes, mime: result.mime });
+});
+
+authoringRoutes.delete("/:id/gallery/:slot", async (c) => {
+  const auth = await sessionOrError(c);
+  if (!auth.session) return auth.response;
+  const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
+  if (!project) return jsonError(c, "not_found", "Project not found");
+  const expectedVersion = ifMatchVersion(c.req.header("if-match"));
+  if (expectedVersion === null) return versionConflict(c, "project", null, project.row_version);
+  const result = await deleteGalleryImage(
+    c.env.DB,
+    auth.session,
+    project.id,
+    Number(c.req.param("slot")),
+    expectedVersion,
+  );
+  if (result.kind === "conflict") {
+    const latest = await getAuthoringProject(c.env.DB, project.id, auth.session);
+    return versionConflict(c, "project", expectedVersion, latest?.row_version ?? project.row_version);
+  }
+  if (result.kind === "invalid") return jsonError(c, "bad_request", result.message);
+  return c.json(result);
+});
 authoringRoutes.get("/:id/published-metadata", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
@@ -297,15 +368,17 @@ authoringRoutes.put("/:id/published-cover", async (c) => {
   if (!Number.isFinite(declaredLength) || declaredLength <= 0) {
     return jsonError(c, "bad_request", "Content-Length required");
   }
-  if (declaredLength > MAX_UPLOAD_BYTES) {
-    return jsonError(c, "payload_too_large", "File exceeds 10 MiB limit");
+  if (declaredLength > WORKSHOP_LIMITS.projectImageUploadBytes) {
+    return jsonError(c, "payload_too_large", "File exceeds 5MiB limit");
   }
   const mime = (c.req.header("content-type") ?? "").split(";", 1)[0]!.trim().toLowerCase();
   if (!["image/png", "image/jpeg", "image/webp"].includes(mime)) {
     return jsonError(c, "unsupported_media_type", "Unsupported content type");
   }
   const body = await c.req.raw.arrayBuffer();
-  if (body.byteLength > MAX_UPLOAD_BYTES) return jsonError(c, "payload_too_large", "File exceeds 10 MiB limit");
+  if (body.byteLength > WORKSHOP_LIMITS.projectImageUploadBytes) {
+    return jsonError(c, "payload_too_large", "File exceeds 5MiB limit");
+  }
   const result = await updatePublishedCover(c.env.DB, c.env.R2, auth.session, project.id, expectedVersion, body, mime);
   if (result.kind === "conflict") {
     const latest = await getAuthoringProject(c.env.DB, project.id, auth.session);
@@ -452,8 +525,12 @@ authoringRoutes.put("/:id/revisions/:revisionId/files/:kind", async (c) => {
   if (!Number.isFinite(declaredLength) || declaredLength <= 0) {
     return jsonError(c, "bad_request", "Content-Length required");
   }
-  if (declaredLength > MAX_UPLOAD_BYTES) {
-    return jsonError(c, "payload_too_large", "File exceeds 10 MiB limit");
+  if (declaredLength > (parsedKind.data === "cover" ? WORKSHOP_LIMITS.projectImageUploadBytes : MAX_UPLOAD_BYTES)) {
+    return jsonError(
+      c,
+      "payload_too_large",
+      parsedKind.data === "cover" ? "File exceeds 5MiB limit" : "File exceeds 10 MiB limit",
+    );
   }
   const mime = (c.req.header("content-type") ?? "").split(";", 1)[0]!.trim().toLowerCase();
   const allowedMime: Record<string, readonly string[]> = {
@@ -465,7 +542,13 @@ authoringRoutes.put("/:id/revisions/:revisionId/files/:kind", async (c) => {
     return jsonError(c, "unsupported_media_type", "Unsupported content type");
   }
   const body = await c.req.raw.arrayBuffer();
-  if (body.byteLength > MAX_UPLOAD_BYTES) return jsonError(c, "payload_too_large", "File exceeds 10 MiB limit");
+  if (body.byteLength > (parsedKind.data === "cover" ? WORKSHOP_LIMITS.projectImageUploadBytes : MAX_UPLOAD_BYTES)) {
+    return jsonError(
+      c,
+      "payload_too_large",
+      parsedKind.data === "cover" ? "File exceeds 5MiB limit" : "File exceeds 10 MiB limit",
+    );
+  }
   let entryCount: number | undefined;
   if (parsedKind.data !== "cover") {
     const validation = await validateContentViaDo(c.env, new TextDecoder().decode(body), parsedKind.data);
@@ -473,7 +556,8 @@ authoringRoutes.put("/:id/revisions/:revisionId/files/:kind", async (c) => {
     entryCount = validation.entryCount;
   } else {
     const dimensions = detectImageDimensions(new Uint8Array(body));
-    if (!dimensions) return jsonError(c, "bad_request", "无法识别封面图片尺寸");
+    if (!dimensions || dimensions.mime !== mime)
+      return jsonError(c, "bad_request", "Image format does not match content type");
     if (dimensions.width > WORKSHOP_LIMITS.coverMaxDimension || dimensions.height > WORKSHOP_LIMITS.coverMaxDimension) {
       return jsonError(c, "payload_too_large", "封面尺寸不能超过 4096×4096");
     }

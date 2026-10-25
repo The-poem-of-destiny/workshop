@@ -104,37 +104,75 @@ function diffKind(currentText: string | null, previousText: string | null, kind:
   };
 }
 
-function findingRefs(report: unknown): FindingRef[] {
+/** Checker findings carry title/detail/book/entry rather than a message/file pair. */
+function findingText(item: Record<string, unknown>): string {
+  for (const field of ["title", "detail"]) {
+    const value = Reflect.get(item, field);
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return "";
+}
+
+/** `file` combines the book file name with the entry label so distinct entries stay distinct. */
+function findingFile(item: Record<string, unknown>): string | null {
+  const labels = [Reflect.get(item, "book"), Reflect.get(item, "entry")]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return labels.length > 0 ? labels.join(" · ") : null;
+}
+
+/** Identity of a finding inside one report: the same rule at the same line of the same entry. */
+function findingKey(item: Record<string, unknown>, ruleId: string, file: string | null, line: number | null): string {
+  const entryId = Reflect.get(item, "entryId");
+  const entry = Reflect.get(item, "entry");
+  const book = Reflect.get(item, "book");
+  const scope =
+    typeof entryId === "string" && entryId.trim()
+      ? entryId.trim()
+      : [typeof book === "string" ? book.trim() : "", typeof entry === "string" ? entry.trim() : ""]
+          .filter(Boolean)
+          .join("\u0000") ||
+        (file ?? "");
+  return JSON.stringify([ruleId, scope, line]);
+}
+
+interface FindingEntry {
+  key: string;
+  ref: FindingRef;
+}
+
+function findingEntries(report: unknown): FindingEntry[] {
   if (!report || typeof report !== "object") return [];
   const findings = Reflect.get(report, "findings");
   if (!Array.isArray(findings)) return [];
-  const refs: FindingRef[] = [];
+  const entries: FindingEntry[] = [];
   for (const item of findings) {
     if (!item || typeof item !== "object") continue;
-    const ruleId = Reflect.get(item, "ruleId");
+    const record = item as Record<string, unknown>;
+    const ruleId = Reflect.get(record, "ruleId");
     if (typeof ruleId !== "string") continue;
-    const severity = Reflect.get(item, "severity");
-    const message = Reflect.get(item, "message");
-    const file = Reflect.get(item, "file");
-    const line = Reflect.get(item, "line");
-    refs.push({
-      ruleId,
-      severity: typeof severity === "string" ? severity : "info",
-      message: typeof message === "string" ? message : "",
-      file: typeof file === "string" ? file : null,
-      line: typeof line === "number" ? line : null,
+    const severity = Reflect.get(record, "severity");
+    const rawLine = Reflect.get(record, "line");
+    const line = typeof rawLine === "number" && Number.isFinite(rawLine) ? rawLine : null;
+    const file = findingFile(record);
+    entries.push({
+      key: findingKey(record, ruleId, file, line),
+      ref: {
+        ruleId,
+        severity: typeof severity === "string" ? severity : "info",
+        message: findingText(record),
+        file,
+        line,
+      },
     });
   }
-  return refs;
-}
-
-function findingKey(ref: FindingRef): string {
-  return `${ref.ruleId}:${ref.file ?? ""}:${ref.line ?? ""}`;
+  return entries;
 }
 
 function diffFindings(currentReport: unknown, previousReport: unknown): FindingDiff {
-  const current = new Map(findingRefs(currentReport).map((ref) => [findingKey(ref), ref]));
-  const previous = new Map(findingRefs(previousReport).map((ref) => [findingKey(ref), ref]));
+  const current = new Map(findingEntries(currentReport).map((entry) => [entry.key, entry.ref]));
+  const previous = new Map(findingEntries(previousReport).map((entry) => [entry.key, entry.ref]));
   const diff: FindingDiff = { accepted: [], changed: [], added: [], removed: [] };
   for (const [key, ref] of current) {
     const old = previous.get(key);

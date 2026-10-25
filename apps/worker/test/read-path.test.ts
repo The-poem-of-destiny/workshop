@@ -16,6 +16,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await bindings.DB.exec(`
+    DELETE FROM project_gallery;
     DELETE FROM recommendations;
     DELETE FROM reference_sets;
     DELETE FROM site_settings;
@@ -208,6 +209,24 @@ describe("public read path", () => {
       counts: { downloads: 12, likes: 3, subscriptions: 2 },
       coverUrl: "/api/v1/assets/covers/p1.webp",
     });
+  });
+
+  it("serves only published public preview text", async () => {
+    await seed();
+    await bindings.DB.prepare("UPDATE project_revisions SET entry_index_ready = 1 WHERE id = 'r1'").run();
+    await bindings.R2.put(
+      "projects/p1/revisions/r1/worldbook.json",
+      JSON.stringify({ entries: [{ uid: 7, name: "Greeting", content: "<p>hello</p>" }] }),
+    );
+    const response = await app.request("/api/v1/projects/p1/preview/worldbook", undefined, bindings);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      revisionId: "r1",
+      kind: "worldbook",
+      entries: [{ key: "uid:7", name: "Greeting", content: "<p>hello</p>" }],
+    });
+    const privateResponse = await app.request("/api/v1/projects/p2/preview/worldbook", undefined, bindings);
+    expect(privateResponse.status).toBe(404);
   });
 
   it("filters by author id and returns an empty page for others", async () => {

@@ -230,11 +230,12 @@ export async function updatePublishedCover(
   if (!COVER_MIME[mime]) {
     return { kind: "invalid", message: "Unsupported content type" };
   }
-  if (body.byteLength === 0 || body.byteLength > WORKSHOP_LIMITS.projectUploadBytes) {
-    return { kind: "invalid", message: "File exceeds 10 MiB limit" };
+  if (body.byteLength === 0 || body.byteLength > WORKSHOP_LIMITS.projectImageUploadBytes) {
+    return { kind: "invalid", message: "File exceeds 5MiB limit" };
   }
   const dimensions = detectImageDimensions(new Uint8Array(body));
-  if (!dimensions) return { kind: "invalid", message: "无法识别封面图片尺寸" };
+  if (!dimensions || dimensions.mime !== mime)
+    return { kind: "invalid", message: "Image format does not match content type" };
   if (dimensions.width > WORKSHOP_LIMITS.coverMaxDimension || dimensions.height > WORKSHOP_LIMITS.coverMaxDimension) {
     return { kind: "invalid", message: "封面尺寸不能超过 4096×4096" };
   }
@@ -331,6 +332,10 @@ export async function updatePublishedCover(
         now,
       ),
   ]);
-  if ((results[2]?.meta.changes ?? 0) === 0) return { kind: "conflict" };
+  if ((results[2]?.meta.changes ?? 0) === 0) {
+    const referenced = await db.prepare("SELECT 1 FROM assets WHERE r2_key = ? LIMIT 1").bind(r2Key).first();
+    if (!referenced) await r2.delete(r2Key);
+    return { kind: "conflict" };
+  }
   return { kind: "ok", rowVersion: expectedVersion + 1, r2Key, sha256, bytes: body.byteLength, mime };
 }

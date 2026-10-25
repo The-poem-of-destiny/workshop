@@ -56,7 +56,7 @@ function canonicalProjectListSearch(source: URLSearchParams): URLSearchParams | 
   if (!parsed.success) return null;
 
   const query = new URLSearchParams();
-  if (parsed.data.limit !== 24) query.set("limit", String(parsed.data.limit));
+  if (parsed.data.limit !== 25) query.set("limit", String(parsed.data.limit));
   if (parsed.data.sort !== "updated") query.set("sort", parsed.data.sort);
   if (parsed.data.cursor) query.set("cursor", parsed.data.cursor);
   if (parsed.data.projectType) query.set("projectType", parsed.data.projectType);

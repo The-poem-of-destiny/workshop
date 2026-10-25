@@ -1,4 +1,4 @@
-import type { ProjectEntryIndex } from "@workshop/contracts";
+import type { ProjectEntryIndex, ProjectPreview, ProjectPreviewKind } from "@workshop/contracts";
 import { extractProjectEntries, type ProjectEntryKind } from "@workshop/domain";
 
 async function hash(value: string): Promise<string> {
@@ -83,4 +83,43 @@ export async function getProjectEntryIndex(db: D1Database, projectId: string): P
       contentLength: entry.content_length,
     })),
   };
+}
+
+export async function getProjectPreview(
+  db: D1Database,
+  r2: R2Bucket,
+  projectId: string,
+  kind: ProjectPreviewKind,
+): Promise<ProjectPreview | null> {
+  const target = await db
+    .prepare(`
+      SELECT p.published_revision_id AS revision_id, a.r2_key
+      FROM projects p
+      JOIN project_revisions r ON r.id = p.published_revision_id AND r.project_id = p.id
+      JOIN assets a ON a.revision_id = r.id AND a.kind = ?
+      WHERE p.id = ? AND p.deleted_at IS NULL AND p.visibility = 'public'
+        AND p.published_revision_id IS NOT NULL AND r.entry_index_ready = 1
+    `)
+    .bind(kind, projectId)
+    .first<{ revision_id: string; r2_key: string }>();
+  if (!target) return null;
+  const object = await r2.get(target.r2_key);
+  if (!object) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await object.text());
+  } catch {
+    return null;
+  }
+  const entries = extractProjectEntries(raw, kind).map((ref) => ({
+    key: ref.entryKey,
+    name: entryName(ref.entry, ref.entryKey),
+    content:
+      typeof ref.entry.content === "string"
+        ? ref.entry.content
+        : typeof ref.entry.replaceString === "string"
+          ? ref.entry.replaceString
+          : "",
+  }));
+  return { revisionId: target.revision_id, kind, entries };
 }
