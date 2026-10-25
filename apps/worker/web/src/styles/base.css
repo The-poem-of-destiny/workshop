@@ -2,20 +2,24 @@
   color-scheme: dark;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
   color: #ececea;
-  background: #0f1012;
-  --bg: #0f1012;
-  --surface: #18191c;
-  --surface-raised: #1b1c1f;
-  --surface-muted: #151619;
+  background: #1a1b1d;
+  font-size: 16px;
+  line-height: 1.6;
+  --bg: #1a1b1d;
+  --surface: #262629;
+  --surface-raised: #303034;
+  --surface-muted: #212225;
   --text: #ececea;
-  --muted: #aaa8a3;
-  --dim: #73726e;
+  --muted: #bcbab5;
+  --dim: #aaa8a3;
   --accent: #bea47d;
   --accent-strong: #cdb38b;
   --border: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.14);
   --danger: #e58a83;
   --warning: #d9b66e;
+  --header-height: 82px;
+  --sidebar-width: 280px;
 }
 
 * {
@@ -50,4 +54,17 @@ button:disabled {
 }
 a {
   color: inherit;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 3px;
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--dim);
+  opacity: 1;
 }

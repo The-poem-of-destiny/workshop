@@ -3,12 +3,14 @@ import {
   discoveryResponseSchema,
   downloadTicketResponseSchema,
   projectListQuerySchema,
+  projectPreviewKindSchema,
+  projectPreviewSchema,
 } from "@workshop/contracts";
 import { WORKSHOP_LIMITS } from "@workshop/domain";
 import { Hono } from "hono";
 import type { Env } from "../../env";
 import { getClientChannel } from "../../storage/client.js";
-import { getProjectEntryIndex } from "../../storage/content-index.js";
+import { getProjectEntryIndex, getProjectPreview } from "../../storage/content-index.js";
 import { issueDownloadTickets } from "../../storage/downloads.js";
 import { getDiscovery } from "../../storage/home.js";
 import { getPublishedProject, isValidProjectListCursor, listPublishedProjects } from "../../storage/projects.js";
@@ -87,6 +89,14 @@ projectsRoutes.get("/:id/entries", async (c) => {
   const index = await getProjectEntryIndex(c.env.DB, c.req.param("id"));
   if (!index) return jsonError(c, "not_found", "Project not found");
   return c.json(index);
+});
+
+projectsRoutes.get("/:id/preview/:kind", async (c) => {
+  const parsedKind = projectPreviewKindSchema.safeParse(c.req.param("kind"));
+  if (!parsedKind.success) return jsonError(c, "bad_request", "Unknown preview kind");
+  const preview = await getProjectPreview(c.env.DB, c.env.R2, c.req.param("id"), parsedKind.data);
+  if (!preview) return jsonError(c, "not_found", "Project preview not found");
+  return c.json(projectPreviewSchema.parse(preview));
 });
 
 projectsRoutes.post("/:id/acquisitions", async (c) => {

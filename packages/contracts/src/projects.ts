@@ -39,6 +39,10 @@ export const projectSummarySchema = z.object({
     subscriptions: z.number().int().nonnegative(),
   }),
   coverUrl: z.string().nullable(),
+  gallery: z
+    .array(z.object({ slot: z.number().int().min(0).max(1), url: z.string() }))
+    .max(2)
+    .default([]),
   visibility: visibilitySchema,
   publishedAt: z.string().nullable(),
   updatedAt: z.string(),
@@ -55,8 +59,32 @@ export const projectDetailSchema = projectSummarySchema.extend({
 
 export type ProjectDetail = z.infer<typeof projectDetailSchema>;
 
+export const projectPreviewKindSchema = z.enum(["worldbook", "regex"]);
+export type ProjectPreviewKind = z.infer<typeof projectPreviewKindSchema>;
+
+export const projectPreviewSchema = z.object({
+  revisionId: z.string(),
+  kind: projectPreviewKindSchema,
+  entries: z.array(
+    z.object({
+      key: z.string(),
+      name: z.string(),
+      content: z.string(),
+    }),
+  ),
+});
+
+export type ProjectPreview = z.infer<typeof projectPreviewSchema>;
+
+export const projectGalleryResponseSchema = z.object({
+  rowVersion: z.number().int().nonnegative(),
+  images: z.array(z.object({ slot: z.number().int().min(0).max(1), url: z.string() })),
+});
+
+export type ProjectGalleryResponse = z.infer<typeof projectGalleryResponseSchema>;
+
 export const projectListQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(50).default(24),
+  limit: z.coerce.number().int().min(1).max(50).default(25),
   cursor: z.string().max(512).optional(),
   sort: projectSortSchema.default("updated"),
   projectType: projectTypeSchema.optional(),

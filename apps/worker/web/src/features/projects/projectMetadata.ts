@@ -1,7 +1,6 @@
 import type { AuthorProject, ProjectSummary, PublishedMetadataResponse } from "../../api";
 
-export const PROJECT_TYPES = ["事件", "系统核心", "角色", "扩展"] as const;
-export const EXTENSION_TYPES = ["规则", "内容"] as const;
+export { EXTENSION_TYPES, PROJECT_TYPES } from "@workshop/domain";
 
 export interface ProjectForm {
   title: string;
@@ -16,7 +15,7 @@ export interface ProjectForm {
   coverPositionX: string;
   coverPositionY: string;
   coverZoom: string;
-  tags: string;
+  tags: string[];
 }
 
 export function projectForm(project: ProjectSummary, entry?: AuthorProject): ProjectForm {
@@ -33,7 +32,7 @@ export function projectForm(project: ProjectSummary, entry?: AuthorProject): Pro
     coverPositionX: String(project.coverPositionX ?? 50),
     coverPositionY: String(project.coverPositionY ?? 50),
     coverZoom: String(project.coverZoom ?? 1),
-    tags: project.tags.join(", "),
+    tags: [...project.tags],
   };
 }
 
@@ -51,10 +50,7 @@ export function metadataPayload(form: ProjectForm): Record<string, unknown> {
     coverZoom: Number(form.coverZoom),
     schemaVersion: form.schemaVersion || null,
     discordThreadUrl: form.discordThreadUrl || null,
-    tags: form.tags
-      .split(",")
-      .map((tag) => tag.trim())
-      .filter(Boolean),
+    tags: form.tags,
   };
 }
 
@@ -72,6 +68,6 @@ export function displayForm(metadata: PublishedMetadataResponse): ProjectForm {
     coverPositionX: String(metadata.coverPositionX),
     coverPositionY: String(metadata.coverPositionY),
     coverZoom: String(metadata.coverZoom),
-    tags: metadata.tags.join(", "),
+    tags: [...metadata.tags],
   };
 }

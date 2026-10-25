@@ -269,41 +269,126 @@ describe("admin review and publishing", () => {
     expect(audit?.detail).toContain("previousRevision");
   });
 
-  it("classifies accepted, changed, added and removed findings against the previous submission", async () => {
+  it("maps checker findings to message and file and keeps distinct entries apart", async () => {
+    const report = (findings: unknown[]) => JSON.stringify({ findings });
     await bindings.DB.prepare(`
       INSERT INTO submissions (id, project_id, revision_id, status, client_gate, client_checker_revision, submitted_by, submitted_at, check_report)
       VALUES ('s0', 'p1', 'r1', 'rejected', 'warn', 'checker-1', 'member', '2026-10-20T00:00:00.000Z', ?)
     `)
       .bind(
-        JSON.stringify({
-          findings: [
-            { ruleId: "SAME", severity: "warn", message: "same", file: "a.js", line: 1 },
-            { ruleId: "CHANGED", severity: "warn", message: "old", file: "a.js", line: 2 },
-            { ruleId: "REMOVED", severity: "warn", message: "gone", file: "a.js", line: 3 },
-          ],
-        }),
+        report([
+          {
+            ruleId: "L1",
+            severity: "high",
+            title: "未闭合的 EJS 标签",
+            detail: "旧 detail",
+            book: "worldbook.json",
+            entry: "序章",
+            entryId: "0:worldbook.json:1",
+            line: 1,
+          },
+          {
+            ruleId: "L2",
+            severity: "warn",
+            title: "旧标题",
+            detail: "旧说明",
+            book: "worldbook.json",
+            entry: "序章",
+            entryId: "0:worldbook.json:1",
+            line: 2,
+          },
+          {
+            ruleId: "L3",
+            severity: "warn",
+            title: "将被移除",
+            book: "worldbook.json",
+            entry: "附录",
+            entryId: "0:worldbook.json:2",
+            line: 3,
+          },
+        ]),
       )
       .run();
     await bindings.DB.prepare("UPDATE submissions SET check_report = ? WHERE id = 's1'")
       .bind(
-        JSON.stringify({
-          findings: [
-            { ruleId: "SAME", severity: "warn", message: "same", file: "a.js", line: 1 },
-            { ruleId: "CHANGED", severity: "error", message: "new", file: "a.js", line: 2 },
-            { ruleId: "ADDED", severity: "warn", message: "new finding", file: "b.js", line: 4 },
-          ],
-        }),
+        report([
+          {
+            ruleId: "L1",
+            severity: "high",
+            title: "未闭合的 EJS 标签",
+            detail: "旧 detail",
+            book: "worldbook.json",
+            entry: "序章",
+            entryId: "0:worldbook.json:1",
+            line: 1,
+          },
+          {
+            ruleId: "L2",
+            severity: "high",
+            title: "新标题",
+            detail: "新说明",
+            book: "worldbook.json",
+            entry: "序章",
+            entryId: "0:worldbook.json:1",
+            line: 2,
+          },
+          {
+            ruleId: "U1",
+            severity: "warn",
+            title: "外部资源需要确认",
+            detail: "https://cdn.example/x.png",
+            book: "worldbook.json",
+            entry: "终章",
+            entryId: "0:worldbook.json:3",
+            line: 4,
+          },
+          {
+            ruleId: "L1",
+            severity: "high",
+            title: "另一个条目的未闭合标签",
+            book: "worldbook.json",
+            entry: "外传",
+            entryId: "0:worldbook.json:4",
+            line: 1,
+          },
+        ]),
       )
       .run();
     const diff = await request("/submissions/s1/diff");
     expect(diff.status).toBe(200);
-    await expect(diff.json()).resolves.toMatchObject({
-      findings: {
-        accepted: [{ ruleId: "SAME" }],
-        changed: [{ ruleId: "CHANGED" }],
-        added: [{ ruleId: "ADDED" }],
-        removed: [{ ruleId: "REMOVED" }],
+    const body = (await diff.json()) as {
+      findings: Record<
+        "accepted" | "changed" | "added" | "removed",
+        { ruleId: string; severity: string; message: string; file: string | null; line: number | null }[]
+      >;
+    };
+    expect(body.findings.accepted).toEqual([
+      {
+        ruleId: "L1",
+        severity: "high",
+        message: "未闭合的 EJS 标签",
+        file: "worldbook.json · 序章",
+        line: 1,
       },
+    ]);
+    expect(body.findings.changed).toHaveLength(1);
+    expect(body.findings.changed[0]).toMatchObject({
+      ruleId: "L2",
+      severity: "high",
+      message: "新标题",
+      file: "worldbook.json · 序章",
+      line: 2,
+    });
+    expect(body.findings.added.map((finding) => `${finding.ruleId}@${finding.file}:${finding.line}`)).toEqual([
+      "U1@worldbook.json · 终章:4",
+      "L1@worldbook.json · 外传:1",
+    ]);
+    expect(body.findings.added[0]?.message).toBe("外部资源需要确认");
+    expect(body.findings.removed).toHaveLength(1);
+    expect(body.findings.removed[0]).toMatchObject({
+      ruleId: "L3",
+      message: "将被移除",
+      file: "worldbook.json · 附录",
     });
   });
 

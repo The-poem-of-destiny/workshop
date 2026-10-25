@@ -109,12 +109,36 @@ app.get("/assets/*", async (c) => {
 
 app.get("/api/v1/assets/*", async (c) => {
   const key = c.req.path.replace("/api/v1/assets/", "");
-  if (!key.startsWith("covers/") && !key.startsWith("banners/")) {
+  if (!key.startsWith("covers/") && !key.startsWith("gallery/") && !key.startsWith("banners/")) {
     return jsonError(c, "not_found", "Asset not found");
   }
 
   let publiclyCacheable = false;
-  if (key.startsWith("covers/")) {
+  if (key.startsWith("gallery/")) {
+    const publicAssociation = await c.env.DB.prepare(`
+      SELECT EXISTS (
+        SELECT 1 FROM project_gallery g JOIN projects p ON p.id = g.project_id
+        WHERE g.r2_key = ? AND p.deleted_at IS NULL AND p.visibility = 'public'
+          AND p.published_revision_id IS NOT NULL
+      ) AS permitted
+    `)
+      .bind(key)
+      .first<{ permitted: number }>();
+    publiclyCacheable = Boolean(publicAssociation?.permitted);
+    if (!publiclyCacheable) {
+      const session = await requireSession(c);
+      if (!session) return jsonError(c, "not_found", "Asset not found");
+      const privateAssociation = await c.env.DB.prepare(`
+        SELECT EXISTS (
+          SELECT 1 FROM project_gallery g JOIN projects p ON p.id = g.project_id
+          WHERE g.r2_key = ? AND p.deleted_at IS NULL AND (p.author_id = ? OR ? = 'owner')
+        ) AS permitted
+      `)
+        .bind(key, session.userId, session.role)
+        .first<{ permitted: number }>();
+      if (!privateAssociation?.permitted) return jsonError(c, "not_found", "Asset not found");
+    }
+  } else if (key.startsWith("covers/")) {
     // A content-addressed R2 key can be associated with more than one asset.
     // Resolve authorization by a currently permitted association, rather than
     // whichever joined row SQLite happens to return first.

@@ -1,6 +1,8 @@
 export const WORKSHOP_LIMITS = {
   projectUploadBytes: 10 * 1024 * 1024,
   projectUploadLabel: "10MB",
+  projectImageUploadBytes: 5 * 1024 * 1024,
+  projectImageUploadLabel: "5MiB",
   coverRequestOverheadBytes: 1024 * 1024,
   coverMaxDimension: 4096,
   bannerUploadBytes: 8 * 1024 * 1024,

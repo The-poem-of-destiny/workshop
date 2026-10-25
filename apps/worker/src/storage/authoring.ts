@@ -68,6 +68,7 @@ interface SummaryRow {
   visibility: "public" | "private";
   published_at: string | null;
   updated_at: string;
+  published_revision_id: string | null;
   downloads_count: number;
   likes_count: number;
   subscriptions_count: number;
@@ -85,6 +86,7 @@ interface SummaryRow {
   cover_position_y: number;
   cover_zoom: number;
   cover_key: string | null;
+  gallery: string;
 }
 
 export interface AuthoringProject {
@@ -120,6 +122,23 @@ function avatarUrl(userId: string, avatar: string | null): string | null {
   if (!avatar) return null;
   return avatar.startsWith("https://") ? avatar : `https://cdn.discordapp.com/avatars/${userId}/${avatar}.png`;
 }
+function parseGallery(value: string): Array<{ slot: number; url: string }> {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is { slot: number; url: string } =>
+        typeof item === "object" &&
+        item !== null &&
+        "slot" in item &&
+        typeof item.slot === "number" &&
+        "url" in item &&
+        typeof item.url === "string",
+    );
+  } catch {
+    return [];
+  }
+}
 
 function toSummary(row: SummaryRow): ProjectSummary {
   return {
@@ -138,11 +157,13 @@ function toSummary(row: SummaryRow): ProjectSummary {
     coverPositionX: row.cover_position_x,
     coverPositionY: row.cover_position_y,
     coverZoom: row.cover_zoom,
-    counts: { downloads: row.downloads_count, likes: row.likes_count, subscriptions: row.subscriptions_count },
     coverUrl: row.cover_key ? `/api/v1/assets/${row.cover_key}` : null,
+    gallery: parseGallery(row.gallery),
+    counts: { downloads: row.downloads_count, likes: row.likes_count, subscriptions: row.subscriptions_count },
     visibility: row.visibility,
     publishedAt: row.published_at,
     updatedAt: row.updated_at,
+    publishedRevisionId: row.published_revision_id,
   };
 }
 
@@ -151,7 +172,7 @@ const summarySql = `
     COALESCE(r.description, p.description) AS description,
     COALESCE(r.project_type, p.project_type) AS project_type,
     COALESCE(r.extension_type, p.extension_type) AS extension_type,
-    p.visibility, p.published_at, p.updated_at, p.downloads_count, p.likes_count,
+    p.visibility, p.published_at, p.updated_at, p.published_revision_id, p.downloads_count, p.likes_count,
     p.subscriptions_count, u.id AS author_id, COALESCE(u.global_name, u.username) AS author_name,
     u.avatar AS author_avatar, COALESCE(r.tags, p.search_tags) AS tags,
     COALESCE(r.worldbook_count, 0) AS worldbook_count, COALESCE(r.regex_count, 0) AS regex_count,
@@ -160,7 +181,12 @@ const summarySql = `
     COALESCE(r.cover_position_x, p.cover_position_x) AS cover_position_x,
     COALESCE(r.cover_position_y, p.cover_position_y) AS cover_position_y,
     COALESCE(r.cover_zoom, p.cover_zoom) AS cover_zoom,
-    (SELECT a.r2_key FROM assets a WHERE a.revision_id = p.working_revision_id AND a.kind = 'cover' LIMIT 1) AS cover_key
+    (SELECT a.r2_key FROM assets a WHERE a.revision_id = p.working_revision_id AND a.kind = 'cover' LIMIT 1) AS cover_key,
+    COALESCE(
+      (SELECT json_group_array(json_object('slot', g.slot, 'url', '/api/v1/assets/' || g.r2_key))
+       FROM project_gallery g WHERE g.project_id = p.id),
+      '[]'
+    ) AS gallery
   FROM projects p JOIN users u ON u.id = p.author_id
   LEFT JOIN project_revisions r ON r.id = p.working_revision_id
   WHERE p.id = ? AND p.deleted_at IS NULL
@@ -263,7 +289,7 @@ export async function listAuthorProjects(db: D1Database, session: Session): Prom
       COALESCE(r.description, p.description) AS description,
       COALESCE(r.project_type, p.project_type) AS project_type,
       COALESCE(r.extension_type, p.extension_type) AS extension_type,
-      p.visibility, p.published_at, p.updated_at, p.downloads_count, p.likes_count,
+      p.visibility, p.published_at, p.updated_at, p.published_revision_id, p.downloads_count, p.likes_count,
       p.subscriptions_count, u.id AS author_id, COALESCE(u.global_name, u.username) AS author_name,
       u.avatar AS author_avatar, COALESCE(r.tags, p.search_tags) AS tags,
       COALESCE(r.worldbook_count, 0) AS worldbook_count, COALESCE(r.regex_count, 0) AS regex_count,
@@ -273,8 +299,13 @@ export async function listAuthorProjects(db: D1Database, session: Session): Prom
       COALESCE(r.metadata_findings, p.metadata_findings) AS metadata_findings,
       COALESCE(r.cover_position_x, p.cover_position_x) AS cover_position_x,
       COALESCE(r.cover_position_y, p.cover_position_y) AS cover_position_y,
-      COALESCE(r.cover_zoom, p.cover_zoom) AS cover_zoom,
+      COALESCE(r.cover_zoom, p.cover_zoom) AS cover_zoom, r.discord_thread_url,
       (SELECT a.r2_key FROM assets a WHERE a.revision_id = p.working_revision_id AND a.kind = 'cover' LIMIT 1) AS cover_key,
+      COALESCE(
+        (SELECT json_group_array(json_object('slot', g.slot, 'url', '/api/v1/assets/' || g.r2_key))
+         FROM project_gallery g WHERE g.project_id = p.id),
+        '[]'
+      ) AS gallery,
       p.row_version, p.working_revision_id,
       s.id AS submission_id, s.revision_id AS submission_revision_id, s.status AS submission_status,
       s.client_gate AS submission_gate, s.client_checker_revision AS submission_checker_revision,

@@ -4,6 +4,7 @@
 @import "./styles/base.css";
 @import "./styles/shell.css";
 @import "./styles/catalogue.css";
+@import "./styles/installed.css";
 @import "./styles/cards.css";
 @import "./styles/controls.css";
 @import "./styles/detail.css";

@@ -46,7 +46,7 @@
   flex-wrap: wrap;
   padding: 18px 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
 }
 .pagination label {
   display: flex;
@@ -132,7 +132,7 @@
 .project-card--list .card-signals {
   align-items: center;
   gap: 8px 12px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .project-card--list .card-stat-group {
   gap: 8px;

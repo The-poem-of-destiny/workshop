@@ -38,6 +38,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await bindings.DB.exec(`
+    DELETE FROM project_gallery;
     DELETE FROM audit_events;
     DELETE FROM reference_items;
     DELETE FROM reference_versions;
@@ -155,6 +156,69 @@ describe("authoring write paths", () => {
       .bind(first.project.id)
       .all<{ revision_no: number }>();
     expect(rows.results.map((row) => row.revision_no)).toEqual([1, 2]);
+  });
+
+  it("supports two gallery slots with real image validation and CAS", async () => {
+    const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Gallery" }) });
+    const { project } = (await created.json()) as { project: { id: string } };
+    const png = Uint8Array.from([
+      137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196,
+      137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 240, 31, 0, 5, 0, 1, 255, 137, 153, 61, 29, 0, 0,
+      0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+    ]);
+    const upload = await request(`/${project.id}/gallery/0`, {
+      method: "PUT",
+      body: png,
+      headers: { "content-type": "image/png", "content-length": String(png.byteLength), "if-match": "1" },
+    });
+    expect(upload.status).toBe(200);
+    const stored = await bindings.DB.prepare("SELECT r2_key FROM project_gallery WHERE project_id = ? AND slot = 0")
+      .bind(project.id)
+      .first<{ r2_key: string }>();
+    await bindings.DB.prepare(`
+      CREATE TRIGGER fail_gallery_row_update
+      BEFORE UPDATE OF row_version ON projects
+      BEGIN SELECT RAISE(FAIL, 'gallery test failure'); END;
+    `).run();
+    const failedRetry = await request(`/${project.id}/gallery/0`, {
+      method: "PUT",
+      body: png,
+      headers: { "content-type": "image/png", "content-length": String(png.byteLength), "if-match": "2" },
+    });
+    expect(failedRetry.status).toBe(400);
+    expect(stored?.r2_key).toBeTruthy();
+    await expect(bindings.R2.get(stored!.r2_key)).resolves.not.toBeNull();
+    await bindings.DB.exec("DROP TRIGGER fail_gallery_row_update");
+    const unauthorized = await request(`/${project.id}/gallery`, {}, "other-token");
+    expect(unauthorized.status).toBe(404);
+    const stale = await request(`/${project.id}/gallery/1`, {
+      method: "PUT",
+      body: png,
+      headers: { "content-type": "image/png", "content-length": String(png.byteLength), "if-match": "1" },
+    });
+    expect(stale.status).toBe(412);
+    const invalidSlot = await request(`/${project.id}/gallery/2`, {
+      method: "PUT",
+      body: png,
+      headers: { "content-type": "image/png", "content-length": String(png.byteLength), "if-match": "2" },
+    });
+    expect(invalidSlot.status).toBe(400);
+    const wrongMime = await request(`/${project.id}/gallery/1`, {
+      method: "PUT",
+      body: png,
+      headers: { "content-type": "image/jpeg", "content-length": String(png.byteLength), "if-match": "2" },
+    });
+    expect(wrongMime.status).toBe(400);
+    const second = await request(`/${project.id}/gallery/1`, {
+      method: "PUT",
+      body: png,
+      headers: { "content-type": "image/png", "content-length": String(png.byteLength), "if-match": "2" },
+    });
+    expect(second.status).toBe(200);
+    await expect((await request(`/${project.id}/gallery`)).json()).resolves.toMatchObject({
+      rowVersion: 3,
+      images: [{ slot: 0 }, { slot: 1 }],
+    });
   });
 
   it("deletes one entry into a new revision without touching the old asset", async () => {
@@ -551,6 +615,7 @@ describe("authoring write paths", () => {
     };
     const mine = await listAuthorProjects(bindings.DB, session);
     expect(mine.find((item) => item.project.id === project.project.id)).toMatchObject({
+      project: { publishedRevisionId: project.workingRevisionId },
       precautions: "注意",
       authorNote: null,
     });

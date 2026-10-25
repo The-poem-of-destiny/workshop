@@ -1,6 +1,7 @@
-import { Wrench } from "lucide-react";
+import { Bookmark, Download, History, ThumbsUp, Wrench } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api, type ProjectSummary } from "../../api";
+import "../../styles/discovery.css";
 
 export function Discovery({ onOpen }: { onOpen: (project: ProjectSummary, opener: HTMLElement) => void }) {
   const [items, setItems] = useState<ProjectSummary[]>([]);
@@ -29,28 +30,25 @@ export function Discovery({ onOpen }: { onOpen: (project: ProjectSummary, opener
     }
     return next.slice(0, 4);
   }, [items]);
-
-  if (state === "loading") {
+  if (state === "loading")
     return (
       <section className="discovery" aria-busy="true">
         <h2>发现</h2>
         <p className="hint">正在整理今日发现…</p>
       </section>
     );
-  }
-  if (state === "error") {
+  if (state === "error")
     return (
       <section className="discovery">
         <h2>发现</h2>
         <p className="hint">暂时无法加载发现内容，主列表不受影响。</p>
       </section>
     );
-  }
-  if (discovered.length === 0) return null;
+  if (!discovered.length) return null;
   return (
     <section className="discovery">
       <h2>发现</h2>
-      <div className="grid discovery-grid">
+      <div className="discovery-grid">
         {discovered.map((project) => (
           <button
             className="discovery-item"
@@ -60,6 +58,7 @@ export function Discovery({ onOpen }: { onOpen: (project: ProjectSummary, opener
           >
             {project.coverUrl ? (
               <img
+                className="discovery-cover"
                 src={project.coverUrl}
                 alt=""
                 loading="lazy"
@@ -70,11 +69,40 @@ export function Discovery({ onOpen }: { onOpen: (project: ProjectSummary, opener
                 <Wrench />
               </span>
             )}
-            <span className="discovery-copy">
+            <span className="discovery-heading">
               <strong>{project.title}</strong>
               <span className="discovery-author">{project.author.name}</span>
-              <span className="discovery-note">
-                {project.authorNote?.trim() || project.description?.trim() || "暂无文字简介"}
+              <span className="discovery-tags">
+                {[project.projectType, ...project.tags]
+                  .filter((value, index, values) => value && values.indexOf(value) === index)
+                  .slice(0, 3)
+                  .map((value) => (
+                    <span key={value}>{value}</span>
+                  ))}
+              </span>
+            </span>
+            <span className="discovery-note">
+              {project.authorNote?.trim() || project.description?.trim() || "暂无文字简介"}
+            </span>
+            <span className="discovery-stats">
+              <span title={`下载 ${project.counts.downloads}`}>
+                <Download aria-hidden="true" />
+                {project.counts.downloads.toLocaleString("zh-CN", { notation: "compact", maximumFractionDigits: 1 })}
+              </span>
+              <span title={`点赞 ${project.counts.likes}`}>
+                <ThumbsUp aria-hidden="true" />
+                {project.counts.likes.toLocaleString("zh-CN", { notation: "compact", maximumFractionDigits: 1 })}
+              </span>
+              <span title={`订阅 ${project.counts.subscriptions}`}>
+                <Bookmark aria-hidden="true" />
+                {project.counts.subscriptions.toLocaleString("zh-CN", {
+                  notation: "compact",
+                  maximumFractionDigits: 1,
+                })}
+              </span>
+              <span title="更新时间">
+                <History aria-hidden="true" />
+                {project.updatedAt.slice(0, 10)}
               </span>
             </span>
           </button>

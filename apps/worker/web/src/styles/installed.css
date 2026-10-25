@@ -1,0 +1,194 @@
+.installed {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.installed-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.installed-head h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 600;
+}
+.installed-sub {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.installed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.installed-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.installed-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.installed-title {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.installed-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  color: var(--dim);
+  font-size: 12px;
+}
+.installed-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.installed-badge {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.installed-badge.update {
+  border-color: rgba(190, 164, 125, 0.5);
+  color: var(--accent-strong);
+}
+.installed-badge.local {
+  border-color: rgba(217, 182, 110, 0.5);
+  color: var(--warning);
+}
+.installed-badge.warn {
+  border-color: rgba(229, 138, 131, 0.45);
+  color: var(--danger);
+}
+.installed-badge.clean {
+  color: var(--dim);
+}
+.installed-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+}
+.installed-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 48px 16px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+.installed-empty svg {
+  width: 28px;
+  height: 28px;
+  color: var(--dim);
+}
+.installed-empty p {
+  margin: 0;
+}
+
+/* First-install worldbook picker. */
+.install-dialog {
+  max-width: 520px;
+}
+.install-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(360px, 50vh);
+  margin: 16px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 0;
+}
+.install-target {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.install-target:hover {
+  border-color: var(--border-strong);
+}
+.install-target.selected {
+  border-color: var(--accent);
+  background: rgba(190, 164, 125, 0.08);
+}
+.install-target input {
+  accent-color: var(--accent);
+}
+.install-target-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.install-target-tag {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border: 1px solid rgba(190, 164, 125, 0.35);
+  border-radius: 999px;
+  color: var(--accent-strong);
+  font-size: 11px;
+}
+.install-target-tag.muted {
+  border-color: var(--border);
+  color: var(--dim);
+}
+.install-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+.install-dialog-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.install-dialog-empty p {
+  margin: 0;
+}
+.spin {
+  animation: cw-spin 1s linear infinite;
+}
+@keyframes cw-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
