@@ -1,33 +1,4 @@
 /* SillyTavern script: Creative Workshop host, installer and bridge. */
-// @ts-nocheck -- Tavern exposes untyped browser globals; runtime guards live below.
-declare const $: unknown;
-declare const SillyTavern: unknown;
-declare function getScriptId(): string;
-declare function getVariables(options: { type: "script"; script_id: string }): Record<string, unknown>;
-declare function updateVariablesWith(
-  updater: (variables: Record<string, unknown>) => Record<string, unknown>,
-  options: { type: "script"; script_id: string },
-): Promise<void>;
-declare function getCharWorldbookNames(scope: "current"): { primary: string | null; additional: string[] };
-declare function getWorldbookNames(): string[];
-declare function getWorldbook(name: string): Promise<Record<string, unknown>[]>;
-declare function createWorldbook(name: string, entries: Record<string, unknown>[]): Promise<void>;
-declare function rebindCharWorldbooks(
-  scope: "current",
-  bindings: { primary: string | null; additional: string[] },
-): Promise<void>;
-declare function updateWorldbookWith(
-  name: string,
-  updater: (entries: Record<string, unknown>[]) => Record<string, unknown>[],
-): Promise<Record<string, unknown>[]>;
-declare function getTavernRegexes(options: { scope: "character"; enable_state: "all" }): Record<string, unknown>[];
-declare function updateTavernRegexesWith(
-  updater: (regexes: Record<string, unknown>[]) => Record<string, unknown>[],
-  options: { scope: "character" },
-): Promise<Record<string, unknown>[]>;
-
-declare const __CW_CLIENT_VERSION__: string;
-declare const __CW_DEFAULT_ORIGIN__: string;
 
 import {
   entryKey,
@@ -89,8 +60,8 @@ function workshopOrigin(): string {
 
 const SCRIPT_CHANNEL: "stable" | "staging" = (() => {
   try {
-    const script = document.currentScript as HTMLScriptElement | null;
-    return script?.src && /\/staging\//.test(script.src) ? "staging" : "stable";
+    const script = document.currentScript;
+    return script instanceof HTMLScriptElement && /\/staging\//.test(script.src) ? "staging" : "stable";
   } catch {
     return "stable";
   }
@@ -125,7 +96,7 @@ async function ensureTargetWorldbook(requested?: string | null): Promise<string>
   return target;
 }
 
-function regexFingerprint(regex: Record<string, unknown>): string {
+function regexFingerprint(regex: WorkshopTavernRegex): string {
   return JSON.stringify({
     find: regex.find_regex ?? "",
     replace: regex.replace_string ?? "",
@@ -157,12 +128,12 @@ async function installProject(project: InstallProject, files: InstallFileSet, ta
   const incoming = worldbookEntries(files.worldbook ? JSON.parse(files.worldbook) : null);
   if (files.worldbook && incoming.length === 0) throw new Error("世界书文件没有有效条目");
   const current = await getWorldbook(target);
-  const oldByKey = new Map<string, Record<string, unknown>>();
+  const oldByKey = new Map<string, WorkshopWorldbookEntry>();
   for (const [index, entry] of current.entries()) oldByKey.set(entryKey(entry, index), entry);
 
   const desiredKeys = new Set<string>();
   const conflicts: string[] = [];
-  const result: Record<string, unknown>[] = [];
+  const result: WorkshopWorldbookEntry[] = [];
   for (const entry of current) {
     if (!projectEntry(entry) || entry.extensions.cw_project_id !== project.id) result.push(entry);
   }
@@ -220,7 +191,7 @@ async function installProject(project: InstallProject, files: InstallFileSet, ta
     const prefix = `cw-${project.id}-`;
     const existing = new Map(all.map((regex) => [String(regex.id ?? ""), regex]));
     const kept = all.filter((regex) => !String(regex.id ?? "").startsWith(prefix));
-    const added = incomingRegex.map((entry, index) => {
+    const added = incomingRegex.map((entry, index): WorkshopTavernRegex => {
       const id = `${prefix}${index}`;
       regexIds.push(id);
       const old = existing.get(id);
@@ -232,7 +203,7 @@ async function installProject(project: InstallProject, files: InstallFileSet, ta
         find_regex: String(entry.findRegex ?? entry.find_regex ?? ""),
         replace_string: String(entry.replaceString ?? entry.replace_string ?? ""),
         trim_strings: Array.isArray(entry.trimStrings) ? entry.trimStrings : [],
-        source: entry.placement
+        source: Array.isArray(entry.placement)
           ? {
               user_input: entry.placement.includes(1),
               ai_output: entry.placement.includes(2),
@@ -246,8 +217,8 @@ async function installProject(project: InstallProject, files: InstallFileSet, ta
           prompt: Boolean(entry.promptOnly),
         },
         run_on_edit: Boolean(entry.runOnEdit),
-        min_depth: Number.isFinite(entry.minDepth) ? entry.minDepth : null,
-        max_depth: Number.isFinite(entry.maxDepth) ? entry.maxDepth : null,
+        min_depth: typeof entry.minDepth === "number" && Number.isFinite(entry.minDepth) ? entry.minDepth : null,
+        max_depth: typeof entry.maxDepth === "number" && Number.isFinite(entry.maxDepth) ? entry.maxDepth : null,
       };
     });
     for (const regex of added) {
@@ -291,8 +262,8 @@ async function uninstallProject(projectId: string) {
 
   if (record?.worldbookName && getWorldbookNames().includes(record.worldbookName)) {
     const current = await getWorldbook(record.worldbookName);
-    const kept: Record<string, unknown>[] = [];
-    for (const [index, entry] of current.entries()) {
+    const kept: WorkshopWorldbookEntry[] = [];
+    for (const entry of current) {
       if (entry?.extensions?.cw_project_id !== projectId) {
         kept.push(entry);
         continue;
@@ -310,7 +281,7 @@ async function uninstallProject(projectId: string) {
   if (record?.regexIds?.length) {
     const ids = new Set(record.regexIds);
     const all = getTavernRegexes({ scope: "character", enable_state: "all" });
-    const kept: Record<string, unknown>[] = [];
+    const kept: WorkshopTavernRegex[] = [];
     for (const regex of all) {
       const id = String(regex.id ?? "");
       if (!ids.has(id)) {
@@ -343,7 +314,7 @@ async function scanInstallStates(registry: InstallRegistry): Promise<Record<stri
         continue;
       }
       const entries = await getWorldbook(record.worldbookName);
-      const entryByKey = new Map<string, Record<string, unknown>>();
+      const entryByKey = new Map<string, WorkshopWorldbookEntry>();
       for (const [index, entry] of entries.entries()) entryByKey.set(entryKey(entry, index), entry);
       let changed = false;
       for (const [key, expected] of Object.entries(record.entries)) {
@@ -407,7 +378,7 @@ function send(payload: Record<string, unknown>) {
 function showOverlay() {
   const hostWindow = window.parent !== window ? window.parent : window;
   const hostDocument = hostWindow.document;
-  const host$ = Reflect.get(hostWindow, "$");
+  const host$ = hostWindow.$;
   if (typeof host$ !== "function") throw new Error("SillyTavern jQuery 未就绪");
 
   host$(`#${OVERLAY_ID}`).remove();
@@ -464,7 +435,7 @@ function showOverlay() {
   $bar.append(host$("<span>命定创意工坊</span>"), $close);
   $card.append($bar, $frame);
   $overlay.append($card).appendTo(hostDocument.body);
-  activeFrame = $frame[0] as HTMLIFrameElement;
+  activeFrame = $frame[0];
 
   const close = () => {
     activeFrame = null;
@@ -517,7 +488,15 @@ function showOverlay() {
   window.addEventListener("message", onMessage);
 }
 
-function onMessage(event: MessageEvent) {
+function onMessage(
+  event: MessageEvent<{
+    type?: string;
+    project?: InstallProject;
+    files?: InstallFileSet;
+    projectId?: unknown;
+    targetWorldbook?: unknown;
+  } | null>,
+) {
   if (!activeFrame || event.source !== activeFrame.contentWindow) return;
   if (event.origin !== workshopOrigin()) return;
   const data = event.data;
@@ -548,8 +527,8 @@ function onMessage(event: MessageEvent) {
     return;
   }
   if (data.type === "cw:install") {
-    const project = data.project as InstallProject;
-    const files = data.files as InstallFileSet;
+    const project = data.project;
+    const files = data.files;
     if (!project || !files || (typeof files.worldbook !== "string" && typeof files.regex !== "string")) {
       send({ type: "cw:install-result", ok: false, message: "安装数据不完整" });
       return;
@@ -560,10 +539,9 @@ function onMessage(event: MessageEvent) {
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: host-provided jQuery is intentionally untyped
-function hostJQuery(): any {
+function hostJQuery(): WorkshopJQuery {
   const hostWindow = window.parent !== window ? window.parent : window;
-  const host$ = Reflect.get(hostWindow, "$");
+  const host$ = hostWindow.$;
   if (typeof host$ !== "function") throw new Error("SillyTavern jQuery 未就绪");
   return host$;
 }

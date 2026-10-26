@@ -43,7 +43,7 @@ description: Use when an agent must independently plan, execute, verify, or resu
 - **一个切片只做一个可验收变换**。复合重构必须拆开；每个切片能独立回滚。
 - **共享文件只有一个 owner**。契约、schema、路由表、根配置、锁文件不能并行改。
 - **旧系统只作为产品读语义的参考**，不作为安全、缓存、发布模型的参考。
-- **测试服务于变更，不是变更的主人**。只测公共契约、危险不变量、回归、跨边界集成、预算；不测实现结构、源码文本、框架接线。
+- **测试取舍先读 [test-maintenance](../test-maintenance/SKILL.md)**。它拥有永久测试准入、维护成本和删除标准；重构不要求每层新增测试，运行验证仍不可省略。
 - **不静默缩范围**。做不到就写 `BLOCKED` 和缺什么；不要用 mock、占位、`TODO: implement` 冒充完成。
 - **不顺手重构**。删除清单之外的东西先记录，不夹带。
 - **不可逆操作要人**：生产部署、真实数据迁移、删旧 D1/R2、改 secrets、Cloudflare 资源变更。
@@ -107,7 +107,7 @@ identity → projects read → catalog/search → install/files
 - 验收命令
 - 回滚方式
 
-切片内部顺序：契约测试 → storage 集成 → HTTP → E2E/smoke。先让测试失败，再实现，再跑全套。
+切片按契约风险选择已有静态检查／行为测试和必要的 storage／HTTP／E2E 运行证据，不机械逐层新增永久测试。缺陷先复现再修复；永久回归测试须通过 test-maintenance 准入。
 
 ## 5. OMP 工具与规范
 
@@ -204,7 +204,7 @@ CONCERNS: ...
 每个切片：
 
 1. `pnpm check` 全绿。
-2. 契约测试覆盖新接口。
+2. 新接口的危险行为有实际契约验证；是否新增永久测试按 test-maintenance 决定，不要求每个接口配一套测试。
 3. workerd + 本地 D1/R2 集成覆盖危险路径。
 4. 公开读路径跑新旧差分（只比产品语义）。
 5. 迁移改动跑 extract/transform/load/verify + 对账。

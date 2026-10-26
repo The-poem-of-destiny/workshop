@@ -1,5 +1,5 @@
 import { ArrowLeft, Bookmark, ChevronLeft, ChevronRight, ExternalLink, Heart, RefreshCcw, Star } from "lucide-react";
-import { type RefObject, useEffect, useMemo, useState } from "react";
+import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { api, type ProjectDetail as ProjectDetailResponse, type ProjectSummary } from "../../api";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { Markdown } from "../../lib/markdown";
@@ -68,8 +68,12 @@ export function ProjectDetail({
   const [previewEntryKey, setPreviewEntryKey] = useState<string | null>(null);
   const [previewReading, setPreviewReading] = useState(false);
 
+  const detailRequest = useRef<{ generation: number } | null>(null);
+  const previewRequest = useRef<{ generation: number } | null>(null);
   useEffect(() => {
     let active = true;
+    const request = { generation: detailReload };
+    detailRequest.current = request;
     setDetail(null);
     setDetailError(null);
     setDetailLoading(true);
@@ -77,12 +81,12 @@ export function ProjectDetail({
     api
       .project(project.id)
       .then((value) => {
-        if (!active) return;
+        if (!active || detailRequest.current !== request) return;
         setDetail(value);
         setDetailLoading(false);
       })
       .catch((reason) => {
-        if (!active) return;
+        if (!active || detailRequest.current !== request) return;
         setDetailLoading(false);
         setDetailError(String(reason));
       });
@@ -120,6 +124,8 @@ export function ProjectDetail({
 
   useEffect(() => {
     let active = true;
+    const request = { generation: previewReload };
+    previewRequest.current = request;
     setPreviewData(null);
     setPreviewError(null);
     setPreviewLoading(true);
@@ -129,13 +135,13 @@ export function ProjectDetail({
     api
       .projectPreview(project.id, previewKind)
       .then((value) => {
-        if (!active) return;
+        if (!active || previewRequest.current !== request) return;
         setPreviewData(value);
         setPreviewLoading(false);
         setPreviewEntryKey(value.entries[0]?.key ?? null);
       })
       .catch((reason) => {
-        if (!active) return;
+        if (!active || previewRequest.current !== request) return;
         setPreviewLoading(false);
         setPreviewError(String(reason));
       });
@@ -170,10 +176,11 @@ export function ProjectDetail({
   useEffect(() => {
     if (selectedMedia >= mediaItems.length) setSelectedMedia(Math.max(0, mediaItems.length - 1));
   }, [mediaItems.length, selectedMedia]);
+  const activeMediaUrl = activeMedia?.url;
   useEffect(() => {
-    setImageStatus(activeMedia ? "loading" : "loaded");
+    setImageStatus(activeMediaUrl ? "loading" : "loaded");
     setImageRetry(0);
-  }, [activeMedia?.url]);
+  }, [activeMediaUrl]);
 
   const changeMedia = (offset: number): void => {
     if (mediaItems.length < 2) return;

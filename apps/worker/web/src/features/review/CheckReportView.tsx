@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { keyedItems } from "../../lib/keyedItems";
 import {
   bookLabel,
   type CheckFinding,
@@ -349,8 +350,8 @@ export function CheckReportSection({
               </summary>
               <div className="review-report-group-body">
                 <p className="review-muted">上次存在、本次已移除，仅作历史记录。</p>
-                {report.removedFindings.map((finding, index) => (
-                  <FindingCard key={`${finding.ruleId}-${index}`} finding={finding} />
+                {keyedItems(report.removedFindings).map(({ item: finding, key }) => (
+                  <FindingCard key={key} finding={finding} />
                 ))}
               </div>
             </details>

@@ -49,12 +49,11 @@
   border-color: rgba(190, 164, 125, 0.38);
   background: rgba(190, 164, 125, 0.1);
 }
-.primary,
-.actions .primary,
-.panel button.primary {
-  border-color: #cdb38b !important;
-  background: #bea47d !important;
-  color: #151619 !important;
+/* Keep primary colors above contextual button and hover styles. */
+.primary.primary.primary {
+  border-color: #cdb38b;
+  background: #bea47d;
+  color: #151619;
   font-weight: 650;
 }
 

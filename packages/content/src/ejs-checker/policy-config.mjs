@@ -13,8 +13,7 @@ export function trustedStaticMediaUrl(value, usage) {
 function countOccurrences(content, target) {
   if (!target) return 0;
   let count = 0;
-  let offset = 0;
-  while ((offset = content.indexOf(target, offset)) !== -1) {
+  for (let offset = content.indexOf(target); offset !== -1; offset = content.indexOf(target, offset)) {
     count += 1;
     offset += target.length;
   }

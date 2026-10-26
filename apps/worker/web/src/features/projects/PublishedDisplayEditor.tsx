@@ -33,8 +33,13 @@ export function PublishedDisplayEditor({
   const loadedProject = useRef<string | null>(null);
   const pendingCover = usePendingImage();
 
+  const metadataRequest = useRef<{ rowVersion: number } | null>(null);
+  const coverRequest = useRef<{ rowVersion: number; generation: number } | null>(null);
+  const galleryRequest = useRef<{ rowVersion: number; generation: number } | null>(null);
   useEffect(() => {
     let active = true;
+    const request = { rowVersion: entry.rowVersion };
+    metadataRequest.current = request;
     if (loadedProject.current !== entry.project.id) {
       loadedProject.current = entry.project.id;
       dirty.current = false;
@@ -44,12 +49,14 @@ export function PublishedDisplayEditor({
     api
       .publishedMetadata(entry.project.id)
       .then((metadata) => {
-        if (!active) return;
+        if (!active || metadataRequest.current !== request) return;
         setRowVersion(metadata.rowVersion);
         setForm((previous) => (dirty.current && previous ? previous : displayForm(metadata)));
       })
       .catch((reason) => {
-        if (active && !(reason instanceof ApiError && reason.status === 404)) onError(String(reason));
+        if (active && metadataRequest.current === request && !(reason instanceof ApiError && reason.status === 404)) {
+          onError(String(reason));
+        }
       });
     return () => {
       active = false;
@@ -58,16 +65,18 @@ export function PublishedDisplayEditor({
 
   useEffect(() => {
     let active = true;
+    const request = { rowVersion: entry.rowVersion, generation: coverNonce };
+    coverRequest.current = request;
     let objectUrl: string | null = null;
     api
       .publishedCover(entry.project.id)
       .then((blob) => {
-        if (!active) return;
+        if (!active || coverRequest.current !== request) return;
         objectUrl = URL.createObjectURL(blob);
         setCover(objectUrl);
       })
       .catch(() => {
-        if (active) setCover(null);
+        if (active && coverRequest.current === request) setCover(null);
       });
     return () => {
       active = false;
@@ -77,6 +86,8 @@ export function PublishedDisplayEditor({
 
   useEffect(() => {
     let active = true;
+    const request = { rowVersion: entry.rowVersion, generation: galleryNonce };
+    galleryRequest.current = request;
     const objectUrls: string[] = [];
     setGallery([]);
     api
@@ -85,19 +96,19 @@ export function PublishedDisplayEditor({
         const images = await Promise.all(
           result.images.map(async (image) => {
             const blob = await api.galleryImage(image.url);
-            if (!active) return null;
+            if (!active || galleryRequest.current !== request) return null;
             const url = URL.createObjectURL(blob);
             objectUrls.push(url);
             return { slot: image.slot, url };
           }),
         );
-        if (active) {
+        if (active && galleryRequest.current === request) {
           setGallery(images.filter((image): image is GalleryImage => image !== null));
           setRowVersion(result.rowVersion);
         }
       })
       .catch((reason) => {
-        if (active) onError(String(reason));
+        if (active && galleryRequest.current === request) onError(String(reason));
       });
     return () => {
       active = false;

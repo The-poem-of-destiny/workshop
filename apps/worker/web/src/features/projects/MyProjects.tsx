@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { type AuthorProject, api } from "../../api";
 import "../../styles/workspaces.css";
 import { ProjectStatusBanner } from "./authoring/StatusBanner";
@@ -61,12 +61,17 @@ export function MyProjects({
     }
   }
 
+  const loadInitial = useEffectEvent(() => void refresh());
   useEffect(() => {
-    void refresh();
+    loadInitial();
   }, []);
 
+  const previousSelection = useRef(selectedId);
   useEffect(() => {
-    setTab("draft");
+    if (previousSelection.current !== selectedId) {
+      previousSelection.current = selectedId;
+      setTab("draft");
+    }
   }, [selectedId]);
 
   async function createRevision(entry: AuthorProject): Promise<void> {

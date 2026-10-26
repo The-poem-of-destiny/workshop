@@ -36,7 +36,7 @@ export function regexEntries(raw: unknown): Record<string, unknown>[] {
   return [raw as Record<string, unknown>];
 }
 
-export function entryKey(entry: Record<string, unknown>, index: number): string {
+export function entryKey(entry: { uid?: unknown; extensions?: unknown }, index: number): string {
   const extension =
     entry.extensions && typeof entry.extensions === "object" ? (entry.extensions as Record<string, unknown>) : {};
   const marker = extension.cw_entry_key ?? entry.uid ?? extension.cw_entry_id;
@@ -45,14 +45,16 @@ export function entryKey(entry: Record<string, unknown>, index: number): string 
   return value.startsWith("uid:") ? value : `uid:${value}`;
 }
 
-export function entryName(entry: Record<string, unknown>, key: string): string {
+export function entryName(entry: { comment?: unknown; name?: unknown }, key: string): string {
   for (const value of [entry.comment, entry.name]) {
     if (typeof value === "string" && value.trim()) return value;
   }
   return key;
 }
 
-export function projectEntry(entry: Record<string, unknown>): boolean {
+export function projectEntry<Entry extends { extensions?: unknown }>(
+  entry: Entry,
+): entry is Entry & { extensions: WorkshopWorldbookExtensions & { cw_project_id: string } } {
   const extensions = entry.extensions;
   if (!extensions || typeof extensions !== "object") return false;
   const values: Record<string, unknown> = extensions as Record<string, unknown>;
@@ -71,8 +73,8 @@ export function normalizeWorkshopOrigin(value: unknown, fallback: string): strin
 }
 
 export function hasForeignBaselineConflict(
-  current: Record<string, unknown>[],
-  incoming: Record<string, unknown>,
+  current: WorkshopWorldbookEntry[],
+  incoming: { comment?: unknown; name?: unknown },
   incomingKey: string,
 ): boolean {
   const name = entryName(incoming, incomingKey);

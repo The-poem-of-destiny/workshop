@@ -1,0 +1,7 @@
+# Exact reviewed historical false positives only; never ignore a whole rule or test directory.
+# Public guild ID in a test fixture, not an authentication credential.
+ef805958f667cd5d7b16ca101dfab934b5caf4a2:apps/worker/test/authoring.test.ts:discord-client-id:33
+# Imported normalizeProjectDiscordThreadUrl identifier mistaken for a client secret.
+7c84fd7e9d9609b11fef739662166ad96e258cf1:cloudflare/src/utils/project-discord.ts:discord-client-secret:3
+# Asserted upstream source commit SHA, not an API key.
+84c6c4f67a7caeb633f2a39f658c6ebbd95a888b:cloudflare/tests/ejs-api-v2.mjs:generic-api-key:13

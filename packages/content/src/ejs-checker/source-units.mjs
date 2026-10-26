@@ -166,8 +166,7 @@ function appendHtmlText(builder, source, start, end, { attribute = false, foreig
   const entities = /<!\[CDATA\[|\]\]>|&(?:#x[0-9a-f]+;?|#[0-9]+;?|[a-z][a-z0-9]*;?)|\r\n?|\u0000/gi;
   let cursor = 0;
   let inCdata = false;
-  let match;
-  while ((match = entities.exec(text))) {
+  for (let match = entities.exec(text); match; match = entities.exec(text)) {
     let decoded = match[0];
     if (foreign && match[0] === "<![CDATA[") {
       inCdata = true;
@@ -224,8 +223,7 @@ export function firstAttributeLocations(source, tagLocation) {
   // Locate the first spelling in its parsed start tag to keep evidence aligned.
   const spelling = /([^\t\n\f\r /=>]+)(?:[\t\n\f\r ]*=[\t\n\f\r ]*(?:"[^"]*"|'[^']*'|[^\t\n\f\r >]*))?/g;
   spelling.lastIndex = nameEnd;
-  let match;
-  while ((match = spelling.exec(tag))) {
+  for (let match = spelling.exec(tag); match; match = spelling.exec(tag)) {
     const name = match[1].toLowerCase();
     if (!locations.has(name))
       locations.set(name, {

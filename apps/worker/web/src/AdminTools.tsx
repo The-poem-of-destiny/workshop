@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import {
   type AdminAuditEvent,
   type AdminMember,
@@ -160,9 +160,12 @@ export function AdminTools({
     }
   }
 
-  useEffect(() => {
+  const loadInitial = useEffectEvent(() => {
     void refresh();
     void loadAudit("");
+  });
+  useEffect(() => {
+    loadInitial();
   }, []);
 
   async function loadAudit(action: string, cursor?: string): Promise<void> {

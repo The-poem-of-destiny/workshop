@@ -39,6 +39,62 @@
       }
     }
   },
+  "overrides": [
+    {
+      "includes": ["apps/worker/web/src/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/worker/src/**",
+                      "**/src/storage/**",
+                      "**/src/http/**",
+                      "@workshop/worker",
+                      "@workshop/worker/**"
+                    ],
+                    "message": "Web must use shared contracts or HTTP, not Worker implementation imports."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/domain/src/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "@workshop/contracts",
+                      "@workshop/contracts/**",
+                      "@workshop/content",
+                      "@workshop/content/**",
+                      "**/contracts/src/**",
+                      "**/content/src/**",
+                      "**/apps/**"
+                    ],
+                    "message": "Pure domain rules must not depend on contracts, content or applications."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "javascript": {
     "formatter": {
       "quoteStyle": "double",

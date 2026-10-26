@@ -22,8 +22,7 @@ function parseDecorators(content) {
   }
   const invalidDecorators = [],
     re = /^@@(?!@)[^\r\n]*/gm;
-  let m;
-  while ((m = re.exec(src)))
+  for (let m = re.exec(src); m; m = re.exec(src))
     if (!validStarts.has(m.index)) invalidDecorators.push({ text: m[0].trim(), index: m.index });
   const names = decorators.map((x) => x.text.split(/\s+/, 1)[0]);
   return { decorators, isPrivate: names.includes("@@private"), invalidDecorators };

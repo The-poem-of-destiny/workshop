@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { type AuthorProject, type AuthorSubmission, api } from "../../api";
 import { ConfirmDialog } from "../../components/ui/confirm-dialog";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
+import { keyedItems } from "../../lib/keyedItems";
 import "../../styles/workspaces.css";
 import { AssetPicker } from "./authoring/AssetPicker";
 import { CheckPanel } from "./authoring/CheckPanel";
@@ -61,7 +62,7 @@ export function ProjectEditor({
   );
   const check = useMemo(() => runLocalCheck(worldbook, regexAssets), [worldbook, regexAssets]);
 
-  useEffect(() => {
+  const resetDraft = useEffectEvent(() => {
     assetGeneration.current += 1;
     selectionVersion.current += 1;
     cover.clear();
@@ -75,7 +76,16 @@ export function ProjectEditor({
     setWorldbookUploaded(false);
     setRegexUploaded(false);
     setSubmitNotice(null);
-  }, [entry.project.id, entry.workingRevisionId]);
+  });
+  const projectId = entry.project.id;
+  const entryRevisionId = entry.workingRevisionId;
+  const previousDraft = useRef<{ projectId: string; revisionId: string | null } | null>(null);
+  useEffect(() => {
+    if (previousDraft.current?.projectId !== projectId || previousDraft.current.revisionId !== entryRevisionId) {
+      previousDraft.current = { projectId, revisionId: entryRevisionId };
+      resetDraft();
+    }
+  }, [projectId, entryRevisionId]);
 
   useEffect(
     () => () => {
@@ -84,8 +94,12 @@ export function ProjectEditor({
     [],
   );
 
+  const coverRequest = useRef<{ generation: number } | null>(null);
+  const historyRequest = useRef<{ generation: number } | null>(null);
   useEffect(() => {
     let active = true;
+    const request = { generation: coverNonce };
+    coverRequest.current = request;
     let objectUrl: string | null = null;
     if (!workingRevisionId) {
       setCoverUrl(null);
@@ -94,12 +108,12 @@ export function ProjectEditor({
     api
       .authorCover(entry.project.id, workingRevisionId)
       .then((blob) => {
-        if (!active) return;
+        if (!active || coverRequest.current !== request) return;
         objectUrl = URL.createObjectURL(blob);
         setCoverUrl(objectUrl);
       })
       .catch(() => {
-        if (active) setCoverUrl(null);
+        if (active && coverRequest.current === request) setCoverUrl(null);
       });
     return () => {
       active = false;
@@ -109,15 +123,17 @@ export function ProjectEditor({
 
   useEffect(() => {
     let active = true;
+    const request = { generation: historyNonce };
+    historyRequest.current = request;
     api
       .authorSubmissions(entry.project.id)
       .then((response) => {
-        if (!active) return;
+        if (!active || historyRequest.current !== request) return;
         setSubmissions(response.items);
         setSubmissionError(null);
       })
       .catch((reason: unknown) => {
-        if (!active) return;
+        if (!active || historyRequest.current !== request) return;
         setSubmissions([]);
         setSubmissionError(reason instanceof Error ? reason.message : String(reason));
       });
@@ -536,8 +552,8 @@ export function ProjectEditor({
         <div className="findings">
           <strong>元数据提示</strong>
           <ul>
-            {metadataWarnings.map((item, index) => (
-              <li key={index}>
+            {keyedItems(metadataWarnings).map(({ item, key }) => (
+              <li key={key}>
                 {typeof item.field === "string" ? `${item.field}：` : ""}
                 {typeof item.message === "string" ? item.message : ""}
               </li>
@@ -593,8 +609,8 @@ export function ProjectEditor({
         {confirm?.kind === "warn" && check ? (
           check.warnings.length > 0 ? (
             <ul className="confirm-list">
-              {check.warnings.map((finding, index) => (
-                <li key={`${finding.ruleId}-${index}`}>
+              {keyedItems(check.warnings).map(({ item: finding, key }) => (
+                <li key={key}>
                   <strong>
                     [{finding.ruleId}] {finding.title}
                   </strong>

@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "publish:client": "node scripts/publish.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "devDependencies": {
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "typescript": "^7.0.2"
   }
 }

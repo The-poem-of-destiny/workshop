@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type {
   AdminSubmissionDetail,
   AdminSubmissionListItem,
@@ -7,6 +7,7 @@ import type {
 } from "../../api";
 import { ApiError, api } from "../../api";
 import { ConfirmDialog } from "../../components/ui/confirm-dialog";
+import { keyedItems } from "../../lib/keyedItems";
 import { CheckReportSection } from "./CheckReportView";
 import { bookLabel, gateLabels, isBlockingFinding, parseCheckReport } from "./check-report";
 import { buildReviewMarkdown, reviewMarkdownFileName, saveReviewMarkdown } from "./export-markdown";
@@ -267,8 +268,11 @@ export function AdminPanel({
     }
   }
 
+  const refreshFromEffect = useEffectEvent(() => void refresh());
+  const reportNotice = useEffectEvent((message: string) => onNotice(message));
+  const reportError = useEffectEvent((message: string) => onError(message));
   useEffect(() => {
-    void refresh();
+    refreshFromEffect();
   }, []);
 
   // Polls the open submission while its check is queued/running; never advances the queue.
@@ -290,7 +294,7 @@ export function AdminPanel({
             : previous,
         );
       }
-      onNotice(message);
+      reportNotice(message);
     };
     const tick = async () => {
       if (cancelled) return;
@@ -320,8 +324,8 @@ export function AdminPanel({
           }
           if (next.submission.status !== "pending") {
             setPolling(false);
-            onNotice("这条提交已不在待审队列，报告已刷新。");
-            void refresh();
+            reportNotice("这条提交已不在待审队列，报告已刷新。");
+            refreshFromEffect();
             return;
           }
           settle("检查已完成，报告已刷新。", toQueueCheckStatus(next.submission.checkStatus) ?? undefined);
@@ -331,7 +335,7 @@ export function AdminPanel({
       } catch (value) {
         if (cancelled) return;
         setPolling(false);
-        onError(String(value));
+        reportError(String(value));
       }
     };
     timer = window.setTimeout(() => void tick(), 4000);
@@ -844,8 +848,8 @@ export function AdminPanel({
                           </summary>
                           {diff.findings[group].length ? (
                             <ul>
-                              {diff.findings[group].map((finding, index) => (
-                                <li key={`${finding.ruleId}-${finding.file ?? "unknown"}-${index}`}>
+                              {keyedItems(diff.findings[group]).map(({ item: finding, key }) => (
+                                <li key={key}>
                                   <strong>{finding.severity}</strong>
                                   <span>{finding.message}</span>
                                   <small>
@@ -983,8 +987,8 @@ export function AdminPanel({
             </p>
             {blockingFindings.length ? (
               <ul>
-                {blockingFindings.map((finding, index) => (
-                  <li key={`${finding.ruleId}-${index}`}>
+                {keyedItems(blockingFindings).map(({ item: finding, key }) => (
+                  <li key={key}>
                     <code>{finding.ruleId}</code>
                     <span>{finding.title || "阻断项"}</span>
                     <small>
