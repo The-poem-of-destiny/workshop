@@ -19,7 +19,7 @@ import {
   SlidersHorizontal,
   X,
 } from "lucide-react";
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useEffectEvent, useRef, useState } from "react";
 import { AdminTools } from "./AdminTools";
 import { ApiError, api, type HomeResponse, type MeResponse, type ProjectSummary, setSessionToken } from "./api";
 import { Button } from "./components/ui/button";
@@ -154,7 +154,13 @@ export function App() {
     return () => observer.disconnect();
   }, []);
   const [avatarFailed, setAvatarFailed] = useState(false);
-  useEffect(() => setAvatarFailed(false), [me?.avatarUrl]);
+  const previousAvatar = useRef(me?.avatarUrl);
+  useEffect(() => {
+    if (previousAvatar.current !== me?.avatarUrl) {
+      previousAvatar.current = me?.avatarUrl;
+      setAvatarFailed(false);
+    }
+  }, [me?.avatarUrl]);
   useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(null), 4500);
@@ -172,11 +178,19 @@ export function App() {
   const isMobile = useIsMobile();
   const drawerToggle = useRef<HTMLButtonElement>(null);
   const drawerClose = useRef<HTMLButtonElement>(null);
+  const previousView = useRef(view);
+  const previousDrawerContext = useRef({ view, isMobile });
   useEffect(() => {
-    setSubscriptionOverrides({});
+    if (previousView.current !== view) {
+      previousView.current = view;
+      setSubscriptionOverrides({});
+    }
   }, [view]);
   useEffect(() => {
-    setSidebarOpen(false);
+    if (previousDrawerContext.current.view !== view || previousDrawerContext.current.isMobile !== isMobile) {
+      previousDrawerContext.current = { view, isMobile };
+      setSidebarOpen(false);
+    }
   }, [view, isMobile]);
   useEffect(() => {
     try {
@@ -227,7 +241,7 @@ export function App() {
       });
     };
   }, [isMobile, sidebarOpen]);
-  const listRequest = useRef(0);
+  const listRequest = useRef<{ retry: number } | null>(null);
   const embedded = new URLSearchParams(location.search).get("embed") === "1";
   function postToHost(payload: Record<string, unknown>): void {
     if (window.parent !== window) window.parent.postMessage(payload, "*");
@@ -368,13 +382,15 @@ export function App() {
     setError(null);
     postToHost({ type: "cw:scan" });
   }
+  const refreshSession = useEffectEvent(() => void refreshMe());
+  const sendHostMessage = useEffectEvent((payload: Record<string, unknown>) => postToHost(payload));
   useEffect(() => {
     api
       .home()
       .then(setHome)
       .catch((reason) => setError(String(reason)));
-    void refreshMe();
-    if (embedded) postToHost({ type: "cw:ready" });
+    refreshSession();
+    if (embedded) sendHostMessage({ type: "cw:ready" });
     const onMessage = (event: MessageEvent): void => {
       if (event.source !== window.parent) return;
       const data: { type?: unknown; [key: string]: unknown } = event.data;
@@ -390,7 +406,7 @@ export function App() {
             ? data.conflicts.filter((value): value is string => typeof value === "string")
             : [];
           setInstallConflicts(conflicts.length > 0 ? conflicts : null);
-          postToHost({ type: "cw:request-context" });
+          sendHostMessage({ type: "cw:request-context" });
         }
       } else if (data.type === "cw:uninstall-result") {
         setInstalling(false);
@@ -404,7 +420,7 @@ export function App() {
               : "卸载完成。"
             : `卸载失败：${String(data.message ?? "")}`,
         );
-        if (data.ok) postToHost({ type: "cw:request-context" });
+        if (data.ok) sendHostMessage({ type: "cw:request-context" });
       } else if (data.type === "cw:scan-result") {
         setScanning(false);
         if (data.ok) {
@@ -431,7 +447,8 @@ export function App() {
   const pageCursor = pageCursors[pageIndex];
   useEffect(() => {
     let cancelled = false;
-    const requestId = ++listRequest.current;
+    const requestId = { retry: listRetry };
+    listRequest.current = requestId;
     setListLoading(true);
     setLoadedQuery("");
     setError(null);
@@ -495,6 +512,7 @@ export function App() {
     if (newlyCreatedProjectId === null) return;
     setNewlyCreatedProjectId(null);
   }, [newlyCreatedProjectId]);
+  const installedRequest = useRef<{ active: boolean; generation: number } | null>(null);
   useEffect(() => {
     if (!context?.connected) {
       setInstalledProjects({});
@@ -502,14 +520,15 @@ export function App() {
       setInstalledLoading(false);
       return;
     }
-    const ids = Object.keys(context.registry ?? {});
+    const ids = Object.keys(JSON.parse(registryKey) as HostContext["registry"]);
     if (ids.length === 0) {
       setInstalledProjects({});
       setInstalledFailed({});
       setInstalledLoading(false);
       return;
     }
-    let active = true;
+    const request = { active: true, generation: installedReload };
+    installedRequest.current = request;
     setInstalledLoading(true);
     void Promise.all(
       ids.map(async (id) => {
@@ -522,7 +541,7 @@ export function App() {
         }
       }),
     ).then((entries) => {
-      if (!active) return;
+      if (!request.active || installedRequest.current !== request) return;
       setInstalledProjects(Object.fromEntries(entries.map((entry) => [entry.id, entry.project] as const)));
       setInstalledFailed(
         Object.fromEntries(entries.filter((entry) => entry.failed).map((entry) => [entry.id, true] as const)),
@@ -530,7 +549,7 @@ export function App() {
       setInstalledLoading(false);
     });
     return () => {
-      active = false;
+      request.active = false;
     };
   }, [context?.connected, registryKey, installedReload]);
   function clearFilters(): void {

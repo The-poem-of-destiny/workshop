@@ -1,4 +1,5 @@
 import { type ReactNode, useMemo } from "react";
+import { keyedItems } from "./keyedItems";
 
 /**
  * Renders a deliberately small, safe Markdown subset:
@@ -170,9 +171,9 @@ function renderInline(text: string, keyBase: string, depth = 0, allowLinks = tru
 
 function renderLines(lines: string[], keyBase: string): ReactNode[] {
   const nodes: ReactNode[] = [];
-  lines.forEach((line, lineIndex) => {
-    if (lineIndex > 0) nodes.push(<br key={`${keyBase}-br-${lineIndex}`} />);
-    nodes.push(...renderInline(line, `${keyBase}-line-${lineIndex}`));
+  keyedItems(lines).forEach(({ item: line, key }, lineIndex) => {
+    if (lineIndex > 0) nodes.push(<br key={`${keyBase}-br-${key}`} />);
+    nodes.push(...renderInline(line, `${keyBase}-line-${key}`));
   });
   return nodes;
 }
@@ -292,8 +293,8 @@ function renderBlock(block: Block, index: number): ReactNode {
       const List = block.ordered ? "ol" : "ul";
       return (
         <List key={key} className="md-list">
-          {block.items.map((item, itemIndex) => (
-            <li key={`${key}-item-${itemIndex}`}>{renderInline(item, `${key}-item-${itemIndex}`)}</li>
+          {keyedItems(block.items).map(({ item, key: itemKey }) => (
+            <li key={`${key}-item-${itemKey}`}>{renderInline(item, `${key}-item-${itemKey}`)}</li>
           ))}
         </List>
       );

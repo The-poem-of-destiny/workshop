@@ -1,3 +1,4 @@
+import { keyedItems } from "../../../lib/keyedItems";
 import {
   buildFixPrompt,
   buildReportMarkdown,
@@ -91,8 +92,8 @@ export function CheckPanel({
                   </span>
                 </summary>
                 <div className="check-group-body">
-                  {group.findings.map((finding, index) => (
-                    <div className={`check-finding is-${finding.severity}`} key={`${finding.ruleId}-${index}`}>
+                  {keyedItems(group.findings).map(({ item: finding, key }) => (
+                    <div className={`check-finding is-${finding.severity}`} key={key}>
                       <div className="check-finding-title">
                         <strong>
                           [{finding.ruleId}] {finding.title}

@@ -308,8 +308,7 @@ function isGeneratedCharInfoMediaNode(node, parentByNode) {
 function directUrls(content) {
   const items = [];
   const pattern = /(?:https?:\/\/|\/\/)(?:\[[0-9a-f:]+\]|(?:[a-z0-9-]+\.)+[a-z0-9-]+)(?:[^\s"'<>\\)\]]*)/gi;
-  let match;
-  while ((match = pattern.exec(content)))
+  for (let match = pattern.exec(content); match; match = pattern.exec(content))
     items.push({ url: match[0].replace(/[;,\]}]+$/, ""), index: match.index, end: pattern.lastIndex });
   return items;
 }
@@ -476,9 +475,8 @@ export function collectEntryExternalLinkTargets(entry, parsed) {
       if (node.type === "MemberExpression" && parent?.type === "AssignmentExpression" && parent.left === node) continue;
       if ((parent?.type === "BinaryExpression" && parent.operator === "+") || parent?.type === "TemplateLiteral")
         continue;
-      let ancestor = node,
-        usage = mediaContext(node, scope, parents, analysis) || mediaNodes.has(node) ? "media" : "unknown";
-      while ((ancestor = parents.get(ancestor))) {
+      let usage = mediaContext(node, scope, parents, analysis) || mediaNodes.has(node) ? "media" : "unknown";
+      for (let ancestor = parents.get(node); ancestor; ancestor = parents.get(ancestor)) {
         if (navigation.has(ancestor)) {
           usage = "navigation";
           break;
@@ -530,13 +528,11 @@ export function collectEntryExternalLinkTargets(entry, parsed) {
     );
     const declarations =
       /(?:^|[;{])\s*(?:background(?:-image)?|border-image(?:-source)?|list-style(?:-image)?|mask(?:-image)?|(?:-webkit-)?mask(?:-image)?|content|cursor)\s*:\s*([^;}]+)/gi;
-    let declaration;
-    while ((declaration = declarations.exec(code))) {
+    for (let declaration = declarations.exec(code); declaration; declaration = declarations.exec(code)) {
       const valueStart = declaration.index + declaration[0].length - declaration[1].length;
       const value = css.slice(valueStart, valueStart + declaration[1].length);
       const urls = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^\s)]*))\s*\)/gi;
-      let match;
-      while ((match = urls.exec(value))) {
+      for (let match = urls.exec(value); match; match = urls.exec(value)) {
         const offset = valueStart + match.index;
         if (code.slice(offset, offset + 3).toLowerCase() !== "url" || /[\w-]/.test(code[offset - 1] ?? "")) continue;
         const index = start + offset;
@@ -611,8 +607,7 @@ export function collectEntryExternalLinkTargets(entry, parsed) {
     if (node.tagName !== "template") pending.push(...(node.childNodes ?? []));
   }
   const markdown = /(!?)\[[^\]\r\n]*\]\((https?:\/\/[^\s)]+|\/\/[^\s)]+)(?:\s+"[^"]*")?\)/gi;
-  let match;
-  while ((match = markdown.exec(source))) {
+  for (let match = markdown.exec(source); match; match = markdown.exec(source)) {
     covered.push({ start: match.index, end: markdown.lastIndex });
     addTarget(match[2], match.index, match[1] ? "media" : "navigation", match[1] ? "markdown.image" : "markdown.link");
   }

@@ -165,9 +165,6 @@ h3 {
   justify-content: space-between;
   gap: 8px;
 }
-.sidebar-drawer-head .sidebar-section-label {
-  margin: 0;
-}
 .sidebar-close {
   display: grid;
   place-items: center;
@@ -193,6 +190,9 @@ h3 {
   font-size: 12px;
   letter-spacing: 0;
 }
+.sidebar-drawer-head .sidebar-section-label {
+  margin: 0;
+}
 .sidebar-nav {
   display: grid;
   gap: 2px;
@@ -210,11 +210,6 @@ h3 {
   font-size: 14px;
   text-align: left;
 }
-.sidebar-nav button svg {
-  width: 15px;
-  height: 15px;
-  color: var(--dim);
-}
 .sidebar-nav button:hover {
   background: rgba(255, 255, 255, 0.045);
   color: #e5e4e1;
@@ -223,9 +218,6 @@ h3 {
   border-color: rgba(190, 164, 125, 0.19);
   background: rgba(190, 164, 125, 0.11);
   color: #e0cba7;
-}
-.sidebar-nav button.active svg {
-  color: #c8aa78;
 }
 .sidebar-filters {
   display: grid;
@@ -625,11 +617,6 @@ h3 {
   align-items: center;
   gap: 5px;
 }
-.active-filters .filter-chip svg {
-  width: 12px;
-  height: 12px;
-  opacity: 0.7;
-}
 .active-filters-clear {
   padding: 3px 7px;
   border: 0;
@@ -693,6 +680,19 @@ h3 {
 .conflicts-panel-head svg {
   width: 16px;
   height: 16px;
+}
+.sidebar-nav button svg {
+  width: 15px;
+  height: 15px;
+  color: var(--dim);
+}
+.active-filters .filter-chip svg {
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+}
+.sidebar-nav button.active svg {
+  color: #c8aa78;
 }
 .conflicts-panel-hint {
   margin: 4px 0 8px;

@@ -79,17 +79,6 @@
 .card-content-counts > span:not(.card-version) {
   flex-shrink: 0;
 }
-.project-card--cards .card-media > .card-more {
-  position: absolute;
-  z-index: 1;
-  top: 6px;
-  right: 6px;
-}
-.project-card--cards .card-media .card-more summary {
-  border-radius: 50%;
-  background: rgba(21, 22, 25, 0.82);
-  color: #ececea;
-}
 .card-cover-button {
   display: block;
   width: 100%;
@@ -179,14 +168,21 @@
 .card-more summary::-webkit-details-marker {
   display: none;
 }
-.card-more summary svg {
-  width: 18px;
-  height: 18px;
-}
 .card-more summary:hover,
 .card-more[open] summary {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text);
+}
+.project-card--cards .card-media > .card-more {
+  position: absolute;
+  z-index: 1;
+  top: 6px;
+  right: 6px;
+}
+.project-card--cards .card-media .card-more summary {
+  border-radius: 50%;
+  background: rgba(21, 22, 25, 0.82);
+  color: #ececea;
 }
 .card-more-actions {
   position: absolute;
@@ -315,6 +311,10 @@
   height: 14px;
   flex: none;
   stroke-width: 2;
+}
+.card-more summary svg {
+  width: 18px;
+  height: 18px;
 }
 .card-stat-group .card-stat-icon {
   display: block;

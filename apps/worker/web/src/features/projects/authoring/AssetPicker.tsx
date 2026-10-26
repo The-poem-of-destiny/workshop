@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { keyedItems } from "../../../lib/keyedItems";
 import { contentRequirementHint, fileKey, formatBytes, type RegexAsset, type WorldbookAsset } from "./preview";
 
 function Dropzone({
@@ -136,8 +137,8 @@ export function AssetPicker({
                 </p>
               ) : (
                 <ul className="asset-entry-list">
-                  {worldbook.entries.map((entry, index) => (
-                    <li className="asset-entry" key={`${entry.name}-${index}`}>
+                  {keyedItems(worldbook.entries).map(({ item: entry, key }) => (
+                    <li className="asset-entry" key={key}>
                       <div className="asset-entry-title">
                         <strong>{entry.name}</strong>
                         <span className={`asset-badge${entry.enabled ? "" : " is-off"}`}>
@@ -215,8 +216,8 @@ export function AssetPicker({
                     {asset.file.name} · {asset.entries.length} 条
                   </summary>
                   <ul className="asset-entry-list">
-                    {asset.entries.map((entry, index) => (
-                      <li className="asset-entry" key={`${entry.scriptName}-${index}`}>
+                    {keyedItems(asset.entries).map(({ item: entry, key }) => (
+                      <li className="asset-entry" key={key}>
                         <div className="asset-entry-title">
                           <strong>{entry.scriptName}</strong>
                           {entry.disabled ? <span className="asset-badge is-off">停用</span> : null}

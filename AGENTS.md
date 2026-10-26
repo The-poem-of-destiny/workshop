@@ -9,6 +9,8 @@ This repository is the standalone Creative Workshop for the card project: the Si
 
 Read the relevant skill before starting work; do not rely on memory of it.
 
+- Before adding, changing or deleting tests, diagnosing test failures, or choosing a verification strategy, read [test-maintenance](.agents/skills/test-maintenance/SKILL.md). It owns permanent-test admission and maintenance tradeoffs, including when to reuse static checks or use temporary runtime evidence instead.
+
 ## Canonical refs
 
 - `origin/main` is the integration branch and the base for all work.

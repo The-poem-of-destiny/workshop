@@ -177,11 +177,6 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
-.review-detail dl > div {
-  padding: 8px;
-  border-radius: 4px;
-  background: #151619;
-}
 .review-detail dt {
   color: var(--dim);
   font-size: 10px;
@@ -211,6 +206,11 @@
   border-radius: 5px;
   background: #151619;
   font-size: 12px;
+}
+.review-detail dl > div {
+  padding: 8px;
+  border-radius: 4px;
+  background: #151619;
 }
 .diff-grid p,
 .diff-grid ul {

@@ -1,16 +1,16 @@
-.detail {
-  display: flex !important;
-  width: min(calc(100vw - 32px), 1480px) !important;
-  max-width: 1480px !important;
+[role="dialog"].detail {
+  display: flex;
+  width: min(calc(100vw - 32px), 1480px);
+  max-width: 1480px;
   height: calc(100dvh - 48px);
   max-height: calc(100dvh - 48px);
   flex-direction: column;
-  padding: 0 !important;
+  padding: 0;
 }
 
-.detail-header {
+.detail .detail-header {
   flex: none;
-  padding: 16px 56px 12px 20px !important;
+  padding: 16px 56px 12px 20px;
 }
 
 .detail-header h2 {
@@ -203,14 +203,6 @@
   font-size: 16px;
 }
 
-.rail-section .actions {
-  margin-top: 8px;
-}
-
-.rail-section .hint {
-  margin: 8px 0 0;
-}
-
 .rail-muted,
 .hint {
   margin: 0;
@@ -334,6 +326,13 @@
   gap: 7px;
   margin-top: 12px;
 }
+.rail-section .actions {
+  margin-top: 8px;
+}
+
+.rail-section .hint {
+  margin: 8px 0 0;
+}
 
 .actions button,
 .secondary-link {
@@ -385,10 +384,10 @@
   gap: 12px;
 }
 
-.preview-note,
+.detail-section .preview-note,
 .preview-revision {
   color: var(--muted);
-  font-size: 12px !important;
+  font-size: 12px;
 }
 
 .preview-heading .preview-note {
@@ -521,8 +520,8 @@
 }
 
 @media (max-width: 900px) {
-  .detail {
-    width: calc(100vw - 16px) !important;
+  [role="dialog"].detail {
+    width: calc(100vw - 16px);
     height: calc(100dvh - 16px);
     max-height: calc(100dvh - 16px);
   }
@@ -552,8 +551,8 @@
 }
 
 @media (max-width: 560px) {
-  .detail-header {
-    padding: 14px 48px 10px 14px !important;
+  .detail .detail-header {
+    padding: 14px 48px 10px 14px;
   }
 
   .media-stage {

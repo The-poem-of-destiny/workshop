@@ -594,22 +594,6 @@
   line-height: 1.45;
 }
 
-.review-findings li strong {
-  color: var(--warning);
-  font-size: 11px;
-  text-transform: uppercase;
-}
-
-.review-findings li span {
-  overflow-wrap: anywhere;
-}
-
-.review-findings li small {
-  grid-column: 2;
-  color: var(--muted);
-  font-size: 11px;
-}
-
 .review-assets {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1005,11 +989,6 @@
   font-size: 12.5px;
 }
 
-.review-external-links h4 span {
-  color: var(--muted);
-  font-weight: 400;
-}
-
 .review-external-links ul {
   display: grid;
   gap: 6px;
@@ -1303,6 +1282,11 @@
   font-size: 11px;
 }
 
+.review-external-links h4 span {
+  color: var(--muted);
+  font-weight: 400;
+}
+
 .review-source-code {
   max-height: 340px;
   overflow: auto;
@@ -1443,6 +1427,22 @@
 
 .review-manual-gate small {
   color: var(--dim);
+  font-size: 11px;
+}
+
+.review-findings li strong {
+  color: var(--warning);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.review-findings li span {
+  overflow-wrap: anywhere;
+}
+
+.review-findings li small {
+  grid-column: 2;
+  color: var(--muted);
   font-size: 11px;
 }
 
