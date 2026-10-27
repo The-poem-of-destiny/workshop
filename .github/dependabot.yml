@@ -7,10 +7,12 @@ updates:
     open-pull-requests-limit: 5
     groups:
       production:
+        applies-to: version-updates
         dependency-type: production
         update-types: ["minor", "patch"]
       development:
         dependency-type: development
+        applies-to: version-updates
         update-types: ["minor", "patch"]
   - package-ecosystem: github-actions
     directory: "/"
