@@ -80,6 +80,60 @@ function findingLines(finding: CheckFinding, sources: SourceFile[], heading: str
   return lines;
 }
 
+function appendReportLines(lines: string[], report: CheckReport, sources: SourceFile[]): void {
+  const links = summarizeExternalLinks(report);
+  if (links.length) {
+    lines.push("## 报告中的外部链接", "");
+    for (const link of links) {
+      lines.push(
+        `- ${link.dynamic ? "动态候选" : "静态 URL"}：${link.url}（${link.rules.join(" / ")}${link.count > 1 ? `，${link.count} 处` : ""}）`,
+      );
+    }
+    lines.push("");
+  }
+  lines.push("## 检查发现", "");
+  const groups = groupFindings(report.findings);
+  if (!groups.length) lines.push("当前没有自动检查项。", "");
+  for (const group of groups) {
+    lines.push(`### 条目：${groupLabel(group)}${group.book ? `（${group.book}）` : ""}`, "");
+    group.findings.forEach((finding, index) => {
+      lines.push(...findingLines(finding, sources, `#### ${index + 1}.`));
+    });
+  }
+}
+
+function appendDiffLines(lines: string[], diff: SubmissionDiff): void {
+  lines.push("## 变更摘要", "");
+  for (const kind of ["worldbook", "regex"] as const) {
+    const change = diff[kind];
+    lines.push(
+      `- ${kind === "worldbook" ? "世界书" : "正则"}：新增 ${change.added.length} · 修改 ${change.modified.length} · 删除 ${change.deleted.length} · 未变 ${change.unchanged}`,
+    );
+    for (const entries of [change.added, change.modified, change.deleted]) {
+      for (const entry of entries) {
+        lines.push(`  - ${entry.name}（${entry.entryKey}）`);
+      }
+    }
+  }
+  lines.push(`- 封面：${diff.cover.changed ? "已变更" : "未变更"}`, "");
+  lines.push("### 检查项差异", "");
+  const labels: Record<"accepted" | "changed" | "added" | "removed", string> = {
+    accepted: "保留",
+    changed: "变更",
+    added: "新增",
+    removed: "移除",
+  };
+  for (const key of ["accepted", "changed", "added", "removed"] as const) {
+    lines.push(`- ${labels[key]} ${diff.findings[key].length} 项`);
+    for (const finding of diff.findings[key]) {
+      lines.push(
+        `  - [${finding.severity}] ${finding.message || "（无标题）"} · ${finding.file ?? "未标记文件"}${finding.line === null ? "" : `:${finding.line}`}`,
+      );
+    }
+  }
+  lines.push("");
+}
+
 /** Review hand-off document. Every submitter-provided excerpt is marked as untrusted data. */
 export function buildReviewMarkdown({
   detail,
@@ -142,57 +196,8 @@ export function buildReviewMarkdown({
   }
   lines.push("");
 
-  if (report) {
-    const links = summarizeExternalLinks(report);
-    if (links.length) {
-      lines.push("## 报告中的外部链接", "");
-      for (const link of links) {
-        lines.push(
-          `- ${link.dynamic ? "动态候选" : "静态 URL"}：${link.url}（${link.rules.join(" / ")}${link.count > 1 ? `，${link.count} 处` : ""}）`,
-        );
-      }
-      lines.push("");
-    }
-    lines.push("## 检查发现", "");
-    const groups = groupFindings(report.findings);
-    if (!groups.length) lines.push("当前没有自动检查项。", "");
-    for (const group of groups) {
-      lines.push(`### 条目：${groupLabel(group)}${group.book ? `（${group.book}）` : ""}`, "");
-      group.findings.forEach((finding, index) => {
-        lines.push(...findingLines(finding, sources, `#### ${index + 1}.`));
-      });
-    }
-  }
-
-  if (diff) {
-    lines.push("## 变更摘要", "");
-    for (const kind of ["worldbook", "regex"] as const) {
-      const change = diff[kind];
-      lines.push(
-        `- ${kind === "worldbook" ? "世界书" : "正则"}：新增 ${change.added.length} · 修改 ${change.modified.length} · 删除 ${change.deleted.length} · 未变 ${change.unchanged}`,
-      );
-      for (const entry of [...change.added, ...change.modified, ...change.deleted]) {
-        lines.push(`  - ${entry.name}（${entry.entryKey}）`);
-      }
-    }
-    lines.push(`- 封面：${diff.cover.changed ? "已变更" : "未变更"}`, "");
-    lines.push("### 检查项差异", "");
-    const labels: Record<"accepted" | "changed" | "added" | "removed", string> = {
-      accepted: "保留",
-      changed: "变更",
-      added: "新增",
-      removed: "移除",
-    };
-    for (const key of ["accepted", "changed", "added", "removed"] as const) {
-      lines.push(`- ${labels[key]} ${diff.findings[key].length} 项`);
-      for (const finding of diff.findings[key]) {
-        lines.push(
-          `  - [${finding.severity}] ${finding.message || "（无标题）"} · ${finding.file ?? "未标记文件"}${finding.line === null ? "" : `:${finding.line}`}`,
-        );
-      }
-    }
-    lines.push("");
-  }
+  if (report) appendReportLines(lines, report, sources);
+  if (diff) appendDiffLines(lines, diff);
 
   lines.push(
     "## 审核结论",

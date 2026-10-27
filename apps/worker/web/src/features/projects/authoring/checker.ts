@@ -90,6 +90,42 @@ export function runLocalCheck(worldbook: WorldbookAsset | null, regexAssets: rea
 
 type PromptSource = { label: string; book: string; language: string; content: string };
 
+function appendWorldbookSource(
+  sources: PromptSource[],
+  seen: Set<string>,
+  worldbook: WorldbookAsset | null,
+  book: string,
+  name: string,
+): boolean {
+  if (!worldbook || (book && book !== worldbook.file.name)) return false;
+  const entry = worldbook.entries.find((entry) => entry.name === name);
+  if (!entry) return false;
+  const key = `${worldbook.file.name}\u0000${entry.name}`;
+  if (!seen.has(key)) {
+    seen.add(key);
+    sources.push({ label: entry.name, book: worldbook.file.name, language: "text", content: entry.content });
+  }
+  return true;
+}
+
+function appendRegexSources(
+  sources: PromptSource[],
+  seen: Set<string>,
+  regexAssets: readonly RegexAsset[],
+  book: string,
+  name: string,
+): void {
+  for (const asset of regexAssets) {
+    if (book && asset.file.name !== book) continue;
+    const entry = asset.entries.find((entry) => entry.scriptName === name);
+    if (!entry) continue;
+    const key = `${asset.file.name}\u0000${entry.scriptName}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    sources.push({ label: entry.scriptName, book: asset.file.name, language: "javascript", content: entry.source });
+  }
+}
+
 function promptSources(
   findings: readonly CheckerFinding[],
   worldbook: WorldbookAsset | null,
@@ -104,36 +140,8 @@ function promptSources(
       .filter(Boolean);
     for (const name of names) {
       const book = finding.book.trim();
-      const worldbookEntry =
-        worldbook && (!book || book === worldbook.file.name)
-          ? worldbook.entries.find((entry) => entry.name === name)
-          : undefined;
-      if (worldbookEntry && worldbook) {
-        const key = `${worldbook.file.name}\u0000${worldbookEntry.name}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        sources.push({
-          label: worldbookEntry.name,
-          book: worldbook.file.name,
-          language: "text",
-          content: worldbookEntry.content,
-        });
-        continue;
-      }
-      for (const asset of regexAssets) {
-        if (book && asset.file.name !== book) continue;
-        const regexEntry = asset.entries.find((entry) => entry.scriptName === name);
-        if (!regexEntry) continue;
-        const key = `${asset.file.name}\u0000${regexEntry.scriptName}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        sources.push({
-          label: regexEntry.scriptName,
-          book: asset.file.name,
-          language: "javascript",
-          content: regexEntry.source,
-        });
-      }
+      if (appendWorldbookSource(sources, seen, worldbook, book, name)) continue;
+      appendRegexSources(sources, seen, regexAssets, book, name);
     }
   }
   if (
