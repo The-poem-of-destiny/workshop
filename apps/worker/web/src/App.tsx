@@ -126,6 +126,7 @@ export function App() {
     refreshSession();
   }, []);
   const selectedInstallState = selected ? installationState(selected) : "notInstalled";
+
   function applyTag(value: string): void {
     setView("browse");
     setTag((current) => (current === value ? "" : value));

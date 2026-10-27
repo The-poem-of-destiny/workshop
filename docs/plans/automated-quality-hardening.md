@@ -189,10 +189,10 @@ flowchart TD
 - 职责治理覆盖 checker 来源／AST／能力规则、ContentService 模式与 claim、作者／管理存储域、安装世界书／Regex／registry、迁移实体／资产／验证，以及前端 shell／工作区／详情。
 - 阻断范围：手写生产非 JSX 与非测试 tools 为认知复杂度 40、函数 120、文件 600；TSX 为 60／300／700，行数跳过空行。测试（含 E2E）不按生产函数标准约束。六项阈值均用边界值通过／超限拒绝故障注入验真；15 个非测试 tools 在相同阈值下通过，无需额外整改。CSS 700 的试点会要求仅为行数拆散三个界面样式域，未证明净收益，故不采用；保留原全产物体积预算。不按当前最大值抬线，最终独立审查与运行验收仍在进行。
 - 循环门禁复用现有 Knip 6 的 `cycles`（error），不新增图工具。dependency-cruiser 试点有效，但需专用 TS6 解析器；相对现有能力的边际收益不足，已移除。Knip 临时注入已证明真实入口可达的运行时／混合导入循环、跨 workspace、前端 TSX（含 `.js`→`.tsx`）、content 的实际 `.mjs` export 会失败，纯类型与动态导入循环不阻断。保留现有 entry，不用 `--production`（实测漏掉 Worker 入口）；不扫描未达入口的孤立循环，不将其声称为全源码等价覆盖。
-- 延迟加载作者／审核／管理视图，开启 Vite manifest；同依赖、Vite 8.3.4、Node 22.23.1／zlib 1.3.1-e00f703、逐文件默认 gzip 下，结构前 `95fe35e` 初始 JS／CSS 为 249353／19061 B，治理后为 118166／15911 B；全资源由 249353／19061 B 增为 258984／19794 B。首屏 JS 降低 52.61%，总量上升，未抬预算。入口指标只计 manifest 静态导入闭包，不计 dynamic imports；旧 247892 B 基线未在同口径复现，不采用。
+- 延迟加载作者／审核／管理视图，开启 Vite manifest；同依赖、Vite 8.3.4、Node 22.23.1／zlib 1.3.1-e00f703、逐文件默认 gzip 下，结构前 `95fe35e` 初始 JS／CSS 为 249353／19061 B，最终治理后为 118168／15911 B；全资源由 249353／19061 B 增为 258975／19794 B。首屏 JS 降低约 52.61%，总量上升，未抬预算。入口指标只计 manifest 静态导入闭包，不计 dynamic imports；旧 247892 B 基线未在同口径复现，不采用。
 - 整合 `pnpm check` 全链通过（Worker 87、domain 23、content 7、client 6，迁移／导出／备份及安全策略检查通过）；client 实际 bundle 构建通过。checker 临时差分 1552 次零差异，安装真实算法在协议宿主中 26 场景与基线一致；不冒充真实 SillyTavern 验证。
 - 本地 workerd／D1／R2／Chromium E2E 21/21；作者、创建、管理、审核 chunk 实际按导航请求且均 200。额外延迟首次 MyProjects chunk 场景验证：旧提前清 hint 的隔离构建失败，修复为实际挂载后消费则 22/22 通过；保留原永久套件，临时脚本与构建已清理。已有 harness 空白文档 sessionStorage 注入产生六次 pageerror、未配封面场景三个 404，未声称零 console 错误。
-- 独立审查发现并修复遗漏测试 import、首次 lazy 创建选择丢失、超大 Markdown 参数展开三项问题。最后一项已实际复现 150000 删除条目 RangeError，修复后输出 4129217 B 且小型输出逐字节一致；复核未发现其余新增 P1/P2。PR 及远端 CI 尚待完成。
+- 独立审查发现并修复遗漏测试 import、首次 lazy 创建选择丢失、超大 Markdown 参数展开三项问题。最后一项已实际复现 150000 删除条目 RangeError，修复后输出 4129217 B 且小型输出逐字节一致；复核未发现其余新增 P1/P2。[PR #39](https://github.com/The-poem-of-destiny/workshop/pull/39) 结构重构与 [PR #40](https://github.com/The-poem-of-destiny/workshop/pull/40) 资源优化均通过 check／e2e／secrets 并独立 squash 合并；[PR #41](https://github.com/The-poem-of-destiny/workshop/pull/41) 门禁策略仍待远端 CI。
 
 ## 官方依据
 
