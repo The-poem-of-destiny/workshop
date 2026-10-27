@@ -28,6 +28,8 @@ workshop/
 └─ .agents/                  # 项目级 Agent 规则、notes、skills 与共享规范
 ```
 
+源码导航：[`apps/README.md`](apps/README.md)、[`packages/README.md`](packages/README.md)、[`tools/README.md`](tools/README.md)。按目录定位职责、边界与权威入口；编写及维护规则见 [`AGENTS.md`](AGENTS.md#directory-readmes)。
+
 ## 后端与客户端
 
 唯一 Worker 位于 [`apps/worker/src/index.ts`](apps/worker/src/index.ts)，技术栈为 Cloudflare Workers + Hono，数据存储为 D1，文件存储为 R2，静态站点通过 Static Assets 提供。
