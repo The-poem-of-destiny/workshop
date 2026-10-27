@@ -76,6 +76,7 @@ pnpm e2e:local             # 真实 workerd + 本地 D1/R2 + Chromium E2E
 - `pnpm check:cycles` 复用同一个 Knip，静态运行时循环以 error 阻断；实际入口可达的 TS／TSX、workspace runtime exports 在范围内。纯类型边和动态导入不参与，未达入口的孤立循环不在保障范围；不使用会漏掉当前 Worker 入口的 `--production`，不新增依赖图工具或第二套 TypeScript。
 - pnpm 显式设置 `minimumReleaseAge: 1440`，保留安装脚本白名单 `esbuild`／`workerd`；不保留已过期的 Cloudflare 冷静期例外。CI 冻结 lockfile；安全更新若确需例外，应限定具体版本并重新审查，不全局关闭策略。
 - `pnpm check` 使用 Biome `--error-on-warnings`；警告也阻断。Web 不得导入 Worker 实现，domain 不得反向依赖应用／contracts／content；规则在 `biome.json`，这是导入路径限制而非完整依赖图／循环分析。客户端生产 TS 与 Vite 配置纳入类型检查。
+- Biome 2.6 的 Markdown／YAML formatter 显式关闭，维持升级前的格式门禁范围；不批量重写文档、工作流或 pnpm 生成的 lockfile。对应 linter 与既有 JS／TS／JSON formatter 保持启用。新增语言格式规范如需采用，应单独评估并迁移。
 - 构建之后 `pnpm check:bundle` 汇总 dist 中全部 JS/CSS 各自 gzip 的大小，包括动态非首屏 chunk；不是精确首屏指标。上限 JS 320 KiB、CSS 32 KiB、合计 352 KiB，保留功能余量；不能通过拆 chunk、改 Vite 提示阈值或自动更新预算绕过。预算变动须说明用户收益与增量，缺失产物失败。
 - CI `secrets` job 使用固定版本及 SHA-256 校验的 Gitleaks 二进制，扫描可达 Git 历史且输出脱敏，不需要付费 Action 或读取个人 `.env`。本地可用同版本执行 `gitleaks git --redact --no-banner --log-opts="--all" .`；提交前另用 `gitleaks git --redact --no-banner --pre-commit --staged .` 检查暂存内容。`.gitleaksignore` 只允许经核实的精确历史误报指纹，不能整类排除。它不能代替服务端 push protection，也不证明历史从未泄露。
 - 手写生产非 JSX 与非测试 tools 的 Biome 上限为认知复杂度 40、函数 120 行、文件 600 行；TSX 为 60／300／700，行数跳过空行。测试（含 E2E）不按生产函数阈值约束；CSS 不设文件行数门禁，以现有全产物预算约束体积，避免只为行数拆分样式并引入级联风险。阈值是重构触发器，不替代职责与行为审查，不允许用薄包装、批量 suppress 或排除生产目录过关。测试准入和维护取舍见 [test-maintenance](.agents/skills/test-maintenance/SKILL.md)。
