@@ -6,6 +6,7 @@ This repository is the standalone Creative Workshop for the card project: the Si
 
 - `docs/AGENTS.md` — document homes, authority and writing rules.
 - `.agents/AGENTS.md` — project-local notes, skills and shared resources.
+- Before exploring `apps/`, `packages/` or `tools/`, read that directory's `README.md`; read a child README when entering its subtree. Load only the branch relevant to the task, not all READMEs up front.
 
 Read the relevant skill before starting work; do not rely on memory of it.
 
@@ -63,6 +64,15 @@ Report the commands actually run, their result, and the acceptance item they cov
 - Current progress, task status, sessions, logs, caches and generated output belong to runtime storage or the relevant task record, not to `docs/`.
 
 Give every durable fact one authoritative home and link to it elsewhere. Do not copy the same rule, schema or contract into multiple layers.
+
+### Directory READMEs
+
+- `apps/README.md`, `packages/README.md` and `tools/README.md` are descriptive navigation for capable AI agents. Add an immediate-child README only when it resolves a distinct responsibility, entry point or boundary that the parent cannot explain concisely; no per-file documentation requirement.
+- State stable responsibilities, ownership boundaries, task-to-subtree routing and authoritative entry points. Use precise, compact statements; omit tutorials, generic advice and exhaustive file inventories.
+- Minimize maintenance cost: link to authoritative source/configuration or detailed docs instead of copying commands, signatures, defaults, limits or contracts. Exclude task status, temporary workarounds and change history. Stability is not permission to retain inaccurate content.
+- READMEs describe; `AGENTS.md` instructs. Keep standing rules here or in the relevant scoped Agent file, not in navigation text. Source/configuration remains authoritative for implementation details.
+- When ownership, directory layout or an advertised entry point changes, update affected parent/child navigation in the same change. Implementation-only edits need no README update unless they invalidate a statement.
+
 
 When a process or organization rule changes, update the owning artifact (`AGENTS.md`, `docs/AGENTS.md`, a skill, or an Agent Note) in the same change. If a discussion establishes a reusable process change, name the affected skill or document explicitly instead of leaving it only in conversation.
 

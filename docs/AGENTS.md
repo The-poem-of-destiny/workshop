@@ -7,6 +7,7 @@
 Give every durable fact one authoritative home and link to it elsewhere.
 
 - `AGENTS.md`: standing instructions for the directory.
+- Source-directory `README.md`: concise, stable AI navigation colocated with the source; scope and maintenance rules live in [the root AGENTS.md](../AGENTS.md#directory-readmes). These are navigation references, not a second home for detailed architecture, contracts or standing instructions.
 - Overview and architecture: purpose, boundaries, composition and major flows.
 - Tutorials: ordered steps to reach an outcome, including prerequisites and verification.
 - References: current behavior, contracts, definitions, configuration and lookup information.
@@ -25,7 +26,7 @@ Do not create empty category directories in advance. Create a document or subtre
 
 ## Content boundaries
 
-- Put current behavior, contracts, architecture and lookup information in `docs/`.
+- Put detailed current behavior, contracts, architecture and lookup information in `docs/`; source-directory README navigation is the colocated exception defined above.
 - Put proposals, design decisions, rejected alternatives and implementation rationale in `.agents/notes/`.
 - Put standing instructions in the nearest `AGENTS.md`.
 - Put reusable agent procedures in `.agents/skills/`.
