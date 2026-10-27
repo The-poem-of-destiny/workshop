@@ -6,11 +6,25 @@ This runbook covers staging and production releases, D1 migration safety, backup
 
 | Change | Route |
 |---|---|
-| Pull request | `ci` runs `check` and `e2e`; both are required on `main` |
+| Pull request | `ci` runs `check`, `e2e`, and `secrets`; all three are required on `main`, including administrators |
 | Merge to `main` | Successful CI builds a complete Worker + Web artifact; staging deploys only changed application code |
 | Production | Create a protected `v*` tag on the accepted `main` commit; production environment approval is required |
 | Docs/agent/CI-only change | CI runs, staging build/deploy is skipped |
 | Backup verification | Manual `verify-production-backup` workflow, read-only |
+
+## Dependency security updates
+
+Dependabot ordinary version updates remain weekly and grouped; security updates are enabled separately. The `dependency-security-automerge` workflow runs trusted `main` policy only, never checks out or executes PR code, and uses no personal token or new secret.
+
+The pilot allowlist is only the Worker runtime leaf dependency `hono`: a stable, increasing patch within the same minor; exactly the Worker manifest and canonical pnpm leaf lock change; a single verified Dependabot commit based on current `main`; a GitHub open vulnerability alert linked to the exact PR/head, installed old version and exact first patched version. Grouped, ambiguous, unknown, major/minor, Actions, scripts, registry and unrelated lock changes remain manual. Required checks must be successful on the latest head and bound to GitHub Actions app `15368`; strict protection must enforce administrators and disallow bypass, force pushes and deletion.
+
+The repository variable `DEPENDENCY_SECURITY_AUTOMERGE` must equal `true` to grant GitHub auto-merge. Absent/other values run read-only evaluation. Enable only after independent review, an actual workflow-token permissions smoke, and enabling repository auto-merge. The job explicitly requests `vulnerability-alerts: read`; CLI-user API success does not prove this token can inspect alerts. Official scope and event semantics: [workflow permissions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions), [workflow triggering](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow), [Dependabot GraphQL objects](https://docs.github.com/en/graphql/reference/dependabot).
+
+Token-created merges do not automatically trigger push workflows. After a qualifying auto-merge, the policy explicitly dispatches `ci.yml` with the exact merge `expected_sha`. CI rejects malformed SHA, non-main ref, or a SHA different from both its event commit and live `main`; successful CI then reaches the existing staging freshness gate. This does not authorize production tags or deployment.
+
+Stop/recover: turn the variable off and dispatch the policy to reconcile pending bot auto-merge authorizations. Startup cleanup runs even with the switch off, traverses open PR pages, revokes grants attributed to `github-actions[bot]`, and fails if revocation cannot be confirmed. After enabling, read/wait failures still attempt revocation; cleanup errors remain visible. Forced runner termination can still strand a grant until the next run: inspect and manually disable it when urgent. A manual `dependency-security-automerge` dispatch with `recover_pr=<merged same-repository bot PR number>` retries CI only when that merge is still current `main`; it does not merge anything, works with the switch off, and does not depend on alerts/protection queries. If `main` advanced, inspect the newer commit's CI rather than dispatching an old revision. Staging failures stop promotion; code rollback does not roll back migrations.
+
+At initial implementation, GitHub reported no open vulnerability alerts. Synthetic policy checks are not a real security-update-to-staging acceptance; keep that full-chain boundary explicit until a qualifying update occurs.
 
 ## Production migration
 

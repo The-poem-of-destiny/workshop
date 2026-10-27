@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact main commit required by dependency security merge
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -15,12 +20,35 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  dispatch-guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Reject stale or non-main security dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          EVENT_SHA: ${{ github.sha }}
+          EVENT_REF: ${{ github.ref }}
+        shell: bash
+        run: |
+          if [[ "$EVENT_NAME" != workflow_dispatch || -z "$EXPECTED_SHA" ]]; then
+            exit 0
+          fi
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$EVENT_REF" == refs/heads/main && "$EVENT_SHA" == "$EXPECTED_SHA" ]]
+          current_main=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          [[ "$current_main" == "$EXPECTED_SHA" ]]
+
   secrets:
+    needs: dispatch-guard
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.expected_sha || github.sha }}
           fetch-depth: 0
       - name: Install checksum-pinned Gitleaks
         shell: bash
@@ -33,10 +61,13 @@ jobs:
         run: '"$RUNNER_TEMP/gitleaks-bin/gitleaks" git --redact --no-banner --log-opts="--all" .'
 
   check:
+    needs: dispatch-guard
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.expected_sha || github.sha }}
       - uses: pnpm/action-setup@v6
         with:
           version: 11.24.0
@@ -48,10 +79,13 @@ jobs:
       - run: pnpm check
 
   e2e:
+    needs: dispatch-guard
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.expected_sha || github.sha }}
       - uses: pnpm/action-setup@v6
         with:
           version: 11.24.0
