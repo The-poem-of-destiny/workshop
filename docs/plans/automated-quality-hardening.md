@@ -175,7 +175,7 @@ flowchart TD
 
 ## 执行记录
 
-### 第一批（2026-10-27，进行中）
+### 第一批（2026-10-27，已落地；无合格样本的受限试点）
 
 - 独立工作树 `../workshop-hardening` 基于 `origin/main` `eeb7f09`，不包含原工作树未提交的产品改动。
 - 远端：Dependabot 安全修复已启用；`main` 必需 `check`／`e2e`／`secrets`，绑定 Actions app `15368`、strict、管理员也受保护，不允许 force push／delete。Actions 默认令牌只读且禁止机器人审批。
@@ -186,13 +186,15 @@ flowchart TD
 - 初次 [run 40467982092](https://github.com/The-poem-of-destiny/workshop/actions/runs/40467982092) 确实在 `branchProtectionRule` 被拒，但“必须新增 App”结论过强：完整配置读取是实现增加的前提，不是普通受保护合并必需。后续真实内置令牌探测读到非管理员 `refUpdateRule`、公开检查/App 元数据和漏洞关联查询；仍无真实合格漏洞样本，不伪造安全更新→staging 全链。
 - 第二批预调查：Biome 默认阈值（复杂度 15／函数 50／文件 300）产生 203 项信息诊断，包含 React JSX 与测试套件。不能直接升级为阻断；需按职责治理与分类阈值，不以默认数字逼出包装函数。
 - [PR #37](https://github.com/The-poem-of-destiny/workshop/pull/37) 合并关闭状态清理模式；真实 [run 40469653122](https://github.com/The-poem-of-destiny/workshop/actions/runs/40469653122) 成功并明确输出 `mode=cleanup-only`／`automerge=disabled`／`qualification=BLOCKED`。这只证明清理模式，不代表权限资格恢复。
-- 扩大调查后，用户批准保护执行与全局配置审计分层：不迁移/弱化保护，不新增身份；运行时核验可读门禁、本机器人 `viewerCanMergeAsAdmin: false` 和精确 PR 资格，保留全部内容／漏洞来源校验。写权限 [run 40487964827](https://github.com/The-poem-of-destiny/workshop/actions/runs/40487964827) 证明 `viewerCanPush: true` 不等于管理员 bypass，非管理员规则和 alerts 均可读。修正 CLEAN→auto-merge API 的不匹配，改普通 expected-head 服务端合并；新实现尚待故障注入、独立 review 与正式 main workflow 验收，总开关暂保持关闭。
-- 修正版九组永久行为测试通过，真实 runner 的临时 fetch-boundary 注入 13 场景通过：合格输入精确 head squash→确认→精确 CI dispatch、CLEAN／bypass／metadata／ruleset／head/base 漂移拒绝、响应丢失后确认接续、未合并不 dispatch、关闭清理和独立恢复。它们不是 GitHub 真实漏洞资格验收。未向绝不能合并的临时调查 PR 发 merge 请求，避免保护若失效时把探针合入 main。
+- 扩大调查后，用户批准保护执行与全局配置审计分层：不迁移/弱化保护，不新增身份；运行时核验可读门禁、本机器人 `viewerCanMergeAsAdmin: false` 和精确 PR 资格，保留全部内容／漏洞来源校验。[PR #46](https://github.com/The-poem-of-destiny/workshop/pull/46) 已经独立两轮安全复核与 check／e2e／secrets，并 squash 合并为 `036d555`。修正 CLEAN→auto-merge API 的不匹配，改普通 expected-head 服务端合并；不要求 repository auto-merge 开关。
+- 修正版九组永久行为测试与真实 runner 的临时 fetch-boundary 注入 16 场景通过，包含合格输入精确合并/dispatch、各种漂移拒绝、legacy 清理/恢复，以及确认 GET 失败、main 前移、dispatch 失败均非零。它们不是真实 GitHub 安全资格验收。未向临时调查 PR 发 merge 请求；真实服务端拒绝 smoke 和合格安全更新→受保护合并→精确 CI→staging 全链仍未验收。
+- 正式 main [权限探测 run 40489585455](https://github.com/The-poem-of-destiny/workshop/actions/runs/40489585455) 在总开关关闭、`probe_permissions=true` 下通过。随后总开关设为 `true`，[开启运行 40489773370](https://github.com/The-poem-of-destiny/workshop/actions/runs/40489773370) 通过；两个真实 Dependabot PR #43／#44 均因不基于当前 main 转人工，没有进入合并路径。确认了正式权限路径与真实输入拒绝，不代表正向候选资格或安全合并全链通过。repository auto-merge 仍关闭，新实现不依赖该开关。
+- 最终审计发现 `probe_permissions=true` 与总开关同时开启时未强制 dry-run；临时真实 runner 复现合并/dispatch 副作用后，已改为 probe 优先禁止合并，并验证普通开启路径仍有效。发现期间暂停总开关；待修复 PR／CI／正式探测通过后恢复，不用无候选绿色掩盖组合边界。
 
 ### 第二批（2026-10-27，已合并）
 
 - 职责治理覆盖 checker 来源／AST／能力规则、ContentService 模式与 claim、作者／管理存储域、安装世界书／Regex／registry、迁移实体／资产／验证，以及前端 shell／工作区／详情。
-- 阻断范围：手写生产非 JSX 与非测试 tools 为认知复杂度 40、函数 120、文件 600；TSX 为 60／300／700，行数跳过空行。测试（含 E2E）不按生产函数标准约束。六项阈值均用边界值通过／超限拒绝故障注入验真；15 个非测试 tools 在相同阈值下通过，无需额外整改。CSS 700 的试点会要求仅为行数拆散三个界面样式域，未证明净收益，故不采用；保留原全产物体积预算。不按当前最大值抬线，最终独立审查与运行验收仍在进行。
+- 阻断范围：手写生产非 JSX 与非测试 tools 为认知复杂度 40、函数 120、文件 600；TSX 为 60／300／700，行数跳过空行。测试（含 E2E）不按生产函数标准约束。六项阈值均用边界值通过／超限拒绝故障注入验真；15 个非测试 tools 在相同阈值下通过，无需额外整改。CSS 700 的试点会要求仅为行数拆散三个界面样式域，未证明净收益，故不采用；保留原全产物体积预算。不按当前最大值抬线；独立审查、运行验收及远端 CI 已完成。
 - 循环门禁复用现有 Knip 6 的 `cycles`（error），不新增图工具。dependency-cruiser 试点有效，但需专用 TS6 解析器；相对现有能力的边际收益不足，已移除。Knip 临时注入已证明真实入口可达的运行时／混合导入循环、跨 workspace、前端 TSX（含 `.js`→`.tsx`）、content 的实际 `.mjs` export 会失败，纯类型与动态导入循环不阻断。保留现有 entry，不用 `--production`（实测漏掉 Worker 入口）；不扫描未达入口的孤立循环，不将其声称为全源码等价覆盖。
 - 延迟加载作者／审核／管理视图，开启 Vite manifest；同依赖、Vite 8.3.4、Node 22.23.1／zlib 1.3.1-e00f703、逐文件默认 gzip 下，结构前 `95fe35e` 初始 JS／CSS 为 249353／19061 B，最终治理后为 118168／15911 B；全资源由 249353／19061 B 增为 258975／19794 B。首屏 JS 降低约 52.61%，总量上升，未抬预算。入口指标只计 manifest 静态导入闭包，不计 dynamic imports；旧 247892 B 基线未在同口径复现，不采用。
 - 整合 `pnpm check` 全链通过（Worker 87、domain 23、content 7、client 6，迁移／导出／备份及安全策略检查通过）；client 实际 bundle 构建通过。checker 临时差分 1552 次零差异，安装真实算法在协议宿主中 26 场景与基线一致；不冒充真实 SillyTavern 验证。

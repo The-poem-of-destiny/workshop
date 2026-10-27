@@ -175,9 +175,9 @@ async function evaluate(number) {
   assert.equal(current.mergeStateStatus, "CLEAN", "Do not leave deferred merge authorization");
   assert.equal(current.autoMergeRequest, null, "Existing auto-merge needs human review");
   assert.equal(await protection(), mainSha, "Main changed during evaluation");
-  if (process.env.DEPENDENCY_SECURITY_AUTOMERGE !== "true") {
+  if (process.env.PROBE_PERMISSIONS === "true" || process.env.DEPENDENCY_SECURITY_AUTOMERGE !== "true") {
     console.log(
-      `Dry run: PR #${number} qualifies (${update.name} ${update.oldVersion} -> ${update.newVersion}); total switch is not true.`,
+      `Dry run: PR #${number} qualifies (${update.name} ${update.oldVersion} -> ${update.newVersion}); permission probe or disabled merge switch.`,
     );
     return;
   }
