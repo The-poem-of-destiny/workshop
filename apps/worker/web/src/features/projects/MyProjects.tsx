@@ -34,11 +34,13 @@ export function MyProjects({
   onError,
   onNotice,
   initialSelectedId,
+  onInitialSelectionConsumed,
 }: {
   onCreate: () => void;
   onError: (message: string) => void;
   onNotice: (message: string) => void;
   initialSelectedId?: string | null;
+  onInitialSelectionConsumed?: () => void;
 }) {
   const [items, setItems] = useState<AuthorProject[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null);
@@ -62,8 +64,10 @@ export function MyProjects({
   }
 
   const loadInitial = useEffectEvent(() => void refresh());
+  const consumeInitialSelection = useEffectEvent(() => onInitialSelectionConsumed?.());
   useEffect(() => {
     loadInitial();
+    consumeInitialSelection();
   }, []);
 
   const previousSelection = useRef(selectedId);

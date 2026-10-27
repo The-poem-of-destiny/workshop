@@ -126,11 +126,7 @@ export function App() {
     refreshSession();
   }, []);
   const selectedInstallState = selected ? installationState(selected) : "notInstalled";
-  // `newlyCreatedProjectId` is a one-shot hint for the MyProjects mount; clearing it keeps later visits neutral.
-  useEffect(() => {
-    if (newlyCreatedProjectId === null) return;
-    setNewlyCreatedProjectId(null);
-  }, [newlyCreatedProjectId]);
+
   function applyTag(value: string): void {
     setView("browse");
     setTag((current) => (current === value ? "" : value));
