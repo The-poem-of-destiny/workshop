@@ -189,6 +189,7 @@ flowchart TD
 - 扩大调查后，用户批准保护执行与全局配置审计分层：不迁移/弱化保护，不新增身份；运行时核验可读门禁、本机器人 `viewerCanMergeAsAdmin: false` 和精确 PR 资格，保留全部内容／漏洞来源校验。[PR #46](https://github.com/The-poem-of-destiny/workshop/pull/46) 已经独立两轮安全复核与 check／e2e／secrets，并 squash 合并为 `036d555`。修正 CLEAN→auto-merge API 的不匹配，改普通 expected-head 服务端合并；不要求 repository auto-merge 开关。
 - 修正版九组永久行为测试与真实 runner 的临时 fetch-boundary 注入 16 场景通过，包含合格输入精确合并/dispatch、各种漂移拒绝、legacy 清理/恢复，以及确认 GET 失败、main 前移、dispatch 失败均非零。它们不是真实 GitHub 安全资格验收。未向临时调查 PR 发 merge 请求；真实服务端拒绝 smoke 和合格安全更新→受保护合并→精确 CI→staging 全链仍未验收。
 - 正式 main [权限探测 run 40489585455](https://github.com/The-poem-of-destiny/workshop/actions/runs/40489585455) 在总开关关闭、`probe_permissions=true` 下通过。随后总开关设为 `true`，[开启运行 40489773370](https://github.com/The-poem-of-destiny/workshop/actions/runs/40489773370) 通过；两个真实 Dependabot PR #43／#44 均因不基于当前 main 转人工，没有进入合并路径。确认了正式权限路径与真实输入拒绝，不代表正向候选资格或安全合并全链通过。repository auto-merge 仍关闭，新实现不依赖该开关。
+- 最终审计发现 `probe_permissions=true` 与总开关同时开启时未强制 dry-run；临时真实 runner 复现合并/dispatch 副作用后，已改为 probe 优先禁止合并，并验证普通开启路径仍有效。发现期间暂停总开关；待修复 PR／CI／正式探测通过后恢复，不用无候选绿色掩盖组合边界。
 
 ### 第二批（2026-10-27，已合并）
 

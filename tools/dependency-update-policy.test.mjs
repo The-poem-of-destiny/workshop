@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 import {
   validateChanges,
@@ -408,3 +409,128 @@ test("rejects missing viewer restrictions, force pushes, deletions or incompatib
     assert.throws(() => validateProtection(value.branch, value.viewerRule), reason);
   }
 });
+
+// Run the real entrypoint in a child so fetch, environment and module state cannot leak between tests.
+async function runnerBoundary(fixture, probe) {
+  const { pr, commit, changes, branch, viewerRule, alerts, runner, repository, base, head } = fixture;
+  Object.assign(process.env, {
+    GH_TOKEN: "fixture-only",
+    GITHUB_REPOSITORY: repository,
+    GITHUB_REF: "refs/heads/main",
+    DEPENDENCY_SECURITY_AUTOMERGE: "true",
+    PROBE_PERMISSIONS: String(probe),
+    RECOVER_PR: "",
+    GITHUB_STEP_SUMMARY: "",
+  });
+  const effects = { merges: [], dispatches: [], unexpected: [], merged: false };
+  const mergeSha = "c".repeat(40);
+  const response = (data, status = 200) => new Response(status === 204 ? null : JSON.stringify(data), { status });
+  const graph = (repository) => response({ data: { repository } });
+  globalThis.fetch = async (url, options) => {
+    const { pathname: path, searchParams } = new URL(url);
+    const body = options.body ? JSON.parse(options.body) : null;
+    if (path === "/graphql") {
+      const query = body.query;
+      if (query.includes("mergePullRequest")) {
+        effects.merges.push(body);
+        effects.merged = true;
+        return response({ data: { mergePullRequest: { pullRequest: { number: pr.number } } } });
+      }
+      if (query.includes("refUpdateRule")) return graph({ ref: { target: { oid: base }, refUpdateRule: viewerRule } });
+      if (query.includes("vulnerabilityAlerts")) return graph({ vulnerabilityAlerts: alerts });
+      if (query.includes("autoMergeRequest")) {
+        return graph({
+          pullRequest: {
+            id: "fixture-pr",
+            headRefOid: head,
+            baseRefOid: base,
+            mergeStateStatus: "CLEAN",
+            viewerCanMergeAsAdmin: false,
+            autoMergeRequest: null,
+          },
+        });
+      }
+    }
+    if (path.endsWith("/rules/branches/main")) return response([]);
+    if (path.endsWith("/branches/main")) return response({ ...branch, commit: { sha: base } });
+    if (path.endsWith("/pulls")) return response([pr]);
+    if (path.endsWith(`/pulls/${pr.number}`)) {
+      return response({
+        ...pr,
+        changed_files: 2,
+        merged: effects.merged,
+        merge_commit_sha: effects.merged ? mergeSha : null,
+      });
+    }
+    if (path.endsWith(`/pulls/${pr.number}/files`)) return response(changes[0]);
+    if (path.endsWith(`/commits/${head}`)) return response(commit);
+    if (path.includes("/contents/")) {
+      const after = searchParams.get("ref") === head;
+      const text = changes[path.endsWith("package.json") ? (after ? 2 : 1) : after ? 4 : 3];
+      return response({
+        type: "file",
+        encoding: "base64",
+        size: text.length,
+        content: Buffer.from(text).toString("base64"),
+      });
+    }
+    if (path.endsWith("/check-runs")) {
+      return response({
+        total_count: 3,
+        check_runs: ["check", "e2e", "secrets"].map((name) => ({
+          name,
+          head_sha: head,
+          app: { id: 15368 },
+          status: "completed",
+          conclusion: "success",
+        })),
+      });
+    }
+    if (path.endsWith("/git/ref/heads/main")) return response({ object: { sha: mergeSha } });
+    if (path.endsWith("/actions/workflows/ci.yml/dispatches")) {
+      effects.dispatches.push(body);
+      return response(null, 204);
+    }
+    effects.unexpected.push(`${options.method} ${path}`);
+    throw new Error(`Unexpected fixture request: ${path}`);
+  };
+  await import(runner);
+  console.log(JSON.stringify(effects));
+}
+
+for (const probe of [true, false]) {
+  test(
+    probe
+      ? "permission probe never merges even with the merge switch enabled"
+      : "enabled ordinary evaluation merges exact head and dispatches exact merged CI",
+    () => {
+      const fixture = {
+        ...source(),
+        ...protection(),
+        changes: change(),
+        alerts: alert(),
+        repository,
+        base,
+        head,
+        runner: new URL("./dependency-update-policy-run.mjs", import.meta.url).href,
+      };
+      const child = spawnSync(
+        process.execPath,
+        ["--input-type=module", "--eval", `(${runnerBoundary})(${JSON.stringify(fixture)},${probe})`],
+        {
+          encoding: "utf8",
+          timeout: 10_000,
+        },
+      );
+      assert.equal(child.status, 0, child.stderr);
+      const effects = JSON.parse(child.stdout.trim().split("\n").at(-1));
+      assert.deepEqual(effects.unexpected, []);
+      assert.equal(effects.merged, !probe);
+      assert.equal(effects.merges.length, probe ? 0 : 1);
+      assert.deepEqual(effects.dispatches, probe ? [] : [{ ref: "main", inputs: { expected_sha: "c".repeat(40) } }]);
+      if (!probe) {
+        assert.equal(effects.merges[0].variables.head, head);
+      }
+    },
+  );
+}
