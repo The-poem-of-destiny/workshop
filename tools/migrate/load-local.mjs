@@ -8,7 +8,9 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readJson, TABLES, verify } from "./lib.mjs";
+import { readJson } from "./lib.mjs";
+import { verify } from "./validation.mjs";
+import { TABLES } from "./values.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..", "..");

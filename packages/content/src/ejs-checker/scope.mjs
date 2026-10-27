@@ -64,32 +64,12 @@ export function buildScopes(unit) {
       case "FunctionDeclaration":
       case "FunctionExpression":
       case "ArrowFunctionExpression": {
-        if (node.type === "FunctionDeclaration" && node.id) {
-          bind(scope, node.id, "function");
-          namedDeclarations.push({ node, scope, kind: "function", binding: node.id });
-        }
-        const params = childScope("function-params", scope);
-        if (node.type === "FunctionExpression" && node.id) bind(params, node.id, "function-name");
-        for (const parameter of node.params) bind(params, parameter, "parameter");
-        for (const parameter of node.params) visit(parameter, params, node);
-        const body = childScope("function-body", params);
-        if (node.body.type === "BlockStatement") {
-          nodeScopes.set(node.body, body);
-          nodes.push({ node: node.body, scope: body, parent: node });
-          for (const statement of node.body.body) visit(statement, body, node.body);
-        } else visit(node.body, body, node);
+        visitFunctionScope(node, scope, traversal);
         return;
       }
       case "ClassDeclaration":
       case "ClassExpression": {
-        if (node.type === "ClassDeclaration" && node.id) {
-          bind(scope, node.id, "class");
-          namedDeclarations.push({ node, scope, kind: "class", binding: node.id });
-        }
-        const inner = childScope("class", scope);
-        if (node.id) bind(inner, node.id, "class-name");
-        visit(node.superClass, inner, node);
-        visit(node.body, inner, node);
+        visitClassScope(node, scope, traversal);
         return;
       }
       case "VariableDeclaration": {
@@ -130,6 +110,7 @@ export function buildScopes(unit) {
     }
     for (const child of astChildren(node)) visit(child, scope, node);
   };
+  const traversal = { bind, childScope, visit, namedDeclarations, nodeScopes, nodes };
   if (unit.ast) visit(unit.ast, root);
   return { root, nodes, nodeScopes, declarations, namedDeclarations };
 }
@@ -146,4 +127,34 @@ export function isFunctionLocal(scope) {
     if (["function-params", "function-body", "static"].includes(current.kind)) return true;
   }
   return false;
+}
+
+function visitFunctionScope(node, scope, { bind, childScope, visit, namedDeclarations, nodeScopes, nodes }) {
+  if (node.type === "FunctionDeclaration" && node.id) {
+    bind(scope, node.id, "function");
+    namedDeclarations.push({ node, scope, kind: "function", binding: node.id });
+  }
+  const params = childScope("function-params", scope);
+  if (node.type === "FunctionExpression" && node.id) bind(params, node.id, "function-name");
+  for (const parameter of node.params) bind(params, parameter, "parameter");
+  for (const parameter of node.params) visit(parameter, params, node);
+  const body = childScope("function-body", params);
+  if (node.body.type === "BlockStatement") {
+    nodeScopes.set(node.body, body);
+    nodes.push({ node: node.body, scope: body, parent: node });
+    for (const statement of node.body.body) visit(statement, body, node.body);
+  } else visit(node.body, body, node);
+  return;
+}
+
+function visitClassScope(node, scope, { bind, childScope, visit, namedDeclarations }) {
+  if (node.type === "ClassDeclaration" && node.id) {
+    bind(scope, node.id, "class");
+    namedDeclarations.push({ node, scope, kind: "class", binding: node.id });
+  }
+  const inner = childScope("class", scope);
+  if (node.id) bind(inner, node.id, "class-name");
+  visit(node.superClass, inner, node);
+  visit(node.body, inner, node);
+  return;
 }

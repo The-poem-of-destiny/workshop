@@ -58,6 +58,21 @@ function png(bytes: Uint8Array): ImageDimensions | null {
   return sawHeader && sawEnd ? { width, height, mime: "image/png" } : null;
 }
 
+// Scan entropy-coded data for the end marker without treating its bytes as segments.
+function hasJpegEndMarker(bytes: Uint8Array, offset: number): boolean {
+  for (let index = offset; index + 1 < bytes.length; index += 1) {
+    if (bytes[index] === 0xff && bytes[index + 1] === 0xd9) return true;
+  }
+  return false;
+}
+
+// Segment lengths include their own two-byte field, but not the marker.
+function jpegSegmentLength(bytes: Uint8Array, offset: number): number {
+  if (offset + 2 > bytes.length) return 0;
+  const length = (bytes[offset]! << 8) | bytes[offset + 1]!;
+  return length >= 2 && offset + length <= bytes.length ? length : 0;
+}
+
 function jpeg(bytes: Uint8Array): ImageDimensions | null {
   if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
   let offset = 2;
@@ -71,21 +86,16 @@ function jpeg(bytes: Uint8Array): ImageDimensions | null {
     const marker = bytes[offset++]!;
     if (marker === 0xd9) return sawFrame && width > 0 && height > 0 ? { width, height, mime: "image/jpeg" } : null;
     if (marker === 0xda) {
-      if (offset + 2 > bytes.length) return null;
-      const length = (bytes[offset]! << 8) | bytes[offset + 1]!;
-      if (length < 2 || offset + length > bytes.length) return null;
+      const length = jpegSegmentLength(bytes, offset);
+      if (length === 0) return null;
       offset += length;
-      for (let index = offset; index + 1 < bytes.length; index += 1) {
-        if (bytes[index] === 0xff && bytes[index + 1] === 0xd9) {
-          return sawFrame && width > 0 && height > 0 ? { width, height, mime: "image/jpeg" } : null;
-        }
-      }
-      return null;
+      return hasJpegEndMarker(bytes, offset) && sawFrame && width > 0 && height > 0
+        ? { width, height, mime: "image/jpeg" }
+        : null;
     }
     if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) continue;
-    if (offset + 2 > bytes.length) return null;
-    const length = (bytes[offset]! << 8) | bytes[offset + 1]!;
-    if (length < 2 || offset + length > bytes.length) return null;
+    const length = jpegSegmentLength(bytes, offset);
+    if (length === 0) return null;
     const isFrame = [0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker);
     if (isFrame) {
       if (length < 7) return null;

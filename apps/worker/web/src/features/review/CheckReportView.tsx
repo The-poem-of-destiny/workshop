@@ -195,6 +195,53 @@ function FindingGroupBlock({
   );
 }
 
+function ReportMetadata({ report }: { report: CheckReport }) {
+  return (
+    <>
+      <dl className="review-report-meta">
+        <div>
+          <dt>报告 gate</dt>
+          <dd>{report.gate ?? "未记录"}</dd>
+        </div>
+        <div>
+          <dt>审计状态</dt>
+          <dd>{report.audit ?? "未记录"}</dd>
+        </div>
+        <div>
+          <dt>认证状态</dt>
+          <dd>{report.certification ?? "未记录"}</dd>
+        </div>
+        <div>
+          <dt>检查引擎</dt>
+          <dd>{report.engine ?? "未记录"}</dd>
+        </div>
+        <div>
+          <dt>解析兼容</dt>
+          <dd>{report.parserCompatibility ?? "未记录"}</dd>
+        </div>
+        <div>
+          <dt>生成时间</dt>
+          <dd>{report.generatedAt ?? "未记录"}</dd>
+        </div>
+      </dl>
+
+      {report.files.length ? (
+        <ul className="review-report-files">
+          {report.files.map((file) => (
+            <li key={file.fileName}>
+              <code>{file.fileName}</code>
+              <span>
+                {file.type ?? "文件"} · {file.items ?? 0} 条{file.ejsEntries ? ` · ${file.ejsEntries} 条含 EJS` : ""}
+                {file.size === null ? "" : ` · ${file.size.toLocaleString()} bytes`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
+  );
+}
+
 export function CheckReportSection({
   submissionId,
   report,
@@ -262,47 +309,7 @@ export function CheckReportSection({
             </div>
           </div>
 
-          <dl className="review-report-meta">
-            <div>
-              <dt>报告 gate</dt>
-              <dd>{report.gate ?? "未记录"}</dd>
-            </div>
-            <div>
-              <dt>审计状态</dt>
-              <dd>{report.audit ?? "未记录"}</dd>
-            </div>
-            <div>
-              <dt>认证状态</dt>
-              <dd>{report.certification ?? "未记录"}</dd>
-            </div>
-            <div>
-              <dt>检查引擎</dt>
-              <dd>{report.engine ?? "未记录"}</dd>
-            </div>
-            <div>
-              <dt>解析兼容</dt>
-              <dd>{report.parserCompatibility ?? "未记录"}</dd>
-            </div>
-            <div>
-              <dt>生成时间</dt>
-              <dd>{report.generatedAt ?? "未记录"}</dd>
-            </div>
-          </dl>
-
-          {report.files.length ? (
-            <ul className="review-report-files">
-              {report.files.map((file) => (
-                <li key={file.fileName}>
-                  <code>{file.fileName}</code>
-                  <span>
-                    {file.type ?? "文件"} · {file.items ?? 0} 条
-                    {file.ejsEntries ? ` · ${file.ejsEntries} 条含 EJS` : ""}
-                    {file.size === null ? "" : ` · ${file.size.toLocaleString()} bytes`}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+          <ReportMetadata report={report} />
 
           {links.length ? (
             <div className="review-external-links">

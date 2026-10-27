@@ -4,8 +4,10 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { extract, stableStringify, transform, verify } from "./lib.mjs";
+import { extract, transform } from "./lib.mjs";
 import { buildManifest } from "./r2-copy.mjs";
+import { verify } from "./validation.mjs";
+import { stableStringify } from "./values.mjs";
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 const asset = (project_id, kind, r2_key, value) => {

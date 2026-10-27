@@ -63,6 +63,82 @@ function ExternalAnchor({ href, children }: { href: string; children: ReactNode 
   );
 }
 
+type InlineToken = { node: ReactNode; end: number };
+
+function inlineLink(text: string, index: number, keyBase: string, depth: number): InlineToken | null {
+  if (text[index] === "[") {
+    const labelEnd = text.indexOf("](", index + 1);
+    const close = labelEnd >= 0 ? text.indexOf(")", labelEnd + 2) : -1;
+    if (labelEnd > index + 1 && close > labelEnd + 2) {
+      const href = externalUrl(text.slice(labelEnd + 2, close));
+      if (href) {
+        const key = `${keyBase}-link-${index}`;
+        return {
+          node: (
+            <span key={key}>
+              <ExternalAnchor href={href}>
+                {renderInline(text.slice(index + 1, labelEnd), key, depth + 1, false)}
+              </ExternalAnchor>
+            </span>
+          ),
+          end: close + 1,
+        };
+      }
+    }
+  }
+  if (text[index] !== "h" || (!text.startsWith("http://", index) && !text.startsWith("https://", index))) return null;
+  let end = index;
+  while (end < text.length && !URL_TERMINATORS[text[end] ?? ""]) end += 1;
+  const candidate = trimBareUrl(text.slice(index, end));
+  const href = externalUrl(candidate);
+  if (!href) {
+    const runEnd = Math.max(end, index + 1);
+    return { node: text.slice(index, runEnd), end: runEnd };
+  }
+  return {
+    node: (
+      <span key={`${keyBase}-url-${index}`}>
+        <ExternalAnchor href={href}>{candidate}</ExternalAnchor>
+      </span>
+    ),
+    end: index + Math.max(candidate.length, 1),
+  };
+}
+
+function inlineEmphasis(
+  text: string,
+  index: number,
+  keyBase: string,
+  depth: number,
+  allowLinks: boolean,
+): InlineToken | null {
+  const character = text[index] ?? "";
+  if (character !== "*" && character !== "_") return null;
+  if (character === "_" && index > 0 && /[\p{L}\p{N}]/u.test(text[index - 1] ?? "")) return null;
+  const pair = character + character;
+  if (text.startsWith(pair, index)) {
+    const strongEnd = text.indexOf(pair, index + 2);
+    const strongInner = strongEnd >= 0 ? text.slice(index + 2, strongEnd) : "";
+    if (strongEnd > index + 2 && strongInner.trim() === strongInner) {
+      const key = `${keyBase}-strong-${index}`;
+      return {
+        node: <strong key={key}>{renderInline(strongInner, key, depth + 1, allowLinks)}</strong>,
+        end: strongEnd + 2,
+      };
+    }
+  }
+  const emphasisEnd = text.indexOf(character, index + 1);
+  const emphasisInner = emphasisEnd >= 0 ? text.slice(index + 1, emphasisEnd) : "";
+  if (emphasisEnd > index + 1 && emphasisInner.trim() === emphasisInner) {
+    const key = `${keyBase}-em-${index}`;
+    return {
+      node: <em key={key}>{renderInline(emphasisInner, key, depth + 1, allowLinks)}</em>,
+      end: emphasisEnd + 1,
+    };
+  }
+  return null;
+}
+
 function renderInline(text: string, keyBase: string, depth = 0, allowLinks = true): ReactNode[] {
   if (depth > 6) return [text];
   const nodes: ReactNode[] = [];
@@ -92,72 +168,16 @@ function renderInline(text: string, keyBase: string, depth = 0, allowLinks = tru
       }
     }
 
-    if (allowLinks && character === "[") {
-      const labelEnd = text.indexOf("](", index + 1);
-      const close = labelEnd >= 0 ? text.indexOf(")", labelEnd + 2) : -1;
-      if (labelEnd > index + 1 && close > labelEnd + 2) {
-        const href = externalUrl(text.slice(labelEnd + 2, close));
-        if (href) {
-          flush();
-          const key = `${keyBase}-link-${index}`;
-          nodes.push(
-            <span key={key}>
-              <ExternalAnchor href={href}>
-                {renderInline(text.slice(index + 1, labelEnd), key, depth + 1, false)}
-              </ExternalAnchor>
-            </span>,
-          );
-          index = close + 1;
-          continue;
-        }
-      }
-    }
-
-    if (character === "*" || character === "_") {
-      const wordBoundary = character === "_" && index > 0 && /[\p{L}\p{N}]/u.test(text[index - 1] ?? "");
-      if (!wordBoundary) {
-        const pair = character + character;
-        if (text.startsWith(pair, index)) {
-          const strongEnd = text.indexOf(pair, index + 2);
-          const strongInner = strongEnd >= 0 ? text.slice(index + 2, strongEnd) : "";
-          if (strongEnd > index + 2 && strongInner.trim() === strongInner) {
-            flush();
-            const key = `${keyBase}-strong-${index}`;
-            nodes.push(<strong key={key}>{renderInline(strongInner, key, depth + 1, allowLinks)}</strong>);
-            index = strongEnd + 2;
-            continue;
-          }
-        }
-        const emphasisEnd = text.indexOf(character, index + 1);
-        const emphasisInner = emphasisEnd >= 0 ? text.slice(index + 1, emphasisEnd) : "";
-        if (emphasisEnd > index + 1 && emphasisInner.trim() === emphasisInner) {
-          flush();
-          const key = `${keyBase}-em-${index}`;
-          nodes.push(<em key={key}>{renderInline(emphasisInner, key, depth + 1, allowLinks)}</em>);
-          index = emphasisEnd + 1;
-          continue;
-        }
-      }
-    }
-
-    if (allowLinks && character === "h" && (text.startsWith("http://", index) || text.startsWith("https://", index))) {
-      let end = index;
-      while (end < text.length && !URL_TERMINATORS[text[end] ?? ""]) end += 1;
-      const candidate = trimBareUrl(text.slice(index, end));
-      const href = externalUrl(candidate);
-      if (href) {
+    const token =
+      (allowLinks ? inlineLink(text, index, keyBase, depth) : null) ??
+      inlineEmphasis(text, index, keyBase, depth, allowLinks);
+    if (token) {
+      if (typeof token.node === "string") plain += token.node;
+      else {
         flush();
-        nodes.push(
-          <span key={`${keyBase}-url-${index}`}>
-            <ExternalAnchor href={href}>{candidate}</ExternalAnchor>
-          </span>,
-        );
-        index += Math.max(candidate.length, 1);
-        continue;
+        nodes.push(token.node);
       }
-      const runEnd = Math.max(end, index + 1);
-      plain += text.slice(index, runEnd);
-      index = runEnd;
+      index = token.end;
       continue;
     }
 
@@ -173,7 +193,7 @@ function renderLines(lines: string[], keyBase: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   keyedItems(lines).forEach(({ item: line, key }, lineIndex) => {
     if (lineIndex > 0) nodes.push(<br key={`${keyBase}-br-${key}`} />);
-    nodes.push(...renderInline(line, `${keyBase}-line-${key}`));
+    for (const node of renderInline(line, `${keyBase}-line-${key}`)) nodes.push(node);
   });
   return nodes;
 }

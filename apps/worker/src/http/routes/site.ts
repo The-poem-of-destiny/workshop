@@ -2,7 +2,7 @@ import { adminSiteUpdateSchema, siteSettingsSchema } from "@workshop/contracts";
 import { detectImageDimensions, WORKSHOP_LIMITS } from "@workshop/domain";
 import { Hono } from "hono";
 import type { Env } from "../../env";
-import { updateAdminSite } from "../../storage/admin.js";
+import { updateAdminSite } from "../../storage/admin-site.js";
 import { getBanner, getSiteContent } from "../../storage/home.js";
 import { jsonError } from "../errors.js";
 import { requireSession } from "../session.js";

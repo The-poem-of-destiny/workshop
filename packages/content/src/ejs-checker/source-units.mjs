@@ -293,63 +293,65 @@ export function buildRegexUnits(rawContent) {
     const node = pending.pop();
     if (!node.tagName) continue;
     const location = node.sourceCodeLocation;
-    const attributeLocations = firstAttributeLocations(rawContent, location?.startTag);
-    for (const parsedAttribute of node.attrs ?? []) {
-      const name = parsedAttribute.prefix ? parsedAttribute.prefix + ":" + parsedAttribute.name : parsedAttribute.name;
-      const attributeLocation = attributeLocations.get(name);
-      if (!attributeLocation) continue;
-      const attribute = attributeRange(rawContent, attributeLocation, parsedAttribute.value);
-      if (eventAttribute(node, name)) units.push(attributeUnit(rawContent, attribute, "event"));
-      else if (["href", "src", "action", "formaction", "xlink:href"].includes(name)) {
-        const unit = attributeUnit(rawContent, attribute, "javascript-url");
-        if (unit) units.push(unit);
-      }
-    }
-    if (node.tagName === "script" && location) {
-      const type = node.attrs.find((attribute) => attribute.name === "type");
-      const language = node.attrs.find((attribute) => attribute.name === "language");
-      const value = type
-        ? type.value.replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/g, "").toLowerCase()
-        : language?.value
-          ? "text/" + language.value.toLowerCase()
-          : "";
-      const executable =
-        !value ||
-        value === "module" ||
-        /^(?:application\/(?:x-)?(?:java|ecma)script|text\/(?:(?:x-)?(?:java|ecma)script|javascript1\.[0-5]|jscript|livescript))$/.test(
-          value,
-        );
-      if (executable && !node.attrs.some((attribute) => attribute.name === "src")) {
-        const builder = new SourceBuilder(rawContent);
-        const textNodes = [...(node.childNodes ?? [])].reverse();
-        while (textNodes.length) {
-          const text = textNodes.pop();
-          if (text.nodeName === "#text" && text.sourceCodeLocation) {
-            const codeStart = builder.length;
-            appendHtmlText(
-              builder,
-              rawContent,
-              text.sourceCodeLocation.startOffset,
-              text.sourceCodeLocation.endOffset,
-              { foreign: node.namespaceURI !== "http://www.w3.org/1999/xhtml" },
-            );
-            if (builder.parts.join("").slice(codeStart) !== text.value)
-              throw new Error("HTML script source map did not match parsed content");
-          } else if (text.childNodes) textNodes.push(...text.childNodes.slice().reverse());
-        }
-        // Preserve a meaningful EOF location even for an empty script.
-        builder.append("\n", location.endTag?.startOffset ?? location.endOffset);
-        units.push(
-          builder.finish(value === "module" ? "module" : "script", {
-            sourceType: value === "module" ? "module" : "script",
-            wrapped: false,
-            async: false,
-          }),
-        );
-      }
-    }
+    collectAttributeUnits(rawContent, node, location, units);
+    if (node.tagName === "script" && location) collectScriptUnit(rawContent, node, location, units);
     // Template descendants are inert HTML content, not executable regions.
     if (node.tagName !== "template") pending.push(...(node.childNodes ?? []).slice().reverse());
   }
   return units;
+}
+
+function collectAttributeUnits(rawContent, node, location, units) {
+  const attributeLocations = firstAttributeLocations(rawContent, location?.startTag);
+  for (const parsedAttribute of node.attrs ?? []) {
+    const name = parsedAttribute.prefix ? parsedAttribute.prefix + ":" + parsedAttribute.name : parsedAttribute.name;
+    const attributeLocation = attributeLocations.get(name);
+    if (!attributeLocation) continue;
+    const attribute = attributeRange(rawContent, attributeLocation, parsedAttribute.value);
+    if (eventAttribute(node, name)) units.push(attributeUnit(rawContent, attribute, "event"));
+    else if (["href", "src", "action", "formaction", "xlink:href"].includes(name)) {
+      const unit = attributeUnit(rawContent, attribute, "javascript-url");
+      if (unit) units.push(unit);
+    }
+  }
+}
+
+function collectScriptUnit(rawContent, node, location, units) {
+  const type = node.attrs.find((attribute) => attribute.name === "type");
+  const language = node.attrs.find((attribute) => attribute.name === "language");
+  const value = type
+    ? type.value.replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/g, "").toLowerCase()
+    : language?.value
+      ? "text/" + language.value.toLowerCase()
+      : "";
+  const executable =
+    !value ||
+    value === "module" ||
+    /^(?:application\/(?:x-)?(?:java|ecma)script|text\/(?:(?:x-)?(?:java|ecma)script|javascript1\.[0-5]|jscript|livescript))$/.test(
+      value,
+    );
+  if (executable && !node.attrs.some((attribute) => attribute.name === "src")) {
+    const builder = new SourceBuilder(rawContent);
+    const textNodes = [...(node.childNodes ?? [])].reverse();
+    while (textNodes.length) {
+      const text = textNodes.pop();
+      if (text.nodeName === "#text" && text.sourceCodeLocation) {
+        const codeStart = builder.length;
+        appendHtmlText(builder, rawContent, text.sourceCodeLocation.startOffset, text.sourceCodeLocation.endOffset, {
+          foreign: node.namespaceURI !== "http://www.w3.org/1999/xhtml",
+        });
+        if (builder.parts.join("").slice(codeStart) !== text.value)
+          throw new Error("HTML script source map did not match parsed content");
+      } else if (text.childNodes) textNodes.push(...text.childNodes.slice().reverse());
+    }
+    // Preserve a meaningful EOF location even for an empty script.
+    builder.append("\n", location.endTag?.startOffset ?? location.endOffset);
+    units.push(
+      builder.finish(value === "module" ? "module" : "script", {
+        sourceType: value === "module" ? "module" : "script",
+        wrapped: false,
+        async: false,
+      }),
+    );
+  }
 }

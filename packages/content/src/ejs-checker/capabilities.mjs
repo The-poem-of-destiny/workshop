@@ -1,4 +1,4 @@
-import { expressionEvidence, networkCapability, propertyName, staticStringValues } from "./links.mjs";
+import { expressionEvidence, networkCapability, propertyName, staticStringValues } from "./link-expressions.mjs";
 import { CHECK_POLICY_VERSION } from "./policy-config.mjs";
 import { buildScopes, resolveBinding } from "./scope.mjs";
 
@@ -131,33 +131,34 @@ function infiniteHeaderTokens(unit) {
     if (close < 0 || !unit.sourceMap.isOriginal(tokens[close].start)) continue;
     const header = tokens.slice(i + 2, close);
     if (header.some((item) => !unit.sourceMap.isOriginal(item.start))) continue;
-    if (label === "while") {
-      let inner = header;
-      while (inner[0]?.type.label === "(" && inner.at(-1)?.type.label === ")") inner = inner.slice(1, -1);
-      if (
-        inner.length === 1 &&
-        (inner[0].type.label === "true" || (inner[0].type.label === "num" && inner[0].value === 1))
-      )
-        found.push(token);
-    } else {
-      const semicolons = [];
-      let parens = 0,
-        brackets = 0,
-        braces = 0;
-      for (let j = 0; j < header.length; j++) {
-        const current = header[j].type.label;
-        if (current === "(") parens++;
-        else if (current === ")") parens--;
-        else if (current === "[") brackets++;
-        else if (current === "]") brackets--;
-        else if (current === "{" || current === "${") braces++;
-        else if (current === "}") braces--;
-        else if (current === ";" && parens === 0 && brackets === 0 && braces === 0) semicolons.push(j);
-      }
-      if (semicolons.length === 2 && semicolons[1] === semicolons[0] + 1) found.push(token);
-    }
+    if (isInfiniteLoopHeader(label, header)) found.push(token);
   }
   return found;
+}
+
+function isInfiniteLoopHeader(label, header) {
+  if (label === "while") {
+    let inner = header;
+    while (inner[0]?.type.label === "(" && inner.at(-1)?.type.label === ")") inner = inner.slice(1, -1);
+    return (
+      inner.length === 1 && (inner[0].type.label === "true" || (inner[0].type.label === "num" && inner[0].value === 1))
+    );
+  }
+  const semicolons = [];
+  let parens = 0,
+    brackets = 0,
+    braces = 0;
+  for (let j = 0; j < header.length; j++) {
+    const current = header[j].type.label;
+    if (current === "(") parens++;
+    else if (current === ")") parens--;
+    else if (current === "[") brackets++;
+    else if (current === "]") brackets--;
+    else if (current === "{" || current === "${") braces++;
+    else if (current === "}") braces--;
+    else if (current === ";" && parens === 0 && brackets === 0 && braces === 0) semicolons.push(j);
+  }
+  return semicolons.length === 2 && semicolons[1] === semicolons[0] + 1;
 }
 
 export function inspectCapabilities(entry, parsed) {
@@ -205,94 +206,8 @@ export function inspectCapabilities(entry, parsed) {
       { nodes } = analysis;
     for (const { node, scope, parent } of nodes) {
       if (!unit.sourceMap.isOriginal(node.start)) continue;
-      if (node.type === "ObjectPattern") {
-        const source =
-          parent?.type === "VariableDeclarator" && parent.id === node
-            ? parent.init
-            : parent?.type === "AssignmentExpression" && parent.left === node
-              ? parent.right
-              : null;
-        if (globalObject(source, scope))
-          for (const property of node.properties) {
-            if (property.type !== "Property") continue;
-            const key = property.computed
-              ? literalString(property.key)
-              : (property.key.name ?? literalString(property.key));
-            if (key === "eval")
-              add(
-                unit,
-                property,
-                "M1",
-                "high",
-                "使用 eval 动态执行代码（公约阻断）",
-                "Workshop 项目禁止调用、转存或间接使用 eval；请改成固定逻辑。",
-              );
-            if (key === "Function")
-              add(
-                unit,
-                property,
-                "M2",
-                "high",
-                "使用 Function 构造器动态创建代码（公约阻断）",
-                "Workshop 项目禁止调用或转存 Function 构造器；请改用固定函数或明确分支。",
-              );
-          }
-      }
-      if (reference(node, parent) && builtin(node, EVAL, scope))
-        add(
-          unit,
-          node,
-          "M1",
-          "high",
-          "使用 eval 动态执行代码（公约阻断）",
-          "Workshop 项目禁止调用、转存或间接使用 eval。不要把 eval 包装、别名化或换一种调用方式；请改成固定逻辑。",
-        );
-      if (reference(node, parent) && builtin(node, FUNCTION, scope))
-        add(
-          unit,
-          node,
-          "M2",
-          "high",
-          "使用 Function 构造器动态创建代码（公约阻断）",
-          "Workshop 项目禁止调用或转存 Function 构造器来生成可执行代码；改用固定函数或明确分支。",
-        );
-
-      const name = memberName(node);
-      let sensitive = false;
-      if (node.type === "MemberExpression") {
-        if (name === "cookie" && builtin(node.object, new Set(["document"]), scope)) sensitive = true;
-        if (
-          builtin(node.object, STORAGE, scope) &&
-          (name === "length" ||
-            name === "key" ||
-            (name && !["getItem", "setItem", "removeItem"].includes(name) && sensitiveKey(name)))
-        )
-          sensitive = true;
-      }
-      if (node.type === "ForInStatement" && builtin(node.right, STORAGE, scope)) sensitive = true;
-      if (node.type === "CallExpression") {
-        const callee = unwrap(node.callee),
-          method = memberName(callee);
-        if (method === "getItem" && builtin(callee.object, STORAGE, scope)) {
-          const key = literalString(node.arguments[0]);
-          if (key !== null && sensitiveKey(key)) sensitive = true;
-        }
-        if (
-          ["keys", "values", "entries"].includes(method) &&
-          builtin(callee.object, new Set(["Object"]), scope) &&
-          builtin(node.arguments[0], STORAGE, scope)
-        )
-          sensitive = true;
-      }
-      if (sensitive)
-        add(
-          unit,
-          node,
-          "M3",
-          "warn",
-          "访问敏感或大范围浏览器数据，需要审核",
-          "这不会自动拒绝上传，但审核员需要确认用途。项目自己的主题、字号等明确本地设置可以使用 localStorage；Cookie、token/API key 类数据或枚举整份存储需要重点检查。",
-        );
+      inspectDynamicExecution(node, scope, parent, unit, add);
+      inspectSensitiveAccess(node, scope, unit, add);
 
       if (
         node.type === "WhileStatement" &&
@@ -312,109 +227,210 @@ export function inspectCapabilities(entry, parsed) {
         builtin(callee, new Set(["sendBeacon"]), scope) ||
         (method === "sendBeacon" && builtin(callee.object, new Set(["navigator"]), scope));
       const xhr = xhrRequest(node, analysis, scope);
-      if ((network && network !== "XMLHttpRequest") || beacon || xhr) {
-        let argument = node.arguments[0];
-        if (method === "call") argument = node.arguments[1];
-        else if (method === "apply") argument = node.arguments[1]?.elements?.[0];
-        const target = xhr?.target ?? staticStringValues(argument, analysis, scope);
-        const options = node.arguments[1]?.type === "ObjectExpression" ? node.arguments[1] : null;
-        const requestMethod = options?.properties.find((property) => propertyName(property) === "method")?.value;
-        add(
-          unit,
-          node,
-          "M4",
-          "warn",
-          "检测到主动网络通信，需要审核",
-          "这不会自动拒绝上传；请由审核员确认请求目标、发送内容与功能需要。可信静态媒体来源也不豁免主动网络调用。",
-          undefined,
-          {
-            action: xhr ? "XMLHttpRequest.send" : (network ?? "sendBeacon"),
-            target: target ?? "dynamic",
-            method: xhr?.method ?? (beacon ? "POST" : (literalString(requestMethod) ?? "GET")),
-            usage: "network",
-          },
-        );
-      }
-      if (URL_NETWORK.has(network)) {
-        let argument = node.arguments[0],
-          uncertainApply = false;
-        if (method === "call") argument = node.arguments[1];
-        else if (method === "apply") {
-          const argumentsArray = node.arguments[1];
-          if (argumentsArray?.type === "ArrayExpression") argument = argumentsArray.elements[0];
-          else {
-            argument = argumentsArray;
-            uncertainApply = true;
-          }
-        }
-        if (!staticStringValues(argument, analysis, scope) || uncertainApply)
-          add(
-            unit,
-            node,
-            "U5",
-            "warn",
-            "网络目标由运行时变量决定",
-            "如果这是固定资源，请改成有限、明确的 URL 映射；如果确实必须动态联网，需要人工确认实际目标范围。",
-            undefined,
-            { action: network, target: "dynamic", usage: "network" },
-          );
-      }
-      if (
-        builtin(callee, new Set(["atob", "btoa"]), scope) ||
-        (["fromCharCode", "fromCodePoint"].includes(method) && builtin(callee.object, new Set(["String"]), scope))
-      )
-        add(
-          unit,
-          node,
-          "AH1",
-          "hint",
-          "发现编码 / 解码式字符串构造",
-          "不代表有问题；人工审核时确认结果没有被继续当作代码或隐藏远程目标。",
-        );
-      if (
-        indirect ||
-        (callee.type === "MemberExpression" &&
-          callee.computed &&
-          memberName(callee) === null &&
-          globalObject(callee.object, scope))
-      )
-        add(
-          unit,
-          node,
-          "AH2",
-          "hint",
-          "发现动态 / 间接函数调用形状",
-          "机器无法可靠知道最终调用什么；只作为审核中心的黄色提示，不自动拒绝。",
-        );
-      if (
-        ["replace", "replaceAll", "split", "join"].includes(method) &&
-        node.arguments.some((argument) => {
-          const value = literalString(argument);
-          return value !== null && (value.includes("<%") || value.includes("%>"));
-        })
-      )
-        add(
-          unit,
-          node,
-          "AH3",
-          "hint",
-          "发现运行时操作 EJS 标记",
-          "不自动判错；请确认它不会把原本的注释/文本重新变成可执行 EJS。",
-        );
-      if (
-        (method === "createElement" ||
-          (callee.type === "Identifier" && callee.name === "createElement" && !resolveBinding(scope, callee.name))) &&
-        literalString(node.arguments[0]) === "script"
-      )
-        add(
-          unit,
-          node,
-          "AH4",
-          "hint",
-          "发现运行时创建 <script>",
-          "不自动判错；人工审核时确认 script.src / textContent 最终来自哪里，以及是否绕过了正常的 U / M 检查。",
-        );
+      inspectNetworkCall(node, scope, unit, analysis, add, method, network, beacon, xhr);
+      inspectCallHints(node, scope, unit, add, callee, method, indirect);
     }
   }
   return findings;
+}
+
+function inspectDynamicExecution(node, scope, parent, unit, add) {
+  if (node.type === "ObjectPattern") {
+    const source =
+      parent?.type === "VariableDeclarator" && parent.id === node
+        ? parent.init
+        : parent?.type === "AssignmentExpression" && parent.left === node
+          ? parent.right
+          : null;
+    if (globalObject(source, scope))
+      for (const property of node.properties) {
+        if (property.type !== "Property") continue;
+        const key = property.computed
+          ? literalString(property.key)
+          : (property.key.name ?? literalString(property.key));
+        if (key === "eval")
+          add(
+            unit,
+            property,
+            "M1",
+            "high",
+            "使用 eval 动态执行代码（公约阻断）",
+            "Workshop 项目禁止调用、转存或间接使用 eval；请改成固定逻辑。",
+          );
+        if (key === "Function")
+          add(
+            unit,
+            property,
+            "M2",
+            "high",
+            "使用 Function 构造器动态创建代码（公约阻断）",
+            "Workshop 项目禁止调用或转存 Function 构造器；请改用固定函数或明确分支。",
+          );
+      }
+  }
+  if (reference(node, parent) && builtin(node, EVAL, scope))
+    add(
+      unit,
+      node,
+      "M1",
+      "high",
+      "使用 eval 动态执行代码（公约阻断）",
+      "Workshop 项目禁止调用、转存或间接使用 eval。不要把 eval 包装、别名化或换一种调用方式；请改成固定逻辑。",
+    );
+  if (reference(node, parent) && builtin(node, FUNCTION, scope))
+    add(
+      unit,
+      node,
+      "M2",
+      "high",
+      "使用 Function 构造器动态创建代码（公约阻断）",
+      "Workshop 项目禁止调用或转存 Function 构造器来生成可执行代码；改用固定函数或明确分支。",
+    );
+}
+
+function inspectSensitiveAccess(node, scope, unit, add) {
+  const name = memberName(node);
+  let sensitive = false;
+  if (node.type === "MemberExpression") {
+    if (name === "cookie" && builtin(node.object, new Set(["document"]), scope)) sensitive = true;
+    if (
+      builtin(node.object, STORAGE, scope) &&
+      (name === "length" ||
+        name === "key" ||
+        (name && !["getItem", "setItem", "removeItem"].includes(name) && sensitiveKey(name)))
+    )
+      sensitive = true;
+  }
+  if (node.type === "ForInStatement" && builtin(node.right, STORAGE, scope)) sensitive = true;
+  if (node.type === "CallExpression") {
+    const callee = unwrap(node.callee),
+      method = memberName(callee);
+    if (method === "getItem" && builtin(callee.object, STORAGE, scope)) {
+      const key = literalString(node.arguments[0]);
+      if (key !== null && sensitiveKey(key)) sensitive = true;
+    }
+    if (
+      ["keys", "values", "entries"].includes(method) &&
+      builtin(callee.object, new Set(["Object"]), scope) &&
+      builtin(node.arguments[0], STORAGE, scope)
+    )
+      sensitive = true;
+  }
+  if (sensitive)
+    add(
+      unit,
+      node,
+      "M3",
+      "warn",
+      "访问敏感或大范围浏览器数据，需要审核",
+      "这不会自动拒绝上传，但审核员需要确认用途。项目自己的主题、字号等明确本地设置可以使用 localStorage；Cookie、token/API key 类数据或枚举整份存储需要重点检查。",
+    );
+}
+
+function inspectNetworkCall(node, scope, unit, analysis, add, method, network, beacon, xhr) {
+  if ((network && network !== "XMLHttpRequest") || beacon || xhr) {
+    let argument = node.arguments[0];
+    if (method === "call") argument = node.arguments[1];
+    else if (method === "apply") argument = node.arguments[1]?.elements?.[0];
+    const target = xhr?.target ?? staticStringValues(argument, analysis, scope);
+    const options = node.arguments[1]?.type === "ObjectExpression" ? node.arguments[1] : null;
+    const requestMethod = options?.properties.find((property) => propertyName(property) === "method")?.value;
+    add(
+      unit,
+      node,
+      "M4",
+      "warn",
+      "检测到主动网络通信，需要审核",
+      "这不会自动拒绝上传；请由审核员确认请求目标、发送内容与功能需要。可信静态媒体来源也不豁免主动网络调用。",
+      undefined,
+      {
+        action: xhr ? "XMLHttpRequest.send" : (network ?? "sendBeacon"),
+        target: target ?? "dynamic",
+        method: xhr?.method ?? (beacon ? "POST" : (literalString(requestMethod) ?? "GET")),
+        usage: "network",
+      },
+    );
+  }
+  if (URL_NETWORK.has(network)) {
+    let argument = node.arguments[0],
+      uncertainApply = false;
+    if (method === "call") argument = node.arguments[1];
+    else if (method === "apply") {
+      const argumentsArray = node.arguments[1];
+      if (argumentsArray?.type === "ArrayExpression") argument = argumentsArray.elements[0];
+      else {
+        argument = argumentsArray;
+        uncertainApply = true;
+      }
+    }
+    if (!staticStringValues(argument, analysis, scope) || uncertainApply)
+      add(
+        unit,
+        node,
+        "U5",
+        "warn",
+        "网络目标由运行时变量决定",
+        "如果这是固定资源，请改成有限、明确的 URL 映射；如果确实必须动态联网，需要人工确认实际目标范围。",
+        undefined,
+        { action: network, target: "dynamic", usage: "network" },
+      );
+  }
+}
+
+function inspectCallHints(node, scope, unit, add, callee, method, indirect) {
+  if (
+    builtin(callee, new Set(["atob", "btoa"]), scope) ||
+    (["fromCharCode", "fromCodePoint"].includes(method) && builtin(callee.object, new Set(["String"]), scope))
+  )
+    add(
+      unit,
+      node,
+      "AH1",
+      "hint",
+      "发现编码 / 解码式字符串构造",
+      "不代表有问题；人工审核时确认结果没有被继续当作代码或隐藏远程目标。",
+    );
+  if (
+    indirect ||
+    (callee.type === "MemberExpression" &&
+      callee.computed &&
+      memberName(callee) === null &&
+      globalObject(callee.object, scope))
+  )
+    add(
+      unit,
+      node,
+      "AH2",
+      "hint",
+      "发现动态 / 间接函数调用形状",
+      "机器无法可靠知道最终调用什么；只作为审核中心的黄色提示，不自动拒绝。",
+    );
+  if (
+    ["replace", "replaceAll", "split", "join"].includes(method) &&
+    node.arguments.some((argument) => {
+      const value = literalString(argument);
+      return value !== null && (value.includes("<%") || value.includes("%>"));
+    })
+  )
+    add(
+      unit,
+      node,
+      "AH3",
+      "hint",
+      "发现运行时操作 EJS 标记",
+      "不自动判错；请确认它不会把原本的注释/文本重新变成可执行 EJS。",
+    );
+  if (
+    (method === "createElement" ||
+      (callee.type === "Identifier" && callee.name === "createElement" && !resolveBinding(scope, callee.name))) &&
+    literalString(node.arguments[0]) === "script"
+  )
+    add(
+      unit,
+      node,
+      "AH4",
+      "hint",
+      "发现运行时创建 <script>",
+      "不自动判错；人工审核时确认 script.src / textContent 最终来自哪里，以及是否绕过了正常的 U / M 检查。",
+    );
 }

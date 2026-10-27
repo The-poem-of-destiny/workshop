@@ -28,6 +28,76 @@ function shortVersion(value: string | null | undefined): string {
   return value.length > 10 ? value.slice(0, 8) : value;
 }
 
+type InstalledRowProps = {
+  item: InstalledItem;
+  scan: InstalledScanState | undefined;
+  busy: boolean;
+  mutating: boolean;
+  onRetry: () => void;
+  onOpen: (item: InstalledItem) => void;
+  onUpdate: (item: InstalledItem) => void;
+  onUninstall: (item: InstalledItem) => void;
+};
+
+function InstalledRow({ item, scan, busy, mutating, onRetry, onOpen, onUpdate, onUninstall }: InstalledRowProps) {
+  const failed = item.failed;
+  const removed = !failed && item.project === null;
+  const updateAvailable =
+    !failed && Boolean(item.project?.publishedRevisionId && item.record.version !== item.project.publishedRevisionId);
+  const localChanged = !failed && scan === "localChanged";
+  const scanIncomplete = !failed && (scan === "scanIncomplete" || (!scan && !removed));
+  return (
+    <li className="installed-item">
+      <div className="installed-main">
+        <h2 className="installed-title">
+          {failed ? "无法加载项目信息" : (item.project?.title ?? (removed ? "项目已从工坊下架" : `项目 ${item.id}`))}
+        </h2>
+        <p className="installed-meta">
+          <span>世界书：{item.record.worldbookName}</span>
+          <span>已安装：{shortVersion(item.record.version)}</span>
+          {failed ? (
+            <span>工坊发布：加载失败</span>
+          ) : (
+            <span>工坊发布：{shortVersion(item.project?.publishedRevisionId)}</span>
+          )}
+        </p>
+        <div className="installed-badges">
+          {failed ? <span className="installed-badge warn">加载失败</span> : null}
+          {updateAvailable ? <span className="installed-badge update">有可用更新</span> : null}
+          {localChanged ? <span className="installed-badge local">本地已修改</span> : null}
+          {scanIncomplete ? <span className="installed-badge warn">扫描不完整</span> : null}
+          {!failed && !updateAvailable && !localChanged && !scanIncomplete && !removed ? (
+            <span className="installed-badge clean">已是最新</span>
+          ) : null}
+          {removed ? <span className="installed-badge warn">已下架</span> : null}
+        </div>
+        {failed ? <p className="hint">无法从工坊获取项目信息，请检查网络后重试；已安装的条目不受影响。</p> : null}
+        {removed ? <p className="hint">该项目已从工坊移除，无法再获取更新；仍可卸载已写入的条目。</p> : null}
+      </div>
+      <div className="installed-actions">
+        {failed ? (
+          <Button type="button" size="sm" variant="secondary" onClick={onRetry}>
+            重试
+          </Button>
+        ) : null}
+        {updateAvailable ? (
+          <Button type="button" size="sm" onClick={() => onUpdate(item)} disabled={mutating || !item.project}>
+            {busy ? "更新中…" : "更新"}
+          </Button>
+        ) : null}
+        {!failed ? (
+          <Button type="button" size="sm" variant="secondary" onClick={() => onOpen(item)} disabled={!item.project}>
+            打开详情
+          </Button>
+        ) : null}
+        <Button type="button" size="sm" variant="ghost" onClick={() => onUninstall(item)} disabled={mutating}>
+          卸载
+        </Button>
+      </div>
+    </li>
+  );
+}
+
 export function Installed({
   items,
   states,
@@ -75,77 +145,19 @@ export function Installed({
         </div>
       ) : (
         <ul className="installed-list">
-          {items.map((item) => {
-            const failed = item.failed;
-            const removed = !failed && item.project === null;
-            const updateAvailable =
-              !failed &&
-              Boolean(item.project?.publishedRevisionId && item.record.version !== item.project.publishedRevisionId);
-            const scan = states?.[item.id];
-            const localChanged = !failed && scan === "localChanged";
-            const scanIncomplete = !failed && (scan === "scanIncomplete" || (!scan && !removed));
-            const busy = updatingId === item.id;
-            return (
-              <li key={item.id} className="installed-item">
-                <div className="installed-main">
-                  <h2 className="installed-title">
-                    {failed
-                      ? "无法加载项目信息"
-                      : (item.project?.title ?? (removed ? "项目已从工坊下架" : `项目 ${item.id}`))}
-                  </h2>
-                  <p className="installed-meta">
-                    <span>世界书：{item.record.worldbookName}</span>
-                    <span>已安装：{shortVersion(item.record.version)}</span>
-                    {failed ? (
-                      <span>工坊发布：加载失败</span>
-                    ) : (
-                      <span>工坊发布：{shortVersion(item.project?.publishedRevisionId)}</span>
-                    )}
-                  </p>
-                  <div className="installed-badges">
-                    {failed ? <span className="installed-badge warn">加载失败</span> : null}
-                    {updateAvailable ? <span className="installed-badge update">有可用更新</span> : null}
-                    {localChanged ? <span className="installed-badge local">本地已修改</span> : null}
-                    {scanIncomplete ? <span className="installed-badge warn">扫描不完整</span> : null}
-                    {!failed && !updateAvailable && !localChanged && !scanIncomplete && !removed ? (
-                      <span className="installed-badge clean">已是最新</span>
-                    ) : null}
-                    {removed ? <span className="installed-badge warn">已下架</span> : null}
-                  </div>
-                  {failed ? (
-                    <p className="hint">无法从工坊获取项目信息，请检查网络后重试；已安装的条目不受影响。</p>
-                  ) : null}
-                  {removed ? <p className="hint">该项目已从工坊移除，无法再获取更新；仍可卸载已写入的条目。</p> : null}
-                </div>
-                <div className="installed-actions">
-                  {failed ? (
-                    <Button type="button" size="sm" variant="secondary" onClick={onRetry}>
-                      重试
-                    </Button>
-                  ) : null}
-                  {updateAvailable ? (
-                    <Button type="button" size="sm" onClick={() => onUpdate(item)} disabled={mutating || !item.project}>
-                      {busy ? "更新中…" : "更新"}
-                    </Button>
-                  ) : null}
-                  {!failed ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => onOpen(item)}
-                      disabled={!item.project}
-                    >
-                      打开详情
-                    </Button>
-                  ) : null}
-                  <Button type="button" size="sm" variant="ghost" onClick={() => onUninstall(item)} disabled={mutating}>
-                    卸载
-                  </Button>
-                </div>
-              </li>
-            );
-          })}
+          {items.map((item) => (
+            <InstalledRow
+              key={item.id}
+              item={item}
+              scan={states?.[item.id]}
+              busy={updatingId === item.id}
+              mutating={mutating}
+              onRetry={onRetry}
+              onOpen={onOpen}
+              onUpdate={onUpdate}
+              onUninstall={onUninstall}
+            />
+          ))}
         </ul>
       )}
     </section>

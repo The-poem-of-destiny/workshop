@@ -18,6 +18,10 @@ Cover destinations are remapped into the served `covers/imported/<sha256>` names
 
 The target deliberately excludes drafts, unpublished/private/rejected rows, old revisions, submissions, reviews, sessions, administrator roles, likes, subscriptions, ratings, download and ranking counters, social/recommendation data, audit history, reference data, and site configuration.
 
+### Implementation boundaries
+
+`lib.mjs` owns extraction, transform orchestration, reconciliation, and JSON I/O. `entities.mjs` owns source member/asset lookup maps and project/revision/member row construction; `assets.mjs` owns byte validation, content indexing, asset rows, and canonical manifests. `validation.mjs` owns target verification, retaining the table → expected-project → identity → project/revision → asset → entry-index diagnostic order. Shared deterministic serialization, identifiers, and table names live in `values.mjs`; callers import verification and shared values directly from their owning modules.
+
 ## Creating a disposable source export
 
 `from_d1_sql.py` reads a legacy D1 SQL dump plus a local mirror of its R2 objects. It writes only the three source files above and embeds local asset bytes for offline verification. Use a disposable directory outside the repository.

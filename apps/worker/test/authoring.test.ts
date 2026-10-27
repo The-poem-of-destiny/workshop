@@ -3,7 +3,8 @@ import { type Session, uploadResponseSchema } from "@workshop/contracts";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Env } from "../src/env";
 import { authoringRoutes } from "../src/http/routes/authoring";
-import { listAuthorProjects, upsertAsset } from "../src/storage/authoring";
+import { listAuthorProjects } from "../src/storage/authoring";
+import { upsertAsset } from "../src/storage/authoring-assets";
 import { applySchema } from "./support/schema";
 
 const bindings = env as unknown as Env;

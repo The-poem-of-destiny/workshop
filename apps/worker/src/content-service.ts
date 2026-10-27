@@ -84,45 +84,7 @@ export class ContentService implements DurableObject {
       return Response.json({ error: "bad_request" }, { status: 400 });
     }
     if (validateRevision) {
-      if (!validateProjectId) return Response.json({ error: "bad_request" }, { status: 400 });
-      const assets = await this.env.DB.prepare(
-        "SELECT kind, r2_key FROM assets WHERE revision_id = ? AND project_id = ? AND kind IN ('worldbook', 'regex')",
-      )
-        .bind(validateRevision, validateProjectId)
-        .all<{ kind: string; r2_key: string }>();
-      const presence: Record<ProjectEntryKind, boolean> = { worldbook: false, regex: false };
-      const counts: Record<ProjectEntryKind, number> = { worldbook: 0, regex: 0 };
-      const hashes: Partial<Record<ProjectEntryKind, string>> = {};
-      let conflict: string | null = null;
-      let error: string | null = null;
-      for (const asset of assets.results) {
-        if (asset.kind !== "worldbook" && asset.kind !== "regex") continue;
-        const kind = asset.kind as ProjectEntryKind;
-        const object = await this.env.R2.get(asset.r2_key);
-        if (!object) {
-          error = "项目文件缺失，请重新上传";
-          break;
-        }
-        const text = await object.text();
-        const result = validateProjectContentText(text, kind);
-        if (!result.valid) {
-          error = result.error;
-          break;
-        }
-        presence[kind] = true;
-        counts[kind] = result.entryCount;
-        hashes[kind] = await sha256(text);
-        if (kind === "worldbook") {
-          conflict = await baselineConflict(this.env.DB, text);
-          if (conflict) break;
-        }
-      }
-      const indexAssets = assets.results.filter(
-        (asset): asset is { kind: ProjectEntryKind; r2_key: string } =>
-          asset.kind === "worldbook" || asset.kind === "regex",
-      );
-      const entries = error || conflict ? [] : await buildEntryIndex(this.env.R2, indexAssets);
-      return Response.json({ presence, counts, hashes, conflict, error, entries });
+      return this.validateRevision(validateRevision, validateProjectId);
     }
     if (validation) {
       if ((validation.kind !== "worldbook" && validation.kind !== "regex") || typeof validation.text !== "string") {
@@ -132,7 +94,10 @@ export class ContentService implements DurableObject {
       return Response.json(result);
     }
     if (!submissionId) return Response.json({ error: "bad_request" }, { status: 400 });
+    return this.runSubmission(submissionId);
+  }
 
+  private async runSubmission(submissionId: string): Promise<Response> {
     const db = this.env.DB;
     const target = await db
       .prepare(`
@@ -174,68 +139,7 @@ export class ContentService implements DurableObject {
     if (claimed.meta.changes === 0) return Response.json({ skipped: "not_claimed" });
 
     try {
-      const startedAt = Date.now();
-      const assets = await db
-        .prepare(`
-        SELECT kind, r2_key FROM assets WHERE revision_id = ? AND kind IN ('worldbook', 'regex') ORDER BY kind
-      `)
-        .bind(target.revision_id)
-        .all<{ kind: "worldbook" | "regex"; r2_key: string }>();
-      if (assets.results.length === 0) throw new Error("冻结内容没有世界书或正则文件");
-
-      const files = [];
-      for (const asset of assets.results) {
-        const object = await this.env.R2.get(asset.r2_key);
-        if (!object) throw new Error(`冻结文件缺失：${asset.kind}`);
-        files.push({ fileName: `${asset.kind}.json`, type: asset.kind, text: await object.text() });
-      }
-
-      const report = analyzeFiles(files);
-      const route = routeGate(report);
-      const storedReport = JSON.stringify({
-        ...report,
-        routeGate: route,
-        reviewCheckerRevision: REVIEW_CHECKER_REVISION,
-      });
-      const reportHash = await sha256(storedReport);
-      const checkedAt = new Date().toISOString();
-      await db
-        .prepare(`
-        INSERT INTO submission_check_runs
-          (id, submission_id, review_checker_revision, route_gate, report, report_hash, duration_ms, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-        .bind(
-          crypto.randomUUID(),
-          submissionId,
-          REVIEW_CHECKER_REVISION,
-          route,
-          storedReport,
-          reportHash,
-          Date.now() - startedAt,
-          checkedAt,
-        )
-        .run();
-
-      if (route === "block") {
-        await this.needsHuman(submissionId, "自动检查要求人工审核。", {
-          report: storedReport,
-          hash: reportHash,
-          checkedAt,
-        });
-        return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_REVISION });
-      }
-      if (target.client_gate === "block" || target.client_gate === "missing") {
-        await this.needsHuman(submissionId, "客户端检查未通过或缺失，转人工审核。", {
-          report: storedReport,
-          hash: reportHash,
-          checkedAt,
-        });
-        return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_REVISION, manual: true });
-      }
-
-      await this.autoPublish(target, storedReport, reportHash, checkedAt);
-      return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_REVISION });
+      return await this.checkSubmission(target, submissionId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const attempts = target.check_attempts + 1;
@@ -253,6 +157,114 @@ export class ContentService implements DurableObject {
       }
       return Response.json({ ok: false, error: message, attempts }, { status: 500 });
     }
+  }
+
+  private async checkSubmission(target: RunTarget, submissionId: string): Promise<Response> {
+    const db = this.env.DB;
+    const startedAt = Date.now();
+    const assets = await db
+      .prepare(`
+      SELECT kind, r2_key FROM assets WHERE revision_id = ? AND kind IN ('worldbook', 'regex') ORDER BY kind
+    `)
+      .bind(target.revision_id)
+      .all<{ kind: "worldbook" | "regex"; r2_key: string }>();
+    if (assets.results.length === 0) throw new Error("冻结内容没有世界书或正则文件");
+
+    const files = [];
+    for (const asset of assets.results) {
+      const object = await this.env.R2.get(asset.r2_key);
+      if (!object) throw new Error(`冻结文件缺失：${asset.kind}`);
+      files.push({ fileName: `${asset.kind}.json`, type: asset.kind, text: await object.text() });
+    }
+
+    const report = analyzeFiles(files);
+    const route = routeGate(report);
+    const storedReport = JSON.stringify({
+      ...report,
+      routeGate: route,
+      reviewCheckerRevision: REVIEW_CHECKER_REVISION,
+    });
+    const reportHash = await sha256(storedReport);
+    const checkedAt = new Date().toISOString();
+    await db
+      .prepare(`
+      INSERT INTO submission_check_runs
+        (id, submission_id, review_checker_revision, route_gate, report, report_hash, duration_ms, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+      .bind(
+        crypto.randomUUID(),
+        submissionId,
+        REVIEW_CHECKER_REVISION,
+        route,
+        storedReport,
+        reportHash,
+        Date.now() - startedAt,
+        checkedAt,
+      )
+      .run();
+
+    if (route === "block") {
+      await this.needsHuman(submissionId, "自动检查要求人工审核。", {
+        report: storedReport,
+        hash: reportHash,
+        checkedAt,
+      });
+      return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_REVISION });
+    }
+    if (target.client_gate === "block" || target.client_gate === "missing") {
+      await this.needsHuman(submissionId, "客户端检查未通过或缺失，转人工审核。", {
+        report: storedReport,
+        hash: reportHash,
+        checkedAt,
+      });
+      return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_REVISION, manual: true });
+    }
+
+    await this.autoPublish(target, storedReport, reportHash, checkedAt);
+    return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_REVISION });
+  }
+
+  private async validateRevision(validateRevision: string, validateProjectId: string): Promise<Response> {
+    if (!validateProjectId) return Response.json({ error: "bad_request" }, { status: 400 });
+    const assets = await this.env.DB.prepare(
+      "SELECT kind, r2_key FROM assets WHERE revision_id = ? AND project_id = ? AND kind IN ('worldbook', 'regex')",
+    )
+      .bind(validateRevision, validateProjectId)
+      .all<{ kind: string; r2_key: string }>();
+    const presence: Record<ProjectEntryKind, boolean> = { worldbook: false, regex: false };
+    const counts: Record<ProjectEntryKind, number> = { worldbook: 0, regex: 0 };
+    const hashes: Partial<Record<ProjectEntryKind, string>> = {};
+    let conflict: string | null = null;
+    let error: string | null = null;
+    for (const asset of assets.results) {
+      if (asset.kind !== "worldbook" && asset.kind !== "regex") continue;
+      const kind = asset.kind as ProjectEntryKind;
+      const object = await this.env.R2.get(asset.r2_key);
+      if (!object) {
+        error = "项目文件缺失，请重新上传";
+        break;
+      }
+      const text = await object.text();
+      const result = validateProjectContentText(text, kind);
+      if (!result.valid) {
+        error = result.error;
+        break;
+      }
+      presence[kind] = true;
+      counts[kind] = result.entryCount;
+      hashes[kind] = await sha256(text);
+      if (kind === "worldbook") {
+        conflict = await baselineConflict(this.env.DB, text);
+        if (conflict) break;
+      }
+    }
+    const indexAssets = assets.results.filter(
+      (asset): asset is { kind: ProjectEntryKind; r2_key: string } =>
+        asset.kind === "worldbook" || asset.kind === "regex",
+    );
+    const entries = error || conflict ? [] : await buildEntryIndex(this.env.R2, indexAssets);
+    return Response.json({ presence, counts, hashes, conflict, error, entries });
   }
 
   private async needsHuman(

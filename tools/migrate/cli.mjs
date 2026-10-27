@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { extract, readJson, reconcile, transform, verify, writeJson } from "./lib.mjs";
+import { extract, readJson, reconcile, transform, writeJson } from "./lib.mjs";
+import { verify } from "./validation.mjs";
 
 const help = `Usage: node tools/migrate/cli.mjs <phase> --source <dir> --target <file> [--dry-run]
 
