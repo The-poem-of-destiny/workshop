@@ -20,7 +20,7 @@ for (const suffix of ["branches/main", "branches/main/protection", "dependabot/a
 for (const [label, selection] of Object.entries({
   base: 'autoMergeAllowed viewerPermission ref(qualifiedName:"refs/heads/main"){target{oid}}',
   refUpdate:
-    'ref(qualifiedName:"refs/heads/main"){refUpdateRule{allowsDeletions allowsForcePushes isAdminEnforced requiredStatusCheckContexts requiresStatusChecks requiresStrictStatusChecks}}',
+    'ref(qualifiedName:"refs/heads/main"){refUpdateRule{allowsDeletions allowsForcePushes requiredStatusCheckContexts requiredApprovingReviewCount viewerCanPush}}',
   ruleId: 'ref(qualifiedName:"refs/heads/main"){branchProtectionRule{id}}',
   ruleBasic:
     'ref(qualifiedName:"refs/heads/main"){branchProtectionRule{requiresStatusChecks requiresStrictStatusChecks isAdminEnforced allowsForcePushes allowsDeletions}}',
@@ -29,6 +29,8 @@ for (const [label, selection] of Object.entries({
     'ref(qualifiedName:"refs/heads/main"){branchProtectionRule{bypassPullRequestAllowances(first:1){totalCount}}}',
   alerts:
     "vulnerabilityAlerts(first:1){pageInfo{hasNextPage} nodes{state vulnerableManifestPath dependabotUpdate{pullRequest{number headRefOid}}}}",
+  prViewer:
+    "pullRequest(number:45){mergeStateStatus viewerCanMergeAsAdmin viewerCanEnableAutoMerge headRefOid baseRefOid}",
 }))
   await request(label, "/graphql", {
     query: `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){${selection}}}`,
