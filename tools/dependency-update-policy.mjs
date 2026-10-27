@@ -11,26 +11,30 @@ function version(value) {
   return value.split(".").map(BigInt);
 }
 
-export function validateProtection(rule) {
-  assert.ok(
-    rule?.requiresStatusChecks && rule.requiresStrictStatusChecks && rule.isAdminEnforced,
-    "Strict, admin-enforced protection is required",
-  );
-  assert.equal(rule.bypassPullRequestAllowances?.totalCount, 0, "PR bypass is forbidden");
-  assert.equal(rule.allowsForcePushes, false, "Force pushes are forbidden");
-  assert.equal(rule.allowsDeletions, false, "Branch deletion is forbidden");
-  assert.deepEqual(
-    [...rule.requiredStatusCheckContexts].sort(),
-    [...requiredChecks].sort(),
-    "Unreviewed required checks",
-  );
-  assert.equal(rule.requiredStatusChecks.length, requiredChecks.length);
+export function validateProtection(branch, viewerRule) {
+  assert.equal(branch?.protected, true, "Main must be protected");
+  const checks = branch?.protection?.required_status_checks;
+  assert.equal(checks?.enforcement_level, "everyone", "Required checks must apply to everyone");
+  assert.ok(Array.isArray(checks.contexts), "Missing required check contexts");
+  assert.deepEqual([...checks.contexts].sort(), [...requiredChecks].sort(), "Unreviewed required checks");
+  assert.ok(Array.isArray(checks.checks), "Missing required check providers");
+  assert.equal(checks.checks.length, requiredChecks.length);
   for (const name of requiredChecks) {
     assert.ok(
-      rule.requiredStatusChecks.some((check) => check.context === name && check.app?.databaseId === 15368),
+      checks.checks.some((check) => check.context === name && check.app_id === 15368),
       `Required ${name} must be bound to GitHub Actions`,
     );
   }
+  assert.equal(viewerRule?.allowsForcePushes, false, "Force pushes are forbidden");
+  assert.equal(viewerRule?.allowsDeletions, false, "Branch deletion is forbidden");
+  assert.equal(viewerRule?.requiredApprovingReviewCount, 0, "Unreviewed required approval policy");
+  assert.ok(Array.isArray(viewerRule?.requiredStatusCheckContexts), "Missing viewer required check contexts");
+  assert.deepEqual(
+    [...viewerRule.requiredStatusCheckContexts].sort(),
+    [...requiredChecks].sort(),
+    "Unreviewed viewer required checks",
+  );
+  // Strictness, admin enforcement and other actors' bypass grants remain owner-audited baseline settings.
 }
 
 export function validateSource(pr, commit, repository, mainSha) {

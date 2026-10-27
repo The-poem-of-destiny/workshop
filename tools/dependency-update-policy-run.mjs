@@ -56,24 +56,28 @@ async function allOpenPulls() {
 }
 
 async function protection() {
-  const data = await graphql(
-    `query($owner:String!,$name:String!) {
-    repository(owner:$owner,name:$name) {
-      autoMergeAllowed
-      ref(qualifiedName:"refs/heads/main") { target { oid } branchProtectionRule {
-        requiresStatusChecks requiresStrictStatusChecks isAdminEnforced allowsForcePushes allowsDeletions
-        requiredStatusCheckContexts requiredStatusChecks { context app { databaseId } }
-        bypassPullRequestAllowances(first:1) { totalCount }
-      } }
-    }
-  }`,
-    { owner, name },
-  );
-  if (process.env.DEPENDENCY_SECURITY_AUTOMERGE === "true") {
-    assert.equal(data.repository.autoMergeAllowed, true, "Repository auto-merge is not enabled");
-  }
-  validateProtection(data.repository.ref.branchProtectionRule);
-  return data.repository.ref.target.oid;
+  const [branch, rules, data] = await Promise.all([
+    api(`${root}/branches/main`),
+    api(`${root}/rules/branches/main`),
+    graphql(
+      `query($owner:String!,$name:String!) {
+      repository(owner:$owner,name:$name) {
+        ref(qualifiedName:"refs/heads/main") { target { oid } refUpdateRule {
+          allowsForcePushes allowsDeletions requiredStatusCheckContexts
+          requiredApprovingReviewCount
+        } }
+      }
+    }`,
+      { owner, name },
+    ),
+  ]);
+  // Additional branch rulesets require an explicit policy review, not assumptions about bypass actors.
+  assert.ok(Array.isArray(rules) && rules.length === 0, "Unreviewed branch rulesets apply to main");
+  validateProtection(branch, data.repository.ref.refUpdateRule);
+  const mainSha = data.repository.ref.target.oid;
+  assert.match(mainSha, /^[a-f0-9]{40}$/);
+  assert.equal(branch.commit.sha, mainSha, "Main changed during protection inspection");
+  return mainSha;
 }
 
 async function content(path, ref) {
@@ -160,13 +164,14 @@ async function evaluate(number) {
   validateChecks(checks.check_runs, pr.head.sha);
   const ready = await graphql(
     `query($owner:String!,$name:String!,$number:Int!) { repository(owner:$owner,name:$name) {
-    pullRequest(number:$number) { id headRefOid baseRefOid mergeStateStatus autoMergeRequest { enabledBy { login } } }
+    pullRequest(number:$number) { id headRefOid baseRefOid mergeStateStatus viewerCanMergeAsAdmin autoMergeRequest { enabledBy { login } } }
   } }`,
     { owner, name, number },
   );
   const current = ready.repository.pullRequest;
   assert.equal(current.headRefOid, pr.head.sha, "Head changed during evaluation");
   assert.equal(current.baseRefOid, mainSha, "Base changed during evaluation");
+  assert.equal(current.viewerCanMergeAsAdmin, false, "Workflow identity must not merge as admin");
   assert.equal(current.mergeStateStatus, "CLEAN", "Do not leave deferred merge authorization");
   assert.equal(current.autoMergeRequest, null, "Existing auto-merge needs human review");
   assert.equal(await protection(), mainSha, "Main changed during evaluation");
@@ -180,7 +185,7 @@ async function evaluate(number) {
   const errors = [];
   try {
     await graphql(
-      `mutation($id:ID!,$head:GitObjectID!) { enablePullRequestAutoMerge(input:{pullRequestId:$id,expectedHeadOid:$head,mergeMethod:SQUASH}) { pullRequest { number } } }`,
+      `mutation($id:ID!,$head:GitObjectID!) { mergePullRequest(input:{pullRequestId:$id,expectedHeadOid:$head,mergeMethod:SQUASH}) { pullRequest { number } } }`,
       { id: current.id, head: pr.head.sha },
     );
   } catch (error) {
@@ -189,26 +194,8 @@ async function evaluate(number) {
   let latest;
   try {
     latest = await api(`${root}/pulls/${number}`);
-    for (let attempt = 0; !latest.merged && attempt < 3; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      latest = await api(`${root}/pulls/${number}`);
-    }
   } catch (error) {
     errors.push(error);
-  }
-  // An unknown GET result is not proof of completion: always attempt revocation
-  // unless GitHub has positively reported the PR merged.
-  if (!latest?.merged) {
-    try {
-      await disable(current.id);
-    } catch (error) {
-      errors.push(error);
-    }
-    try {
-      latest = await api(`${root}/pulls/${number}`);
-    } catch (error) {
-      errors.push(error);
-    }
   }
   if (latest?.merged) {
     try {
@@ -217,7 +204,7 @@ async function evaluate(number) {
       errors.push(error);
     }
   } else {
-    errors.push(new Error(`PR #${number} did not merge immediately; inspect auto-merge state`));
+    errors.push(new Error(`PR #${number} did not merge; inspect protected merge refusal`));
   }
   if (errors.length === 1) throw errors[0];
   if (errors.length > 1) throw new AggregateError(errors, `PR #${number}: merge or continuation failed`);
@@ -234,8 +221,8 @@ if (process.env.RECOVER_PR) {
   assert.equal(pr.head?.repo?.full_name, repository);
   await dispatch(pr);
 } else {
-  // Reconcile our stranded grants before policy/alert probes, including when
-  // the merge switch is off. Human/App grants are never taken over.
+  // Reconcile legacy stranded auto-merge grants before policy/alert probes, including
+  // when the merge switch is off. New evaluations never grant deferred authority.
   const pending = await allOpenPulls();
   for (const pr of pending.filter((pull) => pull.user?.id === 49699333)) {
     const state = await mergeAuthorization(pr.number);
@@ -268,9 +255,7 @@ if (process.env.RECOVER_PR) {
       "automerge=disabled",
       "qualification=BLOCKED",
       "Cleanup completed; this is not a passing merge qualification or permissions smoke.",
-      "GITHUB_TOKEN cannot read the required branch protection: Administration: read is unavailable in workflow permissions.",
-      "Observed failure: https://github.com/The-poem-of-destiny/workshop/actions/runs/40467982092",
-      "Manual probe_permissions=true retains the real failing permissions probe; no alternate credential is configured.",
+      "No qualification or permissions probe was requested; main protection and alert visibility were not inspected.",
     ].join("\n");
     console.log(status);
     if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `${status}\n`);
@@ -278,7 +263,9 @@ if (process.env.RECOVER_PR) {
     // Probe actual workflow-token visibility even with no bot PRs or alerts.
     await protection();
     await alerts();
-    console.log("Workflow token can inspect strict main protection and complete vulnerability alert data.");
+    console.log(
+      "Workflow token can inspect main check enforcement, viewer protection and complete vulnerability alert data; owner-audited baseline settings remain separate.",
+    );
     const pulls = await list(`${root}/pulls?state=open&base=main`);
     for (const pr of pulls.filter((pull) => pull.user?.id === 49699333)) {
       try {

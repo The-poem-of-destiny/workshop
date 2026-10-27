@@ -59,7 +59,7 @@ flowchart TD
 
 1. 可靠核验 Dependabot PR 的作者、来源和机器元数据，并核实确实涉及已知漏洞修复；不只信标题或标签。若拿不到可靠的安全更新判定，默认不自动合并。
 2. 更新依赖全部在允许范围，分组内不能只检查一个依赖；仅 manifest／lockfile 等明确允许文件变化。major、Actions、权限／安装脚本／registry 变化及策略不认识的情况转人工。
-3. 最新待合并 head 的必需检查通过；分支保护有效。使用 GitHub auto-merge 等待条件，不直接绕过合并；有审批要求时明确兼容方式。
+3. 最新待合并 head 的必需检查通过；分支保护有效且机器人无管理员绕过能力。2026-10-27 用户批准：已 CLEAN 时使用带 expectedHeadOid 的普通服务端受保护合并，不留下延迟授权；不要求机器人完整审计其他所有 actor。远端 strict、管理员强制、App 绑定、禁 force/delete 基线维持不变，部分配置漂移由 owner 审计，不冒充运行时全量可见。
 4. 合并控制任务不执行不可信 PR 代码，不向 PR 检查暴露部署凭据。需要额外身份时优先最小权限 GitHub App，不使用个人长期 token。
 5. 核实所选 token／事件确实触发 main CI 和 staging，不假定 `GITHUB_TOKEN` 引发的所有事件都会递归触发工作流。不能通过悄悄换高权限 token 来补救。
 6. 初期仅通向 staging；production 继续遵循已有 tag／审批边界。staging 检查失败不继续推广，保留精确版本与回退目标；代码回退不等于数据迁移回滚。
@@ -183,10 +183,11 @@ flowchart TD
 - 文件／导出人工审计报 2 个文件、29 个导出、20 个导出类型，尚未逐个核实；不将这份报告冒充已治理，也未接该维度持续门禁。后续清理应独立关注点。
 - 冷静期显式 1440 分钟；三个 Cloudflare 例外均于 2026-10-20 发布，已过期并移除。`allowBuilds` 只保留 esbuild／workerd；Node 最低 22.12.0 与 Knip 要求一致。
 - [PR #35](https://github.com/The-poem-of-destiny/workshop/pull/35)（依赖卫生）与 [PR #36](https://github.com/The-poem-of-destiny/workshop/pull/36)（安全策略）分别通过 check／e2e／secrets 并合并。安全策略六组永久边界测试通过；真实 runner 临时故障注入 6/6，通过首次／轮询读取失败撤权、关闭开关跨页回收、独立恢复、撤权失败红灯、合并竞态精确 dispatch。独立安全复审 `findings: []`。
-- 宿主阻塞：[权限探测 run 40467982092](https://github.com/The-poem-of-destiny/workshop/actions/runs/40467982092) 实际返回 `branchProtectionRule` → `Resource not accessible by integration`。GitHub 接受 `vulnerability-alerts: read`，但当前 GITHUB_TOKEN 不能读取保护规则；总开关保持关闭，不删除保护验真、不使用个人 token。需另行配置最小权限 GitHub App 后才能启用。无合格漏洞样本，授权／真实安全更新→staging 全链仍未验收。
+- 初次 [run 40467982092](https://github.com/The-poem-of-destiny/workshop/actions/runs/40467982092) 确实在 `branchProtectionRule` 被拒，但“必须新增 App”结论过强：完整配置读取是实现增加的前提，不是普通受保护合并必需。后续真实内置令牌探测读到非管理员 `refUpdateRule`、公开检查/App 元数据和漏洞关联查询；仍无真实合格漏洞样本，不伪造安全更新→staging 全链。
 - 第二批预调查：Biome 默认阈值（复杂度 15／函数 50／文件 300）产生 203 项信息诊断，包含 React JSX 与测试套件。不能直接升级为阻断；需按职责治理与分类阈值，不以默认数字逼出包装函数。
 - [PR #37](https://github.com/The-poem-of-destiny/workshop/pull/37) 合并关闭状态清理模式；真实 [run 40469653122](https://github.com/The-poem-of-destiny/workshop/actions/runs/40469653122) 成功并明确输出 `mode=cleanup-only`／`automerge=disabled`／`qualification=BLOCKED`。这只证明清理模式，不代表权限资格恢复。
-- 按授权核查了 ruleset 替代：生效规则可用 Metadata read 读取，但官方 `GET rulesets/{id}` 仅向有 ruleset 写权限的身份返回完整 `bypass_actors`；`current_user_can_bypass: never` 不能证明其他管理员无 bypass。故不为绕过权限迁移保护、不将缺字段当空名单。安全解决仍需单仓库 GitHub App 的 Administration read 和相应安装凭据；现有 GITHUB_TOKEN 无法自行扩出该权限，尚无可用 App 凭据，保持关闭。
+- 扩大调查后，用户批准保护执行与全局配置审计分层：不迁移/弱化保护，不新增身份；运行时核验可读门禁、本机器人 `viewerCanMergeAsAdmin: false` 和精确 PR 资格，保留全部内容／漏洞来源校验。写权限 [run 40487964827](https://github.com/The-poem-of-destiny/workshop/actions/runs/40487964827) 证明 `viewerCanPush: true` 不等于管理员 bypass，非管理员规则和 alerts 均可读。修正 CLEAN→auto-merge API 的不匹配，改普通 expected-head 服务端合并；新实现尚待故障注入、独立 review 与正式 main workflow 验收，总开关暂保持关闭。
+- 修正版九组永久行为测试通过，真实 runner 的临时 fetch-boundary 注入 13 场景通过：合格输入精确 head squash→确认→精确 CI dispatch、CLEAN／bypass／metadata／ruleset／head/base 漂移拒绝、响应丢失后确认接续、未合并不 dispatch、关闭清理和独立恢复。它们不是 GitHub 真实漏洞资格验收。未向绝不能合并的临时调查 PR 发 merge 请求，避免保护若失效时把探针合入 main。
 
 ### 第二批（2026-10-27，已合并）
 

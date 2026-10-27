@@ -10,7 +10,7 @@ on:
         required: false
         type: string
       probe_permissions:
-        description: 'Probe merge qualification permissions (known protection-read blocker fails visibly)'
+        description: 'Probe viewer-enforced protection and alert reads with merging disabled'
         required: false
         default: false
         type: boolean
@@ -27,8 +27,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      contents: write # enable GitHub auto-merge, never direct merge or push
-      pull-requests: write # enable/disable auto-merge; no approval
+      contents: write # exact-head normal PR merge, still enforced by server protection
+      pull-requests: write # merge qualifying PRs and revoke legacy auto-merge grants; no approval
       checks: read
       actions: write # explicit ci workflow_dispatch; token-created push is suppressed
       vulnerability-alerts: read # Dependabot alerts; fail closed on unsupported hosts

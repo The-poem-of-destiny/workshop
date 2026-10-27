@@ -184,25 +184,227 @@ test("requires current success from the protected Actions provider, not skipped 
   assert.throws(() => validateChecks([...checks, checks[0]], head));
 });
 
-test("requires enforceable strict protection without actor bypass or untrusted check providers", () => {
-  const rule = {
-    requiresStatusChecks: true,
-    requiresStrictStatusChecks: true,
-    isAdminEnforced: true,
-    allowsForcePushes: false,
-    allowsDeletions: false,
-    bypassPullRequestAllowances: { totalCount: 0 },
-    requiredStatusCheckContexts: ["check", "e2e", "secrets"],
-    requiredStatusChecks: ["check", "e2e", "secrets"].map((context) => ({ context, app: { databaseId: 15368 } })),
+function protection() {
+  return {
+    branch: {
+      protected: true,
+      protection: {
+        required_status_checks: {
+          enforcement_level: "everyone",
+          contexts: ["check", "e2e", "secrets"],
+          checks: ["check", "e2e", "secrets"].map((context) => ({ context, app_id: 15368 })),
+        },
+      },
+    },
+    viewerRule: {
+      allowsDeletions: false,
+      allowsForcePushes: false,
+      requiredStatusCheckContexts: ["check", "e2e", "secrets"],
+      requiredApprovingReviewCount: 0,
+      viewerCanPush: true,
+    },
   };
-  validateProtection(rule);
-  for (const change of [
-    { isAdminEnforced: false },
-    { requiresStrictStatusChecks: false },
-    { allowsForcePushes: true },
-    { bypassPullRequestAllowances: { totalCount: 1 } },
-    { requiredStatusChecks: rule.requiredStatusChecks.map((check) => ({ ...check, app: null })) },
-  ]) {
-    assert.throws(() => validateProtection({ ...rule, ...change }));
+}
+
+test("accepts readable protected check gates even when the workflow actor has ordinary push permission", () => {
+  const { branch, viewerRule } = protection();
+  validateProtection(branch, viewerRule);
+});
+
+test("fails closed when protected branch or check enforcement is absent", () => {
+  const mutations = [
+    [
+      "missing branch",
+      (value) => {
+        value.branch = null;
+      },
+    ],
+    [
+      "unprotected branch",
+      ({ branch }) => {
+        branch.protected = false;
+      },
+    ],
+    [
+      "unknown protection state",
+      ({ branch }) => {
+        delete branch.protected;
+      },
+    ],
+    [
+      "missing protection",
+      ({ branch }) => {
+        delete branch.protection;
+      },
+    ],
+    [
+      "missing required checks",
+      ({ branch }) => {
+        delete branch.protection.required_status_checks;
+      },
+    ],
+    [
+      "non-universal enforcement",
+      ({ branch }) => {
+        branch.protection.required_status_checks.enforcement_level = "non_admins";
+      },
+    ],
+    [
+      "unknown enforcement",
+      ({ branch }) => {
+        delete branch.protection.required_status_checks.enforcement_level;
+      },
+    ],
+  ];
+  for (const [reason, mutate] of mutations) {
+    const value = protection();
+    mutate(value);
+    assert.throws(() => validateProtection(value.branch, value.viewerRule), reason);
+  }
+});
+
+test("rejects missing, ambiguous or untrusted required check providers", () => {
+  const mutations = [
+    [
+      "missing contexts",
+      (checks) => {
+        delete checks.contexts;
+      },
+    ],
+    [
+      "missing required context",
+      (checks) => {
+        checks.contexts.pop();
+      },
+    ],
+    [
+      "unreviewed context",
+      (checks) => {
+        checks.contexts.push("other");
+      },
+    ],
+    [
+      "duplicate context",
+      (checks) => {
+        checks.contexts[2] = "check";
+      },
+    ],
+    [
+      "missing providers",
+      (checks) => {
+        delete checks.checks;
+      },
+    ],
+    [
+      "missing required provider",
+      (checks) => {
+        checks.checks.pop();
+      },
+    ],
+    [
+      "ambiguous provider",
+      (checks) => {
+        checks.checks.push({ ...checks.checks[0] });
+      },
+    ],
+    [
+      "wrong provider",
+      (checks) => {
+        checks.checks[0].app_id = 1;
+      },
+    ],
+    [
+      "unbound provider",
+      (checks) => {
+        checks.checks[0].app_id = null;
+      },
+    ],
+    [
+      "unknown provider",
+      (checks) => {
+        delete checks.checks[0].app_id;
+      },
+    ],
+    [
+      "provider bound to wrong context",
+      (checks) => {
+        checks.checks[0].context = "other";
+      },
+    ],
+  ];
+  for (const [reason, mutate] of mutations) {
+    const { branch, viewerRule } = protection();
+    mutate(branch.protection.required_status_checks);
+    assert.throws(() => validateProtection(branch, viewerRule), reason);
+  }
+});
+
+test("rejects missing viewer restrictions, force pushes, deletions or incompatible review requirements", () => {
+  const mutations = [
+    [
+      "missing viewer rule",
+      (value) => {
+        value.viewerRule = null;
+      },
+    ],
+    [
+      "force pushes allowed",
+      ({ viewerRule }) => {
+        viewerRule.allowsForcePushes = true;
+      },
+    ],
+    [
+      "unknown force push policy",
+      ({ viewerRule }) => {
+        delete viewerRule.allowsForcePushes;
+      },
+    ],
+    [
+      "deletion allowed",
+      ({ viewerRule }) => {
+        viewerRule.allowsDeletions = true;
+      },
+    ],
+    [
+      "unknown deletion policy",
+      ({ viewerRule }) => {
+        delete viewerRule.allowsDeletions;
+      },
+    ],
+    [
+      "required review unavailable to workflow",
+      ({ viewerRule }) => {
+        viewerRule.requiredApprovingReviewCount = 1;
+      },
+    ],
+    [
+      "unknown review policy",
+      ({ viewerRule }) => {
+        delete viewerRule.requiredApprovingReviewCount;
+      },
+    ],
+    [
+      "missing viewer check policy",
+      ({ viewerRule }) => {
+        delete viewerRule.requiredStatusCheckContexts;
+      },
+    ],
+    [
+      "inconsistent viewer check policy",
+      ({ viewerRule }) => {
+        viewerRule.requiredStatusCheckContexts.pop();
+      },
+    ],
+    [
+      "extra viewer check",
+      ({ viewerRule }) => {
+        viewerRule.requiredStatusCheckContexts.push("other");
+      },
+    ],
+  ];
+  for (const [reason, mutate] of mutations) {
+    const value = protection();
+    mutate(value);
+    assert.throws(() => validateProtection(value.branch, value.viewerRule), reason);
   }
 });
