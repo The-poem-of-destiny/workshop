@@ -1,6 +1,6 @@
 # Migration and cutover gates
 
-This file records the gates enforced by `tools/migrate/lib.mjs` and the steps that are intentionally not automated without an authorized target.
+This file records historical migration/cutover planning gates and the steps that are intentionally not automated without an authorized target. Current local-only public-release scope and commands are documented in `tools/migrate/README.md`; current target verification is implemented in `tools/migrate/validation.mjs`.
 
 ## Enforced by `verify()`
 

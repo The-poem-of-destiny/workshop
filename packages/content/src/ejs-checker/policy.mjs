@@ -65,136 +65,9 @@ export function inspectAstPolicy(entry, parsed) {
     const analysis = buildScopes(unit);
     const original = (node) => unit.sourceMap.isOriginal(node.start);
     const at = (node) => unit.sourceMap.map(node.start);
-    for (const declaration of analysis.namedDeclarations) {
-      const { node, scope, kind, binding } = declaration;
-      if (!original(node) || scope.kind !== "root" || entry.isPrivate) continue;
-      const index = at(node),
-        name = binding.name;
-      symbols.push({ name, index, type: kind });
-      if (kind === "function")
-        add(
-          "L3",
-          "high",
-          "顶层函数不符合 Workshop 组合兼容公约",
-          index,
-          "函数 " +
-            name +
-            " 暴露在 EJS 顶层。它当前可能正常运行，但若其他项目在同一编译单元使用同名函数，会发生静默覆盖。",
-          "把只供本条目使用的函数放进本条目的 { ... } 局部块。若它本来用于跨条目共享，不要依赖顶层函数名；改用项目专属的显式共享命名空间。",
-        );
-      else
-        add(
-          "L3",
-          "high",
-          "顶层 class 不符合 Workshop 组合兼容公约",
-          index,
-          "class " + name + " 暴露在 EJS 顶层；同名 class 进入同一编译单元会发生词法声明冲突。",
-          "把只供本条目使用的 class 放进本条目的 { ... } 局部块；不要把普通顶层 class 当作跨项目共享接口。",
-        );
-    }
-    for (const declaration of analysis.declarations) {
-      const { node, scope, targetScope, bindings } = declaration;
-      if (!original(node)) continue;
-      const index = at(node),
-        label = bindings.map((binding) => binding.name).join(", ");
-      if (node.kind === "var") {
-        if (entry.isPrivate || isFunctionLocal(scope)) {
-          add(
-            "L1",
-            "info",
-            "检测到局部 var（维护提示）",
-            index,
-            "检测到 var " + label + "。这里已有函数/private 隔离，因此不会作为顶层组合兼容阻断。",
-            "新模板仍建议按是否重新赋值选择 const 或 let；不要机械把 var 改成 const。",
-          );
-          continue;
-        }
-        for (const binding of bindings) {
-          const bindingIndex = at(binding);
-          symbols.push({ name: binding.name, index: bindingIndex, type: "var" });
-          if (!topVars.has(binding.name)) topVars.set(binding.name, []);
-          topVars.get(binding.name).push(bindingIndex);
-        }
-        add(
-          "L1",
-          "high",
-          "顶层 var 不符合 Workshop 组合兼容公约",
-          index,
-          "var " +
-            label +
-            " 使用 EJS 函数作用域；即使写在 { ... } 或 for 块里，也可能与未来同时进入同一编译单元的项目共享/覆盖。",
-          "如果这是本条目的临时状态：不再赋值时用 const，会重新赋值时用 let，并放进本条目的 { ... } 局部块。不要机械批量替换。",
-        );
-      } else if (targetScope.kind === "root" && !entry.isPrivate) {
-        for (const binding of bindings) symbols.push({ name: binding.name, index: at(binding), type: node.kind });
-        add(
-          "L2",
-          "high",
-          "顶层 " + node.kind + " 未局部化（Workshop 公约阻断）",
-          index,
-          node.kind +
-            " " +
-            label +
-            " 位于 EJS 顶层。它在当前 placement/API 下可能完全正常，但 Workshop 不允许依赖 message、position、depth 或 role 的隔离来获得组合兼容通过。",
-          "如果这些变量只供当前条目使用，把相关代码放进一个 { ... } 局部块；for (let/const ...) 的循环头本身已有块作用域，不需要为了消警告改写。",
-        );
-      }
-    }
-    const reportWrite = (target, scope) => {
-      if (!original(target)) return;
-      const index = at(target),
-        key = target.type + "@" + index;
-      if (reported.has(key)) return;
-      reported.add(key);
-      const global = sharedGlobal(target, scope);
-      if (global) {
-        const name = global.name,
-          display = global.base + (name === null ? "[运行时名称]" : "." + name);
-        if (name !== null) symbols.push({ name, index, type: "global" });
-        if (GENERIC_GLOBAL_NAMES.has(name))
-          add(
-            "L5",
-            "high",
-            "共享全局名称过于通用（公约阻断）",
-            index,
-            display + " 使用常见通用名，未来极易与其他项目或脚本撞名。",
-            "跨条目共享必须使用项目专属命名空间。Workshop 集成版应以项目稳定 ID 校验，例如 globalThis.__PW_<PROJECT_ID>__。",
-          );
-        const documented = hasLeakDocumentation(content, index);
-        add(
-          "L4",
-          "warn",
-          documented ? "已声明的共享全局行为仍需确认" : "显式共享全局状态需要确认",
-          index,
-          display +
-            " 会写入浏览器共享全局对象。" +
-            (documented
-              ? "附近已有 Owner/Lifecycle/Cleanup 说明，但离线 checker 无法确认这个命名空间是否真正属于当前 Workshop 项目。"
-              : "Workshop 公约要求跨条目共享必须显式、项目专属，并说明生命周期与清理方式。"),
-          "如果确实需要跨条目共享：使用项目专属的唯一命名空间，并写清 Owner、Lifecycle、Cleanup；最终 uploader 应用项目稳定 ID 做自动校验。否则改成本条目的局部状态。",
-        );
-      } else if (target.type === "Identifier" && !resolveBinding(scope, target.name)) {
-        const name = target.name;
-        symbols.push({ name, index, type: "implicit" });
-        add(
-          "L4",
-          "high",
-          "裸赋值不符合 Workshop 组合兼容公约",
-          index,
-          name + " 在当前位置没有有效的 let/const/var/参数绑定。真实 ST 环境中，这可能覆盖 EJS 环境值或创建共享全局。",
-          "如果只是本条目的临时变量，在正确的局部作用域声明它；如果确实需要跨条目共享，改用项目专属的显式 globalThis 命名空间；不要用裸赋值。",
-        );
-        if (GENERIC_GLOBAL_NAMES.has(name))
-          add(
-            "L5",
-            "high",
-            "裸共享名称过于通用",
-            index,
-            name + " 是常见通用名，一旦形成共享状态非常容易与其他项目撞名。",
-            "不要共享这个裸名字；局部化，或使用项目专属的显式共享命名空间。",
-          );
-      }
-    };
+    inspectNamedDeclarations(analysis, entry, original, at, symbols, add);
+    inspectVariableDeclarations(analysis, entry, original, at, symbols, topVars, add);
+    const writeContext = { original, at, reported, content, symbols, add };
     for (const { node, scope } of analysis.nodes) {
       let targets = [];
       if (node.type === "AssignmentExpression") targets = patternTargets(node.left);
@@ -204,7 +77,7 @@ export function inspectAstPolicy(entry, parsed) {
         node.left.type !== "VariableDeclaration"
       )
         targets = patternTargets(node.left);
-      for (const target of targets) reportWrite(target, scope);
+      for (const target of targets) reportPolicyWrite(target, scope, writeContext);
     }
   }
   for (const [name, positions] of topVars) {
@@ -223,6 +96,143 @@ export function inspectAstPolicy(entry, parsed) {
       );
   }
   return { findings, symbols };
+}
+
+function inspectNamedDeclarations(analysis, entry, original, at, symbols, add) {
+  for (const declaration of analysis.namedDeclarations) {
+    const { node, scope, kind, binding } = declaration;
+    if (!original(node) || scope.kind !== "root" || entry.isPrivate) continue;
+    const index = at(node),
+      name = binding.name;
+    symbols.push({ name, index, type: kind });
+    if (kind === "function")
+      add(
+        "L3",
+        "high",
+        "顶层函数不符合 Workshop 组合兼容公约",
+        index,
+        "函数 " +
+          name +
+          " 暴露在 EJS 顶层。它当前可能正常运行，但若其他项目在同一编译单元使用同名函数，会发生静默覆盖。",
+        "把只供本条目使用的函数放进本条目的 { ... } 局部块。若它本来用于跨条目共享，不要依赖顶层函数名；改用项目专属的显式共享命名空间。",
+      );
+    else
+      add(
+        "L3",
+        "high",
+        "顶层 class 不符合 Workshop 组合兼容公约",
+        index,
+        "class " + name + " 暴露在 EJS 顶层；同名 class 进入同一编译单元会发生词法声明冲突。",
+        "把只供本条目使用的 class 放进本条目的 { ... } 局部块；不要把普通顶层 class 当作跨项目共享接口。",
+      );
+  }
+}
+
+function inspectVariableDeclarations(analysis, entry, original, at, symbols, topVars, add) {
+  for (const declaration of analysis.declarations) {
+    const { node, scope, targetScope, bindings } = declaration;
+    if (!original(node)) continue;
+    const index = at(node),
+      label = bindings.map((binding) => binding.name).join(", ");
+    if (node.kind === "var") {
+      if (entry.isPrivate || isFunctionLocal(scope)) {
+        add(
+          "L1",
+          "info",
+          "检测到局部 var（维护提示）",
+          index,
+          "检测到 var " + label + "。这里已有函数/private 隔离，因此不会作为顶层组合兼容阻断。",
+          "新模板仍建议按是否重新赋值选择 const 或 let；不要机械把 var 改成 const。",
+        );
+        continue;
+      }
+      for (const binding of bindings) {
+        const bindingIndex = at(binding);
+        symbols.push({ name: binding.name, index: bindingIndex, type: "var" });
+        if (!topVars.has(binding.name)) topVars.set(binding.name, []);
+        topVars.get(binding.name).push(bindingIndex);
+      }
+      add(
+        "L1",
+        "high",
+        "顶层 var 不符合 Workshop 组合兼容公约",
+        index,
+        "var " +
+          label +
+          " 使用 EJS 函数作用域；即使写在 { ... } 或 for 块里，也可能与未来同时进入同一编译单元的项目共享/覆盖。",
+        "如果这是本条目的临时状态：不再赋值时用 const，会重新赋值时用 let，并放进本条目的 { ... } 局部块。不要机械批量替换。",
+      );
+    } else if (targetScope.kind === "root" && !entry.isPrivate) {
+      for (const binding of bindings) symbols.push({ name: binding.name, index: at(binding), type: node.kind });
+      add(
+        "L2",
+        "high",
+        "顶层 " + node.kind + " 未局部化（Workshop 公约阻断）",
+        index,
+        node.kind +
+          " " +
+          label +
+          " 位于 EJS 顶层。它在当前 placement/API 下可能完全正常，但 Workshop 不允许依赖 message、position、depth 或 role 的隔离来获得组合兼容通过。",
+        "如果这些变量只供当前条目使用，把相关代码放进一个 { ... } 局部块；for (let/const ...) 的循环头本身已有块作用域，不需要为了消警告改写。",
+      );
+    }
+  }
+}
+
+function reportPolicyWrite(target, scope, { original, at, reported, content, symbols, add }) {
+  if (!original(target)) return;
+  const index = at(target),
+    key = target.type + "@" + index;
+  if (reported.has(key)) return;
+  reported.add(key);
+  const global = sharedGlobal(target, scope);
+  if (global) {
+    const name = global.name,
+      display = global.base + (name === null ? "[运行时名称]" : "." + name);
+    if (name !== null) symbols.push({ name, index, type: "global" });
+    if (GENERIC_GLOBAL_NAMES.has(name))
+      add(
+        "L5",
+        "high",
+        "共享全局名称过于通用（公约阻断）",
+        index,
+        display + " 使用常见通用名，未来极易与其他项目或脚本撞名。",
+        "跨条目共享必须使用项目专属命名空间。Workshop 集成版应以项目稳定 ID 校验，例如 globalThis.__PW_<PROJECT_ID>__。",
+      );
+    const documented = hasLeakDocumentation(content, index);
+    add(
+      "L4",
+      "warn",
+      documented ? "已声明的共享全局行为仍需确认" : "显式共享全局状态需要确认",
+      index,
+      display +
+        " 会写入浏览器共享全局对象。" +
+        (documented
+          ? "附近已有 Owner/Lifecycle/Cleanup 说明，但离线 checker 无法确认这个命名空间是否真正属于当前 Workshop 项目。"
+          : "Workshop 公约要求跨条目共享必须显式、项目专属，并说明生命周期与清理方式。"),
+      "如果确实需要跨条目共享：使用项目专属的唯一命名空间，并写清 Owner、Lifecycle、Cleanup；最终 uploader 应用项目稳定 ID 做自动校验。否则改成本条目的局部状态。",
+    );
+  } else if (target.type === "Identifier" && !resolveBinding(scope, target.name)) {
+    const name = target.name;
+    symbols.push({ name, index, type: "implicit" });
+    add(
+      "L4",
+      "high",
+      "裸赋值不符合 Workshop 组合兼容公约",
+      index,
+      name + " 在当前位置没有有效的 let/const/var/参数绑定。真实 ST 环境中，这可能覆盖 EJS 环境值或创建共享全局。",
+      "如果只是本条目的临时变量，在正确的局部作用域声明它；如果确实需要跨条目共享，改用项目专属的显式 globalThis 命名空间；不要用裸赋值。",
+    );
+    if (GENERIC_GLOBAL_NAMES.has(name))
+      add(
+        "L5",
+        "high",
+        "裸共享名称过于通用",
+        index,
+        name + " 是常见通用名，一旦形成共享状态非常容易与其他项目撞名。",
+        "不要共享这个裸名字；局部化，或使用项目专属的显式共享命名空间。",
+      );
+  }
 }
 
 export function inspectSymbolCollisions(entries) {
