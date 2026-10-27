@@ -9,6 +9,11 @@ on:
         description: 'Merged bot PR number: retry exact-main CI dispatch only (no merge)'
         required: false
         type: string
+      probe_permissions:
+        description: 'Probe merge qualification permissions (known protection-read blocker fails visibly)'
+        required: false
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -43,4 +48,5 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEPENDENCY_SECURITY_AUTOMERGE: ${{ vars.DEPENDENCY_SECURITY_AUTOMERGE }}
           RECOVER_PR: ${{ inputs.recover_pr }}
+          PROBE_PERMISSIONS: ${{ inputs.probe_permissions }}
         run: node tools/dependency-update-policy-run.mjs

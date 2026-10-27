@@ -177,7 +177,8 @@ flowchart TD
 - Knip 6.43.0 依赖维度已实际通过，零发现／零配置提示；临时注入 `unused-gate-smoke-fixture` 后退出 1，删除后恢复通过。CSS 消费者真实入图；Cloudflare 宿主模块及跨 workspace 命令有精确说明。未发现可删除的依赖。
 - 文件／导出人工审计报 2 个文件、29 个导出、20 个导出类型，尚未逐个核实；不将这份报告冒充已治理，也未接该维度持续门禁。后续清理应独立关注点。
 - 冷静期显式 1440 分钟；三个 Cloudflare 例外均于 2026-10-20 发布，已过期并移除。`allowBuilds` 只保留 esbuild／workerd；Node 最低 22.12.0 与 Knip 要求一致。
-- 安全策略六组行为测试通过，覆盖允许 patch、伪造来源／签名、分组夹带、major／minor／预发布、模糊告警、过期／伪造检查与保护绕过。合并策略仍待独立审查和真实 workflow-token 探测；总开关未开启，无真实合格安全 PR，全链尚未验收。
+- [PR #35](https://github.com/The-poem-of-destiny/workshop/pull/35)（依赖卫生）与 [PR #36](https://github.com/The-poem-of-destiny/workshop/pull/36)（安全策略）分别通过 check／e2e／secrets 并合并。安全策略六组永久边界测试通过；真实 runner 临时故障注入 6/6，通过首次／轮询读取失败撤权、关闭开关跨页回收、独立恢复、撤权失败红灯、合并竞态精确 dispatch。独立安全复审 `findings: []`。
+- 宿主阻塞：[权限探测 run 40467982092](https://github.com/The-poem-of-destiny/workshop/actions/runs/40467982092) 实际返回 `branchProtectionRule` → `Resource not accessible by integration`。GitHub 接受 `vulnerability-alerts: read`，但当前 GITHUB_TOKEN 不能读取保护规则；总开关保持关闭，不删除保护验真、不使用个人 token。需另行配置最小权限 GitHub App 后才能启用。无合格漏洞样本，授权／真实安全更新→staging 全链仍未验收。
 - 第二批预调查：Biome 默认阈值（复杂度 15／函数 50／文件 300）产生 203 项信息诊断，包含 React JSX 与测试套件。不能直接升级为阻断；需按职责治理与分类阈值，不以默认数字逼出包装函数。
 
 ## 官方依据
