@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { appendFile } from "node:fs/promises";
 import {
   validateChanges,
   validateChecks,
@@ -260,19 +261,34 @@ if (process.env.RECOVER_PR) {
       if (errors.length) throw new AggregateError(errors, `PR #${pr.number}: stranded authorization cleanup failed`);
     }
   }
-  // Probe actual workflow-token visibility even with no bot PRs or alerts.
-  await protection();
-  await alerts();
-  console.log("Workflow token can inspect strict main protection and complete vulnerability alert data.");
-  const pulls = await list(`${root}/pulls?state=open&base=main`);
-  for (const pr of pulls.filter((pull) => pull.user?.id === 49699333)) {
-    try {
-      await evaluate(pr.number);
-    } catch (error) {
-      if (mutationStarted) throw error;
-      // Refusal is expected for ordinary weekly updates. API/permission/schema
-      // failures also remain manual; never downgrade the security predicate.
-      console.log(`Manual review required for PR #${pr.number}: ${error.message}`);
+  const cleanupOnly = process.env.DEPENDENCY_SECURITY_AUTOMERGE !== "true" && process.env.PROBE_PERMISSIONS !== "true";
+  if (cleanupOnly) {
+    const status = [
+      "mode=cleanup-only",
+      "automerge=disabled",
+      "qualification=BLOCKED",
+      "Cleanup completed; this is not a passing merge qualification or permissions smoke.",
+      "GITHUB_TOKEN cannot read the required branch protection: Administration: read is unavailable in workflow permissions.",
+      "Observed failure: https://github.com/The-poem-of-destiny/workshop/actions/runs/40467982092",
+      "Manual probe_permissions=true retains the real failing permissions probe; no alternate credential is configured.",
+    ].join("\n");
+    console.log(status);
+    if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `${status}\n`);
+  } else {
+    // Probe actual workflow-token visibility even with no bot PRs or alerts.
+    await protection();
+    await alerts();
+    console.log("Workflow token can inspect strict main protection and complete vulnerability alert data.");
+    const pulls = await list(`${root}/pulls?state=open&base=main`);
+    for (const pr of pulls.filter((pull) => pull.user?.id === 49699333)) {
+      try {
+        await evaluate(pr.number);
+      } catch (error) {
+        if (mutationStarted) throw error;
+        // Refusal is expected for ordinary weekly updates. API/permission/schema
+        // failures also remain manual; never downgrade the security predicate.
+        console.log(`Manual review required for PR #${pr.number}: ${error.message}`);
+      }
     }
   }
 }
