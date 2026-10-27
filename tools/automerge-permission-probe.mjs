@@ -15,7 +15,12 @@ async function request(label, path, body) {
   const data = await response.json();
   console.log(JSON.stringify({ label, status: response.status, data }));
 }
-for (const suffix of ["branches/main", "branches/main/protection", "dependabot/alerts?per_page=1"])
+for (const suffix of [
+  "branches/main",
+  "branches/main/protection",
+  "rules/branches/main",
+  "dependabot/alerts?per_page=1",
+])
   await request(suffix, `/repos/${repository}/${suffix}`);
 for (const [label, selection] of Object.entries({
   base: 'autoMergeAllowed viewerPermission ref(qualifiedName:"refs/heads/main"){target{oid}}',
