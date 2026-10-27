@@ -1,0 +1,46 @@
+name: dependency-security-automerge
+
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+    inputs:
+      recover_pr:
+        description: 'Merged bot PR number: retry exact-main CI dispatch only (no merge)'
+        required: false
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: dependency-security-automerge
+  cancel-in-progress: false
+
+jobs:
+  policy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # enable GitHub auto-merge, never direct merge or push
+      pull-requests: write # enable/disable auto-merge; no approval
+      checks: read
+      actions: write # explicit ci workflow_dispatch; token-created push is suppressed
+      vulnerability-alerts: read # Dependabot alerts; fail closed on unsupported hosts
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: tools
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      # Only protected main policy runs. PR blobs are API data, never checked out,
+      # installed, imported or evaluated. No PR title/body/shell interpolation.
+      - name: Evaluate security patch policy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPENDENCY_SECURITY_AUTOMERGE: ${{ vars.DEPENDENCY_SECURITY_AUTOMERGE }}
+          RECOVER_PR: ${{ inputs.recover_pr }}
+        run: node tools/dependency-update-policy-run.mjs
