@@ -30,7 +30,7 @@ Token-created merges do not automatically trigger push workflows. After a positi
 
 Stop/recover: turn the variable off. Startup cleanup still traverses open PR pages and revokes **legacy** `github-actions[bot]` auto-merge grants, even with the switch off; failure to confirm cleanup is fatal. New immediate merges leave no delayed grant. Manual dispatch `recover_pr=<merged same-repository bot PR number>` retries CI only when that merge remains current main, works with the switch off and does not depend on qualification reads. If main advanced, inspect the newer commit's CI instead. Staging failures stop promotion; code rollback does not roll back migrations.
 
-At initial implementation, GitHub reported no open vulnerability alerts. Synthetic policy checks are not a real security-update-to-staging acceptance; keep that full-chain boundary explicit until a qualifying update occurs.
+GitHub currently reports no open vulnerability alerts. No real merge request was sent to the temporary probe PR, so a live server-refusal smoke has not been executed. Permission reads, a no-candidate run and synthetic policy/fetch-boundary checks do not prove candidate qualification, a real security merge, dispatch or staging acceptance. Keep those boundaries explicit until a qualifying update occurs.
 
 ## Production migration
 
