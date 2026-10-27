@@ -1,16 +1,57 @@
 import type { ReactNode, RefObject } from "react";
-import { AdminTools } from "./AdminTools";
+import { Component, lazy, Suspense } from "react";
 import type { ProjectSummary } from "./api";
+import { Button } from "./components/ui/button";
 import { Installed } from "./features/installed/Installed";
-import { CreateProject } from "./features/projects/CreateProject";
-import { MyProjects } from "./features/projects/MyProjects";
 import { Subscriptions } from "./features/projects/Subscriptions";
-import { AdminPanel } from "./features/review/AdminPanel";
 import type { useHostConnection } from "./useHostConnection";
 import type { useInstalledProjects } from "./useInstalledProjects";
 import type { useWorkshopNavigation } from "./useWorkshopNavigation";
 import type { useWorkshopSession } from "./useWorkshopSession";
 
+const CreateProject = lazy(() =>
+  import("./features/projects/CreateProject").then((module) => ({ default: module.CreateProject })),
+);
+const MyProjects = lazy(() =>
+  import("./features/projects/MyProjects").then((module) => ({ default: module.MyProjects })),
+);
+const AdminPanel = lazy(() =>
+  import("./features/review/AdminPanel").then((module) => ({ default: module.AdminPanel })),
+);
+const AdminTools = lazy(() => import("./AdminTools").then((module) => ({ default: module.AdminTools })));
+
+class DeferredView extends Component<{ title: string; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <section className="panel" role="alert">
+          <h2>{this.props.title}暂时无法显示</h2>
+          <p className="hint">请检查网络连接后刷新页面重试，或通过侧栏返回其他页面。</p>
+          <Button type="button" onClick={() => window.location.reload()}>
+            刷新页面
+          </Button>
+        </section>
+      );
+    }
+    return (
+      <Suspense
+        fallback={
+          <section className="panel" role="status" aria-live="polite">
+            正在加载{this.props.title}…
+          </section>
+        }
+      >
+        {this.props.children}
+      </Suspense>
+    );
+  }
+}
 export function WorkshopWorkspaces({
   view,
   me,
@@ -65,28 +106,33 @@ export function WorkshopWorkspaces({
   children: ReactNode;
 }) {
   return view === "create" && me ? (
-    <CreateProject
-      onCreated={(projectId) => {
-        setNewlyCreatedProjectId(projectId);
-        setView("projects");
-      }}
-      onCancel={() => setView("projects")}
-      onError={setError}
-      onNotice={setNotice}
-    />
+    <DeferredView key="create" title="新建项目">
+      <CreateProject
+        onCreated={(projectId) => {
+          setNewlyCreatedProjectId(projectId);
+          setView("projects");
+        }}
+        onCancel={() => setView("projects")}
+        onError={setError}
+        onNotice={setNotice}
+      />
+    </DeferredView>
   ) : view === "projects" && me ? (
-    <MyProjects
-      initialSelectedId={newlyCreatedProjectId}
-      onCreate={() => setView("create")}
-      onError={(message) => {
-        setError(message);
-        setNotice(null);
-      }}
-      onNotice={(message) => {
-        setNotice(message);
-        setError(null);
-      }}
-    />
+    <DeferredView key="projects" title="我的项目">
+      <MyProjects
+        initialSelectedId={newlyCreatedProjectId}
+        onInitialSelectionConsumed={() => setNewlyCreatedProjectId(null)}
+        onCreate={() => setView("create")}
+        onError={(message) => {
+          setError(message);
+          setNotice(null);
+        }}
+        onNotice={(message) => {
+          setNotice(message);
+          setError(null);
+        }}
+      />
+    </DeferredView>
   ) : view === "subs" && me ? (
     <Subscriptions
       subscriptionOverrides={subscriptionOverrides}
@@ -100,27 +146,31 @@ export function WorkshopWorkspaces({
       }}
     />
   ) : view === "admin" && reviewer ? (
-    <AdminPanel
-      onError={(message) => {
-        setError(message);
-        setNotice(null);
-      }}
-      onNotice={(message) => {
-        setNotice(message);
-        setError(null);
-      }}
-    />
+    <DeferredView key="admin" title="审核面板">
+      <AdminPanel
+        onError={(message) => {
+          setError(message);
+          setNotice(null);
+        }}
+        onNotice={(message) => {
+          setNotice(message);
+          setError(null);
+        }}
+      />
+    </DeferredView>
   ) : view === "tools" && me?.role === "owner" ? (
-    <AdminTools
-      onError={(message) => {
-        setError(message);
-        setNotice(null);
-      }}
-      onNotice={(message) => {
-        setNotice(message);
-        setError(null);
-      }}
-    />
+    <DeferredView key="tools" title="管理工具">
+      <AdminTools
+        onError={(message) => {
+          setError(message);
+          setNotice(null);
+        }}
+        onNotice={(message) => {
+          setNotice(message);
+          setError(null);
+        }}
+      />
+    </DeferredView>
   ) : view === "installed" && installedAvailable ? (
     <Installed
       items={installedItems}
