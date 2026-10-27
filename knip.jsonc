@@ -1,0 +1,52 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+  // The continuous gate checks dependencies only; files/exports remain an opt-in audit.
+  // Do not turn every source file into an entry or ignore a workspace to silence findings.
+  "workspaces": {
+    ".": {
+      "entry": ["tools/migrate/cli.mjs", "tools/migrate/r2-copy.mjs", "tools/backup/verify.mjs"],
+      "project": ["tools/**/*.mjs"],
+      // Recursive `pnpm -r --if-present typecheck` is a workspace script, not
+      // an npm executable. E2E invokes Wrangler through --filter @workshop/worker,
+      // where Wrangler is declared; it is intentionally not a root dependency.
+      "ignoreBinaries": ["typecheck", "wrangler"]
+    },
+    "apps/worker": {
+      "project": ["src/**/*.ts", "test/**/*.ts", "web/src/**/*.{ts,tsx,css}", "*.config.ts"],
+      "wrangler": { "config": ["wrangler.jsonc"] },
+      // Knip normalizes the host-provided cloudflare:workers and cloudflare:test
+      // IDs to the package name cloudflare. Neither is an npm dependency.
+      "ignoreDependencies": ["cloudflare"],
+      // Vite is nested, not at the workspace root. Its HTML entry and CSS imports
+      // (including tailwindcss) must stay in the dependency graph.
+      "vite": { "config": ["web/vite.config.ts"] },
+      "vitest": { "config": ["vitest.config.ts"] }
+    },
+    "apps/tavern-client": {
+      // esbuild entryPoints are constructed with path.join in scripts/build.mjs.
+      // The test also builds src/lib.ts before importing its temporary output.
+      "entry": ["src/index.ts", "src/lib.ts", "scripts/*.mjs", "test/*.test.mjs"],
+      "project": ["src/**/*.ts", "scripts/*.mjs", "test/*.mjs"]
+    },
+    "packages/content": {
+      // Package exports are discovered from package.json. These three extra
+      // browser/Worker entries are built dynamically by scripts/build.mjs.
+      "entry": [
+        "src/ejs-checker/upload-worker.mjs",
+        "src/ejs-checker/review-worker.mjs",
+        "src/ejs-checker/browser.mjs",
+        "scripts/*.mjs",
+        "test/*.test.mjs"
+      ],
+      "project": ["src/**/*.{mjs,ts}", "scripts/*.mjs", "test/*.mjs"]
+    },
+    "packages/contracts": {
+      // Public entry is package.json exports/types, not every contract module.
+      "project": ["src/**/*.ts"]
+    },
+    "packages/domain": {
+      // Vitest discovers tests both beside source files and in test/.
+      "project": ["src/**/*.ts", "test/**/*.ts"]
+    }
+  }
+}
