@@ -41,6 +41,41 @@
   },
   "overrides": [
     {
+      "includes": [
+        "apps/**/src/**/*.{ts,js,mjs}",
+        "packages/**/src/**/*.{ts,js,mjs}",
+        "tools/**/*.mjs",
+        "!**/*.{test,spec}.{ts,js,mjs}",
+        "!tools/**/test*.mjs",
+        "!tools/e2e-local.mjs"
+      ],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": { "level": "error", "options": { "maxAllowedComplexity": 40 } },
+            "noExcessiveLinesPerFunction": { "level": "error", "options": { "maxLines": 120, "skipBlankLines": true } }
+          },
+          "style": {
+            "noExcessiveLinesPerFile": { "level": "error", "options": { "maxLines": 600, "skipBlankLines": true } }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["apps/**/src/**/*.tsx", "packages/**/src/**/*.tsx", "!**/*.{test,spec}.tsx"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": { "level": "error", "options": { "maxAllowedComplexity": 60 } },
+            "noExcessiveLinesPerFunction": { "level": "error", "options": { "maxLines": 300, "skipBlankLines": true } }
+          },
+          "style": {
+            "noExcessiveLinesPerFile": { "level": "error", "options": { "maxLines": 700, "skipBlankLines": true } }
+          }
+        }
+      }
+    },
+    {
       "includes": ["apps/worker/web/src/**"],
       "linter": {
         "rules": {

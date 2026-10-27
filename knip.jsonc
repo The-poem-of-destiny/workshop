@@ -1,7 +1,9 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
-  // The continuous gate checks dependencies only; files/exports remain an opt-in audit.
+  // Continuous gates check dependencies and reachable static runtime cycles.
+  // Files/exports remain an opt-in audit; dynamic imports do not form initialization cycles.
   // Do not turn every source file into an entry or ignore a workspace to silence findings.
+  "rules": { "cycles": "error" },
   "workspaces": {
     ".": {
       "entry": ["tools/migrate/cli.mjs", "tools/migrate/r2-copy.mjs", "tools/backup/verify.mjs"],
