@@ -4,7 +4,6 @@ packages:
 allowBuilds:
   esbuild: true
   workerd: true
-minimumReleaseAgeExclude:
-  - miniflare@5.20261019.1-beta
-  - wrangler@4.151.3
-  - '@cloudflare/vitest-plugin@1.4.6'
+# One-day quarantine applies to direct and transitive dependency resolution.
+# Expired one-off Cloudflare exemptions were removed on 2026-10-27.
+minimumReleaseAge: 1440

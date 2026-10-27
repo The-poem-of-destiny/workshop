@@ -43,8 +43,8 @@ const rootPackage = JSON.parse(read("package.json"));
 for (const script of ["check", "check:workspace", "check:schema", "worker:test", "lint", "format", "format:check"]) {
   if (!rootPackage.scripts?.[script]) failures.push(`package.json missing script ${script}`);
 }
-if (rootPackage.engines?.node !== ">=22") {
-  failures.push("package.json must set engines.node >=22");
+if (rootPackage.engines?.node !== ">=22.12.0") {
+  failures.push("package.json must set engines.node >=22.12.0");
 }
 
 // Every discovered package must be classified here. `true` requires a real
