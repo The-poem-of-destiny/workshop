@@ -121,6 +121,10 @@ flowchart TD
 
 ## 第三批：CodeQL 安全分析试点与持续处置
 
+**2026-10-27 决策：用户明确“不引入 CodeQL”。本批以不采用结论关闭，不实施下面保留的原试点流程和扫描验收项，也不自动引入 Semgrep 替代。未运行扫描、未建立 code-scanning 告警门禁；不将未扫描称作零告警。**
+
+现有 TypeScript／Biome／Knip／Gitleaks／Dependabot 各守原职责，不等价于跨函数安全污点分析或 Actions 信任边界扫描。此次不增加该覆盖，避免新增运行、告警研判、升级与许可维护负担；未来只有具体重要风险与明确边际收益支持时，再由 owner 决定是否重开评估，不自动启用。
+
 ### 行动顺序
 
 ```mermaid
@@ -184,7 +188,7 @@ flowchart TD
 - [PR #37](https://github.com/The-poem-of-destiny/workshop/pull/37) 合并关闭状态清理模式；真实 [run 40469653122](https://github.com/The-poem-of-destiny/workshop/actions/runs/40469653122) 成功并明确输出 `mode=cleanup-only`／`automerge=disabled`／`qualification=BLOCKED`。这只证明清理模式，不代表权限资格恢复。
 - 按授权核查了 ruleset 替代：生效规则可用 Metadata read 读取，但官方 `GET rulesets/{id}` 仅向有 ruleset 写权限的身份返回完整 `bypass_actors`；`current_user_can_bypass: never` 不能证明其他管理员无 bypass。故不为绕过权限迁移保护、不将缺字段当空名单。安全解决仍需单仓库 GitHub App 的 Administration read 和相应安装凭据；现有 GITHUB_TOKEN 无法自行扩出该权限，尚无可用 App 凭据，保持关闭。
 
-### 第二批（2026-10-27，进行中）
+### 第二批（2026-10-27，已合并）
 
 - 职责治理覆盖 checker 来源／AST／能力规则、ContentService 模式与 claim、作者／管理存储域、安装世界书／Regex／registry、迁移实体／资产／验证，以及前端 shell／工作区／详情。
 - 阻断范围：手写生产非 JSX 与非测试 tools 为认知复杂度 40、函数 120、文件 600；TSX 为 60／300／700，行数跳过空行。测试（含 E2E）不按生产函数标准约束。六项阈值均用边界值通过／超限拒绝故障注入验真；15 个非测试 tools 在相同阈值下通过，无需额外整改。CSS 700 的试点会要求仅为行数拆散三个界面样式域，未证明净收益，故不采用；保留原全产物体积预算。不按当前最大值抬线，最终独立审查与运行验收仍在进行。
@@ -192,7 +196,12 @@ flowchart TD
 - 延迟加载作者／审核／管理视图，开启 Vite manifest；同依赖、Vite 8.3.4、Node 22.23.1／zlib 1.3.1-e00f703、逐文件默认 gzip 下，结构前 `95fe35e` 初始 JS／CSS 为 249353／19061 B，最终治理后为 118168／15911 B；全资源由 249353／19061 B 增为 258975／19794 B。首屏 JS 降低约 52.61%，总量上升，未抬预算。入口指标只计 manifest 静态导入闭包，不计 dynamic imports；旧 247892 B 基线未在同口径复现，不采用。
 - 整合 `pnpm check` 全链通过（Worker 87、domain 23、content 7、client 6，迁移／导出／备份及安全策略检查通过）；client 实际 bundle 构建通过。checker 临时差分 1552 次零差异，安装真实算法在协议宿主中 26 场景与基线一致；不冒充真实 SillyTavern 验证。
 - 本地 workerd／D1／R2／Chromium E2E 21/21；作者、创建、管理、审核 chunk 实际按导航请求且均 200。额外延迟首次 MyProjects chunk 场景验证：旧提前清 hint 的隔离构建失败，修复为实际挂载后消费则 22/22 通过；保留原永久套件，临时脚本与构建已清理。已有 harness 空白文档 sessionStorage 注入产生六次 pageerror、未配封面场景三个 404，未声称零 console 错误。
-- 独立审查发现并修复遗漏测试 import、首次 lazy 创建选择丢失、超大 Markdown 参数展开三项问题。最后一项已实际复现 150000 删除条目 RangeError，修复后输出 4129217 B 且小型输出逐字节一致；复核未发现其余新增 P1/P2。[PR #39](https://github.com/The-poem-of-destiny/workshop/pull/39) 结构重构与 [PR #40](https://github.com/The-poem-of-destiny/workshop/pull/40) 资源优化均通过 check／e2e／secrets 并独立 squash 合并；[PR #41](https://github.com/The-poem-of-destiny/workshop/pull/41) 门禁策略仍待远端 CI。
+- 独立审查发现并修复遗漏测试 import、首次 lazy 创建选择丢失、超大 Markdown 参数展开三项问题。最后一项已实际复现 150000 删除条目 RangeError，修复后输出 4129217 B 且小型输出逐字节一致；复核未发现其余新增 P1/P2。[PR #39](https://github.com/The-poem-of-destiny/workshop/pull/39) 结构重构、[PR #40](https://github.com/The-poem-of-destiny/workshop/pull/40) 资源优化、[PR #41](https://github.com/The-poem-of-destiny/workshop/pull/41) 门禁策略均通过 check／e2e／secrets 并独立 squash 合并。
+
+### 第三批（2026-10-27，不采用）
+
+- 用户明确决定不引入 CodeQL；未新增 workflow、CLI、查询、扫描规则集或 required check，未引入替代扫描平台。保留原产品授权，不新增 LICENSE。
+- 前置调查发现公开仓库功能可用性与 CLI 条款中 OSI／付费权益条件的边界尚未消解；未据此擅自更改项目许可。该问题不再作为本任务待实施事项，未来重开时重新核实。
 
 ## 官方依据
 
