@@ -1,62 +1,23 @@
 /* SillyTavern script: Creative Workshop host, installer and bridge. */
 
 import {
-  entryKey,
-  entryName,
-  hasForeignBaselineConflict,
-  hashText,
-  normalizeWorkshopOrigin,
-  projectEntry,
-  regexEntries,
-  worldbookEntries,
-} from "./lib.js";
+  type InstallFileSet,
+  type InstallProject,
+  readRegistry,
+  saveScriptVariables,
+  workshopOrigin,
+} from "./install-registry.js";
+import { installProject, scanInstallStates, uninstallProject } from "./installation.js";
+import { normalizeWorkshopOrigin } from "./lib.js";
 
 const CLIENT_VERSION = __CW_CLIENT_VERSION__;
 const DEFAULT_ORIGIN = __CW_DEFAULT_ORIGIN__;
 const ORIGIN_VARIABLE = "cw_worker_origin";
-
-const REGISTRY_VARIABLE = "cw_install_registry";
 const BUTTON_ID = "cw-open-button";
 const OVERLAY_ID = "cw-overlay";
 const AGREEMENT_KEY = "cw_agreement_accepted";
 
-type InstallFileSet = { worldbook?: string; regex?: string };
-type InstallProject = { id: string; title?: string; version?: string; projectType?: string | null };
-type InstallRegistryEntry = {
-  version: string;
-  worldbookName: string;
-  entries: Record<string, { hash: string; name: string }>;
-  regexIds: string[];
-  regexHashes?: Record<string, string>;
-  updatedAt: string;
-};
-type InstallRegistry = Record<string, InstallRegistryEntry>;
-type InstallScanState = "clean" | "localChanged" | "scanIncomplete";
-
 let activeFrame: HTMLIFrameElement | null = null;
-
-function scriptVariables(): Record<string, unknown> {
-  try {
-    return getVariables({ type: "script", script_id: getScriptId() }) ?? {};
-  } catch {
-    return {};
-  }
-}
-
-async function saveScriptVariables(updater: (variables: Record<string, unknown>) => void): Promise<void> {
-  await updateVariablesWith(
-    (variables) => {
-      updater(variables);
-      return variables;
-    },
-    { type: "script", script_id: getScriptId() },
-  );
-}
-
-function workshopOrigin(): string {
-  const variables = scriptVariables();
-  return normalizeWorkshopOrigin(variables[ORIGIN_VARIABLE], DEFAULT_ORIGIN);
-}
 
 const SCRIPT_CHANNEL: "stable" | "staging" = (() => {
   try {
@@ -66,289 +27,6 @@ const SCRIPT_CHANNEL: "stable" | "staging" = (() => {
     return "stable";
   }
 })();
-
-function currentChannel(): "stable" | "staging" {
-  return SCRIPT_CHANNEL;
-}
-
-function readRegistry(): InstallRegistry {
-  const raw = scriptVariables()[REGISTRY_VARIABLE];
-  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as InstallRegistry) : {};
-}
-
-async function writeRegistry(registry: InstallRegistry): Promise<void> {
-  await saveScriptVariables((variables) => {
-    variables[REGISTRY_VARIABLE] = registry;
-  });
-}
-
-async function ensureTargetWorldbook(requested?: string | null): Promise<string> {
-  const bindings = getCharWorldbookNames("current");
-  const target = (requested || bindings.primary || "").trim();
-  if (!target) throw new Error("当前角色卡未绑定世界书，请先创建或选择一本世界书");
-  if (!getWorldbookNames().includes(target)) await createWorldbook(target, []);
-  if (target !== bindings.primary && !(bindings.additional || []).includes(target)) {
-    await rebindCharWorldbooks("current", {
-      primary: bindings.primary,
-      additional: [...(bindings.additional || []), target],
-    });
-  }
-  return target;
-}
-
-function regexFingerprint(regex: WorkshopTavernRegex): string {
-  return JSON.stringify({
-    find: regex.find_regex ?? "",
-    replace: regex.replace_string ?? "",
-    trim: regex.trim_strings ?? [],
-    source: regex.source ?? null,
-    destination: regex.destination ?? null,
-  });
-}
-
-async function installProject(project: InstallProject, files: InstallFileSet, targetWorldbook?: string | null) {
-  if (!project?.id) throw new Error("缺少项目 ID");
-  const registry = readRegistry();
-  const previous = registry[project.id];
-  const target = await ensureTargetWorldbook(targetWorldbook);
-
-  if (previous && previous.worldbookName && previous.worldbookName !== target) {
-    const oldBook = previous.worldbookName;
-    if (getWorldbookNames().includes(oldBook)) {
-      await updateWorldbookWith(oldBook, (entries) =>
-        entries.filter(
-          (entry) =>
-            entry?.extensions?.cw_project_id !== project.id ||
-            entry?.extensions?.cw_project_version !== previous.version,
-        ),
-      );
-    }
-  }
-
-  const incoming = worldbookEntries(files.worldbook ? JSON.parse(files.worldbook) : null);
-  if (files.worldbook && incoming.length === 0) throw new Error("世界书文件没有有效条目");
-  const current = await getWorldbook(target);
-  const oldByKey = new Map<string, WorkshopWorldbookEntry>();
-  for (const [index, entry] of current.entries()) oldByKey.set(entryKey(entry, index), entry);
-
-  const desiredKeys = new Set<string>();
-  const conflicts: string[] = [];
-  const result: WorkshopWorldbookEntry[] = [];
-  for (const entry of current) {
-    if (!projectEntry(entry) || entry.extensions.cw_project_id !== project.id) result.push(entry);
-  }
-
-  for (const [index, raw] of incoming.entries()) {
-    const key = entryKey(raw, index);
-    if (desiredKeys.has(key)) throw new Error(`世界书条目身份重复：${key}`);
-    desiredKeys.add(key);
-    if (hasForeignBaselineConflict(current, raw, key)) {
-      conflicts.push(`${entryName(raw, key)}（与现有非工坊条目同名，保留原条目）`);
-      continue;
-    }
-    const old = oldByKey.get(key);
-    const oldHash = old?.extensions?.cw_installed_hash;
-    const oldContentHash = old ? await hashText(String(old.content ?? "")) : null;
-    if (old && typeof oldHash === "string" && oldContentHash !== oldHash) {
-      result.push(old);
-      conflicts.push(`${entryName(old, key)}（玩家已修改，保留当前内容）`);
-      continue;
-    }
-    const contentHash = await hashText(String(raw.content ?? ""));
-    const extensions = raw.extensions && typeof raw.extensions === "object" ? { ...raw.extensions } : {};
-    result.push({
-      ...raw,
-      extensions: {
-        ...extensions,
-        cw_project_id: project.id,
-        cw_project_version: project.version ?? "",
-        cw_entry_key: key,
-        cw_project_name_display: project.title ?? "",
-        cw_installed_hash: contentHash,
-      },
-    });
-  }
-
-  for (const entry of current) {
-    if (!projectEntry(entry) || entry.extensions.cw_project_id !== project.id) continue;
-    const key = entryKey(entry, current.indexOf(entry));
-    if (desiredKeys.has(key)) continue;
-    const oldHash = entry.extensions.cw_installed_hash;
-    const currentHash = await hashText(String(entry.content ?? ""));
-    if (typeof oldHash === "string" && currentHash !== oldHash) {
-      result.push(entry);
-      conflicts.push(`${entryName(entry, key)}（玩家已修改，未自动删除）`);
-    }
-  }
-
-  await updateWorldbookWith(target, () => result);
-
-  const regexIds: string[] = [];
-  const regexHashes: Record<string, string> = {};
-  if (files.regex) {
-    const incomingRegex = regexEntries(JSON.parse(files.regex));
-    const all = getTavernRegexes({ scope: "character", enable_state: "all" });
-    const prefix = `cw-${project.id}-`;
-    const existing = new Map(all.map((regex) => [String(regex.id ?? ""), regex]));
-    const kept = all.filter((regex) => !String(regex.id ?? "").startsWith(prefix));
-    const added = incomingRegex.map((entry, index): WorkshopTavernRegex => {
-      const id = `${prefix}${index}`;
-      regexIds.push(id);
-      const old = existing.get(id);
-      return {
-        id,
-        script_name: `[工坊] ${project.title ?? project.id} - ${entry.scriptName ?? entry.script_name ?? entry.id ?? index + 1}`,
-        enabled: old?.enabled ?? true,
-        scope: "character",
-        find_regex: String(entry.findRegex ?? entry.find_regex ?? ""),
-        replace_string: String(entry.replaceString ?? entry.replace_string ?? ""),
-        trim_strings: Array.isArray(entry.trimStrings) ? entry.trimStrings : [],
-        source: Array.isArray(entry.placement)
-          ? {
-              user_input: entry.placement.includes(1),
-              ai_output: entry.placement.includes(2),
-              slash_command: entry.placement.includes(3),
-              world_info: entry.placement.includes(5),
-              reasoning: entry.placement.includes(6),
-            }
-          : old?.source,
-        destination: old?.destination ?? {
-          display: Boolean(entry.markdownOnly),
-          prompt: Boolean(entry.promptOnly),
-        },
-        run_on_edit: Boolean(entry.runOnEdit),
-        min_depth: typeof entry.minDepth === "number" && Number.isFinite(entry.minDepth) ? entry.minDepth : null,
-        max_depth: typeof entry.maxDepth === "number" && Number.isFinite(entry.maxDepth) ? entry.maxDepth : null,
-      };
-    });
-    for (const regex of added) {
-      regexHashes[String(regex.id)] = await hashText(regexFingerprint(regex));
-    }
-    await updateTavernRegexesWith(() => [...kept, ...added], { scope: "character" });
-  } else if (previous?.regexIds?.length) {
-    const prefix = `cw-${project.id}-`;
-    await updateTavernRegexesWith((regexes) => regexes.filter((regex) => !String(regex.id ?? "").startsWith(prefix)), {
-      scope: "character",
-    });
-  }
-
-  const entryIndex: InstallRegistryEntry["entries"] = {};
-  for (const [index, entry] of result.entries()) {
-    if (entry?.extensions?.cw_project_id === project.id) {
-      const key = entryKey(entry, index);
-      entryIndex[key] = {
-        hash: await hashText(String(entry.content ?? "")),
-        name: entryName(entry, key),
-      };
-    }
-  }
-  registry[project.id] = {
-    version: project.version ?? "",
-    worldbookName: target,
-    entries: entryIndex,
-    regexIds,
-    regexHashes,
-    updatedAt: new Date().toISOString(),
-  };
-  await writeRegistry(registry);
-  return { target, entryCount: incoming.length, regexCount: regexIds.length, conflicts };
-}
-
-async function uninstallProject(projectId: string) {
-  const registry = readRegistry();
-  const record = registry[projectId];
-  let preservedEntries = 0;
-  let preservedRegexes = 0;
-
-  if (record?.worldbookName && getWorldbookNames().includes(record.worldbookName)) {
-    const current = await getWorldbook(record.worldbookName);
-    const kept: WorkshopWorldbookEntry[] = [];
-    for (const entry of current) {
-      if (entry?.extensions?.cw_project_id !== projectId) {
-        kept.push(entry);
-        continue;
-      }
-      const installedHash = entry.extensions.cw_installed_hash;
-      const currentHash = await hashText(String(entry.content ?? ""));
-      if (typeof installedHash === "string" && currentHash !== installedHash) {
-        kept.push(entry);
-        preservedEntries += 1;
-      }
-    }
-    await updateWorldbookWith(record.worldbookName, () => kept);
-  }
-
-  if (record?.regexIds?.length) {
-    const ids = new Set(record.regexIds);
-    const all = getTavernRegexes({ scope: "character", enable_state: "all" });
-    const kept: WorkshopTavernRegex[] = [];
-    for (const regex of all) {
-      const id = String(regex.id ?? "");
-      if (!ids.has(id)) {
-        kept.push(regex);
-        continue;
-      }
-      const installedHash = record.regexHashes?.[id];
-      const currentHash = await hashText(regexFingerprint(regex));
-      if (installedHash && currentHash !== installedHash) {
-        kept.push(regex);
-        preservedRegexes += 1;
-      }
-    }
-    await updateTavernRegexesWith(() => kept, { scope: "character" });
-  }
-
-  delete registry[projectId];
-  await writeRegistry(registry);
-  return { removed: Boolean(record), preservedEntries, preservedRegexes };
-}
-
-async function scanInstallStates(registry: InstallRegistry): Promise<Record<string, InstallScanState>> {
-  const states: Record<string, InstallScanState> = {};
-  const regexes = getTavernRegexes({ scope: "character", enable_state: "all" });
-  const regexById = new Map(regexes.map((regex) => [String(regex.id ?? ""), regex]));
-  for (const [projectId, record] of Object.entries(registry)) {
-    try {
-      if (!record.worldbookName || !getWorldbookNames().includes(record.worldbookName)) {
-        states[projectId] = "scanIncomplete";
-        continue;
-      }
-      const entries = await getWorldbook(record.worldbookName);
-      const entryByKey = new Map<string, WorkshopWorldbookEntry>();
-      for (const [index, entry] of entries.entries()) entryByKey.set(entryKey(entry, index), entry);
-      let changed = false;
-      for (const [key, expected] of Object.entries(record.entries)) {
-        const entry = entryByKey.get(key);
-        if (!entry) {
-          changed = true;
-          break;
-        }
-        if ((await hashText(String(entry.content ?? ""))) !== expected.hash) {
-          changed = true;
-          break;
-        }
-      }
-      for (const id of record.regexIds) {
-        if (changed) break;
-        const regex = regexById.get(id);
-        const expected = record.regexHashes?.[id];
-        if (!regex || !expected) {
-          states[projectId] = "scanIncomplete";
-          break;
-        }
-        if ((await hashText(regexFingerprint(regex))) !== expected) {
-          changed = true;
-          break;
-        }
-      }
-      if (states[projectId]) continue;
-      states[projectId] = changed ? "localChanged" : "clean";
-    } catch {
-      states[projectId] = "scanIncomplete";
-    }
-  }
-  return states;
-}
 
 async function contextPayload() {
   try {
@@ -454,7 +132,7 @@ function showOverlay() {
   (async () => {
     try {
       const response = await fetch(
-        `${origin}/api/v1/client/compatibility?version=${encodeURIComponent(CLIENT_VERSION)}&channel=${currentChannel()}`,
+        `${origin}/api/v1/client/compatibility?version=${encodeURIComponent(CLIENT_VERSION)}&channel=${SCRIPT_CHANNEL}`,
         { cache: "no-store" },
       );
       const version = (await response.json()) as {
