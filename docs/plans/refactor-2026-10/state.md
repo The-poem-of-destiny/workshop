@@ -2,6 +2,8 @@
 
 本文件只记录当前工作状态，不作为设计完成或线上部署证明。设计见 [api-design.md](api-design.md)，发现与验证见 [api-audit.md](api-audit.md)，前端映射见 [frontend-fidelity.md](frontend-fidelity.md)。
 
+2026-10-29 缓存切换以 [D-48](decisions.md#d-48-公开入口缓存与有界陈旧) 和 [api-design.md](api-design.md#6-缓存设计公开投影与实时权限分离) 为准；以下旧阶段记录不代表当前部署或授权状态。default entrypoint 的公开投影在 staging 配置 300 秒缓存、尽力 purge，production 关闭；真实 hosted HIT／失效尚待验证。迁移 0025 保留 epoch 行以兼容旧 Worker，删除写触发器。
+
 ## Git 与部署边界
 
 - 当前分支 `work`；本次纠错前基线为 `8a3643a8f9fb46a1fadbb8e0c6ba67b6f1f0541f`。用户已授权本地 commit，源码分批提交见末节；未 push、未创建或重开 PR。

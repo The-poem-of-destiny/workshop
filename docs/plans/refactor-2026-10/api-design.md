@@ -4,9 +4,11 @@
 
 2026-10-26 目标与实现以 [D-40～D-47](decisions.md#d-40-完整替代旧版与完整数据迁移) 为准：统一提交审核、按位置安装实例及完整迁移范围取代旧展示直写／单项目登记。当前实施与运行验收见 [state.md](state.md)，尚未执行完整迁移或正式切换；工作包见 [checklist.md](checklist.md#本轮工作包2026-10-26)。
 
+2026-10-29 缓存路径调整：本页缓存设计与 I01 以第 6 节为准，取代早期 epoch 网关方案；具体验证状态见 state.md。
+
 ## 1. 平台事实：Workers Cache 不是 Cache API
 
-**Workers Cache ≠ Cache API。** 前者位于启用缓存的 Worker `fetch()` entrypoint 之前；HIT 不执行被缓存入口。后者是 Worker 内显式 `caches.default.match/put/delete`，每次仍运行 Worker，且不自动提供分层与请求合并。本轮已删除旧 Cache API helper，使用 gateway 与命名 Public 入口，未以改名替代机制。
+**Workers Cache ≠ Cache API。** 前者位于启用缓存的 Worker `fetch()` entrypoint 之前；HIT 不执行被缓存入口。后者是 Worker 内显式 `caches.default.match/put/delete`，每次仍运行 Worker，且不自动提供分层与请求合并。当前使用 default entrypoint Workers Cache，不使用旧 Cache API helper。
 
 已核实能力与限制：
 
@@ -15,7 +17,7 @@
 - 自动 lower/upper tier、同一数据中心内同 key 可缓存请求的 collapsing；不是业务全局单次执行保证。
 - TTL、SWR、`stale-if-error`、Vary、条件重验证由 HTTP 策略控制。缺少显式头时 200 可缓存两小时，404 可缓存三分钟；默认错误兜旧可能无限期，不能只凭 max-age 宣称陈旧有界。
 - `ctx.cache.purge` 删除，`invalidate` 标 stale；均限缓存所属 entrypoint，全球传播但 success 只证明接受请求，不是 D1 提交与失效的共同事务。Free purge 每分钟 5 次，不能把每次互动都变成强制 purge。
-- HIT 仍计请求；内部缓存 fetch／静态交付也有计费影响。网关执行与查询不会因为内部命中而消失。
+- HIT 仍计请求；静态交付也有计费影响。入口命中可跳过 Worker 执行和源站查询，但需要 hosted 证据确认。
 - 本地代码／类型／路由验证不能证明全球 HIT、分层和 purge。生产开启仍受 D-24 的授权与运行证据门禁约束。
 
 官方依据：[配置](https://developers.cloudflare.com/workers/cache/configuration/)、[键](https://developers.cloudflare.com/workers/cache/cache-keys/)、[组合](https://developers.cloudflare.com/workers/cache/examples/)、[purge](https://developers.cloudflare.com/workers/cache/purge/)、[限制](https://developers.cloudflare.com/workers/cache/limitations/)、[计费](https://developers.cloudflare.com/workers/platform/pricing/)。项目本地完整研究在被忽略的 `ref/cloudflare-workers-cache/`，不作为部署依赖。
@@ -37,7 +39,7 @@
 
 | ID | 不变量 | 权威与生效点 |
 |---|---|---|
-| I01 | 对新到达的匿名读取，隐藏／删除后不能因旧共享缓存继续泄露摘要、索引或封面 | D1 primary 上读取公开代际；公开状态变更与代际递增在同一事务。epoch 读取失败必须 fail closed（返回不可缓存错误），不得退回常量／旧值。已开始且取得旧 epoch 的读取可在线性化点之后完成，不承诺追回已送达字节 |
+| I01 | 隐藏／删除后源站立即拒绝新的匿名读取；已公开内容的浏览器或边缘副本允许最多所选缓存期限内陈旧 | 源站公开查询校验当前状态；公开变更尽力 purge，但不作为同步屏障。公开响应 TTL 300 秒、`stale-if-error=0`；已经交付的字节无法追回 |
 | I02 | 公开 API 不混入用户关系、草稿、审核报告或下载票据 | 公开 projection schema 与入口 allowlist；私有读取始终走鉴权路径 |
 | I03 | 失败的 CAS 不得改 revision、资产、审计或指针 | 同一 D1 batch 内，所有后继语句只依赖本次成功 mutation，不能只看 expected+1 这样的可被竞争者满足的状态 |
 | I04 | 冻结待审快照的内容及审核相关元数据不可再编辑 | submit 的最终原子 batch；修改需新建 successor revision。D-30 的已发布展示元数据走独立 project-level 操作，不更新 pending revision 或其 manifest |
@@ -50,9 +52,8 @@
 
 ### 3.1 设计复核补充
 
-- Workers Cache 的默认键不含 host。Public 响应必须对 host 无关；如未来内容依赖 host，须拒绝共享或由可信网关显式分区，不能让请求的 Host 污染共享对象。
-- HIT 保留外层 gateway 执行及其 epoch D1 read；评估不能把它描述为完全消除 Worker 或 D1。
-- gateway epoch 查询失败必须 fail closed，不能复用旧 helper 的 `row?.value ?? "0"` 默认值。
+- Workers Cache 的默认键不含 host。公开响应必须对 host 无关，不能让请求的 Host 污染共享对象。
+- 入口缓存命中可能绕过所有 Worker 代码，因此公开 URL 必须对所有身份返回相同匿名投影，不能回退到私人内容。
 
 
 ## 4. 状态归属与资源职责
@@ -67,7 +68,7 @@
 | download ticket/event | D1 + R2 字节 | 票据短时单次，事件 user/project/day 幂等 | 已登录取件者；不形成安装历史 |
 | install registry／玩家修改 | 本地 ST／Tavern client | 本地 revision/hash 与实际条目扫描 | 宿主桥接；服务端无 install 表 |
 | client/checker artifact | 不可变 R2 对象；D1 channel 记录 | 版本对象不可变；channel 可切换 | 随机酒馆域、Web checker |
-| catalog／home／榜单／封面 | D1 当前公开投影与受控缓存 | 必须定义依赖、键和失效代际 | 匿名／登录用户相同公开表示 |
+| catalog／home／榜单／封面 | D1 当前公开投影与受控缓存 | 公开展示可有界陈旧；写后尽力失效 | 匿名／登录用户相同公开表示 |
 Schema migration: `submissions.base_published_revision_id` is captured from the current published pointer at submit time (`NULL` means first publication). It is a publication precondition, never inferred during review. Existing unresolved submissions without a trustworthy baseline are superseded by migration `0015`; the importer does not recreate legacy submissions or reports. Current-system review history remains available.
 
 完整索引是可发布内容的前置条件，`entry_index_ready` 是显式完成状态，不从 manifest 或行数推断。submit 同一原子 batch 写全部 index 行、计数、manifest 与 ready=1；合法空索引允许 ready=1。匿名读取仅查询 ready=1 的持久索引，不解析 R2 或转发 DO 修复历史数据。`0021` 撤下 ready=0 的旧发布指针并清除不完整派生索引，保留 revision 供作者创建 successor；导入必须从实际有效字节一次建立完整索引。
@@ -87,52 +88,17 @@ Schema migration: `submissions.base_published_revision_id` is captured from the 
 
 不存在／隐藏资源向无权者返回 404；角色级能力不足返回 403；无有效会话返回 401。CORS 不是鉴权。公开脚本和 compatibility 可 ACAO:*，其余 API 继续使用 Origin 白名单。公开读取即使携带 token，也不因此变成含私有字段的表示。
 
-## 6. 缓存设计：先满足边界，再选择平台能力
+## 6. 缓存设计：公开投影与实时权限分离
 
-### 6.1 选择与未选择
+default entrypoint 在 staging 启用 Workers Cache，production 关闭。明确登记的公开 URL 始终返回匿名投影，不根据 Cookie 或 Authorization 返回私有内容；私有接口、下载票据与文件仍逐次鉴权并返回 `private, no-store`。不使用旧 Cache API 或每请求 D1 epoch 查询。
 
-选择默认不缓存的外层 gateway，加一个只处理明确公开资源的 named `Public` entrypoint；只有目标入口使用 **Workers Cache**。删除旧 Cache API lookup/put，不保留第二套本地 TTL cache。
+公开成功响应使用 `public, max-age=300, stale-if-error=0`；错误和带 Set-Cookie 的响应不缓存。公开图片使用独立 `/api/v1/public-assets/*`，绝不因携带 token 回退到私人图片。旧图片路径保留实时授权。客户端和浏览器也可缓存公开响应，因此隐藏、删除或修改后允许最多 300 秒展示陈旧；任何要求即时撤回的内容不得进入此缓存。
 
-拒绝“把整个 Hono 默认入口缓存”：会让 HIT 绕过鉴权或状态检查，错误响应也可能启发式缓存。暂不增加 Viewer 个人缓存：数据低共享、写后立即读取，与本轮收益不匹配；个人读取 no-store 更直接。拒绝仅靠 tag purge 实现 I01：其接受响应不是同步全球完成屏障，且有 Free 限流。
+公开结构写入、自动发布及排行榜重建按受影响路径尽力调用 `cache.purge`；失败记录错误，不回滚已成功的写入。purge 接受不等于全球即时失效，正确性不能依赖它。互动计数允许 TTL 内陈旧，权威计数、私有状态、权限和写入前置条件不读取缓存投影。迁移 `0025` 删除旧 epoch 触发器，保留 epoch 行供先迁移后部署期间及旧版本回滚读取；旧版本在触发器删除后不再按写入更新代际，其公开缓存可在旧 TTL 内陈旧。远端应用迁移前仍会产生旧写放大。
 
-**一致性选择：受信任公开代际作为 `Public` props。** Gateway 每次可缓存公开请求从 D1 primary 读取一次公开代际；公开结构写入在同一事务递增。Workers Cache 键因 props 代际变化而变化；Public 的 HIT 可跳过完整投影加载，但不能消除 gateway 的一次小查询。这个有意的成本换取下架／隐藏边界，不宣称零 D1 或全程不执行 Worker。
+Workers Cache 入口缓存发生在 Worker 执行前，不能依赖入口代码对每次命中做规范化或鉴权；公开 URL 的所有响应必须不依赖身份。默认缓存键不含 host，公开结果不能依赖 host。未列入公开路径的接口不应获得可缓存响应；无效请求和错误必须显式 no-store，避免平台启发式缓存。
 
-不依赖未证实的 `private,no-store` 与 cacheable CDN 头组合：内部 Public 响应有明确缓存策略；外层 gateway 收到响应后重新设置外部 `Cache-Control: private, no-store`，剥离内部 Cache-Tag／CDN 控制头。浏览器和下游 CDN 不能绕过下一次 gateway 检查。仅真正不可变、公开且不要求撤回的脚本版本对象对浏览器 immutable。
-
-- `ctx.cache.purge()` 的成功仅表示失效请求被接受，不代表同步全球清除已完成；正确性使用新 epoch namespace，不能把 purge 成功返回当作线性化屏障。
-
-### 6.2 入口与缓存键
-
-- default：缓存显式关闭；负责 allowlist、query 规范化、读取代际、身份／私有路由，不允许客户端头或 props 冒充内部身份。
-- Public：只接受 GET/HEAD 的已登记公开表示，不接受写、票据、私有资源或任意 Hono 路径；MISS 时仍用公开查询条件获取数据。
-- key：entrypoint + canonical path/query + Worker version + trusted public epoch。保留所有影响结果的合法 query 值；去掉无关追踪参数，排序 query，归一已知默认值／尾斜杠。无效参数应明确失败，不悄悄缓存另一种请求。
-- 转发新 Request，不修改原请求；移除 Authorization、Cookie、Origin 和不参与规范的 header。CORS 在最外层按原始 Origin 重建，避免把某用户的 Origin 头缓存给别人。
-- 不启用 cross_version_cache；部署产生新的 version namespace。不能声称回滚删除旧 namespace。
-
-### 6.3 每类响应的策略
-
-| 响应 | 内部策略 | 外部浏览器策略 | 代际／失效依据 |
-|---|---|---|---|
-| 列表、搜索、详情、发现栏、榜单、home、site、推荐、reference 投影 | 明确短 TTL，基线 30s，`stale-if-error=0`，不启用 SWR | private,no-store | 公开结构代际；不能缓存用户字段 |
-| 公开封面／当前 banner | 相同公开代际内短 TTL | private,no-store | 当前有权引用的存在性，不按任意 assets 第一行判断 |
-| 私人关系／作者／审核／OAuth／票据／文件 | 不进入 Public | private,no-store | 每请求会话和状态检查 |
-| 不可变 client/checker 版本对象 | named 公共缓存，长期，version 分区 | public,immutable 一年 | 内容寻址、禁止覆盖；不依赖当前项目 visibility |
-| client channel pointer | 当前先不缓存可变指针，始终回源，使用 ETag | no-store | D1 channel 与 R2 对象顺序未有部署证据前，不使用 300s 旧指针掩盖不一致 |
-| compatibility／version／health／错误响应 | 不缓存 | no-store | 版本门禁必须当前；错误不启发式缓存 |
-
-这里的公开计数 30s 陈旧是展示取舍，不扩展到可见性、身份、票据或写前置条件；不允许无限错误兜旧。
-
-### 6.4 公开代际的依赖闭包
-
-代际必须与变更同一事务，覆盖：公开项目发布指针／可见性／删除／可见元数据，当前公开 revision 的展示元数据／封面关联，用户公开名称／头像，发现曝光／完整排行快照切换，精选、site/banner、参考集／版本／条目变化。计数型 likes/downloads/subscriptions 不逐次递增，以短 TTL 表示允许的计数延迟。草稿私有编辑尽量不使公开键失效。
-
-读取顺序是 epoch → Public lookup/loader，不能先读 DTO 再取 epoch。变更期间已读到旧 epoch 的在途请求可按该点完成；后续请求读取新 epoch，不会命中旧 namespace。缓存旧代际无需立即删除才能保证 I01。
-
-tag 可用于拥有缓存的 Public 内管理失效；purge/invalidate 的真实实现与验收需区分。当前正确性不依赖 purge 接受结果，不为“能力已支持”添加无调用方的控制 API。以后若使用，必须从 Public 自身调用、检查结果，不能声称 default purge 已清理所有入口。
-
-### 6.5 开启门禁与运行证据
-
-Wrangler 代码只对预发入口配置缓存，production 继续关闭；不自动部署。没有本地 Cache API fallback 或伪造 HIT。Local E2E 验证路由、权限、代际变化、外部头与用户行为；真实 Workers Cache HIT、tiering、全局 purge 和请求费用留授权后的最小 hosted smoke，不扩建繁琐测试矩阵。
+本地检查只能证明源站路由、响应头、权限与行为，不能证明 hosted HIT、全球 purge、分层或实际费用。staging 部署后需单独观察真实命中及失效；production 仍关闭，开启需要独立授权与证据。
 
 ## 7. 资源与端点契约
 

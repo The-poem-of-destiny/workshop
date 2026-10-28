@@ -40,7 +40,7 @@ workshop/
 - 审核：独立任务层、云检查与人工审核、发布指针切换、成员角色、审计；
 - 互动：点赞、订阅、评分、按用户/项目/日幂等的下载计数；评分与留言仅本人可通过个人状态接口读取。重新打开详情回填留言；评分接口省略 `comment` 保留已有留言，空字符串清空；
 - 客户端：版本化分发、按安装位置扫描多实例，安装／更新／卸载先预览差异再确认；登记配套脚本的精确版本与下载地址，不代管脚本数据；
-- 缓存：项目列表/详情、发现、榜单使用 Workers Cache API，30 秒 TTL + `cache_epoch`；首页、推荐、参考集、站点当前直读 D1；作者、审核、下载等动态接口保持 `private, no-store`。详见 `docs/plans/refactor-2026-10/api-design.md`。
+- 缓存：明确允许的匿名公开投影使用 Workers Cache，300 秒 TTL，公开变更尽力 purge；私有读取、授权与下载保持 `private, no-store`。预发启用、生产关闭，真实缓存命中与失效仍需验证。详见 `docs/plans/refactor-2026-10/api-design.md`。
 
 接口以 `/api/v1` 为前缀。契约在 `packages/contracts`，领域规则在 `packages/domain`，checker 与内容审计在 `packages/content`。
 
