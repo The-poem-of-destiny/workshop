@@ -1,6 +1,7 @@
 export * from "./admin.js";
 export * from "./admin-dto.js";
 export * from "./authoring.js";
+export * from "./companion.js";
 export * from "./errors.js";
 export * from "./health.js";
 export * from "./identity.js";

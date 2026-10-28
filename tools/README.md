@@ -12,5 +12,6 @@ Development harnesses, repository checks, and data-operation utilities. Command 
 
 - [Migration guide](migrate/README.md) covers the local legacy-export converter, verification, local D1 loading, and local asset copying.
 - [Backup verifier](backup/verify.mjs) checks local exported project/revision pointers and mirrored asset hashes/sizes. It neither creates a backup nor restores or modifies the live database. Backup and recovery procedures live in the [deployment safety runbook](../docs/operations/deployment-safety.md).
+- [Companion version push](push-companion-version.mjs) registers one exact script version through the owner-only HTTP API, then verifies its anonymous exact-version read. Pass `--script`, `--version`, `--name`, `--url` and optionally `--origin`; credentials come only from `WORKSHOP_SESSION_TOKEN`, never `.env`. Defaults to local HTTP; remote registration requires explicit authorization. It records metadata, not script storage or business data.
 
 Application behavior remains in [apps](../apps/README.md); shared schemas, domain rules, and checker implementation live in [packages](../packages/README.md).
