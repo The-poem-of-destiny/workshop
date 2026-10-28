@@ -101,12 +101,6 @@
         "default": {
           "type": "worker",
           "cache": {
-            "enabled": false
-          }
-        },
-        "Public": {
-          "type": "worker",
-          "cache": {
             "enabled": true
           }
         }

@@ -22,6 +22,7 @@ import removeObsoleteState from "../../migrations/0021_remove_obsolete_state.sql
 import projectGallery from "../../migrations/0022_project_gallery.sql?raw";
 import catalogMetrics from "../../migrations/0023_catalog_metrics.sql?raw";
 import submissionWithdrawal from "../../migrations/0024_submission_withdrawal.sql?raw";
+import removePublicCacheEpoch from "../../migrations/0025_remove_public_cache_epoch.sql?raw";
 import { splitSql } from "./sql";
 
 export async function applySchema(db: D1Database): Promise<void> {
@@ -50,6 +51,7 @@ export async function applySchema(db: D1Database): Promise<void> {
     projectGallery,
     catalogMetrics,
     submissionWithdrawal,
+    removePublicCacheEpoch,
   ]) {
     const sql = source.replace(/^\s*--.*$/gm, "").replace(/^\s*PRAGMA\b.*$/gm, "");
     for (const statement of splitSql(sql)) await db.prepare(statement).run();

@@ -72,7 +72,7 @@ const SELECT_PROJECT = `
     ) AS cover_key,
     COALESCE(
       (
-        SELECT json_group_array(json_object('slot', g.slot, 'url', '/api/v1/assets/' || g.r2_key))
+        SELECT json_group_array(json_object('slot', g.slot, 'url', '/api/v1/public-assets/' || g.r2_key))
         FROM project_gallery g WHERE g.project_id = p.id
       ),
       '[]'
@@ -150,7 +150,7 @@ function toSummary(row: ProjectRow): ProjectSummary {
       likes: row.likes_count,
       subscriptions: row.subscriptions_count,
     },
-    coverUrl: row.cover_key ? `/api/v1/assets/${row.cover_key}` : null,
+    coverUrl: row.cover_key ? `/api/v1/public-assets/${row.cover_key}` : null,
     gallery: parseGallery(row.gallery),
     visibility: row.visibility,
     publishedAt: row.published_at,

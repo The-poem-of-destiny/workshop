@@ -208,7 +208,7 @@ describe("public read path", () => {
       entries: { worldbook: 12, regex: 4 },
       schemaVersion: "4.3",
       counts: { downloads: 12, likes: 3, subscriptions: 2 },
-      coverUrl: "/api/v1/assets/covers/p1.webp",
+      coverUrl: "/api/v1/public-assets/covers/p1.webp",
     });
   });
 
@@ -607,29 +607,77 @@ describe("public read path", () => {
     }
   });
 
-  it("serves only published public covers anonymously", async () => {
+  it("separates published public images from private draft delivery", async () => {
     await seed();
-    const publicCover = await app.request("/api/v1/assets/covers/p1.webp", undefined, bindings);
+    const publicCover = await app.request("/api/v1/public-assets/covers/p1.webp", undefined, bindings);
     expect(publicCover.status).toBe(200);
-    expect(publicCover.headers.get("cache-control")).toBe("private, no-store");
-
-    const unpublished = await app.request("/api/v1/assets/covers/p1/r3-cover.webp", undefined, bindings);
-    expect(unpublished.status).toBe(404);
-    const privateCover = await app.request("/api/v1/assets/covers/p2/r2-cover.webp", undefined, bindings);
-    expect(privateCover.status).toBe(404);
+    expect(new Uint8Array(await publicCover.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+    expect(publicCover.headers.get("cache-control")).toBe("public, max-age=300, stale-if-error=0");
+    expect(publicCover.headers.get("access-control-allow-origin")).toBe("*");
+    expect(publicCover.headers.get("access-control-allow-credentials")).toBeNull();
+    expect(publicCover.headers.get("vary")).toBeNull();
 
     const headers = { authorization: "Bearer test-token" };
-    await bindings.DB.prepare("UPDATE projects SET deleted_at = ? WHERE id = 'p1'")
-      .bind("2026-10-21T00:00:00.000Z")
-      .run();
-    expect((await app.request("/api/v1/assets/covers/p1.webp", undefined, bindings)).status).toBe(404);
-    await bindings.DB.prepare("UPDATE projects SET deleted_at = NULL WHERE id = 'p1'").run();
+    for (const key of ["covers/p1/r3-cover.webp", "covers/p2/r2-cover.webp"]) {
+      for (const options of [undefined, { headers }]) {
+        const denied = await app.request(`/api/v1/public-assets/${key}`, options, bindings);
+        expect(denied.status).toBe(404);
+        expect(denied.headers.get("cache-control")).toBe("private, no-store");
+      }
+      expect((await app.request(`/api/v1/assets/${key}`, undefined, bindings)).status).toBe(404);
+      const ownImage = await app.request(`/api/v1/assets/${key}`, { headers }, bindings);
+      expect(ownImage.status).toBe(200);
+      expect(ownImage.headers.get("cache-control")).toBe("private, no-store");
+    }
+    const legacyPublic = await app.request("/api/v1/assets/covers/p1.webp", undefined, bindings);
+    expect(legacyPublic.status).toBe(200);
+    expect(legacyPublic.headers.get("cache-control")).toBe("private, no-store");
 
-    const ownDraft = await app.request("/api/v1/assets/covers/p1/r3-cover.webp", { headers }, bindings);
-    expect(ownDraft.status).toBe(200);
-    expect(ownDraft.headers.get("cache-control")).toBe("private, no-store");
-    const ownPrivate = await app.request("/api/v1/assets/covers/p2/r2-cover.webp", { headers }, bindings);
-    expect(ownPrivate.status).toBe(200);
+    await bindings.DB.prepare("UPDATE projects SET visibility = 'private' WHERE id = 'p1'").run();
+    expect((await app.request("/api/v1/public-assets/covers/p1.webp", { headers }, bindings)).status).toBe(404);
+    await bindings.DB.prepare("UPDATE projects SET visibility = 'public', deleted_at = ? WHERE id = 'p1'")
+      .bind(now)
+      .run();
+    expect((await app.request("/api/v1/public-assets/covers/p1.webp", undefined, bindings)).status).toBe(404);
+    expect((await app.request("/api/v1/assets/covers/p1.webp", { headers }, bindings)).status).toBe(404);
+  });
+
+  it("projects legacy banner URLs publicly without retaining replaced banner access", async () => {
+    await seed();
+    await bindings.R2.put("banners/old.webp", new Uint8Array([1]));
+    await bindings.R2.put("banners/new.webp", new Uint8Array([2]));
+    const banner = {
+      imageUrl: "/api/v1/assets/banners/old.webp",
+      positionX: 50,
+      positionY: 50,
+      zoom: 1,
+      mobilePositionX: 50,
+      mobilePositionY: 50,
+      mobileZoom: 1,
+    };
+    await bindings.DB.prepare("UPDATE site_settings SET value = ? WHERE key = 'discover_banner'")
+      .bind(JSON.stringify(banner))
+      .run();
+    const site = await app.request("/api/v1/site", undefined, bindings);
+    await expect(site.json()).resolves.toMatchObject({
+      banner: { imageUrl: "/api/v1/public-assets/banners/old.webp" },
+    });
+    expect((await app.request("/api/v1/public-assets/banners/old.webp", undefined, bindings)).status).toBe(200);
+    banner.imageUrl = "/api/v1/public-assets/banners/new.webp";
+    await bindings.DB.prepare("UPDATE site_settings SET value = ? WHERE key = 'discover_banner'")
+      .bind(JSON.stringify(banner))
+      .run();
+    expect((await app.request(banner.imageUrl, undefined, bindings)).status).toBe(200);
+    expect((await app.request("/api/v1/public-assets/banners/old.webp", undefined, bindings)).status).toBe(404);
+    expect(
+      (
+        await app.request(
+          "/api/v1/assets/banners/old.webp",
+          { headers: { authorization: "Bearer test-token" } },
+          bindings,
+        )
+      ).status,
+    ).toBe(404);
   });
 
   it("serves only completed persisted indexes without reading original assets", async () => {

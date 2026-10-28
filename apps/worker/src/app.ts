@@ -1,5 +1,5 @@
 import { healthResponseSchema } from "@workshop/contracts";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import type { Env } from "./env";
 import { jsonError } from "./http/errors";
 import { shouldSampleRequest } from "./http/observability";
@@ -109,8 +109,24 @@ app.get("/assets/*", async (c) => {
   return new Response(response.body, { status: response.status, headers });
 });
 
-app.get("/api/v1/assets/*", async (c) => {
-  const key = c.req.path.replace("/api/v1/assets/", "");
+async function getRegisteredBannerKey(db: D1Database): Promise<string | null> {
+  const registered = await db.prepare("SELECT value FROM site_settings WHERE key = 'discover_banner'").first<{
+    value: string;
+  }>();
+  try {
+    const parsed = registered ? (JSON.parse(registered.value) as { imageUrl?: unknown }) : null;
+    if (typeof parsed?.imageUrl !== "string") return null;
+    const pathname = parsed.imageUrl.startsWith("http") ? new URL(parsed.imageUrl).pathname : parsed.imageUrl;
+    return pathname.replace(/^\/api\/v1\/(?:public-assets|assets)\//, "");
+  } catch {
+    return null;
+  }
+}
+
+async function serveImage(c: Context<{ Bindings: Env }>, publicOnly: boolean) {
+  c.header("cache-control", "private, no-store");
+  if (publicOnly) c.header("access-control-allow-origin", "*");
+  const key = c.req.path.replace(/^\/api\/v1\/(?:public-assets|assets)\//, "");
   if (!key.startsWith("covers/") && !key.startsWith("gallery/") && !key.startsWith("banners/")) {
     return jsonError(c, "not_found", "Asset not found");
   }
@@ -128,6 +144,7 @@ app.get("/api/v1/assets/*", async (c) => {
       .first<{ permitted: number }>();
     publiclyCacheable = Boolean(publicAssociation?.permitted);
     if (!publiclyCacheable) {
+      if (publicOnly) return jsonError(c, "not_found", "Asset not found");
       const session = await requireSession(c);
       if (!session) return jsonError(c, "not_found", "Asset not found");
       const privateAssociation = await c.env.DB.prepare(`
@@ -167,6 +184,7 @@ app.get("/api/v1/assets/*", async (c) => {
     publiclyCacheable = Boolean(publicAssociation?.permitted);
 
     if (!publiclyCacheable) {
+      if (publicOnly) return jsonError(c, "not_found", "Asset not found");
       const session = await requireSession(c);
       if (!session) return jsonError(c, "not_found", "Asset not found");
       const privateAssociation = await c.env.DB.prepare(`
@@ -198,33 +216,25 @@ app.get("/api/v1/assets/*", async (c) => {
       if (!privateAssociation?.permitted) return jsonError(c, "not_found", "Asset not found");
     }
   } else {
-    const registered = await c.env.DB.prepare("SELECT value FROM site_settings WHERE key = 'discover_banner'").first<{
-      value: string;
-    }>();
-    let registeredKey: string | null = null;
-    try {
-      const parsed = registered ? (JSON.parse(registered.value) as { imageUrl?: unknown }) : null;
-      if (typeof parsed?.imageUrl === "string") {
-        const pathname = parsed.imageUrl.startsWith("http") ? new URL(parsed.imageUrl).pathname : parsed.imageUrl;
-        registeredKey = pathname.replace(/^\/api\/v1\/assets\//, "");
-      }
-    } catch {
-      registeredKey = null;
-    }
+    const registeredKey = await getRegisteredBannerKey(c.env.DB);
     if (registeredKey !== key) return jsonError(c, "not_found", "Asset not found");
   }
 
   const object = await c.env.R2.get(key);
   if (!object) return jsonError(c, "not_found", "Asset not found");
+  c.header("cache-control", publicOnly ? "public, max-age=300, stale-if-error=0" : "private, no-store");
   return new Response(object.body, {
     headers: {
       "content-type": object.httpMetadata?.contentType ?? "application/octet-stream",
       "content-length": String(object.size),
-      "cache-control": "private, no-store",
-      vary: "Authorization",
+      "cache-control": publicOnly ? "public, max-age=300, stale-if-error=0" : "private, no-store",
+      ...(publicOnly ? { "access-control-allow-origin": "*" } : { vary: "Authorization" }),
     },
   });
-});
+}
+
+app.get("/api/v1/public-assets/*", (c) => serveImage(c, true));
+app.get("/api/v1/assets/*", (c) => serveImage(c, false));
 
 app.get("/api/v1/health", (c) => {
   const body = healthResponseSchema.parse({

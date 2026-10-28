@@ -121,7 +121,7 @@ describe("admin writes", () => {
     });
     expect(owner.status).toBe(201);
     const body = (await owner.json()) as { banner: { imageUrl: string } };
-    expect(body.banner.imageUrl).toMatch(/^\/api\/v1\/assets\/banners\/[a-f0-9]{64}\.png$/);
+    expect(body.banner.imageUrl).toMatch(/^\/api\/v1\/public-assets\/banners\/[a-f0-9]{64}\.png$/);
     const asset = await app.request(body.banner.imageUrl, undefined, bindings);
     expect(asset.status).toBe(200);
     expect(asset.headers.get("content-type")).toContain("image/png");

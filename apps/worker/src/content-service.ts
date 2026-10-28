@@ -266,7 +266,7 @@ export class ContentService implements DurableObject {
     }
 
     await this.autoPublish(target, storedReport, reportHash, checkedAt);
-    return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_REVISION });
+    return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_REVISION, published: true });
   }
 
   private async validateRevision(validateRevision: string, validateProjectId: string): Promise<Response> {
