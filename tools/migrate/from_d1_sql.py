@@ -3,15 +3,27 @@
 
 Usage:
   python3 tools/migrate/from_d1_sql.py legacy.sql legacy-r2 /tmp/public-export
+  python3 tools/migrate/from_d1_sql.py legacy.sql legacy-r2 /tmp/public-export \
+    --exclude-ids existing-target.json --require-assets --dedupe-name-author \
+    --order updated-desc --limit 100
 
 Only legacy projects with status='approved', is_published=1, and visibility=1
 are exported. The output contains users.json, projects.json, and assets.json;
 asset bytes are embedded solely so the local importer can verify SHA-256 and
 validate current released content. No role, session, review, interaction, or
 site-configuration data is exported.
+
+Selection flags are optional and only narrow that public set. `--exclude-ids`
+accepts a JSON array, a migration target's expectedProjectIds, or one ID per
+line. `--require-assets` drops projects whose cover or released content file is
+absent instead of exporting them with partial resources. `--dedupe-name-author`
+keeps the most recently updated project for an identical name and author.
+When a flag narrows the set, selection.json records every dropped project so
+the choice is auditable.
 """
 from __future__ import annotations
 
+import argparse
 import base64
 import hashlib
 import json
@@ -81,11 +93,41 @@ def asset_row(project_id: str, kind: str, key: str, path: Path, created_at: str 
     }
 
 
+def read_id_set(path: Path) -> set[str]:
+    text = path.read_text(encoding="utf-8")
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        return {line.strip() for line in text.splitlines() if line.strip()}
+    if isinstance(value, dict):
+        value = value.get("ids") or value.get("meta", {}).get("expectedProjectIds") or []
+    if not isinstance(value, list):
+        raise SystemExit(f"{path}: expected a JSON array, expectedProjectIds, or one ID per line")
+    return {str(item) for item in value}
+
+
+def existing_asset(project: dict, r2_root: Path, key: str | None) -> bool:
+    if not key:
+        return False
+    path = r2_root / key
+    return path.is_file()
+
+
 def main() -> int:
-    if len(sys.argv) != 4:
-        print(__doc__.strip(), file=sys.stderr)
-        return 2
-    dump, r2_root, out_dir = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
+    parser = argparse.ArgumentParser(description="Export public legacy projects with explicit selection flags.")
+    parser.add_argument("dump", type=Path)
+    parser.add_argument("r2_root", type=Path)
+    parser.add_argument("out_dir", type=Path)
+    parser.add_argument("--exclude-ids", type=Path, help="IDs already present at the destination")
+    parser.add_argument("--include-ids", type=Path, help="export only these public project IDs")
+    parser.add_argument("--require-assets", action="store_true", help="drop projects missing cover or content")
+    parser.add_argument("--dedupe-name-author", action="store_true", help="keep the newest identical name+author")
+    parser.add_argument("--order", choices=("id", "updated-desc"), default="id")
+    parser.add_argument("--limit", type=int, help="export at most this many projects after filtering")
+    args = parser.parse_args()
+    if args.limit is not None and args.limit < 1:
+        parser.error("--limit must be positive")
+    dump, r2_root, out_dir = args.dump, args.r2_root, args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(":memory:")
     db.executescript(dump.read_text(encoding="utf-8"))
@@ -97,7 +139,7 @@ def main() -> int:
         print(f"missing legacy tables: {', '.join(missing_tables)}", file=sys.stderr)
         return 2
 
-    projects = [
+    public_projects = [
         exported_fields(dict(row), PROJECT_FIELDS)
         for row in db.execute(
             """SELECT * FROM projects
@@ -105,6 +147,79 @@ def main() -> int:
                ORDER BY id"""
         )
     ]
+    projects = list(public_projects)
+    selection: dict = {"publicCount": len(public_projects)}
+    narrowed = any(
+        (args.exclude_ids, args.include_ids, args.require_assets, args.dedupe_name_author, args.limit)
+    )
+
+    if args.include_ids:
+        include = read_id_set(args.include_ids)
+        dropped = [row["id"] for row in projects if row["id"] not in include]
+        projects = [row for row in projects if row["id"] in include]
+        selection["notIncluded"] = dropped
+    if args.exclude_ids:
+        exclude = read_id_set(args.exclude_ids)
+        dropped = [row["id"] for row in projects if row["id"] in exclude]
+        projects = [row for row in projects if row["id"] not in exclude]
+        selection["excludedExisting"] = dropped
+    if args.require_assets:
+        complete = []
+        dropped = []
+        for row in projects:
+            cover_key = url_key(row.get("cover_image"))
+            content_key = url_key(row.get("download_url"))
+            missing = [
+                kind
+                for kind, key in (("cover", cover_key), ("content", content_key))
+                if not existing_asset(row, r2_root, key)
+            ]
+            if missing:
+                dropped.append({"id": row["id"], "missing": missing})
+            else:
+                complete.append(row)
+        projects = complete
+        selection["droppedMissingAssets"] = dropped
+    if args.dedupe_name_author:
+        kept: dict[tuple[str, str], dict] = {}
+        dropped = []
+        for row in projects:
+            identity = (str(row.get("name") or ""), str(row.get("author_id") or ""))
+            current = kept.get(identity)
+            if current is None:
+                kept[identity] = row
+                continue
+            winner, loser = (
+                (row, current)
+                if (row.get("updated_at") or "") > (current.get("updated_at") or "")
+                else (current, row)
+            )
+            kept[identity] = winner
+            dropped.append({"id": loser["id"], "kept": winner["id"], "reason": "same_name_author"})
+        projects = list(kept.values())
+        selection["deduped"] = dropped
+    if args.order == "updated-desc":
+        projects.sort(key=lambda row: (row.get("updated_at") or "", row["id"]), reverse=True)
+    if args.limit is not None:
+        dropped = [row["id"] for row in projects[args.limit :]]
+        projects = projects[: args.limit]
+        selection["overLimit"] = dropped
+    if narrowed:
+        selection["selected"] = [
+            {
+                "id": row["id"],
+                "name": row.get("name"),
+                "author_id": row.get("author_id"),
+                "updated_at": row.get("updated_at"),
+            }
+            for row in projects
+        ]
+        selection["order"] = args.order
+        selection["limit"] = args.limit
+        (out_dir / "selection.json").write_text(
+            json.dumps(selection, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+
     author_ids = {row["author_id"] for row in projects if row.get("author_id")}
     users = [
         exported_fields(dict(row), USER_FIELDS)
