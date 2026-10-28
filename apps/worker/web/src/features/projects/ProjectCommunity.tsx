@@ -39,11 +39,8 @@ export function ProjectCommunity({
       .then((result) => {
         if (!active) return;
         const item = result.items.find((value) => value.projectId === project.id);
-        setInteraction(
-          item
-            ? { liked: item.liked, subscribed: item.subscribed, rating: item.rating }
-            : { liked: false, subscribed: false, rating: null },
-        );
+        setInteraction(item ? { liked: item.liked, subscribed: item.subscribed, rating: item.rating } : null);
+        setRatingComment(item?.comment ?? "");
       })
       .catch(() => undefined);
     return () => {
@@ -52,14 +49,13 @@ export function ProjectCommunity({
   }, [loggedIn, project.id]);
   const currentRating = ratingDraft ?? interaction?.rating ?? null;
   const submitRating = (): void => {
-    if (!loggedIn || currentRating === null || ratingSaving) return;
+    if (!loggedIn || interaction === null || currentRating === null || ratingSaving) return;
     setRatingSaving(true);
     api
-      .setRating(project.id, currentRating, ratingComment.trim() || undefined)
+      .setRating(project.id, currentRating, ratingComment.trim())
       .then(() => {
         setRatingSaving(false);
         setRatingDraft(null);
-        setRatingComment("");
         setRatingSaved(true);
         setInteraction((value) => ({
           liked: value?.liked ?? false,
@@ -95,8 +91,7 @@ export function ProjectCommunity({
       });
   };
   return (
-    <section className="rail-section">
-      <h3>社区</h3>
+    <section className="rail-section" aria-label="社区互动">
       <div className="actions">
         {discordThreadUrl ? (
           <a className="secondary-link" href={discordThreadUrl} target="_blank" rel="noreferrer">
@@ -128,7 +123,6 @@ export function ProjectCommunity({
         >
           <Heart aria-hidden="true" fill={interaction?.liked ? "currentColor" : "none"} />
           <span>{interaction?.liked ? "已点赞" : "点赞"}</span>
-          <span className="action-count">{project.counts.likes}</span>
         </button>
         <button
           type="button"
@@ -155,11 +149,11 @@ export function ProjectCommunity({
         >
           <Bookmark aria-hidden="true" fill={interaction?.subscribed ? "currentColor" : "none"} />
           <span>{interaction?.subscribed ? "已订阅" : "订阅"}</span>
-          <span className="action-count">{project.counts.subscriptions}</span>
         </button>
       </div>
       <div className="rating-block">
-        <h4>评分</h4>
+        <h4>我的私有评分</h4>
+        <p className="hint">评分与评论仅自己可见，不公开展示。</p>
         <fieldset className="rating-stars">
           <legend className="sr-only">项目评分</legend>
           {[1, 2, 3, 4, 5].map((value) => {
@@ -193,7 +187,7 @@ export function ProjectCommunity({
                 rows={3}
                 maxLength={2000}
                 value={ratingComment}
-                placeholder="可选评论（最多 2000 字；重新填写会覆盖之前的评论）"
+                placeholder="可选私有评论（最多 2000 字；清空后保存会删除评论）"
                 onChange={(event) => {
                   setRatingComment(event.target.value);
                   setRatingSaved(false);

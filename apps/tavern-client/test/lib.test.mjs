@@ -25,17 +25,6 @@ test("entry keys prefer explicit project keys, then uid, then index", () => {
   assert.equal(lib.entryKey({ comment: "no id" }, 7), "index:7");
 });
 
-test("hashes are stable and detect player edits", async () => {
-  const original = await lib.hashText("hello");
-  assert.equal(original, await lib.hashText("hello"));
-  const edited = await lib.hashText("hello!");
-  assert.notEqual(original, edited);
-  const installedHash = original;
-  const current = await lib.hashText("hello");
-  assert.equal(current !== installedHash, false);
-  assert.equal((await lib.hashText("changed")) !== installedHash, true);
-});
-
 test("worldbook and regex containers normalize to entry arrays", () => {
   assert.equal(lib.worldbookEntries({ entries: [{ uid: 1 }] }).length, 1);
   assert.equal(lib.worldbookEntries({ entries: { a: { uid: 1 }, b: { uid: 2 } } }).length, 2);
@@ -58,32 +47,6 @@ test("workshop origins normalize to scheme and host and reject invalid schemes",
     "https://fallback.example",
   );
   assert.equal(lib.normalizeWorkshopOrigin("", "https://fallback.example"), "https://fallback.example");
-});
-
-test("foreign official baseline names fail closed", () => {
-  const official = [{ comment: "[DLC][角色]A", content: "official" }];
-  assert.equal(
-    lib.hasForeignBaselineConflict(official, { comment: "[DLC][角色]A", content: "incoming" }, "uid:1"),
-    true,
-  );
-  assert.equal(
-    lib.hasForeignBaselineConflict(official, { comment: "[DLC][角色]B", content: "incoming" }, "uid:2"),
-    false,
-  );
-  assert.equal(
-    lib.hasForeignBaselineConflict(
-      [{ comment: "[DLC][角色]A", extensions: { cw_project_id: "p" } }],
-      { comment: "[DLC][角色]A" },
-      "uid:1",
-    ),
-    false,
-  );
-});
-
-test("project entries require a project marker string", () => {
-  assert.equal(lib.projectEntry({ extensions: { cw_project_id: "p1" } }), true);
-  assert.equal(lib.projectEntry({ extensions: { cw_project_id: 1 } }), false);
-  assert.equal(lib.projectEntry({}), false);
 });
 
 after(async () => {

@@ -26,6 +26,7 @@ projectsRoutes.get("/", async (c) => {
     limit: c.req.query("limit"),
     cursor: c.req.query("cursor"),
     sort: c.req.query("sort"),
+    period: c.req.query("period"),
     projectType: c.req.query("projectType"),
     authorId: c.req.query("authorId"),
     tag: c.req.query("tag"),
@@ -34,7 +35,7 @@ projectsRoutes.get("/", async (c) => {
   if (!parsed.success) {
     return jsonError(c, "bad_request", "Invalid query", parsed.error.flatten());
   }
-  if (!isValidProjectListCursor(parsed.data.cursor, parsed.data.sort)) {
+  if (!isValidProjectListCursor(parsed.data)) {
     return jsonError(c, "bad_request", "Invalid cursor");
   }
   return c.json(await listPublishedProjects(c.env.DB, parsed.data));
@@ -92,6 +93,9 @@ projectsRoutes.get("/:id/entries", async (c) => {
 });
 
 projectsRoutes.get("/:id/preview/:kind", async (c) => {
+  c.header("Cache-Control", "private, no-store");
+  const session = await requireSession(c);
+  if (!session) return jsonError(c, "unauthorized", "Login required");
   const parsedKind = projectPreviewKindSchema.safeParse(c.req.param("kind"));
   if (!parsedKind.success) return jsonError(c, "bad_request", "Unknown preview kind");
   const preview = await getProjectPreview(c.env.DB, c.env.R2, c.req.param("id"), parsedKind.data);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type PendingImage = { file: File; url: string; width: number; height: number };
 
@@ -62,7 +62,7 @@ export function usePendingImage(): {
     setPending({ file, url, width: info.width, height: info.height });
   }
 
-  function clear(): void {
+  const clear = useCallback((): void => {
     pickVersion.current += 1;
     if (urlRef.current) {
       URL.revokeObjectURL(urlRef.current);
@@ -70,7 +70,7 @@ export function usePendingImage(): {
     }
     setPending(null);
     setError(null);
-  }
+  }, []);
 
   return { pending, error, pick, clear };
 }

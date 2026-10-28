@@ -1,6 +1,8 @@
 import { ReviewDecisionDialog } from "./ReviewDecisionDialog";
 import { ReviewEvidence } from "./ReviewEvidence";
 import { ReviewQueue } from "./ReviewQueue";
+import { ReviewTaskActions } from "./ReviewTaskActions";
+import { ReviewTaskDialog } from "./ReviewTaskDialog";
 import { useReviewDecision } from "./useReviewDecision";
 import { useReviewEvidence } from "./useReviewEvidence";
 import { useReviewQueue } from "./useReviewQueue";
@@ -129,31 +131,47 @@ export function AdminPanel({
           loadingMore={loadingMore}
           loadMore={loadMore}
         />
-        <ReviewEvidence
+        <ReviewTaskDialog
           selectedId={selectedId}
-          clearSelection={clearSelection}
-          loadingDetail={loadingDetail}
-          detailError={detailError}
-          select={select}
           detail={detail}
-          checking={checking}
-          snooze={snooze}
           busy={busy}
-          recheck={recheck}
-          exporting={exporting}
-          exportMarkdown={exportMarkdown}
-          routeGate={routeGate}
-          report={report}
-          latestRun={latestRun}
-          diff={diff}
-          downloadKind={downloadKind}
-          download={download}
-          position={position}
-          moveSelection={moveSelection}
-          visibleItems={visibleItems}
-          openDecision={openDecision}
-          manualApproval={manualApproval}
-        />
+          decision={decision}
+          clearSelection={clearSelection}
+          returnFocus={queue.returnFocus}
+          taskScroll={queue.taskScroll}
+          footer={
+            <ReviewTaskActions
+              clearSelection={clearSelection}
+              busy={busy}
+              checking={checking}
+              position={position}
+              total={visibleItems.length}
+              moveSelection={moveSelection}
+              openDecision={openDecision}
+              manualApproval={manualApproval}
+            />
+          }
+        >
+          <ReviewEvidence
+            selectedId={selectedId}
+            loadingDetail={loadingDetail}
+            detailError={detailError}
+            select={select}
+            detail={detail}
+            checking={checking}
+            snooze={snooze}
+            busy={busy}
+            recheck={recheck}
+            exporting={exporting}
+            exportMarkdown={exportMarkdown}
+            routeGate={routeGate}
+            report={report}
+            latestRun={latestRun}
+            diff={diff}
+            downloadKind={downloadKind}
+            download={download}
+          />
+        </ReviewTaskDialog>
       </div>
 
       <ReviewDecisionDialog

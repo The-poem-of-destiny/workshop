@@ -40,6 +40,7 @@ export function useAdminMembers({ onError, onNotice }: AdminMembersOptions) {
       setMemberCursor(result.nextCursor);
     } catch (value) {
       onError(`成员加载失败：${String(value)}`);
+      setMemberError(`成员加载失败：${String(value)}`);
     } finally {
       memberLoadingRef.current = false;
       setMemberLoadingMore(false);

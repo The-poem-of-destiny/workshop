@@ -145,6 +145,20 @@ describe("authoring write paths", () => {
       mime: "application/json",
       rowVersion: 3,
     });
+    const inherited = await request(`/${first.project.id}/revisions`, {
+      method: "POST",
+      headers: { "if-match": "3" },
+      body: JSON.stringify({ title: "Third" }),
+    });
+    expect(inherited.status).toBe(201);
+    const inheritedRevision = (await inherited.json()) as { revisionId: string };
+    await expect((await request(`/${first.project.id}/draft`)).json()).resolves.toMatchObject({
+      workingRevisionId: inheritedRevision.revisionId,
+      project: { entries: { worldbook: 1, regex: 0 } },
+    });
+    expect(
+      await (await request(`/${first.project.id}/revisions/${inheritedRevision.revisionId}/files/worldbook`)).text(),
+    ).toBe(validWorldbook);
     const listed = await bindings.R2.list({
       prefix: `projects/${first.project.id}/revisions/${second.revisionId}/worldbook-`,
     });
@@ -156,7 +170,7 @@ describe("authoring write paths", () => {
     )
       .bind(first.project.id)
       .all<{ revision_no: number }>();
-    expect(rows.results.map((row) => row.revision_no)).toEqual([1, 2]);
+    expect(rows.results.map((row) => row.revision_no)).toEqual([1, 2, 3]);
   });
 
   it("supports two gallery slots with real image validation and CAS", async () => {
@@ -238,6 +252,19 @@ describe("authoring write paths", () => {
       headers: { "content-type": "application/json", "content-length": String(bytes), "if-match": "1" },
     });
     const uploadedWorldbook = (await initialUpload.json()) as { rowVersion: number };
+    const savedPath = `/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`;
+    const saved = await request(savedPath);
+    expect(saved.status).toBe(200);
+    expect(saved.headers.get("cache-control")).toBe("private, no-store");
+    expect(await saved.text()).toBe(twoEntries);
+    expect((await request(savedPath, {}, "other-token")).status).toBe(404);
+    expect((await request(savedPath, {}, "owner-token")).status).toBe(200);
+    expect((await authoringRoutes.request(savedPath, {}, bindings)).status).toBe(401);
+    const unrelated = await request("/", { method: "POST", body: JSON.stringify({ title: "Other project" }) });
+    const otherProject = (await unrelated.json()) as { project: { id: string } };
+    expect(
+      (await request(`/${otherProject.project.id}/revisions/${first.workingRevisionId}/files/worldbook`)).status,
+    ).toBe(404);
     const cover = new TextEncoder().encode("cover-bytes").buffer;
     const uploadedCover = await upsertAsset(
       bindings.DB,
@@ -267,6 +294,11 @@ describe("authoring write paths", () => {
       .bind(first.workingRevisionId)
       .first<{ r2_key: string }>();
     expect(oldCover).not.toBeNull();
+    const staleDelete = await request(
+      `/${first.project.id}/revisions/${first.workingRevisionId}/entries/worldbook/${encodeURIComponent("uid:1")}`,
+      { method: "DELETE", headers: { "if-match": "1" } },
+    );
+    expect(staleDelete.status).toBe(409);
 
     const deleted = await request(
       `/${first.project.id}/revisions/${first.workingRevisionId}/entries/worldbook/${encodeURIComponent("uid:1")}`,
@@ -292,6 +324,11 @@ describe("authoring write paths", () => {
       .bind(first.workingRevisionId)
       .first<{ r2_key: string }>();
     expect(oldAsset?.r2_key).not.toBe(asset?.r2_key);
+    await expect((await bindings.R2.get(oldAsset!.r2_key))?.text()).resolves.toBe(twoEntries);
+    const published = await bindings.DB.prepare("SELECT published_revision_id FROM projects WHERE id = ?")
+      .bind(first.project.id)
+      .first<{ published_revision_id: string | null }>();
+    expect(published?.published_revision_id).toBeNull();
 
     const retainedCover = await bindings.DB.prepare(
       "SELECT r2_key FROM assets WHERE revision_id = ? AND kind = 'cover'",
@@ -305,6 +342,69 @@ describe("authoring write paths", () => {
       .bind(result.revisionId)
       .first<{ worldbook_count: number; regex_count: number }>();
     expect(counts).toEqual({ worldbook_count: 1, regex_count: 1 });
+  });
+  it("keeps published bytes unchanged and rejects deleting the required final draft entry", async () => {
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Published entries", projectType: "角色" }),
+    });
+    const first = (await created.json()) as { project: { id: string }; workingRevisionId: string };
+    const text = JSON.stringify({
+      entries: [
+        { uid: 1, content: "one" },
+        { uid: 2, content: "two" },
+      ],
+    });
+    const uploaded = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`, {
+      method: "PUT",
+      body: text,
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(new TextEncoder().encode(text).byteLength),
+        "if-match": "1",
+      },
+    });
+    const upload = (await uploaded.json()) as { rowVersion: number };
+    await bindings.DB.prepare(
+      "UPDATE projects SET published_revision_id = ?, visibility = 'public', published_at = ? WHERE id = ?",
+    )
+      .bind(first.workingRevisionId, now, first.project.id)
+      .run();
+    const revision = await request(`/${first.project.id}/revisions`, {
+      method: "POST",
+      headers: { "if-match": String(upload.rowVersion) },
+      body: JSON.stringify({ title: "Draft" }),
+    });
+    const draft = (await revision.json()) as { revisionId: string; rowVersion: number };
+    const deleted = await request(
+      `/${first.project.id}/revisions/${draft.revisionId}/entries/worldbook/${encodeURIComponent("uid:1")}`,
+      {
+        method: "DELETE",
+        headers: { "if-match": String(draft.rowVersion) },
+      },
+    );
+    expect(deleted.status).toBe(200);
+    const successor = (await deleted.json()) as { revisionId: string; rowVersion: number };
+    const finalDelete = await request(
+      `/${first.project.id}/revisions/${successor.revisionId}/entries/worldbook/${encodeURIComponent("uid:2")}`,
+      {
+        method: "DELETE",
+        headers: { "if-match": String(successor.rowVersion) },
+      },
+    );
+    expect(finalDelete.status).toBe(409);
+    const state = await bindings.DB.prepare(
+      "SELECT published_revision_id, working_revision_id, row_version FROM projects WHERE id = ?",
+    )
+      .bind(first.project.id)
+      .first();
+    expect(state).toMatchObject({
+      published_revision_id: first.workingRevisionId,
+      working_revision_id: successor.revisionId,
+      row_version: successor.rowVersion,
+    });
+    const original = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`);
+    expect(await original.text()).toBe(text);
   });
 
   it("leaves the working revision unchanged when a retained asset is missing", async () => {
@@ -370,6 +470,11 @@ describe("authoring write paths", () => {
       body: JSON.stringify({ gate: "warn", checkerRevision: "c1" }),
     });
     expect(submit.status).toBe(201);
+    const frozenDelete = await request(
+      `/${first.project.id}/revisions/${first.workingRevisionId}/entries/worldbook/${encodeURIComponent("uid:1")}`,
+      { method: "DELETE", headers: { "if-match": String(uploaded.rowVersion + 1) } },
+    );
+    expect(frozenDelete.status).toBe(409);
     const firstSubmission = (await submit.json()) as { rowVersion: number };
 
     // A submitted revision cannot be submitted or uploaded again.

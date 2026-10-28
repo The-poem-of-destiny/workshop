@@ -45,6 +45,7 @@ export function AdminAudit({
   audit,
   auditCursor,
   auditLoadingMore,
+  auditError,
 }: {
   auditBusy: ReturnType<typeof useAdminAudit>["auditBusy"];
   loadAudit: ReturnType<typeof useAdminAudit>["loadAudit"];
@@ -53,6 +54,7 @@ export function AdminAudit({
   audit: ReturnType<typeof useAdminAudit>["audit"];
   auditCursor: ReturnType<typeof useAdminAudit>["auditCursor"];
   auditLoadingMore: ReturnType<typeof useAdminAudit>["auditLoadingMore"];
+  auditError: string | null;
 }) {
   return (
     <section className="panel">
@@ -73,9 +75,14 @@ export function AdminAudit({
           ))}
         </select>
       </label>
+      {auditError ? (
+        <p className="panel-error" role="alert">
+          {auditError}
+        </p>
+      ) : null}
       <div className="audit-list">
         {audit.length === 0 ? (
-          <p className="hint">{auditBusy ? "加载中…" : "暂无审计事件。"}</p>
+          <p className="hint">{auditBusy ? "加载中…" : auditError ? "日志未能加载，请重试。" : "暂无审计事件。"}</p>
         ) : (
           audit.map((event) => {
             const reason = auditReason(event.detail);

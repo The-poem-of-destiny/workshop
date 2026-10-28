@@ -127,7 +127,7 @@ adminRoutes.post("/submissions/:id/recheck", async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare(`
       UPDATE submissions
-      SET status = 'checking', check_status = 'queued', check_attempts = 0,
+      SET status = 'pending', check_status = 'queued', check_attempts = 0,
           check_lease_until = NULL, check_error = NULL, review_checker_revision = NULL
       WHERE id = ? AND status IN ('pending', 'checking') AND check_status NOT IN ('queued', 'running')
     `).bind(c.req.param("id")),

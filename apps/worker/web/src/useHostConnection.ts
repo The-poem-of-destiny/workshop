@@ -1,8 +1,9 @@
-import { useState } from "react";
+import type { InstallScan } from "@workshop/contracts";
+import { useEffect, useState } from "react";
 import type { MeResponse, ProjectSummary } from "./api";
-import type { InstalledRecord, InstalledScanState } from "./features/installed/Installed";
 import type { InstallState } from "./features/projects/ProjectDetail";
 import { hostConnectionStatus } from "./hostConnectionStatus";
+import { createInstallBridge, type InstallBridge, type InstallCompletion } from "./lib/install-bridge";
 import { useHostMessages } from "./useHostMessages";
 import { useHostMutations } from "./useHostMutations";
 
@@ -11,8 +12,7 @@ export interface HostContext {
   connected: boolean;
   characterName: string | null;
   worldbooks: { primary: string | null; additional: string[]; available: string[] };
-  registry: Record<string, InstalledRecord>;
-  installStates?: Record<string, InstalledScanState>;
+  installationScan: InstallScan;
   clientVersion: string;
   error?: string;
 }
@@ -20,51 +20,66 @@ type HostConnectionOptions = Feedback & { embedded: boolean; me: MeResponse["use
 export function useHostConnection({ embedded, me, login, setError, setNotice }: HostConnectionOptions) {
   const [context, setContext] = useState<HostContext | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [bridge, setBridge] = useState<InstallBridge | null>(null);
+  const [hostOrigin] = useState(() => {
+    try {
+      const url = new URL(document.referrer || new URLSearchParams(location.search).get("hostOrigin") || "");
+      return url.protocol === "https:" || url.protocol === "http:" ? url.origin : null;
+    } catch {
+      return null;
+    }
+  });
   function postToHost(payload: Record<string, unknown>): void {
-    if (window.parent !== window) window.parent.postMessage(payload, "*");
+    if (window.parent !== window && hostOrigin) window.parent.postMessage(payload, hostOrigin);
   }
-  const {
-    setInstalling,
-    hostMutationPending,
-    setUpdatingId,
-    setInstallConflicts,
-    installConflicts,
-    updatingId,
-    installing,
-    performInstall,
-    requestUninstall,
-    install,
-    installTarget,
-    chooseInstallTarget,
-    setInstallTarget,
-    uninstallTarget,
-    confirmUninstall,
-    setUninstallTarget,
-  } = useHostMutations({ context, me, login, setError, setNotice, postToHost });
-  function rescanInstalls(): void {
+  function updateInstallationScan(result: InstallCompletion): void {
+    setContext((previous) => (previous ? { ...previous, installationScan: result.scan } : previous));
+  }
+  const mutations = useHostMutations({
+    context,
+    bridge,
+    me,
+    login,
+    setError,
+    setNotice,
+    postToHost,
+    onCompleted: updateInstallationScan,
+  });
+  async function rescanInstalls(): Promise<void> {
+    if (!bridge || scanning) return;
     setScanning(true);
     setError(null);
-    postToHost({ type: "cw:scan" });
+    try {
+      const scan = await bridge.scan();
+      setContext((previous) => (previous ? { ...previous, installationScan: scan } : previous));
+    } catch (reason) {
+      setError(`重新扫描失败：${String(reason)}`);
+    } finally {
+      setScanning(false);
+    }
   }
-  useHostMessages({
-    postToHost,
-    embedded,
-    setContext,
-    setInstalling,
-    hostMutationPending,
-    setUpdatingId,
-    setNotice,
-    setInstallConflicts,
-    setScanning,
-    setError,
-  });
+  useEffect(() => {
+    if (!hostOrigin || window.parent === window) return;
+    const connection = createInstallBridge({ origin: hostOrigin, source: window.parent });
+    setBridge(connection);
+    return () => {
+      connection.dispose();
+      setBridge(null);
+    };
+  }, [hostOrigin]);
+  useHostMessages({ postToHost, embedded, hostOrigin, setContext });
   function installationState(project: ProjectSummary): InstallState {
-    const record = context?.registry?.[project.id];
-    if (!record) return "notInstalled";
-    if (project.publishedRevisionId && record.version !== project.publishedRevisionId) return "updateAvailable";
-    const scan = context?.installStates?.[project.id];
-    if (scan === "localChanged") return "localChanged";
-    if (scan === "scanIncomplete" || !scan) return "scanIncomplete";
+    const instances =
+      context?.installationScan?.instances.filter((instance) => instance.projectId === project.id) ?? [];
+    if (!instances.length) return "notInstalled";
+    if (instances.some((instance) => project.publishedRevisionId && instance.version !== project.publishedRevisionId))
+      return "updateAvailable";
+    if (instances.some((instance) => instance.state === "localChanged")) return "localChanged";
+    if (
+      instances.some((instance) => instance.state === "baselineUnknown") ||
+      context?.installationScan?.failures.length
+    )
+      return "scanIncomplete";
     return "upToDate";
   }
   const { connectionStatus, connectionLabel, connectionTitle } = hostConnectionStatus(context, embedded);
@@ -75,20 +90,9 @@ export function useHostConnection({ embedded, me, login, setError, setNotice }: 
     connectionLabel,
     connectionTitle,
     postToHost,
-    installConflicts,
-    setInstallConflicts,
+    bridge,
     scanning,
-    updatingId,
-    installing,
     rescanInstalls,
-    performInstall,
-    requestUninstall,
-    install,
-    installTarget,
-    chooseInstallTarget,
-    setInstallTarget,
-    uninstallTarget,
-    confirmUninstall,
-    setUninstallTarget,
+    ...mutations,
   };
 }

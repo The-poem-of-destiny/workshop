@@ -2,6 +2,8 @@
 
 日期：2026-10-22。状态：API 原剩余缺陷曾经独立复核及本地验证；用户随后要求纠正旧数据兼容优先的重构方向。现按 D-39 收敛 schema、删除历史索引回退；本次验证与本地提交结果见 [state.md](state.md)，不沿用旧检查作为新结果。
 
+2026-10-26 目标与实现以 [D-40～D-47](decisions.md#d-40-完整替代旧版与完整数据迁移) 为准：统一提交审核、按位置安装实例及完整迁移范围取代旧展示直写／单项目登记。当前实施与运行验收见 [state.md](state.md)，尚未执行完整迁移或正式切换；工作包见 [checklist.md](checklist.md#本轮工作包2026-10-26)。
+
 ## 1. 平台事实：Workers Cache 不是 Cache API
 
 **Workers Cache ≠ Cache API。** 前者位于启用缓存的 Worker `fetch()` entrypoint 之前；HIT 不执行被缓存入口。后者是 Worker 内显式 `caches.default.match/put/delete`，每次仍运行 Worker，且不自动提供分层与请求合并。本轮已删除旧 Cache API helper，使用 gateway 与命名 Public 入口，未以改名替代机制。
@@ -157,24 +159,24 @@ Wrangler 代码只对预发入口配置缓存，production 继续关闭；不自
 - `POST /api/v1/projects` → private 项目与初始 draft，返回 workingRevisionId、rowVersion。
 - `GET /api/v1/me/projects`、`GET /projects/:id/draft`、`GET /me/projects/:id/submissions`：作者状态与历史，不公开。
 - `PATCH /projects/:id`：If-Match；仅编辑未提交 working revision。若 working revision 与 published revision 不同，它只编辑未提交 draft；有 submission 的 frozen revision 必须拒绝编辑，作者需创建 successor。
-- `PATCH /projects/:id/published-metadata`：If-Match；D-30 对当前 public projection 单独改展示元数据，写 project-level public fields，不写 `project_revisions`。即使另有 pending revision，也不得变更其 review metadata／manifest；public query 明确使用 project-level 当前展示字段。metadata checker、audit 与公开代际同批写入。
-  - 展示字段包含 title、description、authorNote、project/extension type、tags、versionLabel、schemaVersion、Discord thread URL、precautions 与 cover presentation。迁移从已发布 revision 初始化必要字段，后续直接读 project-level 值，使显式 null 清空不被 fallback 撤销。Discord URL 先 normalize／allow-list，再写入，不改冻结 revision。
-  - `GET /projects/:id/published-metadata` 与 `GET /projects/:id/published-cover` 是作者／owner 的编辑读取；`PUT /projects/:id/published-cover` 使用 If-Match、MIME／大小／尺寸校验与不可变 R2 字节，原子切换 project-level cover association、递增 rowVersion／epoch 并写审计。无 display cover 时读取 published revision cover；不得改写 pending／published revision 的 snapshot。
+- 元数据、封面展示位置／缩放和内容属于同一 working revision；独立 `published-metadata`／`published-cover` 读写路线已移除。资料保存和文件上传不改变公开快照，只有成功审核发布才更新公开投影；公开更新时间与更新排序取当前已发布 revision 的批准时刻，不使用草稿 updated_at。
 - `POST /projects/:id/revisions`：If-Match；生成 successor，继承当前未变不可变资产，移动 working 指针；保留上一轮历史。
 - `PUT /projects/:id/revisions/:rid/files/:kind`：If-Match；校验 MIME/长度/内容，R2 写不可变对象；资产关联、revision 计数及 project rowVersion 在同一 guarded D1 batch 成功 CAS，rowVersion 恰增一并返回。两个相同 If-Match 的并发上传至多一个成功；失败不得更改资产、计数或版本。R2 可能留下无引用不可变对象，由孤儿清理回收。
 - `DELETE /projects/:id/revisions/:rid/entries/:kind/:key`：If-Match；产生 successor，不改旧资产、不复制未变 R2。
 - `POST /projects/:id/revisions/:rid/submit`：If-Match。路由先校验会话、作者/owner、项目未删除、当前 `working_revision_id = rid`、rowVersion 与无冻结 submission，**然后**才调用 DO 做内容读取/解析；最终 batch 再绑定捕获的 rowVersion、working 指针与资产指纹。DO 校验与索引完成后才原子冻结 revision、递增 rowVersion、写 manifest/完整索引、supersede 前一个未解决 submission 并插入可领取/待人工项。提交行在该 batch 前不存在，因此 scheduler/DO 无法领取未完成校验。失败不创建可领取项、不 supersede 旧 pending。返回真实 status、checkStatus、rowVersion。
+- 作者侧 pass／warn 进入独立云检查，云 pass／warn 自动发布、block 转人工；作者 block／缺少标记直接转人工且允许提交。不抽查、不自动拒绝。云检查同时检查冻结内容与元数据。
+- `POST /projects/:id/submissions/:submissionId/withdraw`：作者／owner、If-Match，仅 pending／checking；保留冻结 revision、报告与 superseded 历史，并记录 withdrawnAt／withdrawnBy。撤回／替代后旧检查完成不得发布或重新排队。
 - `PATCH /projects/:id/visibility`、`DELETE /projects/:id`：If-Match；可见性／软删除与公开代际同事务。
 
-作者调用方必须串行传递 metadata／revision → 每个 revision upload → submit 返回的最新 rowVersion；published-metadata 与 published-cover 也使用 If-Match、返回最新 rowVersion，并在同一作者工作流中串行刷新。任一步 412 后停止并刷新，不继续把旧版本传给后续步骤。
+作者调用方必须串行传递 metadata／revision → 每个 revision upload → submit／withdraw 返回的最新 rowVersion。任一步 412 后停止并刷新，不继续把旧版本传给后续步骤。
 
 ### 7.4 审核、管理与调度
 
 - `GET /api/v1/admin/submissions?cursor=&limit=`：reviewer 工作队列默认 pending，并返回全状态 counts；若支持 status 历史过滤，明确是管理历史查询，不新增第二套前端队列。无 snapshot 承诺。
 - `GET /admin/submissions/:id`、`/:id/diff`、`/:id/files/:kind`：固定快照／固定 checker 报告。
-- `POST /admin/submissions/:id/recheck`：仅未解决且非运行中，旧报告保留，切换检查版本写审计。
+- `POST /admin/submissions/:id/recheck`：仅未解决且非运行中，旧报告保留，显式升级当前检查版本并写 previousRevision 审计；保持 pending 人工归属，检查通过也不自动发布。lease 到期且次数耗尽时转 needs_human。
 - Submit 时持久化 submission 的 `base_published_revision_id`；migration 如第 4 节。手动与 DO 发布只能在该基线仍为当前 pointer 时推进。
-- `POST /admin/submissions/:id/review`：拒绝理由必需；绑定 revision、manifest、report 版本。批准必须原子检查 project 未删除、当前 `published_revision_id IS base_published_revision_id`、submission 仍 unresolved，再写成功状态、review/audit 并切 published pointer；这些操作必须互相依赖。手动或自动发布若 project 条件不满足，整组不记成功，返回/记录冲突。
+- `POST /admin/submissions/:id/review`：拒绝理由必需；可不主动重检直接人工决定。批准／拒绝事务均检查未运行、精确 revision、manifest、报告 hash 和 checker revision；批准另检查项目未删除与捕获的 published baseline，项目指针／submission／review／audit 同批条件写入，证据变化返回 409。
 - `GET /admin/projects`、`/members`、`/audit-events`；`PUT /admin/members/:id/role`：owner 改角色并撤销／递增会话版本，保护最后 owner。
 - `PUT /site`、`POST /site/banner`；`PUT/DELETE /admin/recommendations/:projectId`；`POST/PUT /admin/reference-sets*`：owner 写，业务与审计同 batch；唯一约束竞争可明确 409，不引入自动重试系统。
 - cron：使用 scheduledTime 为统一参考；排行指标窗口有上下界，完整候选结果原子替换，旧结果在准备／失败期间仍可读；DO 只领取 finalized 任务，lease／重试状态不得复活已解决任务。
@@ -211,16 +213,20 @@ Wrangler 代码只对预发入口配置缓存，production 继续关闭；不自
 
 | 方向 | 消息 | 语义 |
 |---|---|---|
-| Web → host | cw:ready / cw:request-context | 请求角色、世界书、registry、扫描结果与客户端版本 |
-| host → Web | cw:context | connected、characterName、worldbooks、registry、installStates、clientVersion；失败 error |
-| Web → host | cw:install | 精确 project/revision 元数据、已取得的文件、目标世界书 |
-| host → Web | cw:install-result | ok/projectId、目标／条目数／冲突，失败 message |
-| Web → host | cw:uninstall | 明确 projectId；不能由退订隐式触发 |
-| host → Web | cw:uninstall-result | removed、preservedEntries、preservedRegexes；保留玩家修改 |
-| Web → host | cw:scan | 重新扫描实际本地条目／正则 |
-| host → Web | cw:scan-result | registry、clean/localChanged/scanIncomplete 或错误 |
+| Web → host | cw:ready / cw:request-context | 请求角色、世界书、installationScan 与客户端版本 |
+| host → Web | cw:context | connected、characterName、worldbooks、installationScan、clientVersion；失败 error |
+| Web → host | cw:scan | 重新扫描全部可读世界书和当前角色正则；明确失败、存疑与其他角色未扫描 |
+| Web → host | cw:preview-install | install／update／uninstall／migrate 意图、明确 instanceId／目标及取得的内容；只读，返回完整 diff 与确认 token |
+| Web → host | cw:confirm-install | 绑定预览 token；重读核对状态，明确整体替换或删除所选实例所属内容 |
+| Web → host | cw:cancel-install | 丢弃预览；不写宿主内容或归属记录 |
+| host → Web | 上述消息名 + -result | 回显 requestId；ok/result 或 ok:false/message；Web 核验 origin/source 并处理超时 |
 
-本地扫描状态不是服务端 installs 记录；Web 结合本地 revision 与公开 publishedRevisionId 区分未安装、最新、可更新、本地修改、扫描不全。
+同项目可有多个按世界书／角色位置独立管理的实例；本地扫描不是服务端 installs。只接管可靠身份，存疑项不得自动认领／删除。世界书用宿主支持的 extra，正则 UUID 用角色绑定归属记录；写入中断 pending 明确列疑项。宿主 updater 只提供写前核对，不是底层原子 CAS，也没有跨世界书／正则事务：updater 之后、实际保存之前的外部并发修改无法由该 API 严格排除；失败报告实际不确定状态并要求重扫，不伪造回滚保证。
+
+### 配套脚本版本登记（独立于客户端分发）
+
+- owner 会话可 `PUT /api/v1/companion-scripts/:scriptId/versions/:version`，输入 `{displayName, downloadUrl}`，严格字段、无凭据 HTTPS URL；匿名 GET 同路径或 `/:scriptId` 读取精确／最新登记。首次 201、相同重放 200、修改既有版本 409；latest 按新登记顺序，不按 semver 排序，重放不回退。
+- `WORKSHOP_SESSION_TOKEN` 配合 `node tools/push-companion-version.mjs --script character-manager --version 0.3.4 --name '角色管理库' --url https://example.org/v0.3.4.js`；默认仅本机 origin，其他环境须显式 `--origin`。工具不读 .env、不上传脚本、不执行脚本、不发通知；PUT 后匿名读精确版本核对。token 不进入命令参数或输出。
 
 ## 10. 错误、契约与验证
 
@@ -228,4 +234,4 @@ Wrangler 代码只对预发入口配置缓存，production 继续关闭；不自
 
 HTTP/bridge DTO 的公共定义归 `packages/contracts`；调用方不维护平行类型，不用文档中的示例替代 schema。设计合理性由独立 review 评估；现有测试与最小烟雾证明行为与回归，不写源代码断言、接线断言或繁琐参数组合矩阵。
 
-原四轮 API 复核后的暂停及用户授权续作记录保留；设计质量与行为验证分别留证，见 `api-audit.md`／`state.md`。前端第 3 轮确认已列修复；详情互动状态加载前禁用关系写入。最新用户授权要求先纠正 schema／历史兼容问题，再按职责创建本地 commit；仍不 push、不创建 PR、不部署、不破坏性修改远程数据。
+原四轮 API 复核后的暂停及续作记录、设计质量与行为验证见 `api-audit.md`／`state.md`；历史授权不代表当前执行状态。详情互动状态加载前禁用关系写入。2026-10-28 产品整合允许按关注点提交 PR、强制 CI 与独立审查通过后合并；不授权生产部署、tag 或远程业务数据迁移。

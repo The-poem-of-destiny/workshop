@@ -6,6 +6,7 @@ const PROJECT_LIST_PARAMETERS: Record<string, true> = {
   limit: true,
   cursor: true,
   sort: true,
+  period: true,
   projectType: true,
   authorId: true,
   tag: true,
@@ -58,6 +59,7 @@ function canonicalProjectListSearch(source: URLSearchParams): URLSearchParams | 
   const query = new URLSearchParams();
   if (parsed.data.limit !== 25) query.set("limit", String(parsed.data.limit));
   if (parsed.data.sort !== "updated") query.set("sort", parsed.data.sort);
+  if (parsed.data.period && parsed.data.period !== "all") query.set("period", parsed.data.period);
   if (parsed.data.cursor) query.set("cursor", parsed.data.cursor);
   if (parsed.data.projectType) query.set("projectType", parsed.data.projectType);
   if (parsed.data.authorId) query.set("authorId", parsed.data.authorId);

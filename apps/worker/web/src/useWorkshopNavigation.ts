@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type SetStateAction, useCallback, useEffect, useRef, useState } from "react";
 
 export type WorkshopView = "browse" | "projects" | "create" | "subs" | "admin" | "tools" | "installed";
 
@@ -16,7 +16,7 @@ function useIsMobile(): boolean {
   return isMobile;
 }
 export function useWorkshopNavigation() {
-  const [view, setView] = useState<"browse" | "projects" | "create" | "subs" | "admin" | "tools" | "installed">(() => {
+  const [view, updateView] = useState<WorkshopView>(() => {
     const requested = import.meta.env.DEV ? new URLSearchParams(location.search).get("debug-view") : null;
     return requested === "projects" ||
       requested === "create" ||
@@ -27,6 +27,30 @@ export function useWorkshopNavigation() {
       ? requested
       : "browse";
   });
+  const dirty = useRef(false);
+  const onDirtyChange = useCallback((value: boolean) => {
+    dirty.current = value;
+  }, []);
+  function confirmLeave(): boolean {
+    if (dirty.current && !window.confirm("有未保存的修改，确定放弃并离开？")) return false;
+    dirty.current = false;
+    return true;
+  }
+  function setView(next: SetStateAction<WorkshopView>): boolean {
+    const target = typeof next === "function" ? next(view) : next;
+    if (target !== view && !confirmLeave()) return false;
+    updateView(target);
+    return true;
+  }
+  useEffect(() => {
+    const beforeUnload = (event: BeforeUnloadEvent): void => {
+      if (!dirty.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, []);
   const headerRef = useRef<HTMLElement>(null);
   useEffect(() => {
     const header = headerRef.current;
@@ -105,6 +129,8 @@ export function useWorkshopNavigation() {
     };
   }, [isMobile, sidebarOpen]);
   return {
+    onDirtyChange,
+    confirmLeave,
     view,
     setView,
     setSidebarOpen,

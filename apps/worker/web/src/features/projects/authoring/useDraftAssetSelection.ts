@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { fileKey, loadRegexAsset, loadWorldbookAsset, type RegexAsset, type WorldbookAsset } from "./preview";
 
 export function useDraftAssetSelection(workingRevisionFrozen: boolean, onNotice: (message: string) => void) {
@@ -9,6 +9,7 @@ export function useDraftAssetSelection(workingRevisionFrozen: boolean, onNotice:
   const [worldbookUploaded, setWorldbookUploaded] = useState(false);
   const [regexUploaded, setRegexUploaded] = useState(false);
   const [submitNotice, setSubmitNotice] = useState<string | null>(null);
+  const [parsingAssets, setParsingAssets] = useState(0);
   const assetGeneration = useRef(0);
   const selectionVersion = useRef(0);
   const regexAssetsRef = useRef<RegexAsset[]>([]);
@@ -21,24 +22,30 @@ export function useDraftAssetSelection(workingRevisionFrozen: boolean, onNotice:
     const generation = assetGeneration.current;
     const pick = worldbookPick.current + 1;
     worldbookPick.current = pick;
+    setParsingAssets((value) => value + 1);
     setWorldbookError(null);
     setSubmitNotice(null);
-    void loadWorldbookAsset(file).then((result) => {
-      if (generation !== assetGeneration.current || pick !== worldbookPick.current) return;
-      if (!result.ok) {
-        setWorldbookError(result.error);
-        return;
-      }
-      setWorldbook(result.value);
-      setWorldbookUploaded(false);
-      selectionVersion.current += 1;
-    });
+    void loadWorldbookAsset(file)
+      .then((result) => {
+        if (generation !== assetGeneration.current || pick !== worldbookPick.current) return;
+        if (!result.ok) {
+          setWorldbookError(result.error);
+          return;
+        }
+        setWorldbook(result.value);
+        setWorldbookUploaded(false);
+        selectionVersion.current += 1;
+      })
+      .finally(() => {
+        if (generation === assetGeneration.current) setParsingAssets((value) => value - 1);
+      });
   }
 
   function pickRegex(files: FileList): void {
     const incoming = Array.from(files);
     if (incoming.length === 0 || workingRevisionFrozen) return;
     const generation = assetGeneration.current;
+    setParsingAssets((value) => value + 1);
     setRegexError(null);
     setSubmitNotice(null);
     regexParseChain.current = regexParseChain.current
@@ -70,7 +77,10 @@ export function useDraftAssetSelection(workingRevisionFrozen: boolean, onNotice:
           selectionVersion.current += 1;
         }
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (generation === assetGeneration.current) setParsingAssets((value) => value - 1);
+      });
   }
 
   function removeWorldbook(): void {
@@ -90,7 +100,22 @@ export function useDraftAssetSelection(workingRevisionFrozen: boolean, onNotice:
     selectionVersion.current += 1;
   }
 
+  const reset = useCallback(() => {
+    assetGeneration.current += 1;
+    selectionVersion.current += 1;
+    setParsingAssets(0);
+    setWorldbook(null);
+    regexAssetsRef.current = [];
+    setRegexAssets([]);
+    setWorldbookError(null);
+    setRegexError(null);
+    setWorldbookUploaded(false);
+    setRegexUploaded(false);
+    setSubmitNotice(null);
+  }, []);
+
   return {
+    reset,
     worldbook,
     setWorldbook,
     regexAssets,
@@ -105,6 +130,8 @@ export function useDraftAssetSelection(workingRevisionFrozen: boolean, onNotice:
     setRegexUploaded,
     submitNotice,
     setSubmitNotice,
+    parsingAssets,
+    setParsingAssets,
     assetGeneration,
     selectionVersion,
     regexAssetsRef,

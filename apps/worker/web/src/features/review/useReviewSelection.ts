@@ -18,6 +18,8 @@ export function useReviewSelection({ items, visibleItems, setPolling, onError }:
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const selectedRef = useRef<string | null>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const taskScroll = useRef<HTMLDivElement | null>(null);
   const { cache, inflight, loadDetail } = useReviewDetailCache();
 
   function nextId(id: string): string | null {
@@ -42,6 +44,9 @@ export function useReviewSelection({ items, visibleItems, setPolling, onError }:
     setReason("");
   }
   async function select(id: string): Promise<void> {
+    if (selectedRef.current === null)
+      returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    taskScroll.current?.scrollTo({ top: 0 });
     if (selectedRef.current !== id) setPolling(false);
     selectedRef.current = id;
     setSelectedId(id);
@@ -99,6 +104,8 @@ export function useReviewSelection({ items, visibleItems, setPolling, onError }:
   }
   return {
     selectedRef,
+    returnFocus,
+    taskScroll,
     clearSelection,
     select,
     setReason,

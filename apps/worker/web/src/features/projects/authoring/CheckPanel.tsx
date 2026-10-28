@@ -1,4 +1,4 @@
-import { keyedItems } from "../../../lib/keyedItems";
+import { identifyOccurrences } from "../listIdentity";
 import {
   buildFixPrompt,
   buildReportMarkdown,
@@ -25,7 +25,7 @@ export function CheckPanel({
 }) {
   const statusText =
     check.gate === "block"
-      ? `发现 ${check.counts.high} 个阻断问题，需要修复后才能提交。`
+      ? `发现 ${check.counts.high} 个阻断问题，建议修复；也可确认后提交人工审核。`
       : check.gate === "warn"
         ? "有需要注意的提示，提交前需要确认。"
         : "已通过客户端自检。";
@@ -92,7 +92,7 @@ export function CheckPanel({
                   </span>
                 </summary>
                 <div className="check-group-body">
-                  {keyedItems(group.findings).map(({ item: finding, key }) => (
+                  {identifyOccurrences(group.findings).map(({ item: finding, key }) => (
                     <div className={`check-finding is-${finding.severity}`} key={key}>
                       <div className="check-finding-title">
                         <strong>

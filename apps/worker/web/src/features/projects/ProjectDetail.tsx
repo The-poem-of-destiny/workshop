@@ -1,4 +1,4 @@
-import { RefreshCcw } from "lucide-react";
+import { Bookmark, BookOpen, Code2, Download, GitBranch, Heart, RefreshCcw } from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { api, type ProjectDetail as ProjectDetailResponse, type ProjectSummary } from "../../api";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
@@ -8,6 +8,13 @@ import { ProjectMedia } from "./ProjectMedia";
 import { ProjectSourcePreview } from "./ProjectSourcePreview";
 
 export type InstallState = "notInstalled" | "upToDate" | "updateAvailable" | "localChanged" | "scanIncomplete";
+const installLabels: Record<InstallState, string> = {
+  notInstalled: "安装",
+  upToDate: "已是最新",
+  updateAvailable: "更新",
+  localChanged: "预览更新（整体替换）",
+  scanIncomplete: "修复安装",
+};
 
 export function ProjectDetail({
   project,
@@ -48,6 +55,7 @@ export function ProjectDetail({
   const [detailLoading, setDetailLoading] = useState(true);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailReload, setDetailReload] = useState(0);
+  const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
   const [selectedMedia, setSelectedMedia] = useState(0);
 
   const detailRequest = useRef<{ generation: number } | null>(null);
@@ -135,31 +143,79 @@ export function ProjectDetail({
               setSelectedMedia={setSelectedMedia}
             />
             <aside className="summary-rail" aria-label="项目信息与操作">
-              <section className="rail-section rail-author">
-                <h3>作者与版本</h3>
+              <section className="rail-section rail-author" aria-label="作者与项目资料">
                 <button className="author link" type="button" onClick={() => onAuthor(project.author)}>
-                  {project.author.avatarUrl ? (
-                    <img src={project.author.avatarUrl} alt="" />
+                  {project.author.avatarUrl && project.author.avatarUrl !== failedAvatarUrl ? (
+                    <img
+                      src={project.author.avatarUrl}
+                      alt=""
+                      onError={() => setFailedAvatarUrl(project.author.avatarUrl)}
+                    />
                   ) : (
                     <span className="avatar-fallback">{project.author.name.slice(0, 1)}</span>
                   )}
                   <span>{project.author.name}</span>
                 </button>
-                <p className="meta">
-                  {project.versionLabel ? `版本 ${project.versionLabel} · ` : ""}
+                <p className="rail-version">
+                  {versionLabel ? (
+                    <span>
+                      <GitBranch aria-hidden="true" />
+                      版本 {versionLabel}
+                    </span>
+                  ) : null}
+                  {project.schemaVersion ? <span>适配 {project.schemaVersion}</span> : null}
+                </p>
+                <dl className="rail-facts" aria-label="项目数据">
+                  <div>
+                    <dt>
+                      <BookOpen aria-hidden="true" />
+                      世界书
+                    </dt>
+                    <dd>{project.entries.worldbook} 条</dd>
+                  </div>
+                  <div>
+                    <dt>
+                      <Code2 aria-hidden="true" />
+                      正则
+                    </dt>
+                    <dd>{project.entries.regex} 条</dd>
+                  </div>
+                  <div>
+                    <dt>
+                      <Download aria-hidden="true" />
+                      下载
+                    </dt>
+                    <dd>{project.counts.downloads}</dd>
+                  </div>
+                  <div>
+                    <dt>
+                      <Heart aria-hidden="true" />
+                      点赞
+                    </dt>
+                    <dd>{project.counts.likes}</dd>
+                  </div>
+                  <div>
+                    <dt>
+                      <Bookmark aria-hidden="true" />
+                      订阅
+                    </dt>
+                    <dd>{project.counts.subscriptions}</dd>
+                  </div>
+                </dl>
+                <p className="meta rail-dates">
                   更新 {project.updatedAt.slice(0, 10)}
                   {project.publishedAt ? ` · 发布 ${project.publishedAt.slice(0, 10)}` : ""}
-                  {project.schemaVersion ? ` · 适配 ${project.schemaVersion}` : ""}
                 </p>
               </section>
-              <section className="rail-section">
-                <h3>安装与状态</h3>
+              <section className="rail-section" aria-label="安装与状态">
                 {installState === "upToDate" ? (
                   <p className="installed">已安装，且与当前发布版本一致。</p>
                 ) : installState === "updateAvailable" ? (
                   <p className="installed">已安装；当前发布版本可更新。</p>
                 ) : installState === "localChanged" ? (
-                  <p className="installed">已安装；检测到本地修改，更新会保留这些修改。</p>
+                  <p className="installed">
+                    已安装；检测到本地修改。请先预览差异，确认后将整体替换，不会保留本地修改。
+                  </p>
                 ) : installState === "scanIncomplete" ? (
                   <p className="installed">已安装；本地扫描不完整，无法确认是否有修改。</p>
                 ) : (
@@ -182,17 +238,7 @@ export function ProjectDetail({
                       disabled={installing || installState === "upToDate"}
                       onClick={() => onInstall(project)}
                     >
-                      {installing
-                        ? "安装中…"
-                        : installState === "upToDate"
-                          ? "已是最新"
-                          : installState === "localChanged"
-                            ? "更新（保留修改）"
-                            : installState === "notInstalled"
-                              ? "安装"
-                              : installState === "scanIncomplete"
-                                ? "修复安装"
-                                : "更新"}
+                      {installing ? "安装中…" : installLabels[installState]}
                     </button>
                     {installState !== "notInstalled" ? (
                       <button type="button" disabled={installing} onClick={() => onUninstall(project)}>
@@ -210,31 +256,6 @@ export function ProjectDetail({
                 onError={onError}
                 onSubscriptionChange={onSubscriptionChange}
               />
-              <section className="rail-section">
-                <h3>项目数据</h3>
-                <dl>
-                  <div>
-                    <dt>世界书</dt>
-                    <dd>{project.entries.worldbook} 条</dd>
-                  </div>
-                  <div>
-                    <dt>正则</dt>
-                    <dd>{project.entries.regex} 条</dd>
-                  </div>
-                  <div>
-                    <dt>下载</dt>
-                    <dd>{project.counts.downloads}</dd>
-                  </div>
-                  <div>
-                    <dt>点赞</dt>
-                    <dd>{project.counts.likes}</dd>
-                  </div>
-                  <div>
-                    <dt>订阅</dt>
-                    <dd>{project.counts.subscriptions}</dd>
-                  </div>
-                </dl>
-              </section>
             </aside>
             <section className="reading-column">
               {detailLoading ? <p className="detail-state">正在加载项目详情…</p> : null}
@@ -267,7 +288,7 @@ export function ProjectDetail({
                   <Markdown text={detail.precautions} />
                 </section>
               ) : null}
-              <ProjectSourcePreview project={project} versionLabel={versionLabel} />
+              <ProjectSourcePreview project={project} versionLabel={versionLabel} loggedIn={loggedIn} />
             </section>
           </div>
         </div>

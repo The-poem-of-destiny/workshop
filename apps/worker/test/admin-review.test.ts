@@ -261,7 +261,7 @@ describe("admin review and publishing", () => {
     const row = await bindings.DB.prepare("SELECT status, check_status FROM submissions WHERE id = 's1'").first<
       Record<string, unknown>
     >();
-    expect(row).toMatchObject({ status: "checking", check_status: "queued" });
+    expect(row).toMatchObject({ status: "pending", check_status: "queued" });
     const audit = await bindings.DB.prepare(
       "SELECT action, detail FROM audit_events WHERE target_id = 's1' ORDER BY created_at DESC LIMIT 1",
     ).first<{ action: string; detail: string }>();
@@ -271,9 +271,12 @@ describe("admin review and publishing", () => {
 
   it("maps checker findings to message and file and keeps distinct entries apart", async () => {
     const report = (findings: unknown[]) => JSON.stringify({ findings });
+    await bindings.DB.prepare(`INSERT INTO project_revisions
+      (id, project_id, revision_no, title, created_by) VALUES ('r0', 'p1', 0, 'Previous public version', 'member')`).run();
+    await bindings.DB.prepare("UPDATE submissions SET base_published_revision_id = 'r0' WHERE id = 's1'").run();
     await bindings.DB.prepare(`
       INSERT INTO submissions (id, project_id, revision_id, status, client_gate, client_checker_revision, submitted_by, submitted_at, check_report)
-      VALUES ('s0', 'p1', 'r1', 'rejected', 'warn', 'checker-1', 'member', '2026-10-20T00:00:00.000Z', ?)
+      VALUES ('s0', 'p1', 'r0', 'approved', 'warn', 'checker-1', 'member', '2026-10-20T00:00:00.000Z', ?)
     `)
       .bind(
         report([

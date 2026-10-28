@@ -8,6 +8,7 @@ export function useAdminRecommendations({ onError, onNotice }: AdminRecommendati
   const [recResults, setRecResults] = useState<AdminProject[]>([]);
   const [recSearched, setRecSearched] = useState(false);
   const [recSearching, setRecSearching] = useState(false);
+  const [recSearchError, setRecSearchError] = useState<string | null>(null);
   const [selectedProject, setSelectedProject] = useState<AdminProject | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [comment, setComment] = useState("");
@@ -20,6 +21,7 @@ export function useAdminRecommendations({ onError, onNotice }: AdminRecommendati
   async function searchRecommendationProjects(): Promise<void> {
     const generation = ++recSearchGeneration.current;
     setRecSearching(true);
+    setRecSearchError(null);
     setRecSearched(true);
     try {
       const result = await api.adminProjects(recSearch.trim() || undefined);
@@ -28,6 +30,7 @@ export function useAdminRecommendations({ onError, onNotice }: AdminRecommendati
     } catch (value) {
       if (generation !== recSearchGeneration.current) return;
       onError(`项目搜索失败：${String(value)}`);
+      setRecSearchError(`项目搜索失败：${String(value)}`);
     } finally {
       if (generation === recSearchGeneration.current) setRecSearching(false);
     }
@@ -113,6 +116,7 @@ export function useAdminRecommendations({ onError, onNotice }: AdminRecommendati
     setRecSearch,
     searchRecommendationProjects,
     recSearching,
+    recSearchError,
     recResults,
     pickProject,
     recSearched,

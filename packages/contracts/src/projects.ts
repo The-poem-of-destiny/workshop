@@ -10,6 +10,9 @@ export type ExtensionType = z.infer<typeof extensionTypeSchema>;
 export const projectSortSchema = z.enum(["updated", "published", "downloads", "likes"]);
 export type ProjectSort = z.infer<typeof projectSortSchema>;
 
+export const projectPeriodSchema = z.enum(["all", "7d", "30d", "90d"]);
+export type ProjectPeriod = z.infer<typeof projectPeriodSchema>;
+
 export const projectSummarySchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -62,6 +65,32 @@ export type ProjectDetail = z.infer<typeof projectDetailSchema>;
 export const projectPreviewKindSchema = z.enum(["worldbook", "regex"]);
 export type ProjectPreviewKind = z.infer<typeof projectPreviewKindSchema>;
 
+// Display-only source metadata. Null means the source did not specify a valid value.
+export const projectPreviewBehaviorSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("worldbook"),
+    keys: z.array(z.string()),
+    secondaryKeys: z.array(z.string()),
+    strategy: z.string().nullable(),
+    constant: z.boolean().nullable(),
+    selective: z.boolean().nullable(),
+    selectiveLogic: z.union([z.string(), z.number().finite()]).nullable(),
+    role: z.union([z.string(), z.number().finite()]).nullable(),
+    outletName: z.string().nullable(),
+    position: z.union([z.string(), z.number().finite()]).nullable(),
+    order: z.number().finite().nullable(),
+    depth: z.number().finite().nullable(),
+    enabled: z.boolean().nullable(),
+  }),
+  z.object({
+    kind: z.literal("regex"),
+    scriptName: z.string().nullable(),
+    findRegex: z.string().nullable(),
+    disabled: z.boolean().nullable(),
+    replacementLength: z.number().int().nonnegative().nullable(),
+  }),
+]);
+
 export const projectPreviewSchema = z.object({
   revisionId: z.string(),
   kind: projectPreviewKindSchema,
@@ -70,6 +99,7 @@ export const projectPreviewSchema = z.object({
       key: z.string(),
       name: z.string(),
       content: z.string(),
+      behavior: projectPreviewBehaviorSchema.optional(),
     }),
   ),
 });
@@ -85,8 +115,11 @@ export type ProjectGalleryResponse = z.infer<typeof projectGalleryResponseSchema
 
 export const projectListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(25),
-  cursor: z.string().max(512).optional(),
+  cursor: z.string().max(2048).optional(),
   sort: projectSortSchema.default("updated"),
+  // UTC rolling window for likes/downloads; omitted means all-time.
+  // Like windows sum transitions (including unlikes of older likes), not active likes.
+  period: projectPeriodSchema.optional(),
   projectType: projectTypeSchema.optional(),
   authorId: z.string().trim().min(1).max(64).optional(),
   tag: z.string().trim().min(1).max(60).optional(),
@@ -98,6 +131,8 @@ export type ProjectListQuery = z.infer<typeof projectListQuerySchema>;
 export const projectListResponseSchema = z.object({
   items: z.array(projectSummarySchema),
   nextCursor: z.string().nullable(),
+  // Count of the complete filtered set, independent of the current keyset cursor.
+  total: z.number().int().nonnegative(),
 });
 
 export type ProjectListResponse = z.infer<typeof projectListResponseSchema>;

@@ -4,12 +4,16 @@ export function AdminProjects({
   projects,
   projectSearch,
   setProjectSearch,
-  refresh,
+  searchProjects,
+  projectBusy,
+  projectError,
 }: {
   projects: ReturnType<typeof useAdminData>["projects"];
   projectSearch: ReturnType<typeof useAdminData>["projectSearch"];
   setProjectSearch: ReturnType<typeof useAdminData>["setProjectSearch"];
-  refresh: ReturnType<typeof useAdminData>["refresh"];
+  searchProjects: () => Promise<void>;
+  projectBusy: boolean;
+  projectError: string | null;
 }) {
   return (
     <section className="panel">
@@ -23,10 +27,19 @@ export function AdminProjects({
           value={projectSearch}
           onChange={(event) => setProjectSearch(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter") void refresh();
+            if (event.key === "Enter") void searchProjects();
           }}
         />
       </label>
+      <button type="button" disabled={projectBusy} onClick={() => void searchProjects()}>
+        {projectBusy ? "搜索中…" : "搜索项目"}
+      </button>
+      {projectError ? (
+        <p className="panel-error" role="alert">
+          {projectError}
+        </p>
+      ) : null}
+      {!projectBusy && !projectError && projects.length === 0 ? <p className="hint">没有匹配的项目。</p> : null}
       <div className="project-list">
         {projects.map((project) => (
           <div className="member-row" key={project.id}>

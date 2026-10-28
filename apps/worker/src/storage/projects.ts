@@ -35,12 +35,16 @@ interface ProjectRow {
   cover_key: string | null;
   published_revision_id: string | null;
   gallery: string;
+  catalog_score?: number;
 }
+
+const PUBLIC_UPDATED_AT = `COALESCE((SELECT MAX(s.resolved_at) FROM submissions s
+  WHERE s.revision_id = p.published_revision_id AND s.status = 'approved'), p.published_at, r.created_at)`;
 
 const SELECT_PROJECT = `
   SELECT
     p.id, p.title, p.description, p.author_note, p.project_type, p.extension_type,
-    p.visibility, p.published_at, p.updated_at, p.published_revision_id,
+    p.visibility, p.published_at, ${PUBLIC_UPDATED_AT} AS updated_at, p.published_revision_id,
     p.downloads_count, p.likes_count, p.subscriptions_count,
     u.id AS author_id,
     COALESCE(u.global_name, u.username) AS author_name,
@@ -77,6 +81,8 @@ const SELECT_PROJECT = `
   JOIN users u ON u.id = p.author_id
   JOIN project_revisions r ON r.id = p.published_revision_id
 `;
+
+const SELECT_PERIOD_PROJECT = SELECT_PROJECT.replace("p.id,", "COALESCE(metric.score, 0) AS catalog_score, p.id,");
 
 const PUBLIC_PROJECT = `
   p.visibility = 'public'
@@ -163,30 +169,43 @@ function toDetail(row: ProjectRow): ProjectDetail {
 }
 
 interface CatalogCursor {
-  sort: ProjectListQuery["sort"];
+  scope: string;
+  asOf: string;
   value: string | number;
   id: string;
 }
 
-function encodeCursor(cursor: CatalogCursor): string {
-  return btoa(JSON.stringify(cursor));
+function cursorScope(query: ProjectListQuery): string {
+  return JSON.stringify([
+    query.sort,
+    query.period ?? "all",
+    query.projectType ?? null,
+    query.authorId ?? null,
+    query.tag ?? null,
+    query.search ?? null,
+  ]);
 }
 
-function decodeCursor(cursor: string | undefined, sort: ProjectListQuery["sort"]): CatalogCursor | null {
+function encodeCursor(cursor: CatalogCursor): string {
+  return btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(cursor))));
+}
+
+function decodeCursor(cursor: string | undefined, query: ProjectListQuery): CatalogCursor | null {
   if (!cursor) return null;
   try {
-    const parsed: unknown = JSON.parse(atob(cursor));
+    const parsed = JSON.parse(
+      new TextDecoder().decode(Uint8Array.from(atob(cursor), (char) => char.charCodeAt(0))),
+    ) as Partial<CatalogCursor>;
+    const numeric = query.sort === "likes" || query.sort === "downloads";
     if (
-      parsed &&
-      typeof parsed === "object" &&
-      "sort" in parsed &&
-      parsed.sort === sort &&
-      "value" in parsed &&
-      (typeof parsed.value === "string" || typeof parsed.value === "number") &&
-      "id" in parsed &&
-      typeof parsed.id === "string"
+      parsed.scope === cursorScope(query) &&
+      typeof parsed.id === "string" &&
+      typeof parsed.asOf === "string" &&
+      Number.isFinite(Date.parse(parsed.asOf)) &&
+      new Date(parsed.asOf).toISOString() === parsed.asOf &&
+      (numeric ? typeof parsed.value === "number" && Number.isFinite(parsed.value) : typeof parsed.value === "string")
     ) {
-      return { sort, value: parsed.value, id: parsed.id };
+      return parsed as CatalogCursor;
     }
   } catch {
     return null;
@@ -194,19 +213,20 @@ function decodeCursor(cursor: string | undefined, sort: ProjectListQuery["sort"]
   return null;
 }
 
-export function isValidProjectListCursor(cursor: string | undefined, sort: ProjectListQuery["sort"]): boolean {
-  return !cursor || decodeCursor(cursor, sort) !== null;
+export function isValidProjectListCursor(query: ProjectListQuery): boolean {
+  return !query.cursor || decodeCursor(query.cursor, query) !== null;
 }
 
 const SORT_COLUMN: Record<ProjectListQuery["sort"], string> = {
-  updated: "p.updated_at",
+  updated: PUBLIC_UPDATED_AT,
   published: "COALESCE(p.published_at, '')",
   downloads: "p.downloads_count",
   likes: "p.likes_count",
 };
 
-function sortValue(row: ProjectRow, sort: ProjectListQuery["sort"]): string | number {
+function sortValue(row: ProjectRow, sort: ProjectListQuery["sort"], periodic: boolean): string | number {
   if (sort === "published") return row.published_at ?? "";
+  if (periodic) return row.catalog_score ?? 0;
   if (sort === "downloads") return row.downloads_count;
   if (sort === "likes") return row.likes_count;
   return row.updated_at;
@@ -230,19 +250,18 @@ function searchPredicate(search: string): { sql: string; values: unknown[] } {
   };
 }
 
-const ORDER_BY: Record<ProjectListQuery["sort"], string> = {
-  updated: "p.updated_at DESC, p.id DESC",
-  published: "COALESCE(p.published_at, '') DESC, p.id DESC",
-  downloads: "p.downloads_count DESC, p.id DESC",
-  likes: "p.likes_count DESC, p.id DESC",
-};
+// Each page is a bounded keyset query plus an exact count of the same filters.
 
 export async function listPublishedProjects(
   db: D1Database,
   query: ProjectListQuery,
   onMeta?: (meta: { rows_read: number; rows_written: number }) => void,
 ) {
-  const cursor = decodeCursor(query.cursor, query.sort);
+  const cursor = decodeCursor(query.cursor, query);
+  if (query.cursor && !cursor) throw new Error("Invalid catalog cursor");
+  const asOf = cursor?.asOf ?? new Date().toISOString();
+  const period = query.period ?? "all";
+  const periodic = period !== "all" && (query.sort === "likes" || query.sort === "downloads");
   const where = [PUBLIC_PROJECT];
   const bindings: unknown[] = [];
 
@@ -264,29 +283,57 @@ export async function listPublishedProjects(
     bindings.push(...predicate.values);
   }
 
+  const filterSql = where.join(" AND ");
+  const filterBindings = [...bindings];
+  let prefix = "";
+  let metricJoin = "";
+  const metricBindings: unknown[] = [];
+  if (periodic) {
+    const days = Number.parseInt(period, 10);
+    const start = new Date(Date.parse(asOf) - days * 86_400_000).toISOString();
+    const table = query.sort === "likes" ? "project_like_events" : "download_events";
+    const time = query.sort === "likes" ? "occurred_at" : "created_at";
+    const aggregate = query.sort === "likes" ? "SUM(delta)" : "COUNT(*)";
+    prefix = `WITH metric AS (SELECT project_id, ${aggregate} AS score FROM ${table}
+      WHERE ${time} >= ? AND ${time} <= ? GROUP BY project_id) `;
+    metricBindings.push(start, asOf);
+    metricJoin = " LEFT JOIN metric ON metric.project_id = p.id ";
+  }
+  const column = periodic ? "COALESCE(metric.score, 0)" : SORT_COLUMN[query.sort];
   if (cursor) {
-    const column = SORT_COLUMN[query.sort];
     where.push(`(${column} < ? OR (${column} = ? AND p.id < ?))`);
     bindings.push(cursor.value, cursor.value, cursor.id);
   }
-
-  const sql = `${SELECT_PROJECT}
-    WHERE ${where.join(" AND ")}
-    ORDER BY ${ORDER_BY[query.sort]}
-    LIMIT ?`;
-  const result = await db
-    .prepare(sql)
-    .bind(...bindings, query.limit + 1)
-    .all<ProjectRow>();
-  onMeta?.({ rows_read: result.meta.rows_read, rows_written: result.meta.rows_written });
-
-  const rows = result.results.slice(0, query.limit);
+  const select = periodic ? SELECT_PERIOD_PROJECT : SELECT_PROJECT;
+  const results = await db.batch([
+    db
+      .prepare(`SELECT COUNT(*) AS total FROM projects p
+      JOIN users u ON u.id = p.author_id
+      JOIN project_revisions r ON r.id = p.published_revision_id WHERE ${filterSql}`)
+      .bind(...filterBindings),
+    db
+      .prepare(`${prefix}${select}${metricJoin} WHERE ${where.join(" AND ")}
+      ORDER BY ${column} DESC, p.id DESC LIMIT ?`)
+      .bind(...metricBindings, ...bindings, query.limit + 1),
+  ]);
+  const count = results[0]!;
+  const result = results[1]!;
+  onMeta?.({
+    rows_read: count.meta.rows_read + result.meta.rows_read,
+    rows_written: count.meta.rows_written + result.meta.rows_written,
+  });
+  const rows = (result.results as unknown as ProjectRow[]).slice(0, query.limit);
   const hasMore = result.results.length > query.limit;
   const last = rows.at(-1);
+  const totalRow = count.results[0] as { total?: unknown } | undefined;
+  if (!totalRow || typeof totalRow.total !== "number") throw new Error("Invalid catalog count");
   return projectListResponseSchema.parse({
     items: rows.map(toSummary),
+    total: totalRow.total,
     nextCursor:
-      hasMore && last ? encodeCursor({ sort: query.sort, value: sortValue(last, query.sort), id: last.id }) : null,
+      hasMore && last
+        ? encodeCursor({ scope: cursorScope(query), asOf, value: sortValue(last, query.sort, periodic), id: last.id })
+        : null,
   });
 }
 

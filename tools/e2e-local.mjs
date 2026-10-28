@@ -386,23 +386,55 @@ async function main() {
         {
           method: "PATCH",
           headers: { "content-type": "application/json", "if-match": String(next.rowVersion) },
-          body: JSON.stringify({ title: "E2E Project" }),
+          body: JSON.stringify({ title: "E2E Project", description: "unified snapshot update" }),
         },
         authorToken,
       );
       assert(patched.response.status === 200, `successor patch ${patched.response.status}: ${patched.body}`);
-      const publicPatch = await api(
-        `/api/v1/projects/${project.project.id}/published-metadata`,
+      const beforeRelease = await api(`/api/v1/projects/${project.project.id}`);
+      assert(beforeRelease.response.status === 200, `previous release ${beforeRelease.response.status}`);
+      assert(
+        JSON.parse(beforeRelease.body).description === "e2e",
+        "saving draft metadata leaves public snapshot unchanged",
+      );
+      const frozen = await api(
+        `/api/v1/projects/${project.project.id}/revisions/${next.revisionId}/submit`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", "if-match": String(JSON.parse(patched.body).rowVersion) },
+          body: JSON.stringify({ gate: "pass" }),
+        },
+        authorToken,
+      );
+      assert(frozen.response.status === 201, `metadata submit ${frozen.response.status}: ${frozen.body}`);
+      let updated;
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        updated = await api(`/api/v1/projects/${project.project.id}`);
+        if (updated.response.status === 200 && JSON.parse(updated.body).description === "unified snapshot update")
+          break;
+        await sleep(250);
+      }
+      assert(
+        updated?.response.status === 200 && JSON.parse(updated.body).description === "unified snapshot update",
+        "approved frozen metadata becomes public",
+      );
+      const publishedDraft = await api(`/api/v1/projects/${project.project.id}/draft`, {}, authorToken);
+      assert(publishedDraft.response.status === 200, `published draft ${publishedDraft.response.status}`);
+      const immutable = await api(
+        `/api/v1/projects/${project.project.id}`,
         {
           method: "PATCH",
-          headers: { "content-type": "application/json", "if-match": String(JSON.parse(patched.body).rowVersion) },
-          body: JSON.stringify({ title: "E2E Project" }),
+          headers: {
+            "content-type": "application/json",
+            "if-match": String(JSON.parse(publishedDraft.body).rowVersion),
+          },
+          body: JSON.stringify({ description: "must not mutate a submitted snapshot" }),
         },
         authorToken,
       );
       assert(
-        publicPatch.response.status === 200,
-        `public metadata patch ${publicPatch.response.status}: ${publicPatch.body}`,
+        immutable.response.status === 409,
+        `submitted metadata is frozen: ${immutable.response.status}: ${immutable.body}`,
       );
     });
 
@@ -490,14 +522,56 @@ async function main() {
     await check("author submits without client checker", async () => {
       pendingId = await createPending("E2E Pending", "pending");
       approveProjectId = await createPending("E2E Approve", "approve");
+      const withdrawnId = await createPending("E2E Withdrawn", "withdrawn");
+      let withdrawnEntry;
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        const mine = await api("/api/v1/me/projects", {}, authorToken);
+        assert(mine.response.status === 200, `withdraw project list ${mine.response.status}`);
+        withdrawnEntry = JSON.parse(mine.body).items.find((item) => item.project.id === withdrawnId);
+        if (withdrawnEntry?.latestSubmission?.status === "pending") break;
+        await sleep(250);
+      }
+      assert(
+        withdrawnEntry?.latestSubmission?.status === "pending",
+        "manual submission reaches withdrawable pending state",
+      );
+      const withdrawal = await api(
+        `/api/v1/projects/${withdrawnId}/submissions/${withdrawnEntry.latestSubmission.id}/withdraw`,
+        { method: "POST", headers: { "if-match": String(withdrawnEntry.rowVersion) } },
+        authorToken,
+      );
+      assert(withdrawal.response.status === 200, `withdraw ${withdrawal.response.status}: ${withdrawal.body}`);
+      const withdrawn = JSON.parse(withdrawal.body);
+      assert(withdrawn.status === "superseded" && withdrawn.withdrawnAt, "withdrawal is explicit and timestamped");
+      const history = await api(`/api/v1/me/projects/${withdrawnId}/submissions`, {}, authorToken);
+      assert(
+        history.response.status === 200 &&
+          JSON.parse(history.body).items.some(
+            (item) => item.id === withdrawn.submissionId && item.withdrawnAt && item.status === "superseded",
+          ),
+        "withdrawn frozen submission remains in author history",
+      );
+      const unpublished = await api(`/api/v1/projects/${withdrawnId}`);
+      assert(unpublished.response.status === 404, "withdrawn submission does not become public");
     });
 
     const executablePath = chromiumExecutable();
     if (executablePath) {
       const browser = await chromium.launch({ headless: true, executablePath });
+      const browserDiagnostics = [];
+      function observePage(page) {
+        page.on("pageerror", (error) => browserDiagnostics.push(`pageerror ${page.url()}: ${error.stack ?? error}`));
+        page.on("response", (response) => {
+          if (response.status() >= 400) browserDiagnostics.push(`HTTP ${response.status()} ${response.url()}`);
+        });
+        page.on("requestfailed", (request) =>
+          browserDiagnostics.push(`requestfailed ${request.url()}: ${request.failure()?.errorText}`),
+        );
+      }
       try {
         await check("browser anonymous search and detail", async () => {
           const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+          observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.locator(".card").first().waitFor({ state: "visible", timeout: 10_000 });
           if ((await page.locator(".discovery-item").count()) > 0) {
@@ -547,6 +621,7 @@ async function main() {
 
         await check("browser mobile browse and detail", async () => {
           const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true });
+          observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.locator(".card").first().waitFor({ state: "visible", timeout: 10_000 });
           await screenshot(page, "browse-mobile");
@@ -560,37 +635,47 @@ async function main() {
 
         await check("browser sort tabs reorder actual cards", async () => {
           const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+          observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.getByRole("searchbox", { name: "搜索" }).fill("E2E");
           await page.locator(".card", { hasText: "E2E Sort" }).first().waitFor({ state: "visible", timeout: 10_000 });
-          const firstTitle = async () => (await page.locator(".card h3").first().textContent())?.trim();
           const sortRequest = (value) =>
             page.waitForResponse((response) => {
               const url = new URL(response.url());
               return url.pathname === "/api/v1/projects" && url.searchParams.get("sort") === value;
             });
           const sortButton = (label) => page.locator(".sorts").getByRole("button", { name: label, exact: true });
-          assert((await firstTitle()) === "E2E Project", `updated order: ${await firstTitle()}`);
-          const [publishedResponse] = await Promise.all([sortRequest("published"), sortButton("发布时间").click()]);
-          assert(publishedResponse.ok(), `published sort ${publishedResponse.status()}`);
-          const published = await publishedResponse.json();
-          assert(published.items[0]?.title === "E2E Sort", `published api order: ${published.items[0]?.title}`);
-          await page.waitForFunction(
-            () => document.querySelector(".card h3")?.textContent?.trim() === "E2E Sort",
-            null,
-            { timeout: 10_000 },
-          );
-          assert((await firstTitle()) === "E2E Sort", `published order: ${await firstTitle()}`);
-          const [downloadResponse] = await Promise.all([sortRequest("downloads"), sortButton("下载").click()]);
-          assert(downloadResponse.ok(), `download sort ${downloadResponse.status()}`);
-          const downloads = await downloadResponse.json();
-          assert(downloads.items[0]?.id === project.project.id, "downloads api order");
-          await page.waitForFunction(
-            () => document.querySelector(".card h3")?.textContent?.trim() === "E2E Project",
-            null,
-            { timeout: 10_000 },
-          );
-          assert((await firstTitle()) === "E2E Project", `download order: ${await firstTitle()}`);
+          for (const [sort, label, metric] of [
+            ["published", "发布时间", (item) => Date.parse(item.publishedAt)],
+            ["updated", "最近更新", (item) => Date.parse(item.updatedAt)],
+            ["downloads", "下载", (item) => item.counts.downloads],
+            ["likes", "点赞", (item) => item.counts.likes],
+          ]) {
+            const [response] = await Promise.all([sortRequest(sort), sortButton(label).click()]);
+            assert(response.ok(), `${sort} sort ${response.status()}`);
+            const result = await response.json();
+            assert(result.items.length === 2, `${sort} keeps both matching public projects`);
+            for (let index = 1; index < result.items.length; index += 1) {
+              assert(
+                metric(result.items[index - 1]) >= metric(result.items[index]),
+                `${sort} API is ordered by actual release metric`,
+              );
+            }
+            const expected = result.items.map((item) => item.title);
+            await page.waitForFunction(
+              (titles) =>
+                JSON.stringify([...document.querySelectorAll(".card h3")].map((node) => node.textContent.trim())) ===
+                JSON.stringify(titles),
+              expected,
+              { timeout: 10_000 },
+            );
+            assert(
+              JSON.stringify(await page.locator(".card h3").allTextContents()) === JSON.stringify(expected),
+              `${sort} cards match complete API order`,
+            );
+            if (sort === "downloads")
+              assert(result.items[0].id === project.project.id, "downloaded release ranks first");
+          }
           await page.close();
         });
 
@@ -598,6 +683,7 @@ async function main() {
           const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), authorToken);
           const page = await context.newPage();
+          observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.locator(".card", { hasText: "E2E Project" }).first().locator(".card-title").click();
           await page.locator(".detail").waitFor({ state: "visible" });
@@ -612,16 +698,10 @@ async function main() {
             await subscribe.click();
             await page.locator(".detail").getByRole("button", { name: "已订阅", exact: true }).waitFor();
           }
-          const like = page.locator(".detail").getByRole("button", { name: /^点赞\s*\d/ });
+          const like = page.locator(".detail").getByRole("button", { name: "点赞", exact: true, pressed: false });
           await like.click();
-          await page
-            .locator(".detail")
-            .getByRole("button", { name: /^已点赞\s*\d/ })
-            .waitFor();
-          await page
-            .locator(".detail")
-            .getByRole("button", { name: /^已点赞\s*\d/ })
-            .click();
+          await page.locator(".detail").getByRole("button", { name: "已点赞", exact: true, pressed: true }).waitFor();
+          await page.locator(".detail").getByRole("button", { name: "已点赞", exact: true, pressed: true }).click();
           await like.waitFor();
           await context.close();
         });
@@ -630,16 +710,22 @@ async function main() {
           const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), authorToken);
           const page = await context.newPage();
+          observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.getByRole("button", { name: "我的项目", exact: true }).click();
           await page.locator(".workspace-projects").waitFor({ state: "visible", timeout: 10_000 });
-          await page.getByRole("button", { name: "创建项目", exact: true }).click();
+          await page.locator(".workspace-projects").getByRole("button", { name: "新建项目", exact: true }).click();
           await page.locator(".workspace-create").waitFor({ state: "visible", timeout: 10_000 });
-          await page.getByRole("button", { name: "取消", exact: true }).click();
+          await page.locator(".workspace-create").getByRole("button", { name: "返回我的项目", exact: true }).click();
           await page.locator(".workspace-projects").waitFor({ state: "visible", timeout: 10_000 });
           await page.getByText("E2E Project", { exact: true }).first().click();
-          await page.getByRole("button", { name: "提交当前版本" }).waitFor({ state: "visible" });
+          const editor = page.getByRole("dialog", { name: "E2E Project · 编辑任务", exact: true });
+          await editor
+            .getByRole("button", { name: "资料、封面与内容统一送审", exact: true })
+            .waitFor({ state: "visible" });
           await screenshot(page, "author-workspace");
+          await editor.getByRole("button", { name: "返回我的项目", exact: true }).click();
+          await editor.waitFor({ state: "hidden" });
           await page.getByRole("button", { name: "我的订阅", exact: true }).click();
           await page.getByText("E2E Project", { exact: true }).first().waitFor({ state: "visible", timeout: 10_000 });
           await context.close();
@@ -649,20 +735,32 @@ async function main() {
           const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), ownerToken);
           const page = await context.newPage();
+          observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.getByRole("button", { name: "管理", exact: true }).click();
-          await page.getByRole("heading", { name: "站点设置" }).waitFor({ state: "visible", timeout: 10_000 });
+          const management = page.getByRole("navigation", { name: "管理任务" });
+          await management.getByRole("button", { name: /站点设置/ }).click();
+          await page
+            .getByRole("button", { name: "保存站点设置", exact: true })
+            .waitFor({ state: "visible", timeout: 10_000 });
           await screenshot(page, "admin-tools");
-          await page.getByRole("heading", { name: "成员" }).waitFor({ state: "visible" });
-          await page.getByRole("heading", { name: "审计" }).waitFor({ state: "visible" });
+          await page.getByRole("button", { name: "保存站点设置", exact: true }).click();
           const [save] = await Promise.all([
             page.waitForResponse(
               (response) =>
                 new URL(response.url()).pathname === "/api/v1/site" && response.request().method() === "PUT",
             ),
-            page.getByRole("button", { name: "保存站点设置" }).click(),
+            page.getByRole("button", { name: "确认执行", exact: true }).click(),
           ]);
           assert(save.ok(), `site save ${save.status()}: ${await save.text()}`);
+          await page.getByRole("button", { name: "← 工具索引", exact: true }).click();
+          await management.getByRole("button", { name: /成员权限/ }).click();
+          await page.getByRole("heading", { name: "成员权限", exact: true }).waitFor({ state: "visible" });
+          await screenshot(page, "admin-members");
+          await page.getByRole("button", { name: "← 工具索引", exact: true }).click();
+          await management.getByRole("button", { name: /审计日志/ }).click();
+          await page.getByRole("heading", { name: "审计日志", exact: true }).first().waitFor({ state: "visible" });
+          await screenshot(page, "admin-audit");
           await context.close();
         });
 
@@ -670,13 +768,16 @@ async function main() {
           const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), ownerToken);
           const page = await context.newPage();
+          observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.getByRole("button", { name: "审核台", exact: true }).click();
           const item = page.getByTestId("review-queue-item").filter({ hasText: "E2E Approve" }).first();
           await item.waitFor({ state: "visible", timeout: 15_000 });
           await item.click();
+          const task = page.getByRole("dialog", { name: /^审核 · E2E Approve ·/ });
+          await task.getByRole("button", { name: "返回队列", exact: true }).waitFor({ state: "visible" });
           await screenshot(page, "review-detail");
-          await page.getByTestId("review-approve").click();
+          await task.getByTestId("review-approve").click();
           await page.locator(".review-reason textarea").fill("e2e approval reason");
           const [review] = await Promise.all([
             page.waitForResponse((response) => {
@@ -707,12 +808,14 @@ async function main() {
           const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), ownerToken);
           const page = await context.newPage();
+          observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.getByRole("button", { name: "审核台", exact: true }).click();
           const item = page.getByTestId("review-queue-item").filter({ hasText: "E2E Pending" }).first();
           await item.waitFor({ state: "visible", timeout: 15_000 });
           await item.click();
-          await page.getByTestId("review-reject").click();
+          const task = page.getByRole("dialog", { name: /^审核 · E2E Pending ·/ });
+          await task.getByTestId("review-reject").click();
           const rejectConfirm = page.getByRole("button", { name: /^确认拒绝$/ });
           await rejectConfirm.waitFor({ state: "visible", timeout: 10_000 });
           assert(
@@ -760,6 +863,7 @@ async function main() {
           const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), authorToken);
           const page = await context.newPage();
+          observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.getByRole("button", { name: "我的项目", exact: true }).click();
           await page.getByText("E2E Pending", { exact: true }).first().click();
@@ -810,7 +914,10 @@ async function main() {
               const url = new URL(response.url());
               return /\/submit$/.test(url.pathname) && response.request().method() === "POST";
             }),
-            page.getByRole("button", { name: "提交当前版本" }).click(),
+            page
+              .getByRole("dialog", { name: "E2E Pending · 编辑任务", exact: true })
+              .getByRole("button", { name: "资料、封面与内容统一送审", exact: true })
+              .click(),
           ]);
           assert(
             submitResponse.status() === 201,
@@ -831,11 +938,24 @@ async function main() {
           assert(entry?.latestSubmission?.checkStatus === "done", "resubmit checker completed");
           await context.close();
         });
+      } catch (error) {
+        console.error(browserDiagnostics.join("\n"));
+        for (const context of browser.contexts()) {
+          for (const [index, page] of context.pages().entries()) {
+            console.error(
+              `Browser failure DOM ${page.url()}: ${((await page.locator("body").textContent()) ?? "").slice(0, 12_000)}`,
+            );
+            await screenshot(page, `failure-${index}`);
+          }
+        }
+        throw error;
       } finally {
         await browser.close();
       }
     } else {
-      console.log("skip browser journeys: no cached Chromium");
+      throw new Error(
+        "Browser E2E requires cached Chromium or PLAYWRIGHT_CHROMIUM_EXECUTABLE; refusing to skip journeys",
+      );
     }
 
     await check("origin allowlist", async () => {

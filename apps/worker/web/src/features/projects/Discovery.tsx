@@ -1,7 +1,96 @@
-import { Bookmark, Download, History, ThumbsUp, Wrench } from "lucide-react";
+import { BookOpen, History } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api, type ProjectSummary } from "../../api";
 import "../../styles/discovery.css";
+
+function DiscoveryCard({
+  project,
+  onOpen,
+}: {
+  project: ProjectSummary;
+  onOpen: (project: ProjectSummary, opener: HTMLElement) => void;
+}) {
+  const [failedCoverUrl, setFailedCoverUrl] = useState<string | null>(null);
+  const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
+  const hasCover = Boolean(project.coverUrl && project.coverUrl !== failedCoverUrl);
+  return (
+    <button
+      className="discovery-item"
+      type="button"
+      onClick={(event) => onOpen(project, event.currentTarget)}
+      aria-label={`查看 ${project.title}`}
+    >
+      <span className={`discovery-cover${hasCover ? "" : " discovery-cover-empty"}`}>
+        {hasCover ? (
+          <img
+            key={project.coverUrl}
+            src={project.coverUrl!}
+            alt=""
+            loading="lazy"
+            onError={() => setFailedCoverUrl(project.coverUrl)}
+            style={{
+              objectPosition: `${project.coverPositionX}% ${project.coverPositionY}%`,
+              transform: `scale(${project.coverZoom})`,
+            }}
+          />
+        ) : (
+          <BookOpen aria-hidden="true" />
+        )}
+      </span>
+      {hasCover ? (
+        <span className="discovery-tint" aria-hidden="true">
+          <img
+            key={project.coverUrl}
+            src={project.coverUrl!}
+            alt=""
+            loading="lazy"
+            onError={() => setFailedCoverUrl(project.coverUrl)}
+          />
+        </span>
+      ) : null}
+      <span className="discovery-body">
+        <strong className="discovery-title">{project.title}</strong>
+        <span className="discovery-author">
+          {project.author.avatarUrl && project.author.avatarUrl !== failedAvatarUrl ? (
+            <img
+              key={project.author.avatarUrl}
+              src={project.author.avatarUrl}
+              alt=""
+              loading="lazy"
+              onError={() => setFailedAvatarUrl(project.author.avatarUrl)}
+            />
+          ) : (
+            <span className="discovery-avatar-fallback" aria-hidden="true">
+              {project.author.name.slice(0, 1)}
+            </span>
+          )}
+          <span>{project.author.name}</span>
+        </span>
+        <span className="discovery-updated" title="更新">
+          <span className="sr-only">更新 </span>
+          <History aria-hidden="true" />
+          <time dateTime={project.updatedAt}>{project.updatedAt.slice(0, 10)}</time>
+        </span>
+        <span
+          className="discovery-tags"
+          title={[project.projectType, project.extensionType, ...project.tags].filter(Boolean).join("、")}
+        >
+          {[project.projectType, project.extensionType, ...project.tags]
+            .filter((value, index, values) => value && values.indexOf(value) === index)
+            .slice(0, 3)
+            .map((value) => (
+              <span key={value} data-type={value === project.projectType ? value : undefined}>
+                {value}
+              </span>
+            ))}
+        </span>
+        <span className="discovery-note">
+          {project.authorNote?.trim() || project.description?.trim() || "暂无文字简介"}
+        </span>
+      </span>
+    </button>
+  );
+}
 
 export function Discovery({ onOpen }: { onOpen: (project: ProjectSummary, opener: HTMLElement) => void }) {
   const [items, setItems] = useState<ProjectSummary[]>([]);
@@ -50,62 +139,7 @@ export function Discovery({ onOpen }: { onOpen: (project: ProjectSummary, opener
       <h2>发现</h2>
       <div className="discovery-grid">
         {discovered.map((project) => (
-          <button
-            className="discovery-item"
-            key={project.id}
-            type="button"
-            onClick={(event) => onOpen(project, event.currentTarget)}
-          >
-            {project.coverUrl ? (
-              <img
-                className="discovery-cover"
-                src={project.coverUrl}
-                alt=""
-                loading="lazy"
-                style={{ objectPosition: `${project.coverPositionX}% ${project.coverPositionY}%` }}
-              />
-            ) : (
-              <span className="discovery-mark" aria-hidden="true">
-                <Wrench />
-              </span>
-            )}
-            <span className="discovery-heading">
-              <strong>{project.title}</strong>
-              <span className="discovery-author">{project.author.name}</span>
-              <span className="discovery-tags">
-                {[project.projectType, ...project.tags]
-                  .filter((value, index, values) => value && values.indexOf(value) === index)
-                  .slice(0, 3)
-                  .map((value) => (
-                    <span key={value}>{value}</span>
-                  ))}
-              </span>
-            </span>
-            <span className="discovery-note">
-              {project.authorNote?.trim() || project.description?.trim() || "暂无文字简介"}
-            </span>
-            <span className="discovery-stats">
-              <span title={`下载 ${project.counts.downloads}`}>
-                <Download aria-hidden="true" />
-                {project.counts.downloads.toLocaleString("zh-CN", { notation: "compact", maximumFractionDigits: 1 })}
-              </span>
-              <span title={`点赞 ${project.counts.likes}`}>
-                <ThumbsUp aria-hidden="true" />
-                {project.counts.likes.toLocaleString("zh-CN", { notation: "compact", maximumFractionDigits: 1 })}
-              </span>
-              <span title={`订阅 ${project.counts.subscriptions}`}>
-                <Bookmark aria-hidden="true" />
-                {project.counts.subscriptions.toLocaleString("zh-CN", {
-                  notation: "compact",
-                  maximumFractionDigits: 1,
-                })}
-              </span>
-              <span title="更新时间">
-                <History aria-hidden="true" />
-                {project.updatedAt.slice(0, 10)}
-              </span>
-            </span>
-          </button>
+          <DiscoveryCard key={project.id} project={project} onOpen={onOpen} />
         ))}
       </div>
     </section>

@@ -2,6 +2,7 @@ import type { ReactNode, RefObject } from "react";
 import { Component, lazy, Suspense } from "react";
 import type { ProjectSummary } from "./api";
 import { Button } from "./components/ui/button";
+import type { InstalledItem } from "./features/installed/Installed";
 import { Installed } from "./features/installed/Installed";
 import { Subscriptions } from "./features/projects/Subscriptions";
 import type { useHostConnection } from "./useHostConnection";
@@ -54,6 +55,7 @@ class DeferredView extends Component<{ title: string; children: ReactNode }, { f
 }
 export function WorkshopWorkspaces({
   view,
+  onDirtyChange,
   me,
   setNewlyCreatedProjectId,
   setView,
@@ -71,15 +73,15 @@ export function WorkshopWorkspaces({
   installedPending,
   embedded,
   scanning,
-  updatingId,
   installing,
   rescanInstalls,
   reloadInstalledProjects,
-  performInstall,
-  requestUninstall,
+  prepareInstall,
+  instanceOperation,
   children,
 }: {
   view: ReturnType<typeof useWorkshopNavigation>["view"];
+  onDirtyChange: (dirty: boolean) => void;
   me: ReturnType<typeof useWorkshopSession>["me"];
   setNewlyCreatedProjectId: (id: string | null) => void;
   setView: ReturnType<typeof useWorkshopNavigation>["setView"];
@@ -97,18 +99,19 @@ export function WorkshopWorkspaces({
   installedPending: ReturnType<typeof useInstalledProjects>["installedPending"];
   embedded: boolean;
   scanning: ReturnType<typeof useHostConnection>["scanning"];
-  updatingId: ReturnType<typeof useHostConnection>["updatingId"];
   installing: ReturnType<typeof useHostConnection>["installing"];
   rescanInstalls: ReturnType<typeof useHostConnection>["rescanInstalls"];
   reloadInstalledProjects: ReturnType<typeof useInstalledProjects>["reloadInstalledProjects"];
-  performInstall: ReturnType<typeof useHostConnection>["performInstall"];
-  requestUninstall: ReturnType<typeof useHostConnection>["requestUninstall"];
+  prepareInstall: (project: ProjectSummary, action?: "install" | "update", instanceId?: string) => Promise<void>;
+  instanceOperation: (item: InstalledItem, action: "uninstall" | "migrate") => void;
   children: ReactNode;
 }) {
   return view === "create" && me ? (
     <DeferredView key="create" title="新建项目">
       <CreateProject
+        onDirtyChange={onDirtyChange}
         onCreated={(projectId) => {
+          onDirtyChange(false);
           setNewlyCreatedProjectId(projectId);
           setView("projects");
         }}
@@ -120,6 +123,7 @@ export function WorkshopWorkspaces({
   ) : view === "projects" && me ? (
     <DeferredView key="projects" title="我的项目">
       <MyProjects
+        onDirtyChange={onDirtyChange}
         initialSelectedId={newlyCreatedProjectId}
         onInitialSelectionConsumed={() => setNewlyCreatedProjectId(null)}
         onCreate={() => setView("create")}
@@ -174,13 +178,15 @@ export function WorkshopWorkspaces({
   ) : view === "installed" && installedAvailable ? (
     <Installed
       items={installedItems}
-      states={context?.installStates}
+      scan={context?.installationScan ?? null}
       loading={installedLoading || installedPending || (embedded && context === null)}
       scanning={scanning}
-      updatingId={updatingId}
       mutating={installing}
       onScan={rescanInstalls}
-      onRetry={reloadInstalledProjects}
+      onRetry={() => {
+        reloadInstalledProjects();
+        void rescanInstalls();
+      }}
       onOpen={(item) => {
         if (!item.project) return;
         detailOpener.current = null;
@@ -188,9 +194,11 @@ export function WorkshopWorkspaces({
       }}
       onUpdate={(item) => {
         if (!item.project) return;
-        void performInstall(item.project, item.record.worldbookName);
+        void prepareInstall(item.project, "update", item.instance.instanceId);
       }}
-      onUninstall={(item) => requestUninstall({ id: item.id, title: item.project?.title ?? item.id })}
+      onUninstall={(item) => instanceOperation(item, "uninstall")}
+      onMigrate={(item) => instanceOperation(item, "migrate")}
+      onReinstall={() => setView("browse")}
     />
   ) : (
     children

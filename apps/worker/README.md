@@ -19,7 +19,7 @@ Shared request/response schemas belong to [`packages/contracts`](../../packages/
 - Bootstrap and application composition: [`web/src/main.tsx`](web/src/main.tsx), [`web/src/App.tsx`](web/src/App.tsx).
 - Requests to the backend: [`web/src/api.ts`](web/src/api.ts).
 - Browsing and authoring: [`web/src/features/projects/`](web/src/features/projects/). Review UI: [`web/src/features/review/`](web/src/features/review/); site/member administration: [`web/src/AdminTools.tsx`](web/src/AdminTools.tsx).
-- Installation UI: [`web/src/features/installed/`](web/src/features/installed/). The [Web application](web/src/App.tsx) requests operations from the [Tavern host runtime](../tavern-client/src/index.ts); host mutations do not run in the site itself.
+- Installation UI: [`web/src/features/installed/`](web/src/features/installed/). Its [message bridge](web/src/lib/install-bridge.ts) requests operations from the [Tavern host runtime](../tavern-client/src/index.ts); host mutations do not run in the site itself.
 - Shared widgets and styling: [`web/src/components/`](web/src/components/), [`web/src/styles.css`](web/src/styles.css), [`web/src/styles/`](web/src/styles/).
 
 ## Source and output

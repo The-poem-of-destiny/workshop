@@ -13,6 +13,7 @@ export function AdminRecommendations({
   setRecSearch,
   searchRecommendationProjects,
   recSearching,
+  recSearchError,
   recResults,
   pickProject,
   recSearched,
@@ -33,6 +34,7 @@ export function AdminRecommendations({
   setRecSearch: ReturnType<typeof useAdminRecommendations>["setRecSearch"];
   searchRecommendationProjects: ReturnType<typeof useAdminRecommendations>["searchRecommendationProjects"];
   recSearching: ReturnType<typeof useAdminRecommendations>["recSearching"];
+  recSearchError: string | null;
   recResults: ReturnType<typeof useAdminRecommendations>["recResults"];
   pickProject: ReturnType<typeof useAdminRecommendations>["pickProject"];
   recSearched: ReturnType<typeof useAdminRecommendations>["recSearched"];
@@ -121,8 +123,14 @@ export function AdminRecommendations({
                 </button>
               ))}
             </div>
-          ) : recSearched ? (
+          ) : recSearched && !recSearching && !recSearchError ? (
             <p className="hint">没有匹配的项目。</p>
+          ) : null}
+          {recSearching ? <p role="status">正在搜索项目…</p> : null}
+          {recSearchError ? (
+            <p className="panel-error" role="alert">
+              {recSearchError}
+            </p>
           ) : null}
         </>
       )}

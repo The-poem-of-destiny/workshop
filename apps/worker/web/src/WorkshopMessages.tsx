@@ -2,7 +2,6 @@ import { X } from "lucide-react";
 
 import type { CSSProperties } from "react";
 import type { HomeResponse } from "./api";
-import type { useHostConnection } from "./useHostConnection";
 import type { useWorkshopNavigation } from "./useWorkshopNavigation";
 import type { useWorkshopSession } from "./useWorkshopSession";
 
@@ -14,8 +13,6 @@ export function WorkshopMessages({
   loginFallback,
   notice,
   setNotice,
-  installConflicts,
-  setInstallConflicts,
 }: {
   home: HomeResponse | null;
   view: ReturnType<typeof useWorkshopNavigation>["view"];
@@ -24,8 +21,6 @@ export function WorkshopMessages({
   loginFallback: ReturnType<typeof useWorkshopSession>["loginFallback"];
   notice: string | null;
   setNotice: (message: string | null) => void;
-  installConflicts: ReturnType<typeof useHostConnection>["installConflicts"];
-  setInstallConflicts: ReturnType<typeof useHostConnection>["setInstallConflicts"];
 }) {
   return (
     <>
@@ -70,24 +65,6 @@ export function WorkshopMessages({
             <X aria-hidden="true" />
           </button>
         </div>
-      ) : null}
-      {installConflicts ? (
-        <section className="conflicts-panel" role="status" aria-label="安装冲突提示">
-          <div className="conflicts-panel-head">
-            <strong>安装完成，部分条目已保留原有内容</strong>
-            <button type="button" aria-label="关闭冲突提示" onClick={() => setInstallConflicts(null)}>
-              <X aria-hidden="true" />
-            </button>
-          </div>
-          <p className="conflicts-panel-hint">
-            为避免覆盖你在 SillyTavern 中的改动，以下条目未被替换。确认无误后可以手动处理。
-          </p>
-          <ul>
-            {[...new Set(installConflicts)].map((conflict) => (
-              <li key={conflict}>{conflict}</li>
-            ))}
-          </ul>
-        </section>
       ) : null}
     </>
   );

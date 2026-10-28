@@ -417,3 +417,8 @@
     flex-wrap: wrap;
   }
 }
+.review-detail dl > div {
+  padding: 8px;
+  border-radius: 4px;
+  background: #151619;
+}

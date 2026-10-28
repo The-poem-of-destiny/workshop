@@ -85,7 +85,7 @@ export function WorkshopSidebar({
           type="button"
           className={view === "browse" && !projectType ? "active" : ""}
           onClick={() => {
-            setView("browse");
+            if (!setView("browse")) return;
             setProjectType("");
             setSidebarOpen(false);
           }}
@@ -98,7 +98,7 @@ export function WorkshopSidebar({
             type="button"
             className={view === "installed" ? "active" : ""}
             onClick={() => {
-              setView("installed");
+              if (!setView("installed")) return;
               setSidebarOpen(false);
             }}
           >
@@ -136,7 +136,7 @@ export function WorkshopSidebar({
                 className={`filter-chip${projectType === value ? " active" : ""}`}
                 aria-pressed={projectType === value}
                 onClick={() => {
-                  setView("browse");
+                  if (!setView("browse")) return;
                   setProjectType(value);
                   setSidebarOpen(false);
                 }}
@@ -228,8 +228,8 @@ export function WorkshopSidebar({
                 value={value}
                 checked={sort === value}
                 onChange={() => {
+                  if (!setView("browse")) return;
                   setSort(value);
-                  setView("browse");
                 }}
               />
               {label}

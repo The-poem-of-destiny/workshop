@@ -91,7 +91,7 @@ function worldbookEntryValues(root: unknown): unknown[] | null {
   return null;
 }
 
-function positionLabel(entry: Record<string, unknown>): string {
+export function positionLabel(entry: Record<string, unknown>): string {
   const position = asRecord(entry.position);
   const raw = position?.type ?? entry.positionType ?? entry.position_type ?? entry.position;
   if (typeof raw === "string") {

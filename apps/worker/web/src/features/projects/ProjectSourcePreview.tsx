@@ -1,17 +1,22 @@
 import { ArrowLeft, ChevronLeft, ChevronRight, RefreshCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { api, type ProjectSummary } from "../../api";
+import { api, type ProjectPreview, type ProjectPreviewKind, type ProjectSummary } from "../../api";
 
-type PreviewKind = "worldbook" | "regex";
-type PreviewEntry = { key: string; name: string; content: string };
-type PreviewData = { revisionId: string; kind: PreviewKind; entries: PreviewEntry[] };
+type PreviewKind = ProjectPreviewKind;
+type PreviewData = ProjectPreview;
+
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../../components/ui/dialog";
+import { BehaviorConfiguration } from "./BehaviorConfiguration";
+import "../../styles/task-workspaces.css";
 
 export function ProjectSourcePreview({
   project,
   versionLabel,
+  loggedIn,
 }: {
   project: ProjectSummary;
   versionLabel: string | null;
+  loggedIn: boolean;
 }) {
   const [previewKind, setPreviewKind] = useState<PreviewKind>("worldbook");
   const [previewData, setPreviewData] = useState<PreviewData | null>(null);
@@ -21,6 +26,7 @@ export function ProjectSourcePreview({
   const [previewSearch, setPreviewSearch] = useState("");
   const [previewEntryKey, setPreviewEntryKey] = useState<string | null>(null);
   const [previewReading, setPreviewReading] = useState(false);
+  const previewOpener = useRef<HTMLButtonElement | null>(null);
   const previewRequest = useRef<{ generation: number } | null>(null);
   useEffect(() => {
     let active = true;
@@ -32,6 +38,10 @@ export function ProjectSourcePreview({
     setPreviewSearch("");
     setPreviewEntryKey(null);
     setPreviewReading(false);
+    if (!loggedIn) {
+      setPreviewLoading(false);
+      return;
+    }
     api
       .projectPreview(project.id, previewKind)
       .then((value) => {
@@ -48,7 +58,7 @@ export function ProjectSourcePreview({
     return () => {
       active = false;
     };
-  }, [previewKind, previewReload, project.id]);
+  }, [previewKind, previewReload, project.id, loggedIn]);
   const previewEntries = (previewData?.entries ?? []).filter((entry) => {
     const query = previewSearch.trim().toLocaleLowerCase();
     return !query || `${entry.name} ${entry.key}`.toLocaleLowerCase().includes(query);
@@ -92,8 +102,9 @@ export function ProjectSourcePreview({
           </button>
         </div>
       ) : null}
-      {!previewLoading && !previewError ? (
-        <div className={`preview-browser${previewReading ? " is-reading" : ""}`}>
+      {!loggedIn ? <p className="detail-state">登录后可打开完整内容阅读任务。</p> : null}
+      {loggedIn && !previewLoading && !previewError ? (
+        <div className="preview-browser reader-directory-browser">
           <label className="preview-search">
             <span className="sr-only">搜索条目</span>
             <input
@@ -113,7 +124,8 @@ export function ProjectSourcePreview({
                     role="option"
                     aria-selected={selectedPreview?.key === entry.key}
                     className={selectedPreview?.key === entry.key ? "is-selected" : ""}
-                    onClick={() => {
+                    onClick={(event) => {
+                      previewOpener.current = event.currentTarget;
                       setPreviewEntryKey(entry.key);
                       setPreviewReading(true);
                     }}
@@ -128,42 +140,84 @@ export function ProjectSourcePreview({
                 <p className="preview-empty">没有匹配的条目。</p>
               )}
             </div>
-            <div className="preview-content">
-              {selectedPreview ? (
-                <>
-                  <button type="button" className="preview-back" onClick={() => setPreviewReading(false)}>
-                    <ArrowLeft aria-hidden="true" />
-                    返回条目列表
-                  </button>
-                  <div className="preview-content-head">
-                    <h4>{selectedPreview.name || selectedPreview.key}</h4>
-                    <div className="preview-entry-nav">
-                      <button
-                        type="button"
-                        aria-label="上一条目"
-                        title="上一条目"
-                        disabled={!previousPreview}
-                        onClick={() => previousPreview && setPreviewEntryKey(previousPreview.key)}
-                      >
-                        <ChevronLeft aria-hidden="true" />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="下一条目"
-                        title="下一条目"
-                        disabled={!nextPreview}
-                        onClick={() => nextPreview && setPreviewEntryKey(nextPreview.key)}
-                      >
-                        <ChevronRight aria-hidden="true" />
-                      </button>
-                    </div>
+            <Dialog open={previewReading} onOpenChange={setPreviewReading}>
+              <DialogContent
+                className="task-workspace reader-task"
+                aria-describedby="reader-description"
+                onCloseAutoFocus={(event) => {
+                  event.preventDefault();
+                  if (previewOpener.current?.isConnected) previewOpener.current.focus({ preventScroll: true });
+                }}
+              >
+                <header className="task-workspace-header">
+                  <div>
+                    <DialogTitle>
+                      {project.title} · {previewKind === "worldbook" ? "世界书阅读" : "正则阅读"}
+                    </DialogTitle>
+                    <DialogDescription id="reader-description">
+                      已发布版本 {versionLabel ?? previewData?.revisionId} · 纯文本阅读
+                    </DialogDescription>
                   </div>
-                  <pre>{selectedPreview.content}</pre>
-                </>
-              ) : (
-                <p className="preview-empty">选择条目后查看内容。</p>
-              )}
-            </div>
+                  <button type="button" onClick={() => setPreviewReading(false)}>
+                    返回项目内容目录
+                  </button>
+                </header>
+                <div className="reader-task-layout">
+                  <nav className="reader-task-directory" aria-label="阅读目录">
+                    {previewEntries.map((entry) => (
+                      <button
+                        key={entry.key}
+                        type="button"
+                        aria-current={selectedPreview?.key === entry.key ? "true" : undefined}
+                        onClick={() => setPreviewEntryKey(entry.key)}
+                      >
+                        {entry.name || entry.key}
+                      </button>
+                    ))}
+                  </nav>
+                  <article className="reader-task-content" key={selectedPreview?.key}>
+                    {selectedPreview ? (
+                      <>
+                        <button type="button" className="preview-back" onClick={() => setPreviewReading(false)}>
+                          <ArrowLeft aria-hidden="true" />
+                          返回条目列表
+                        </button>
+                        <div className="preview-content-head">
+                          <h4>{selectedPreview.name || selectedPreview.key}</h4>
+                          <div className="preview-entry-nav">
+                            <button
+                              type="button"
+                              aria-label="上一条目"
+                              title="上一条目"
+                              disabled={!previousPreview}
+                              onClick={() => previousPreview && setPreviewEntryKey(previousPreview.key)}
+                            >
+                              <ChevronLeft aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="下一条目"
+                              title="下一条目"
+                              disabled={!nextPreview}
+                              onClick={() => nextPreview && setPreviewEntryKey(nextPreview.key)}
+                            >
+                              <ChevronRight aria-hidden="true" />
+                            </button>
+                          </div>
+                        </div>
+                        <p className="reader-task-position">
+                          {selectedPreviewIndex + 1} / {previewEntries.length} · {selectedPreview.content.length} 字符
+                        </p>
+                        <BehaviorConfiguration entry={selectedPreview} />
+                        <pre>{selectedPreview.content}</pre>
+                      </>
+                    ) : (
+                      <p className="preview-empty">选择条目后查看内容。</p>
+                    )}
+                  </article>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         </div>
       ) : null}

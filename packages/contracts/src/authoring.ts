@@ -96,6 +96,7 @@ export const authorSubmissionSchema = z.object({
   checkerRevision: z.string().nullable(),
   submittedAt: z.string(),
   resolvedAt: z.string().nullable(),
+  withdrawnAt: z.string().nullable().default(null),
   decision: z.enum(["approve", "reject"]).nullable(),
   reason: z.string().nullable(),
   reviewedAt: z.string().nullable(),
@@ -125,33 +126,3 @@ export const authorSubmissionListResponseSchema = z.object({
   items: z.array(authorSubmissionSchema),
 });
 export type AuthorSubmissionListResponse = z.infer<typeof authorSubmissionListResponseSchema>;
-export const publishedMetadataResponseSchema = z.object({
-  rowVersion: z.number().int().positive(),
-  title: z.string(),
-  description: z.string().nullable(),
-  authorNote: z.string().nullable(),
-  projectType: projectTypeSchema.nullable(),
-  extensionType: extensionTypeSchema.nullable(),
-  schemaVersion: z.string().nullable(),
-  discordThreadUrl: z.string().nullable(),
-  tags: z.array(z.string()),
-  versionLabel: z.string().nullable(),
-  precautions: z.string().nullable(),
-  coverPositionX: z.number(),
-  coverPositionY: z.number(),
-  coverZoom: z.number(),
-});
-export type PublishedMetadataResponse = z.infer<typeof publishedMetadataResponseSchema>;
-
-export const publishedMetadataMutationResponseSchema = z.object({
-  rowVersion: z.number().int().positive(),
-});
-export type PublishedMetadataMutationResponse = z.infer<typeof publishedMetadataMutationResponseSchema>;
-
-export const publishedCoverMutationResponseSchema = z.object({
-  rowVersion: z.number().int().positive(),
-  sha256: z.string().length(64),
-  bytes: z.number().int().positive(),
-  mime: z.enum(["image/png", "image/jpeg", "image/webp"]),
-});
-export type PublishedCoverMutationResponse = z.infer<typeof publishedCoverMutationResponseSchema>;

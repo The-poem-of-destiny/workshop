@@ -1,4 +1,4 @@
-import type { AuthorProject, ProjectSummary, PublishedMetadataResponse } from "../../api";
+import type { AuthorProject, ProjectSummary } from "../../api";
 
 export { EXTENSION_TYPES, PROJECT_TYPES } from "@workshop/domain";
 
@@ -51,23 +51,5 @@ export function metadataPayload(form: ProjectForm): Record<string, unknown> {
     schemaVersion: form.schemaVersion || null,
     discordThreadUrl: form.discordThreadUrl || null,
     tags: form.tags,
-  };
-}
-
-export function displayForm(metadata: PublishedMetadataResponse): ProjectForm {
-  return {
-    title: metadata.title,
-    description: metadata.description ?? "",
-    authorNote: metadata.authorNote ?? "",
-    precautions: metadata.precautions ?? "",
-    versionLabel: metadata.versionLabel ?? "",
-    projectType: metadata.projectType ?? "",
-    extensionType: metadata.extensionType ?? "",
-    schemaVersion: metadata.schemaVersion ?? "",
-    discordThreadUrl: metadata.discordThreadUrl ?? "",
-    coverPositionX: String(metadata.coverPositionX),
-    coverPositionY: String(metadata.coverPositionY),
-    coverZoom: String(metadata.coverZoom),
-    tags: [...metadata.tags],
   };
 }

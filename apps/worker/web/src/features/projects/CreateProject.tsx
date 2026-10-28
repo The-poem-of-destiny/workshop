@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
@@ -27,14 +27,35 @@ export function CreateProject({
   onCancel,
   onError,
   onNotice,
+  onDirtyChange,
 }: {
   onCreated: (projectId: string) => void;
   onCancel: () => void;
   onError: (message: string) => void;
   onNotice: (message: string) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [form, setForm] = useState<ProjectForm>(emptyForm);
   const [busy, setBusy] = useState(false);
+  const dirty = JSON.stringify(form) !== JSON.stringify(emptyForm);
+  useEffect(() => {
+    onDirtyChange?.(dirty || busy);
+    const protect = (event: BeforeUnloadEvent): void => {
+      if (!dirty && !busy) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", protect);
+    return () => {
+      onDirtyChange?.(false);
+      window.removeEventListener("beforeunload", protect);
+    };
+  }, [dirty, busy, onDirtyChange]);
+  function cancel(): void {
+    if (busy || (dirty && !window.confirm("新项目资料尚未保存，确定放弃？"))) return;
+    onDirtyChange?.(false);
+    onCancel();
+  }
   const update = (key: Exclude<keyof ProjectForm, "tags">, value: string): void =>
     setForm((previous) => ({ ...previous, [key]: value }));
 
@@ -43,6 +64,7 @@ export function CreateProject({
     setBusy(true);
     try {
       const created = await api.createProject(metadataPayload({ ...form, title: form.title.trim() }));
+      onDirtyChange?.(false);
       onNotice("项目草稿已创建，可以开始上传内容文件。");
       onCreated(created.project.id);
     } catch (reason) {
@@ -60,7 +82,7 @@ export function CreateProject({
           <h2>新建项目</h2>
           <p className="workspace-muted">先创建草稿，再在编辑器中上传世界书、正则和封面。</p>
         </div>
-        <button type="button" onClick={onCancel} disabled={busy}>
+        <button type="button" onClick={cancel} disabled={busy}>
           返回我的项目
         </button>
       </div>
@@ -182,7 +204,7 @@ export function CreateProject({
       </section>
 
       <div className="workspace-actions">
-        <button type="button" onClick={onCancel} disabled={busy}>
+        <button type="button" onClick={cancel} disabled={busy}>
           取消
         </button>
         <button

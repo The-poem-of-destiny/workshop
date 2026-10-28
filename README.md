@@ -36,10 +36,10 @@ workshop/
 
 - 公开读取：首页、项目列表/详情、推荐、参考集、站点信息；
 - 登录后读取：发布清单、文件下载；
-- 作者：创建、编辑、上传、提交审核；
-- 审核：待审队列、发布指针切换、成员角色、审计；
-- 互动：点赞、订阅、评分、按用户/项目/日幂等的下载计数；
-- 客户端：版本化分发、安装/更新/卸载与基线校验；
+- 作者：创建、编辑、上传；资料、封面和正文统一冻结送审，撤回保留历史，不直接改动公开版本；
+- 审核：独立任务层、云检查与人工审核、发布指针切换、成员角色、审计；
+- 互动：点赞、订阅、评分、按用户/项目/日幂等的下载计数；评分与留言仅本人可通过个人状态接口读取。重新打开详情回填留言；评分接口省略 `comment` 保留已有留言，空字符串清空；
+- 客户端：版本化分发、按安装位置扫描多实例，安装／更新／卸载先预览差异再确认；登记配套脚本的精确版本与下载地址，不代管脚本数据；
 - 缓存：项目列表/详情、发现、榜单使用 Workers Cache API，30 秒 TTL + `cache_epoch`；首页、推荐、参考集、站点当前直读 D1；作者、审核、下载等动态接口保持 `private, no-store`。详见 `docs/plans/refactor-2026-10/api-design.md`。
 
 接口以 `/api/v1` 为前缀。契约在 `packages/contracts`，领域规则在 `packages/domain`，checker 与内容审计在 `packages/content`。
@@ -90,7 +90,7 @@ pnpm exec wrangler d1 migrations apply workshop-staging --local --config wrangle
 
 客户端构建与发布脚本在 `apps/tavern-client/package.json`；checker 构建与发布脚本在 `packages/content/package.json`。
 
-数据库结构以完整编号 migration 链为准，不以旧导出数据要求保留无用字段。当前导入工具只转换已选公开发布内容与必要 member 作者，重建 manifest 和完整条目索引；不会恢复旧管理员权限、会话、草稿、审核或互动历史，见 [`tools/migrate/README.md`](tools/migrate/README.md)。
+数据库结构以完整编号 migration 链为准，不以旧导出数据要求保留无用字段。当前公开样本导入工具只转换已选公开发布内容与必要 member 作者，重建 manifest 和完整条目索引；它不等于 D-40 的完整业务数据迁移。草稿、审核历史、互动关系等完整迁移与正式切换仍需另行完成及授权，见 [`tools/migrate/README.md`](tools/migrate/README.md) 和 [迁移目标](docs/plans/refactor-2026-10/decisions.md#d-40-完整替代旧版与完整数据迁移)。
 
 `0021_remove_obsolete_state.sql` 会删除旧镜像字段、撤下未完成索引的历史发布并清理无用资产关联（保留 revision 和 R2 原文件）。远程执行前必须备份、确认影响与获得授权；本地通过不代表已经应用到 staging／production。
 

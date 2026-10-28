@@ -95,6 +95,11 @@ export function ProjectDraftMetadata({
             </select>
           </label>
         </div>
+        <div className="form-grid">
+          {input("coverPositionX", "封面横向位置（0–100）")}
+          {input("coverPositionY", "封面纵向位置（0–100）")}
+          {input("coverZoom", "封面缩放（1–3）")}
+        </div>
       </section>
 
       <section className="workspace-section authoring-section">

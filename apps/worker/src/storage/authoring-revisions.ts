@@ -225,7 +225,25 @@ export async function createRevision(
 ): Promise<RevisionResult | null> {
   const current = await getWorkingRevision(db, projectId, session);
   if (!current || current.row_version !== expectedVersion) return null;
-  return addRevision(db, session, current, expectedVersion, revisionValues(current, input));
+  const sourceAssets = current.working_revision_id
+    ? await db
+        .prepare("SELECT kind, r2_key, sha256, bytes, mime FROM assets WHERE revision_id = ?")
+        .bind(current.working_revision_id)
+        .all<{ kind: string; r2_key: string; sha256: string; bytes: number; mime: string }>()
+    : { results: [] };
+  return addRevision(db, session, current, expectedVersion, revisionValues(current, input), {
+    counts: {
+      worldbook: current.revision_worldbook_count ?? 0,
+      regex: current.revision_regex_count ?? 0,
+    },
+    assets: sourceAssets.results.map((asset) => ({
+      kind: asset.kind,
+      r2Key: asset.r2_key,
+      sha256: asset.sha256,
+      bytes: asset.bytes,
+      mime: asset.mime,
+    })),
+  });
 }
 
 export interface RevisionAccess {

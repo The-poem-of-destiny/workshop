@@ -1,4 +1,9 @@
-import { extractProjectEntries, type ProjectEntryKind, validateProjectContentText } from "@workshop/domain";
+import {
+  extractProjectEntries,
+  inspectProjectMetadata,
+  type ProjectEntryKind,
+  validateProjectContentText,
+} from "@workshop/domain";
 import { analyzeFiles, REVIEW_CHECKER_REVISION, routeGate } from "./content-checker";
 import type { Env } from "./env";
 import { buildEntryIndex } from "./storage/content-index";
@@ -150,7 +155,7 @@ export class ContentService implements DurableObject {
           .prepare(`
           UPDATE submissions
           SET check_status = 'queued', check_lease_until = NULL, check_error = ?
-          WHERE id = ? AND check_status = 'running'
+          WHERE id = ? AND status IN ('checking', 'pending') AND check_status = 'running'
         `)
           .bind(message, submissionId)
           .run();
@@ -178,9 +183,44 @@ export class ContentService implements DurableObject {
     }
 
     const report = analyzeFiles(files);
-    const route = routeGate(report);
+    const metadata = await db
+      .prepare(`SELECT title, description, author_note, precautions,
+        version_label, tags, cover_position_x, cover_position_y, cover_zoom
+        FROM project_revisions WHERE id = ?`)
+      .bind(target.revision_id)
+      .first<{
+        title: string;
+        description: string | null;
+        author_note: string | null;
+        precautions: string | null;
+        version_label: string | null;
+        tags: string;
+        cover_position_x: number;
+        cover_position_y: number;
+        cover_zoom: number;
+      }>();
+    if (!metadata) throw new Error("冻结资料缺失");
+    const metadataReport = inspectProjectMetadata({
+      title: metadata.title,
+      description: metadata.description,
+      authorNote: metadata.author_note,
+      precautions: metadata.precautions,
+      versionLabel: metadata.version_label,
+      tags: JSON.parse(metadata.tags),
+      coverPositionX: metadata.cover_position_x,
+      coverPositionY: metadata.cover_position_y,
+      coverZoom: metadata.cover_zoom,
+    });
+    const contentRoute = routeGate(report);
+    const route =
+      contentRoute === "block" || metadataReport.gate === "block"
+        ? "block"
+        : contentRoute === "warn" || metadataReport.gate === "warn"
+          ? "warn"
+          : "pass";
     const storedReport = JSON.stringify({
       ...report,
+      metadata: metadataReport,
       routeGate: route,
       reviewCheckerRevision: REVIEW_CHECKER_REVISION,
     });
@@ -212,12 +252,16 @@ export class ContentService implements DurableObject {
       });
       return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_REVISION });
     }
-    if (target.client_gate === "block" || target.client_gate === "missing") {
-      await this.needsHuman(submissionId, "客户端检查未通过或缺失，转人工审核。", {
-        report: storedReport,
-        hash: reportHash,
-        checkedAt,
-      });
+    if (target.status === "pending" || target.client_gate === "block" || target.client_gate === "missing") {
+      await this.needsHuman(
+        submissionId,
+        target.status === "pending" ? "人工重检完成，等待审核决定。" : "客户端检查未通过或缺失，转人工审核。",
+        {
+          report: storedReport,
+          hash: reportHash,
+          checkedAt,
+        },
+      );
       return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_REVISION, manual: true });
     }
 
@@ -299,7 +343,7 @@ export class ContentService implements DurableObject {
       // conditional on this successful pointer transition.
       this.env.DB.prepare(`
         UPDATE projects
-        SET published_revision_id = ?, published_at = ?,
+        SET published_revision_id = ?, published_at = ?, published_cover_asset_id = NULL,
             title = r.title, description = r.description, author_note = r.author_note,
             project_type = r.project_type, extension_type = r.extension_type,
             search_tags = r.tags, published_schema_version = r.schema_version,

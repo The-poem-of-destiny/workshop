@@ -19,9 +19,10 @@ export async function runScheduled(env: Env, scheduledTime?: number): Promise<vo
     UPDATE submissions
     SET status = 'pending', check_status = 'needs_human', check_lease_until = NULL,
         check_error = COALESCE(check_error, '检查超时次数已达上限，转人工审核。')
-    WHERE status = 'checking' AND check_status IN ('queued', 'running') AND check_attempts >= ?
+    WHERE status IN ('checking', 'pending') AND check_status IN ('queued', 'running') AND check_attempts >= ?
+      AND (check_lease_until IS NULL OR check_lease_until < ?)
   `)
-    .bind(MAX_ATTEMPTS)
+    .bind(MAX_ATTEMPTS, now)
     .run();
 
   const due = await env.DB.prepare(`

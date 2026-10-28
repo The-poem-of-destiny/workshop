@@ -8,6 +8,9 @@ export function useDraftMetadataActions({
   busy,
   workingRevisionFrozen,
   setBusy,
+  rowVersion,
+  setRowVersion,
+  setSavedForm,
   onRefresh,
   onNotice,
   onError,
@@ -17,6 +20,9 @@ export function useDraftMetadataActions({
   busy: boolean;
   workingRevisionFrozen: boolean;
   setBusy: (value: boolean) => void;
+  rowVersion: number;
+  setRowVersion: (value: number) => void;
+  setSavedForm: (value: string) => void;
   onRefresh: () => Promise<void>;
   onNotice: (message: string) => void;
   onError: (message: string) => void;
@@ -25,7 +31,9 @@ export function useDraftMetadataActions({
     if (busy || workingRevisionFrozen) return;
     setBusy(true);
     try {
-      const result = await api.patchProject(entry.project.id, entry.rowVersion, metadataPayload(form));
+      const result = await api.patchProject(entry.project.id, rowVersion, metadataPayload(form));
+      setRowVersion(result.rowVersion);
+      setSavedForm(JSON.stringify(form));
       onNotice(`已保存（版本 ${result.rowVersion}）。`);
       await onRefresh();
     } catch (reason) {
@@ -39,7 +47,7 @@ export function useDraftMetadataActions({
     if (!window.confirm(`确定删除「${entry.project.title}」？此操作不可撤销。`)) return;
     setBusy(true);
     try {
-      await api.deleteProject(entry.project.id, entry.rowVersion);
+      await api.deleteProject(entry.project.id, rowVersion);
       onNotice("项目已删除。");
       await onRefresh();
     } catch (reason) {

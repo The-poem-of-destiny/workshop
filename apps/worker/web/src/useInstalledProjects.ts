@@ -10,7 +10,8 @@ export function useInstalledProjects(context: InstalledProjectsOptions) {
   const [installedFailed, setInstalledFailed] = useState<Record<string, true>>({});
   const [installedReload, setInstalledReload] = useState(0);
   const [installedLoading, setInstalledLoading] = useState(false);
-  const registryKey = JSON.stringify(context?.registry ?? {});
+  const instances = context?.installationScan?.instances ?? [];
+  const registryKey = JSON.stringify([...new Set(instances.map((instance) => instance.projectId))]);
   const installedRequest = useRef<{ active: boolean; generation: number } | null>(null);
   useEffect(() => {
     if (!context?.connected) {
@@ -19,7 +20,7 @@ export function useInstalledProjects(context: InstalledProjectsOptions) {
       setInstalledLoading(false);
       return;
     }
-    const ids = Object.keys(JSON.parse(registryKey) as HostContext["registry"]);
+    const ids = JSON.parse(registryKey) as string[];
     if (ids.length === 0) {
       setInstalledProjects({});
       setInstalledFailed({});
@@ -51,17 +52,16 @@ export function useInstalledProjects(context: InstalledProjectsOptions) {
       request.active = false;
     };
   }, [context?.connected, registryKey, installedReload]);
-  const installedItems: InstalledItem[] = Object.entries(context?.registry ?? {}).map(([id, record]) => ({
-    id,
-    record,
-    project: installedProjects[id],
-    failed: Boolean(installedFailed[id]),
+  const installedItems: InstalledItem[] = instances.map((instance) => ({
+    instance,
+    project: installedProjects[instance.projectId],
+    failed: Boolean(installedFailed[instance.projectId]),
   }));
   const installedPending = installedItems.some((item) => item.project === undefined && !item.failed);
   const installedUpdateCount = installedItems.filter(
     (item) =>
       !item.failed &&
-      Boolean(item.project?.publishedRevisionId && item.record.version !== item.project.publishedRevisionId),
+      Boolean(item.project?.publishedRevisionId && item.instance.version !== item.project.publishedRevisionId),
   ).length;
   function reloadInstalledProjects(): void {
     setInstalledReload((value) => value + 1);
