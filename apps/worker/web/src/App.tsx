@@ -67,7 +67,7 @@ export function App() {
     changePage,
     nextCursor,
   } = useCatalogue({ enabled: view === "browse", setError });
-  const { me, logout, login, loginFallback, refreshMe } = useWorkshopSession({
+  const { me, logout, login, loginFallback, refreshMe, sessionError } = useWorkshopSession({
     embedded,
     setError,
     setNotice,
@@ -209,6 +209,8 @@ export function App() {
             view={view}
             error={error}
             setError={setError}
+            sessionError={sessionError}
+            retrySession={() => void refreshMe()}
             loginFallback={loginFallback}
             notice={notice}
             setNotice={setNotice}

@@ -1,5 +1,5 @@
-import { Bookmark, ExternalLink, Heart, Star } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Bookmark, ExternalLink, Heart, RefreshCcw, Star } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { api, type ProjectSummary } from "../../api";
 
 type Interaction = { liked: boolean; subscribed: boolean; rating: number | null };
@@ -20,8 +20,16 @@ export function ProjectCommunity({
   onSubscriptionChange: (projectId: string, subscribed: boolean) => void;
 }) {
   const [interaction, setInteraction] = useState<Interaction | null>(null);
+  const [settledStatus, setInteractionStatus] = useState<"loading" | "ready" | "error" | "unavailable">("loading");
+  const [interactionReload, setInteractionReload] = useState(0);
+  const [completedReload, setCompletedReload] = useState(-1);
+  const interactionStatus = completedReload === interactionReload ? settledStatus : "loading";
   const [ratingDraft, setRatingDraft] = useState<number | null>(null);
   const [ratingComment, setRatingComment] = useState("");
+  const likePending = useRef(false);
+  const subscriptionPending = useRef(false);
+  const [likeSaving, setLikeSaving] = useState(false);
+  const [subscriptionSaving, setSubscriptionSaving] = useState(false);
   const [ratingSaving, setRatingSaving] = useState(false);
   const [ratingSaved, setRatingSaved] = useState(false);
   useEffect(() => {
@@ -34,19 +42,26 @@ export function ProjectCommunity({
     }
     let active = true;
     setInteraction(null);
+    setInteractionStatus("loading");
     api
       .meState([project.id])
       .then((result) => {
         if (!active) return;
         const item = result.items.find((value) => value.projectId === project.id);
         setInteraction(item ? { liked: item.liked, subscribed: item.subscribed, rating: item.rating } : null);
+        setInteractionStatus(item ? "ready" : "unavailable");
         setRatingComment(item?.comment ?? "");
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (active) setInteractionStatus("error");
+      })
+      .finally(() => {
+        if (active) setCompletedReload(interactionReload);
+      });
     return () => {
       active = false;
     };
-  }, [loggedIn, project.id]);
+  }, [loggedIn, project.id, interactionReload]);
   const currentRating = ratingDraft ?? interaction?.rating ?? null;
   const submitRating = (): void => {
     if (!loggedIn || interaction === null || currentRating === null || ratingSaving) return;
@@ -101,13 +116,16 @@ export function ProjectCommunity({
         ) : null}
         <button
           type="button"
-          disabled={loggedIn && interaction === null}
+          disabled={loggedIn && (interaction === null || likeSaving)}
           aria-pressed={loggedIn ? Boolean(interaction?.liked) : undefined}
           onClick={() => {
             if (!loggedIn) {
               onLogin();
               return;
             }
+            if (likePending.current) return;
+            likePending.current = true;
+            setLikeSaving(true);
             const next = !interaction?.liked;
             void api
               .setLike(project.id, next)
@@ -118,7 +136,11 @@ export function ProjectCommunity({
                   rating: value?.rating ?? null,
                 })),
               )
-              .catch((reason) => onError(String(reason)));
+              .catch((reason) => onError(String(reason)))
+              .finally(() => {
+                likePending.current = false;
+                setLikeSaving(false);
+              });
           }}
         >
           <Heart aria-hidden="true" fill={interaction?.liked ? "currentColor" : "none"} />
@@ -126,13 +148,16 @@ export function ProjectCommunity({
         </button>
         <button
           type="button"
-          disabled={loggedIn && interaction === null}
+          disabled={loggedIn && (interaction === null || subscriptionSaving)}
           aria-pressed={loggedIn ? Boolean(interaction?.subscribed) : undefined}
           onClick={() => {
             if (!loggedIn) {
               onLogin();
               return;
             }
+            if (subscriptionPending.current) return;
+            subscriptionPending.current = true;
+            setSubscriptionSaving(true);
             const next = !interaction?.subscribed;
             void api
               .setSubscription(project.id, next)
@@ -144,13 +169,32 @@ export function ProjectCommunity({
                 }));
                 onSubscriptionChange(project.id, next);
               })
-              .catch((reason) => onError(String(reason)));
+              .catch((reason) => onError(String(reason)))
+              .finally(() => {
+                subscriptionPending.current = false;
+                setSubscriptionSaving(false);
+              });
           }}
         >
           <Bookmark aria-hidden="true" fill={interaction?.subscribed ? "currentColor" : "none"} />
           <span>{interaction?.subscribed ? "已订阅" : "订阅"}</span>
         </button>
       </div>
+      {loggedIn && interactionStatus === "loading" ? (
+        <p className="hint" role="status">
+          正在加载互动状态…
+        </p>
+      ) : null}
+      {loggedIn && interactionStatus === "error" ? (
+        <div className="detail-state detail-state-error" role="alert">
+          <p>互动状态加载失败。</p>
+          <button type="button" onClick={() => setInteractionReload((value) => value + 1)}>
+            <RefreshCcw aria-hidden="true" />
+            重试
+          </button>
+        </div>
+      ) : null}
+      {loggedIn && interactionStatus === "unavailable" ? <p className="hint">此项目当前不可互动。</p> : null}
       <div className="rating-block">
         <h4>我的私有评分</h4>
         <p className="hint">评分与评论仅自己可见，不公开展示。</p>
@@ -178,7 +222,7 @@ export function ProjectCommunity({
         </fieldset>
         {!loggedIn ? (
           <p className="hint">登录后可评分。</p>
-        ) : (
+        ) : interactionStatus === "ready" ? (
           <>
             <p className="rating-summary">{currentRating === null ? "尚未评分" : `当前评分 ${currentRating} 星`}</p>
             <label className="rating-comment">
@@ -216,7 +260,7 @@ export function ProjectCommunity({
               </p>
             ) : null}
           </>
-        )}
+        ) : null}
       </div>
     </section>
   );

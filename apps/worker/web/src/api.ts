@@ -8,6 +8,7 @@ import type {
   AdminProjectList,
   AdminSubmissionDetail,
   AdminSubmissionListResponse,
+  AuthFlowResponse,
   AuthorProject,
   AuthorProjectListResponse,
   AuthorSubmission,
@@ -342,7 +343,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   createFlow: async (mode: "browser" | "device" = "browser") =>
-    requestJson<{ id: string; url: string; expiresAt: string; deviceCode?: string }>("/api/v1/auth/flows", {
+    requestJson<AuthFlowResponse>("/api/v1/auth/flows", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ mode }),
@@ -449,7 +450,8 @@ export const api = {
       body: JSON.stringify(body),
     }),
   logout: async () => {
-    await fetch("/api/v1/sessions/current", { method: "DELETE", headers: authHeaders() });
-    setSessionToken(null);
+    const generation = getSessionGeneration();
+    await requestJson<void>("/api/v1/sessions/current", { method: "DELETE" });
+    if (generation === getSessionGeneration()) setSessionToken(null);
   },
 };

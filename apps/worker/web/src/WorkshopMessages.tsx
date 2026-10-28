@@ -10,6 +10,8 @@ export function WorkshopMessages({
   view,
   error,
   setError,
+  sessionError,
+  retrySession,
   loginFallback,
   notice,
   setNotice,
@@ -18,6 +20,8 @@ export function WorkshopMessages({
   view: ReturnType<typeof useWorkshopNavigation>["view"];
   error: string | null;
   setError: (message: string | null) => void;
+  sessionError: boolean;
+  retrySession: () => void;
   loginFallback: ReturnType<typeof useWorkshopSession>["loginFallback"];
   notice: string | null;
   setNotice: (message: string | null) => void;
@@ -48,6 +52,14 @@ export function WorkshopMessages({
           {error}
           <button type="button" onClick={() => setError(null)} aria-label="关闭提示">
             ×
+          </button>
+        </p>
+      ) : null}
+      {sessionError ? (
+        <p className="error" role="alert">
+          无法恢复登录状态，请检查网络后重试。
+          <button type="button" onClick={retrySession}>
+            重试
           </button>
         </p>
       ) : null}

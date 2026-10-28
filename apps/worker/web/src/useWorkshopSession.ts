@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type MeResponse, setSessionToken } from "./api";
+import { ApiError, api, getSessionGeneration, type MeResponse, setSessionToken } from "./api";
 import type { WorkshopView } from "./useWorkshopNavigation";
 
 type Feedback = { setError: (message: string | null) => void; setNotice: (message: string | null) => void };
@@ -65,41 +65,50 @@ async function pollDeviceFlow(
 export function useWorkshopSession({ embedded, setError, setNotice, setView }: WorkshopSessionOptions) {
   const [me, setMe] = useState<MeResponse["user"] | null>(null);
   const [loginFallback, setLoginFallback] = useState<string | null>(null);
-  const deviceLogin = useRef<AbortController | null>(null);
+  const [sessionError, setSessionError] = useState(false);
+  const loginController = useRef<AbortController | null>(null);
   const devicePoll = useRef<Promise<void> | null>(null);
-  useEffect(() => () => deviceLogin.current?.abort(), []);
+  useEffect(() => () => loginController.current?.abort(), []);
   async function refreshMe(): Promise<void> {
     if (!api.hasSession()) return;
+    const generation = getSessionGeneration();
+    setSessionError(false);
     try {
       const value = await api.me();
-      setMe(value.user);
-    } catch {
-      setSessionToken(null);
-      setMe(null);
+      if (generation === getSessionGeneration()) setMe(value.user);
+    } catch (reason) {
+      if (generation !== getSessionGeneration()) return;
+      if (reason instanceof ApiError && reason.status === 401) {
+        setSessionToken(null);
+        setMe(null);
+      } else {
+        setSessionError(true);
+      }
     }
   }
   function login(): void {
-    deviceLogin.current?.abort();
-    const controller = embedded ? new AbortController() : null;
-    deviceLogin.current = controller;
+    loginController.current?.abort();
+    const controller = new AbortController();
+    loginController.current = controller;
     setError(null);
     setLoginFallback(null);
     const mode = embedded ? "device" : "browser";
     void api
       .createFlow(mode)
       .then(async (flow) => {
-        if (controller?.signal.aborted) return;
+        if (controller.signal.aborted) return;
         if (mode === "browser") {
           const onMessage = (event: MessageEvent): void => {
-            if (event.origin !== location.origin) return;
-            const data: { type?: unknown; token?: unknown } = event.data;
-            if (data.type !== "oauth-success" || typeof data.token !== "string") return;
+            if (event.origin !== location.origin || controller.signal.aborted) return;
+            const data: { type?: unknown; state?: unknown; token?: unknown } = event.data;
+            if (data.type !== "oauth-success" || data.state !== flow.state || typeof data.token !== "string") return;
+            controller.abort();
+            if (loginController.current === controller) loginController.current = null;
             setSessionToken(data.token);
             setLoginFallback(null);
-            window.removeEventListener("message", onMessage);
             void refreshMe();
           };
-          window.addEventListener("message", onMessage);
+          window.addEventListener("message", onMessage, { signal: controller.signal });
         }
         const popup = window.open(flow.url, "cw-discord-login", "width=520,height=720");
         if (!popup) {
@@ -107,7 +116,7 @@ export function useWorkshopSession({ embedded, setError, setNotice, setView }: W
           setNotice("请在打开的新页面完成 Discord 登录，本页会自动继续。");
         }
         if (mode !== "device" || !flow.deviceCode) return;
-        if (!controller) return;
+        if (controller.signal.aborted) return;
         const deviceCode = flow.deviceCode;
         const startedAt = Date.now();
         const deadline = startedAt + 10 * 60 * 1000;
@@ -146,19 +155,31 @@ export function useWorkshopSession({ embedded, setError, setNotice, setView }: W
           clearTimeout(timeout);
           controller.signal.removeEventListener("abort", clearDeadline);
           if (devicePoll.current === polling) devicePoll.current = null;
-          if (deviceLogin.current === controller) deviceLogin.current = null;
+          if (loginController.current === controller) loginController.current = null;
         }
       })
       .catch((reason) => {
-        if (!controller?.signal.aborted) setError(String(reason));
+        if (!controller.signal.aborted) setError(String(reason));
       });
   }
   function logout(): void {
-    deviceLogin.current?.abort();
-    void api.logout().finally(() => {
-      setMe(null);
-      setView("browse");
-    });
+    loginController.current?.abort();
+    setLoginFallback(null);
+    const generation = getSessionGeneration();
+    setError(null);
+    void api
+      .logout()
+      .then(() => {
+        if (generation !== getSessionGeneration() && api.hasSession()) return;
+        setMe(null);
+        setSessionError(false);
+        setView("browse");
+      })
+      .catch(() => {
+        if (generation === getSessionGeneration()) {
+          setError("退出登录失败，请检查网络后再次点击退出登录。");
+        }
+      });
   }
-  return { me, logout, login, loginFallback, refreshMe };
+  return { me, logout, login, loginFallback, refreshMe, sessionError };
 }
