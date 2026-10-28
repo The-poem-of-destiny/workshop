@@ -110,6 +110,52 @@ export function reconcile(expected, target) {
   return { ok: mismatches.length === 0, counts, mismatches };
 }
 
+export function sqlValue(value) {
+  if (value === null || value === undefined) return "NULL";
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "NULL";
+  if (typeof value === "boolean") return value ? "1" : "0";
+  return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+function sqlIdentifier(value) {
+  return `"${String(value).replaceAll('"', '""')}"`;
+}
+
+/** Additive INSERT statements for verified target rows. Never updates or deletes. */
+export function insertSql(table, rows, { columns, onConflict = "" } = {}) {
+  if (rows.length === 0) return "";
+  const ordered = columns ?? [...new Set(rows.flatMap((row) => Object.keys(row)))].sort();
+  const list = ordered.map(sqlIdentifier).join(", ");
+  const suffix = onConflict ? ` ON CONFLICT DO NOTHING` : "";
+  return rows
+    .map(
+      (row) =>
+        `INSERT INTO ${sqlIdentifier(table)} (${list}) VALUES (${ordered.map((column) => sqlValue(row[column])).join(", ")})${suffix};`,
+    )
+    .join("\n");
+}
+
+/** Deterministic additive SQL for a verified migration target. */
+export function migrationSql(target) {
+  const tables = target?.tables ?? {};
+  const order = ["users", "projects", "project_revisions", "assets", "revision_entry_index"];
+  const covered = ["projects", "assets", "revision_entry_index"].map(
+    (name) => `${name}=${(tables[name] ?? []).length}`,
+  );
+  const header = [
+    "-- Additive workshop staging import. Public users, published projects, current",
+    "-- revisions, retained assets, and complete entry indexes only.",
+    "-- No UPDATE, DELETE, REPLACE, or schema change; conflicts are left untouched.",
+    `-- Target: ${covered.join(" ")}`,
+    "PRAGMA foreign_keys = ON;",
+  ].join("\n");
+  const body = order
+    .map((name) => insertSql(name, tables[name] ?? [], { columns: undefined, onConflict: true }))
+    .filter(Boolean)
+    .join("\n");
+  return `${header}\n${body}\n`;
+}
+
 export async function writeJson(file, value) {
   await fs.mkdir(path.dirname(path.resolve(file)), { recursive: true });
   await fs.writeFile(file, `${stableStringify(value)}\n`, "utf8");

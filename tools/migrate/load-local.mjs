@@ -8,7 +8,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readJson } from "./lib.mjs";
+import { insertSql, readJson } from "./lib.mjs";
 import { verify } from "./validation.mjs";
 import { TABLES } from "./values.mjs";
 
@@ -31,29 +31,6 @@ function wrangler(args) {
   });
   if (result.status !== 0) throw new Error(`wrangler ${args.join(" ")} failed\n${result.stdout}\n${result.stderr}`);
   return result.stdout;
-}
-
-function sqlValue(value) {
-  if (value === null || value === undefined) return "NULL";
-  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "NULL";
-  if (typeof value === "boolean") return value ? "1" : "0";
-  return `'${String(value).replaceAll("'", "''")}'`;
-}
-
-function sqlIdentifier(value) {
-  return `"${String(value).replaceAll('"', '""')}"`;
-}
-
-function insertSql(table, rows) {
-  if (rows.length === 0) return "";
-  const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))];
-  const list = columns.map(sqlIdentifier).join(", ");
-  return rows
-    .map(
-      (row) =>
-        `INSERT INTO ${sqlIdentifier(table)} (${list}) VALUES (${columns.map((column) => sqlValue(row[column])).join(", ")});`,
-    )
-    .join("\n");
 }
 
 const targetPath = arg("target");

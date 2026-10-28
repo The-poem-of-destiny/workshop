@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { extract, transform } from "./lib.mjs";
+import { sealImportPackage } from "./import-package.mjs";
+import { extract, migrationSql, transform } from "./lib.mjs";
 import { buildManifest } from "./r2-copy.mjs";
 import { verify } from "./validation.mjs";
 import { stableStringify } from "./values.mjs";
@@ -187,6 +189,72 @@ try {
   const alteredIndex = structuredClone(first);
   alteredIndex.tables.revision_entry_index.pop();
   assert.equal(verify(alteredIndex).ok, false, "incomplete persisted entry indexes are rejected");
+
+  const packageDir = path.join(dir, "package");
+  const isolatedCwd = path.join(dir, "isolated");
+  await mkdir(packageDir);
+  await mkdir(isolatedCwd);
+  await writeFile(path.join(packageDir, "target.json"), JSON.stringify(first));
+  const manifest = buildManifest(first);
+  await writeFile(path.join(packageDir, "target.json.assets.json"), JSON.stringify(manifest));
+  const sourceAssets = (await extract(source)).tables.assets;
+  for (const object of manifest.objects) {
+    const file = path.join(packageDir, "r2-target", object.targetKey);
+    const original = sourceAssets.find((row) => row.r2_key === object.sourceKey);
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, Buffer.from(original.content_base64, "base64"));
+  }
+  const sqlFile = path.join(packageDir, "import.sql");
+  const approvedSql = migrationSql(first);
+  for (const altered of ["DELETE FROM projects;", `${approvedSql}\nDELETE FROM users;`, migrationSql(sharedTarget)]) {
+    await writeFile(sqlFile, altered);
+    assert.throws(() => sealImportPackage({ packageDir, isolatedCwd }), /does not exactly match/);
+  }
+  await writeFile(sqlFile, approvedSql);
+  const sealed = sealImportPackage({ packageDir, isolatedCwd });
+  await writeFile(sqlFile, "DELETE FROM users;");
+  await writeFile(path.join(packageDir, "target.json"), "{}");
+  const changedAsset = manifest.objects[0];
+  await writeFile(path.join(packageDir, "r2-target", changedAsset.targetKey), "changed after verification");
+  assert.equal(await readFile(sealed.sqlPath, "utf8"), approvedSql, "execution cannot reread mutable package SQL");
+  assert.equal(sealed.target.tables.projects[0].id, "public", "verification retains the parsed target snapshot");
+  assert.equal(
+    sha256(await readFile(path.join(sealed.sourceDir, changedAsset.targetKey))),
+    changedAsset.sha256,
+    "upload source is the verified asset snapshot, not the mutable package",
+  );
+  const execution = spawnSync(
+    "python3",
+    [
+      "-c",
+      `
+import json, sqlite3, sys
+target = json.loads(sys.stdin.read())
+db = sqlite3.connect(':memory:')
+for table, rows in target['tables'].items():
+    columns = sorted({key for row in rows for key in row})
+    if not columns:
+        continue
+    definitions = [json.dumps(key) + (' PRIMARY KEY' if key == 'id' else '') for key in columns]
+    db.execute('CREATE TABLE ' + json.dumps(table) + ' (' + ','.join(definitions) + ')')
+db.execute("INSERT INTO users (id, username, role) VALUES ('author', 'existing identity', 'owner')")
+db.execute("INSERT INTO projects (id, title) VALUES ('old-project', 'Do not change')")
+db.executescript(open(sys.argv[1]).read())
+assert db.execute("SELECT username, role FROM users WHERE id='author'").fetchone() == ('existing identity', 'owner')
+assert db.execute("SELECT title FROM projects WHERE id='old-project'").fetchone() == ('Do not change',)
+assert db.execute("SELECT title FROM projects WHERE id='public'").fetchone() == ('Published',)
+assert db.execute('SELECT count(*) FROM project_revisions').fetchone()[0] == 1
+assert db.execute('SELECT count(*) FROM assets').fetchone()[0] == 3
+`,
+      sealed.sqlPath,
+    ],
+    { input: JSON.stringify(first), encoding: "utf8" },
+  );
+  assert.equal(
+    execution.status,
+    0,
+    `approved SQL must insert imported data without changing existing state: ${execution.stderr}`,
+  );
 
   console.log("migration tests passed");
 } finally {
