@@ -1,4 +1,4 @@
-import { api } from "../../api";
+import { api, getSessionGeneration, subscribeSessionChange } from "../../api";
 import type { CheckFinding } from "./check-report";
 
 /** A single worldbook entry or regex script read from a frozen submission asset. */
@@ -112,24 +112,36 @@ export function parseSourceFile(kind: "worldbook" | "regex", json: unknown): Sou
 }
 
 const sourceCache = new Map<string, Promise<SourceFile>>();
+subscribeSessionChange(() => sourceCache.clear());
 
-/** Parsed submission source shared by the inline viewer and the Markdown export. */
+/** Frozen submission source shared within the current session; failures remain retryable. */
 export function loadSubmissionSource(submissionId: string, kind: "worldbook" | "regex"): Promise<SourceFile> {
-  const key = `${submissionId}:${kind}`;
+  const sessionGeneration = getSessionGeneration();
+  const key = `${sessionGeneration}:${submissionId}:${kind}`;
   const cached = sourceCache.get(key);
   if (cached) return cached;
   const request = api
     .adminFile(submissionId, kind)
     .then((blob) => blob.text())
-    .then((text) => parseSourceFile(kind, JSON.parse(text) as unknown))
-    .catch((value: unknown) => ({ kind, entries: [], error: String(value) }) satisfies SourceFile);
+    .then((text) => {
+      if (sessionGeneration !== getSessionGeneration() || sourceCache.get(key) !== request) {
+        throw new Error("审核会话或任务已变化，请重新加载。");
+      }
+      const file = parseSourceFile(kind, JSON.parse(text) as unknown);
+      if (file.error) sourceCache.delete(key);
+      return file;
+    })
+    .catch((value: unknown) => {
+      if (sourceCache.get(key) === request) sourceCache.delete(key);
+      return { kind, entries: [], error: String(value) } satisfies SourceFile;
+    });
   sourceCache.set(key, request);
   return request;
 }
 
 export function clearSubmissionSource(submissionId: string): void {
   for (const key of [...sourceCache.keys()]) {
-    if (key.startsWith(`${submissionId}:`)) sourceCache.delete(key);
+    if (key.startsWith(`${getSessionGeneration()}:${submissionId}:`)) sourceCache.delete(key);
   }
 }
 

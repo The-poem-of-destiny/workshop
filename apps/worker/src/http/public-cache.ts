@@ -16,10 +16,6 @@ const RANKING_PARAMETERS: Record<string, true> = { kind: true };
 const RANKING_KINDS: Record<string, true> = { daily: true, "7d": true, "30d": true };
 const NO_PARAMETERS: Record<string, never> = {};
 
-export interface PublicCacheProps {
-  publicEpoch: string;
-}
-
 export type PublicRequest =
   | { kind: "private" }
   | { kind: "invalid" }
@@ -88,7 +84,7 @@ function canonicalPublicUrl(request: Request): URL | null | undefined {
     pathname === "/api/v1/site" ||
     /^\/api\/v1\/projects\/[^/]+(?:\/entries)?$/.test(pathname) ||
     /^\/api\/v1\/reference-sets\/[^/]+$/.test(pathname) ||
-    /^\/api\/v1\/assets\/(?:covers|banners)\/.+/.test(pathname) ||
+    /^\/api\/v1\/public-assets\/(?:covers|gallery|banners)\/.+/.test(pathname) ||
     /^\/client\/checker\/v\/[a-f0-9]{8,64}\/(?:browser-checker\.js|upload-checker\.mjs|review-checker\.mjs|manifest\.json|NOTICES\.txt)$/.test(
       pathname,
     )
@@ -114,15 +110,4 @@ export function canonicalPublicRequest(request: Request): PublicRequest {
       method: request.method,
     }),
   };
-}
-
-export async function readPublicEpoch(db: D1Database): Promise<string | null> {
-  try {
-    const row = await db
-      .prepare("SELECT value FROM site_settings WHERE key = 'cache_epoch'")
-      .first<{ value: string }>();
-    return row?.value && /^\d+$/.test(row.value) ? row.value : null;
-  } catch {
-    return null;
-  }
 }

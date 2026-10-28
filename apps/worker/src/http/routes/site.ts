@@ -40,7 +40,7 @@ siteRoutes.post("/banner", async (c) => {
   await c.env.R2.put(key, body, { httpMetadata: { contentType: mime } });
   const current = await getBanner(c.env.DB);
   const banner = {
-    imageUrl: `/api/v1/assets/${key}`,
+    imageUrl: `/api/v1/public-assets/${key}`,
     positionX: current?.positionX ?? 50,
     positionY: current?.positionY ?? 50,
     zoom: current?.zoom ?? 1,

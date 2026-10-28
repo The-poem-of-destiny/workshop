@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useEffectEvent } from "react";
-import type { AdminSubmissionListItem, AdminSubmissionListResponse } from "../../api";
-import { api } from "../../api";
+import type { AdminSubmissionDetail, AdminSubmissionListItem, AdminSubmissionListResponse } from "../../api";
+import { api, getSessionGeneration } from "../../api";
 import type { useReviewSelection } from "./useReviewSelection";
 
 type QueueCheckStatus = AdminSubmissionListItem["checkStatus"];
@@ -14,7 +14,7 @@ function toQueueCheckStatus(value: string): QueueCheckStatus | null {
 }
 type ReviewPollingOptions = Pick<
   ReturnType<typeof useReviewSelection>,
-  "selectedId" | "selectedRef" | "setDetail" | "setDiff" | "cache"
+  "selectedId" | "selectedRef" | "setDetail" | "setDiff" | "invalidateDetail"
 > & {
   polling: boolean;
   setPolling: (value: boolean) => void;
@@ -30,7 +30,7 @@ export function useReviewPolling({
   selectedRef,
   setDetail,
   setDiff,
-  cache,
+  invalidateDetail,
   setItems,
   setCounts,
   setPolling,
@@ -42,20 +42,26 @@ export function useReviewPolling({
   const reportNotice = useEffectEvent((message: string) => onNotice(message));
   const reportError = useEffectEvent((message: string) => onError(message));
   const isSelected = useEffectEvent((id: string) => selectedRef.current === id);
-  const invalidateDetail = useEffectEvent((id: string) => cache.current.delete(id));
+  const invalidateFromEffect = useEffectEvent((id: string) => invalidateDetail(id));
   useEffect(() => {
     refreshFromEffect();
   }, []);
 
-  // Polls the open submission while its check is queued/running; never advances the queue.
+  // Check the open queued/running submission every 10s while visible, for at most 120s of wall time.
   useEffect(() => {
     if (!polling || !selectedId) return;
     const id = selectedId;
     let cancelled = false;
+    let stopped = false;
+    const sessionGeneration = getSessionGeneration();
+    let inFlight = false;
+    let resumePending = false;
+    const isCurrent = () => !cancelled && !stopped && sessionGeneration === getSessionGeneration() && isSelected(id);
     let timer: number | undefined;
     const startedAt = Date.now();
     const settle = (message: string, nextStatus?: QueueCheckStatus) => {
       if (cancelled) return;
+      stopped = true;
       setPolling(false);
       if (nextStatus) {
         const status = nextStatus;
@@ -68,17 +74,37 @@ export function useReviewPolling({
       }
       reportNotice(message);
     };
+    const refreshCompletedCheck = async (next: AdminSubmissionDetail) => {
+      setDiff(null);
+      try {
+        const nextDiff = await api.adminDiff(id);
+        if (!isCurrent()) return;
+        setDiff(nextDiff);
+      } catch {
+        // The diff refresh is best-effort; the report is the primary evidence.
+      }
+      if (!isCurrent()) return;
+      if (next.submission.status !== "pending") {
+        stopped = true;
+        setPolling(false);
+        reportNotice("这条提交已不在待审队列，报告已刷新。");
+        refreshFromEffect();
+        return;
+      }
+      settle("检查已完成，报告已刷新。", toQueueCheckStatus(next.submission.checkStatus) ?? undefined);
+    };
     const tick = async () => {
-      if (cancelled) return;
+      if (!isCurrent() || document.hidden || inFlight) return;
       if (Date.now() - startedAt > 120_000) {
         settle("检查仍未结束，请稍后手动刷新。");
         return;
       }
+      inFlight = true;
       try {
         const next = await api.adminSubmission(id);
-        if (cancelled || !isSelected(id)) return;
+        if (!isCurrent() || document.hidden) return;
         setDetail(next);
-        invalidateDetail(id);
+        invalidateFromEffect(id);
         setItems((previous) =>
           previous.map((item) =>
             item.id === id
@@ -87,33 +113,40 @@ export function useReviewPolling({
           ),
         );
         if (next.submission.checkStatus !== "queued" && next.submission.checkStatus !== "running") {
-          try {
-            const nextDiff = await api.adminDiff(id);
-            if (cancelled || !isSelected(id)) return;
-            setDiff(nextDiff);
-          } catch {
-            // The diff refresh is best-effort; the report is the primary evidence.
-          }
-          if (next.submission.status !== "pending") {
-            setPolling(false);
-            reportNotice("这条提交已不在待审队列，报告已刷新。");
-            refreshFromEffect();
-            return;
-          }
-          settle("检查已完成，报告已刷新。", toQueueCheckStatus(next.submission.checkStatus) ?? undefined);
+          await refreshCompletedCheck(next);
           return;
         }
-        timer = window.setTimeout(() => void tick(), 4000);
+        if (!document.hidden) timer = window.setTimeout(() => void tick(), 10_000);
       } catch (value) {
-        if (cancelled) return;
+        if (!isCurrent()) return;
+        stopped = true;
         setPolling(false);
         reportError(String(value));
+      } finally {
+        inFlight = false;
+        if (resumePending && isCurrent()) {
+          resumePending = false;
+          if (timer !== undefined) window.clearTimeout(timer);
+          void tick();
+        }
       }
     };
-    timer = window.setTimeout(() => void tick(), 4000);
+    const onVisibilityChange = () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      if (document.hidden) {
+        resumePending = false;
+      } else if (inFlight) {
+        resumePending = true;
+      } else {
+        void tick();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    if (!document.hidden) timer = window.setTimeout(() => void tick(), 10_000);
     return () => {
       cancelled = true;
       if (timer !== undefined) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [polling, selectedId, setPolling, setItems, setCounts, setDetail, setDiff]);
 }

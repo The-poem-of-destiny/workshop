@@ -28,7 +28,12 @@ export async function getBanner(db: D1Database): Promise<Banner> {
     .first<{ value: string }>();
   if (!row) return DEFAULT_BANNER;
   try {
-    return bannerSchema.parse(JSON.parse(row.value));
+    const banner = bannerSchema.parse(JSON.parse(row.value));
+    const pathname = banner.imageUrl?.startsWith("http") ? new URL(banner.imageUrl).pathname : banner.imageUrl;
+    if (pathname?.startsWith("/api/v1/assets/banners/")) {
+      banner.imageUrl = pathname.replace("/api/v1/assets/", "/api/v1/public-assets/");
+    }
+    return banner;
   } catch {
     return DEFAULT_BANNER;
   }

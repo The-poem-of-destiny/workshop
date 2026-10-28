@@ -190,7 +190,10 @@ async function main() {
       assert(first.response.status === 200 && Array.isArray(JSON.parse(first.body).items), "list shape");
       const second = await api("/api/v1/projects");
       assert(second.response.status === 200, `list status: ${second.response.status}`);
-      assert(second.response.headers.get("cache-control")?.includes("no-store"), "gateway private cache header");
+      assert(
+        second.response.headers.get("cache-control") === "public, max-age=300, stale-if-error=0",
+        "public list cache policy",
+      );
     });
 
     let project;

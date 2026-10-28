@@ -5,18 +5,23 @@ import type { InstalledItem } from "./features/installed/Installed";
 import type { HostContext } from "./useHostConnection";
 
 type InstalledProjectsOptions = HostContext | null;
-export function useInstalledProjects(context: InstalledProjectsOptions) {
+export function useInstalledProjects(context: InstalledProjectsOptions, enabled: boolean) {
   const [installedProjects, setInstalledProjects] = useState<Record<string, ProjectSummary | null | undefined>>({});
   const [installedFailed, setInstalledFailed] = useState<Record<string, true>>({});
   const [installedReload, setInstalledReload] = useState(0);
   const [installedLoading, setInstalledLoading] = useState(false);
+  const checkRequested = useRef(false);
   const instances = context?.installationScan?.instances ?? [];
-  const registryKey = JSON.stringify([...new Set(instances.map((instance) => instance.projectId))]);
+  const registryKey = JSON.stringify([...new Set(instances.map((instance) => instance.projectId))].sort());
   const installedRequest = useRef<{ active: boolean; generation: number } | null>(null);
   useEffect(() => {
     if (!context?.connected) {
       setInstalledProjects({});
       setInstalledFailed({});
+      setInstalledLoading(false);
+      return;
+    }
+    if (!enabled && !checkRequested.current) {
       setInstalledLoading(false);
       return;
     }
@@ -27,6 +32,7 @@ export function useInstalledProjects(context: InstalledProjectsOptions) {
       setInstalledLoading(false);
       return;
     }
+    checkRequested.current = false;
     const request = { active: true, generation: installedReload };
     installedRequest.current = request;
     setInstalledLoading(true);
@@ -51,19 +57,21 @@ export function useInstalledProjects(context: InstalledProjectsOptions) {
     return () => {
       request.active = false;
     };
-  }, [context?.connected, registryKey, installedReload]);
+  }, [context?.connected, enabled, registryKey, installedReload]);
   const installedItems: InstalledItem[] = instances.map((instance) => ({
     instance,
     project: installedProjects[instance.projectId],
     failed: Boolean(installedFailed[instance.projectId]),
   }));
   const installedPending = installedItems.some((item) => item.project === undefined && !item.failed);
-  const installedUpdateCount = installedItems.filter(
-    (item) =>
-      !item.failed &&
-      Boolean(item.project?.publishedRevisionId && item.instance.version !== item.project.publishedRevisionId),
-  ).length;
+  const installedUpdateCount =
+    installedPending || Object.keys(installedFailed).length > 0
+      ? null
+      : installedItems.filter((item) =>
+          Boolean(item.project?.publishedRevisionId && item.instance.version !== item.project.publishedRevisionId),
+        ).length;
   function reloadInstalledProjects(): void {
+    checkRequested.current = true;
     setInstalledReload((value) => value + 1);
   }
   return {

@@ -104,7 +104,7 @@ export function WorkshopSidebar({
           >
             <BookOpen aria-hidden="true" />
             已安装
-            {installedUpdateCount > 0 ? (
+            {installedUpdateCount !== null && installedUpdateCount > 0 ? (
               <>
                 <span className="nav-badge" aria-hidden="true">
                   {installedUpdateCount}

@@ -7,7 +7,7 @@ import {
 } from "@workshop/contracts";
 import { Hono } from "hono";
 import type { Env } from "../../env";
-import { getAuthFlowStatus, getMe, revokeSessionByToken, sha256Hex } from "../../storage/identity.js";
+import { getMe, revokeSessionByToken, sha256Hex } from "../../storage/identity.js";
 import {
   type AuthFlowRow,
   createOpaqueSession,
@@ -314,9 +314,25 @@ authRoutes.get("/flows/:id", async (c) => {
   if (!flow || (flow.mode !== "browser" && !(await bindingMatches(c, flow)))) {
     return jsonError(c, "not_found", "Auth flow not found");
   }
-  const status = await getAuthFlowStatus(c.env.DB, c.req.param("id"), deviceSecret);
-  if (!status) return jsonError(c, "not_found", "Auth flow not found");
-  return c.json(authFlowStatusSchema.parse(status));
+  if (
+    flow.mode === "device" &&
+    (!deviceSecret || !flow.redeem_hash || (await sha256Hex(deviceSecret)) !== flow.redeem_hash)
+  ) {
+    return jsonError(c, "not_found", "Auth flow not found");
+  }
+  const expired = flow.status === "pending" && Date.parse(flow.expires_at) <= Date.now();
+  if (expired) {
+    await c.env.DB.prepare("UPDATE oauth_flows SET status = 'expired' WHERE id = ? AND status = 'pending'")
+      .bind(flow.id)
+      .run();
+  }
+  return c.json(
+    authFlowStatusSchema.parse({
+      status: expired ? "expired" : flow.status,
+      expiresAt: flow.expires_at,
+      ...(flow.error ? { error: flow.error } : {}),
+    }),
+  );
 });
 
 authRoutes.post("/flows/:id/redeem", async (c) => {

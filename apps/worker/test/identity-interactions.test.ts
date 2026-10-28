@@ -156,14 +156,7 @@ describe("identity and interactions", () => {
   });
 
   it("applies idempotent likes and subscriptions and keeps ratings private", async () => {
-    const beforeEpoch = await bindings.DB.prepare("SELECT value FROM site_settings WHERE key = 'cache_epoch'").first<{
-      value: string;
-    }>();
     expect((await request("/api/v1/me/likes/p1", { method: "PUT" })).status).toBe(204);
-    const afterEpoch = await bindings.DB.prepare("SELECT value FROM site_settings WHERE key = 'cache_epoch'").first<{
-      value: string;
-    }>();
-    expect(afterEpoch?.value).toBe(beforeEpoch?.value);
     expect((await request("/api/v1/me/likes/p1", { method: "PUT" })).status).toBe(204);
     expect((await request("/api/v1/me/subscriptions/p1", { method: "PUT" })).status).toBe(204);
     expect((await request("/api/v1/me/subscriptions/p1", { method: "PUT" })).status).toBe(204);

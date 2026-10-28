@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
-import { api, type HomeResponse, type ProjectSummary } from "./api";
+import { api, type ProjectSummary, type SiteSettings } from "./api";
 import { InstallDialog } from "./features/installed/InstallDialog";
 import { ProjectDetail } from "./features/projects/ProjectDetail";
 import { InstallInstanceChoice } from "./InstallInstanceChoice";
@@ -16,7 +16,7 @@ import { WorkshopMessages } from "./WorkshopMessages";
 import { WorkshopSidebar } from "./WorkshopSidebar";
 import { WorkshopWorkspaces } from "./WorkshopWorkspaces";
 export function App() {
-  const [home, setHome] = useState<HomeResponse | null>(null);
+  const [site, setSite] = useState<SiteSettings | null>(null);
   const [selected, setSelected] = useState<ProjectSummary | null>(null);
   const [newlyCreatedProjectId, setNewlyCreatedProjectId] = useState<string | null>(null);
   const detailOpener = useRef<HTMLElement | null>(null);
@@ -66,7 +66,7 @@ export function App() {
     setPageSize,
     changePage,
     nextCursor,
-  } = useCatalogue({ setError });
+  } = useCatalogue({ enabled: view === "browse", setError });
   const { me, logout, login, loginFallback, refreshMe } = useWorkshopSession({
     embedded,
     setError,
@@ -95,7 +95,7 @@ export function App() {
     completeInstall,
   } = useHostConnection({ embedded, me, login, setError, setNotice });
   const { installedUpdateCount, installedItems, installedLoading, installedPending, reloadInstalledProjects } =
-    useInstalledProjects(context);
+    useInstalledProjects(context, view === "installed");
   const [avatarFailed, setAvatarFailed] = useState(false);
   const previousAvatar = useRef(me?.avatarUrl);
   useEffect(() => {
@@ -120,8 +120,8 @@ export function App() {
   const refreshSession = useEffectEvent(() => void refreshMe());
   useEffect(() => {
     api
-      .home()
-      .then(setHome)
+      .site()
+      .then(setSite)
       .catch((reason) => setError(String(reason)));
     refreshSession();
   }, []);
@@ -205,7 +205,7 @@ export function App() {
         />
         <main className="workshop-main" inert={isMobile && sidebarOpen}>
           <WorkshopMessages
-            home={home}
+            site={site}
             view={view}
             error={error}
             setError={setError}
@@ -273,6 +273,7 @@ export function App() {
           </WorkshopWorkspaces>
           {selected ? (
             <ProjectDetail
+              key={`${selected.id}:${me?.id ?? "anonymous"}:${me?.role ?? ""}`}
               project={selected}
               onClose={() => setSelected(null)}
               onInstall={install}

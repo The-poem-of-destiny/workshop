@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { getSessionGeneration, subscribeSessionChange } from "../../api";
 import { entryExcerpt, loadSubmissionSource, locateEntry, type SourceFile, type SourceTarget } from "./source-files";
 
 export function SourcePanel({
@@ -12,18 +13,19 @@ export function SourcePanel({
 }) {
   const [file, setFile] = useState<SourceFile | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const sessionGeneration = useSyncExternalStore(subscribeSessionChange, getSessionGeneration);
 
   useEffect(() => {
     let cancelled = false;
     setFile(null);
     setExpanded(false);
     void loadSubmissionSource(submissionId, kind).then((next) => {
-      if (!cancelled) setFile(next);
+      if (!cancelled && sessionGeneration === getSessionGeneration()) setFile(next);
     });
     return () => {
       cancelled = true;
     };
-  }, [submissionId, kind]);
+  }, [submissionId, kind, sessionGeneration]);
 
   if (!file) {
     return (

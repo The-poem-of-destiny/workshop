@@ -74,6 +74,17 @@ export type SiteBanner = Banner;
 export type AdminSubmissionListItem = AdminSubmissionListResponse["items"][number];
 
 const TOKEN_KEY = "cw_session_token";
+let sessionGeneration = 0;
+const sessionListeners = new Set<() => void>();
+export function getSessionGeneration(): number {
+  return sessionGeneration;
+}
+export function subscribeSessionChange(listener: () => void): () => void {
+  sessionListeners.add(listener);
+  return () => {
+    sessionListeners.delete(listener);
+  };
+}
 function token(): string | null {
   try {
     return sessionStorage.getItem(TOKEN_KEY);
@@ -82,11 +93,16 @@ function token(): string | null {
   }
 }
 export function setSessionToken(value: string | null): void {
+  const previous = token();
   try {
     if (value) sessionStorage.setItem(TOKEN_KEY, value);
     else sessionStorage.removeItem(TOKEN_KEY);
   } catch {
     /* sandboxed iframe */
+  }
+  if (previous !== token()) {
+    sessionGeneration += 1;
+    for (const listener of sessionListeners) listener();
   }
 }
 function authHeaders(): Record<string, string> {
@@ -108,10 +124,11 @@ export class ApiError extends Error {
   }
 }
 
-async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function requestJson<T>(path: string, init: RequestInit = {}, publicRead = false): Promise<T> {
   const response = await fetch(path, {
     ...init,
-    headers: { accept: "application/json", ...authHeaders(), ...(init.headers ?? {}) },
+    ...(publicRead ? { credentials: "omit" as const } : {}),
+    headers: { accept: "application/json", ...(publicRead ? {} : authHeaders()), ...(init.headers ?? {}) },
   });
   if (!response.ok) {
     let message = "";
@@ -139,9 +156,9 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
 export const api = {
   hasSession: () => Boolean(token()),
   me: () => requestJson<MeResponse>("/api/v1/me"),
-  home: () => requestJson<HomeResponse>("/api/v1/home"),
-  discovery: () => requestJson<DiscoveryResponse>("/api/v1/projects/discovery"),
-  project: (id: string) => requestJson<ProjectDetail>(`/api/v1/projects/${encodeURIComponent(id)}`),
+  home: () => requestJson<HomeResponse>("/api/v1/home", {}, true),
+  discovery: () => requestJson<DiscoveryResponse>("/api/v1/projects/discovery", {}, true),
+  project: (id: string) => requestJson<ProjectDetail>(`/api/v1/projects/${encodeURIComponent(id)}`, {}, true),
   projectPreview: (id: string, kind: ProjectPreviewKind) =>
     requestJson<ProjectPreview>(`/api/v1/projects/${encodeURIComponent(id)}/preview/${encodeURIComponent(kind)}`),
   projectGallery: (id: string) =>
@@ -183,7 +200,8 @@ export const api = {
     if (params.projectType) query.set("projectType", params.projectType);
     if (params.authorId) query.set("authorId", params.authorId);
     if (params.tag) query.set("tag", params.tag);
-    return requestJson<ProjectListResponse>(`/api/v1/projects?${query}`);
+    query.sort();
+    return requestJson<ProjectListResponse>(`/api/v1/projects?${query}`, {}, true);
   },
   myProjects: () => requestJson<AuthorProjectListResponse>("/api/v1/me/projects"),
   subscriptions: () => requestJson<{ items: ProjectSummary[] }>("/api/v1/me/subscriptions"),
@@ -196,7 +214,7 @@ export const api = {
       body: JSON.stringify({ rating, comment }),
     }),
   deleteRating: (id: string) => requestJson<null>(`/api/v1/me/ratings/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  recommendations: () => requestJson<{ items: Recommendation[] }>("/api/v1/recommendations"),
+  recommendations: () => requestJson<{ items: Recommendation[] }>("/api/v1/recommendations", {}, true),
   meState: (ids: string[]) =>
     requestJson<{
       items: {
@@ -382,7 +400,7 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ role }),
     }),
-  site: () => requestJson<SiteSettings>("/api/v1/site"),
+  site: () => requestJson<SiteSettings>("/api/v1/site", {}, true),
   uploadBanner: (file: File) =>
     requestJson<{ banner: SiteBanner }>("/api/v1/site/banner", {
       method: "POST",
@@ -408,7 +426,7 @@ export const api = {
     ),
   deleteRecommendation: (projectId: string) =>
     requestJson<void>(`/api/v1/admin/recommendations/${encodeURIComponent(projectId)}`, { method: "DELETE" }),
-  referenceSets: () => requestJson<{ items: ReferenceSet[] }>("/api/v1/reference-sets"),
+  referenceSets: () => requestJson<{ items: ReferenceSet[] }>("/api/v1/reference-sets", {}, true),
   createReferenceSet: (body: { name: string; versionLabel: string; description?: string | null }) =>
     requestJson<{ id: string; versionId: string }>("/api/v1/admin/reference-sets", {
       method: "POST",

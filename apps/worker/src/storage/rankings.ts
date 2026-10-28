@@ -119,22 +119,6 @@ export async function buildRankings(db: D1Database, referenceTime: Date | number
         );
       }
     }
-    finalize.push(
-      db
-        .prepare(`
-          INSERT INTO site_settings (key, value, updated_at)
-          SELECT 'cache_epoch', '1', ?
-          WHERE EXISTS (
-            SELECT 1 FROM ranking_runs
-            WHERE id = ? AND kind = ? AND bucket = ? AND status = 'complete'
-          )
-          ON CONFLICT(key) DO UPDATE SET
-            value = CAST(CAST(value AS INTEGER) + 1 AS TEXT),
-            updated_at = excluded.updated_at
-        `)
-        .bind(referenceIso, runId, kind, bucket),
-    );
-
     const results = await db.batch(finalize);
     if ((results[completedIndex]?.meta.changes ?? 0) === 0) {
       await db.prepare("DELETE FROM ranking_runs WHERE id = ? AND status = 'building'").bind(runId).run();

@@ -144,6 +144,19 @@ describe("OAuth flows", () => {
     const flow = (await created.json()) as { id: string; state: string; deviceCode: string };
     expect(flow.deviceCode).toEqual(expect.any(String));
     expect((await callback(flow.state)).status).toBe(200);
+    const wrongStatus = await app.request(
+      `/api/v1/auth/flows/${flow.id}?deviceCode=wrong-wrong-wrong-wrong`,
+      { headers: withBinding() },
+      bindings,
+    );
+    expect(wrongStatus.status).toBe(404);
+    const authorized = await app.request(
+      `/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`,
+      { headers: withBinding() },
+      bindings,
+    );
+    expect(authorized.status).toBe(200);
+    await expect(authorized.json()).resolves.toMatchObject({ status: "authorized" });
 
     const wrong = await app.request(
       `/api/v1/auth/flows/${flow.id}/redeem`,
@@ -178,7 +191,11 @@ describe("OAuth flows", () => {
       bindings,
     );
     expect(withoutCookie.status).toBe(400);
-    const status = await app.request(`/api/v1/auth/flows/${flow.id}`, undefined, bindings);
+    const status = await app.request(
+      `/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`,
+      undefined,
+      bindings,
+    );
     expect(status.status).toBe(404);
     const redeemed = await app.request(
       `/api/v1/auth/flows/${flow.id}/redeem`,
@@ -190,6 +207,33 @@ describe("OAuth flows", () => {
       bindings,
     );
     expect(redeemed.status).toBe(403);
+  });
+
+  it("expires pending device flows only after validating their reader", async () => {
+    const created = await createFlow({ mode: "device" });
+    const flow = (await created.json()) as { id: string; deviceCode: string };
+    await bindings.DB.prepare("UPDATE oauth_flows SET expires_at = ? WHERE id = ?")
+      .bind("2000-01-01T00:00:00.000Z", flow.id)
+      .run();
+    const denied = await app.request(
+      `/api/v1/auth/flows/${flow.id}?deviceCode=wrong-wrong-wrong-wrong`,
+      { headers: withBinding() },
+      bindings,
+    );
+    expect(denied.status).toBe(404);
+    await expect(
+      bindings.DB.prepare("SELECT status FROM oauth_flows WHERE id = ?").bind(flow.id).first(),
+    ).resolves.toMatchObject({ status: "pending" });
+    const expired = await app.request(
+      `/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`,
+      { headers: withBinding() },
+      bindings,
+    );
+    expect(expired.status).toBe(200);
+    await expect(expired.json()).resolves.toEqual({ status: "expired", expiresAt: "2000-01-01T00:00:00.000Z" });
+    await expect(
+      bindings.DB.prepare("SELECT status FROM oauth_flows WHERE id = ?").bind(flow.id).first(),
+    ).resolves.toMatchObject({ status: "expired" });
   });
 
   it("creates a browser session and rejects callback replay", async () => {
