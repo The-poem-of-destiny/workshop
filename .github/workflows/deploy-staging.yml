@@ -112,6 +112,7 @@ jobs:
             release/artifact.sha256
             release/artifact-manifest.json
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 30
 
   deploy:
