@@ -1,27 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type ProjectSummary } from "./api";
 import { useCatalogueFilters } from "./useCatalogueFilters";
-export function useCatalogue({ setError }: { setError: (message: string | null) => void }) {
+export function useCatalogue({ enabled, setError }: { enabled: boolean; setError: (message: string | null) => void }) {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
   const [period, setPeriod] = useState<"all" | "7d" | "30d" | "90d">("all");
-  const {
-    search,
-    sort,
-    projectType,
-    author,
-    tag,
-    setTag,
-    setSearch,
-    setProjectType,
-    clearFilters,
-    setAuthor,
-    setSort,
-    layout,
-    setLayout,
-    hasFilters,
-  } = useCatalogueFilters();
+  const filters = useCatalogueFilters();
+  const { search, sort, projectType, author, tag } = filters;
   const effectivePeriod = sort === "downloads" || sort === "likes" ? period : "all";
   const [pageSize, setPageSize] = useState(25);
   const [paging, setPaging] = useState<{ key: string; cursors: (string | undefined)[]; index: number }>({
@@ -46,6 +32,7 @@ export function useCatalogue({ setError }: { setError: (message: string | null) 
   const pageCursors = paging.key === queryKey ? paging.cursors : [undefined];
   const pageCursor = pageCursors[pageIndex];
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     const requestId = { retry: listRetry };
     listRequest.current = requestId;
@@ -85,7 +72,20 @@ export function useCatalogue({ setError }: { setError: (message: string | null) 
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [search, sort, effectivePeriod, projectType, author, tag, pageCursor, pageSize, queryKey, listRetry, setError]);
+  }, [
+    enabled,
+    search,
+    sort,
+    effectivePeriod,
+    projectType,
+    author,
+    tag,
+    pageCursor,
+    pageSize,
+    queryKey,
+    listRetry,
+    setError,
+  ]);
   function changePage(index: number): void {
     if (listLoading || index < 0 || Math.abs(index - pageIndex) !== 1) return;
     const cursors = [...pageCursors];
@@ -99,24 +99,11 @@ export function useCatalogue({ setError }: { setError: (message: string | null) 
   }
   const pageTags = [...new Set(projects.flatMap((project) => project.tags))].slice(0, 10);
   return {
+    ...filters,
     total,
     period,
     setPeriod,
-    setTag,
-    search,
-    setSearch,
-    projectType,
-    tag,
-    author,
-    setProjectType,
-    clearFilters,
     pageTags,
-    setAuthor,
-    sort,
-    setSort,
-    layout,
-    setLayout,
-    hasFilters,
     listLoading,
     loadedQuery,
     queryKey,

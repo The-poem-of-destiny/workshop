@@ -1,12 +1,12 @@
 import { X } from "lucide-react";
 
 import type { CSSProperties } from "react";
-import type { HomeResponse } from "./api";
+import type { SiteSettings } from "./api";
 import type { useWorkshopNavigation } from "./useWorkshopNavigation";
 import type { useWorkshopSession } from "./useWorkshopSession";
 
 export function WorkshopMessages({
-  home,
+  site: home,
   view,
   error,
   setError,
@@ -14,7 +14,7 @@ export function WorkshopMessages({
   notice,
   setNotice,
 }: {
-  home: HomeResponse | null;
+  site: SiteSettings | null;
   view: ReturnType<typeof useWorkshopNavigation>["view"];
   error: string | null;
   setError: (message: string | null) => void;

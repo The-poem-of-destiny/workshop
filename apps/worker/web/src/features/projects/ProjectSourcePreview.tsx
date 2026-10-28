@@ -26,6 +26,8 @@ export function ProjectSourcePreview({
   const [previewSearch, setPreviewSearch] = useState("");
   const [previewEntryKey, setPreviewEntryKey] = useState<string | null>(null);
   const [previewReading, setPreviewReading] = useState(false);
+  const [previewRequested, setPreviewRequested] = useState(false);
+  const previews = useRef<Partial<Record<PreviewKind, Promise<PreviewData>>>>({});
   const previewOpener = useRef<HTMLButtonElement | null>(null);
   const previewRequest = useRef<{ generation: number } | null>(null);
   useEffect(() => {
@@ -34,16 +36,29 @@ export function ProjectSourcePreview({
     previewRequest.current = request;
     setPreviewData(null);
     setPreviewError(null);
-    setPreviewLoading(true);
+    setPreviewLoading(false);
     setPreviewSearch("");
     setPreviewEntryKey(null);
     setPreviewReading(false);
-    if (!loggedIn) {
+    if (!loggedIn || !previewRequested) {
       setPreviewLoading(false);
       return;
     }
-    api
-      .projectPreview(project.id, previewKind)
+    setPreviewLoading(true);
+    let pending = previews.current[previewKind];
+    if (!pending) {
+      pending = api.projectPreview(project.id, previewKind).then((value) => {
+        if (project.publishedRevisionId && value.revisionId !== project.publishedRevisionId) {
+          throw new Error("项目版本已更新，请重新打开项目详情。");
+        }
+        return value;
+      });
+      previews.current[previewKind] = pending;
+      void pending.catch(() => {
+        if (previews.current[previewKind] === pending) delete previews.current[previewKind];
+      });
+    }
+    pending
       .then((value) => {
         if (!active || previewRequest.current !== request) return;
         setPreviewData(value);
@@ -58,7 +73,7 @@ export function ProjectSourcePreview({
     return () => {
       active = false;
     };
-  }, [previewKind, previewReload, project.id, loggedIn]);
+  }, [previewKind, previewReload, project.id, project.publishedRevisionId, loggedIn, previewRequested]);
   const previewEntries = (previewData?.entries ?? []).filter((entry) => {
     const query = previewSearch.trim().toLocaleLowerCase();
     return !query || `${entry.name} ${entry.key}`.toLocaleLowerCase().includes(query);
@@ -86,7 +101,10 @@ export function ProjectSourcePreview({
             role="tab"
             aria-selected={previewKind === kind}
             className={previewKind === kind ? "is-active" : ""}
-            onClick={() => setPreviewKind(kind)}
+            onClick={() => {
+              setPreviewKind(kind);
+              setPreviewRequested(Boolean(previews.current[kind]));
+            }}
           >
             {kind === "worldbook" ? `世界书（${project.entries.worldbook}）` : `正则（${project.entries.regex}）`}
           </button>
@@ -103,7 +121,12 @@ export function ProjectSourcePreview({
         </div>
       ) : null}
       {!loggedIn ? <p className="detail-state">登录后可打开完整内容阅读任务。</p> : null}
-      {loggedIn && !previewLoading && !previewError ? (
+      {loggedIn && !previewRequested ? (
+        <button type="button" onClick={() => setPreviewRequested(true)}>
+          打开{previewKind === "worldbook" ? "世界书" : "正则"}阅读
+        </button>
+      ) : null}
+      {loggedIn && previewRequested && !previewLoading && !previewError && previewData ? (
         <div className="preview-browser reader-directory-browser">
           <label className="preview-search">
             <span className="sr-only">搜索条目</span>

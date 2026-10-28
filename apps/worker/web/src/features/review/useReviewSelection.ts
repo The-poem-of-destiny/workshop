@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type { AdminSubmissionDetail, AdminSubmissionListItem, SubmissionDiff } from "../../api";
+import { getSessionGeneration, subscribeSessionChange } from "../../api";
 import { useReviewDetailCache } from "./useReviewDetailCache";
 
 type ReviewSelectionOptions = {
@@ -20,7 +21,7 @@ export function useReviewSelection({ items, visibleItems, setPolling, onError }:
   const selectedRef = useRef<string | null>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const taskScroll = useRef<HTMLDivElement | null>(null);
-  const { cache, inflight, loadDetail } = useReviewDetailCache();
+  const { cache, inflight, loadDetail, invalidateDetail } = useReviewDetailCache();
 
   function nextId(id: string): string | null {
     const index = items.findIndex((item) => item.id === id);
@@ -43,7 +44,10 @@ export function useReviewSelection({ items, visibleItems, setPolling, onError }:
     setDecision(null);
     setReason("");
   }
+  const clearSessionSelection = useEffectEvent(() => clearSelection());
+  useEffect(() => subscribeSessionChange(() => clearSessionSelection()), []);
   async function select(id: string): Promise<void> {
+    const sessionGeneration = getSessionGeneration();
     if (selectedRef.current === null)
       returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     taskScroll.current?.scrollTo({ top: 0 });
@@ -69,29 +73,32 @@ export function useReviewSelection({ items, visibleItems, setPolling, onError }:
     setDiff(null);
     try {
       const value = await loadDetail(id);
-      if (selectedRef.current !== id) return;
+      if (selectedRef.current !== id || sessionGeneration !== getSessionGeneration()) return;
       setDetail(value.detail);
       setDiff(value.diff);
       setPolling(value.detail.submission.checkStatus === "queued" || value.detail.submission.checkStatus === "running");
       prefetch(nextId(id));
     } catch (value) {
+      if (selectedRef.current !== id || sessionGeneration !== getSessionGeneration()) return;
       const message = String(value);
       setDetailError(message);
       onError(message);
     } finally {
-      if (selectedRef.current === id) setLoadingDetail(false);
+      if (selectedRef.current === id && sessionGeneration === getSessionGeneration()) setLoadingDetail(false);
     }
   }
   async function reloadSelection(id: string): Promise<AdminSubmissionDetail | null> {
-    cache.current.delete(id);
-    inflight.current.delete(id);
+    const sessionGeneration = getSessionGeneration();
+    invalidateDetail(id);
     try {
       const value = await loadDetail(id);
+      if (sessionGeneration !== getSessionGeneration()) return null;
       if (selectedRef.current !== id) return value.detail;
       setDetail(value.detail);
       setDiff(value.diff);
       return value.detail;
     } catch (value) {
+      if (sessionGeneration !== getSessionGeneration()) return null;
       onError(String(value));
       return null;
     }
@@ -111,6 +118,7 @@ export function useReviewSelection({ items, visibleItems, setPolling, onError }:
     setReason,
     setDecision,
     cache,
+    invalidateDetail,
     setDetail,
     detail,
     setDiff,

@@ -288,7 +288,14 @@ export function ProjectDetail({
                   <Markdown text={detail.precautions} />
                 </section>
               ) : null}
-              <ProjectSourcePreview project={project} versionLabel={versionLabel} loggedIn={loggedIn} />
+              {detail ? (
+                <ProjectSourcePreview
+                  key={`${detail.id}:${detail.publishedRevisionId ?? ""}`}
+                  project={detail}
+                  versionLabel={versionLabel}
+                  loggedIn={loggedIn}
+                />
+              ) : null}
             </section>
           </div>
         </div>

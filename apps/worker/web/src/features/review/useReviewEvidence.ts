@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { api } from "../../api";
+import { api, getSessionGeneration } from "../../api";
 
 import { buildReviewMarkdown, reviewMarkdownFileName, saveReviewMarkdown } from "./export-markdown";
 import { loadSubmissionSource } from "./source-files";
@@ -26,12 +26,14 @@ export function useReviewEvidence({
   const [downloadKind, setDownloadKind] = useState<EvidenceKind | null>(null);
   async function exportMarkdown(): Promise<void> {
     if (!detail || !selectedId) return;
+    const sessionGeneration = getSessionGeneration();
     setExporting(true);
     try {
       const sources = await Promise.all([
         loadSubmissionSource(selectedId, "worldbook"),
         loadSubmissionSource(selectedId, "regex"),
       ]);
+      if (sessionGeneration !== getSessionGeneration()) return;
       const markdown = buildReviewMarkdown({ detail, report, diff, sources, reason: trimmedReason });
       const copied = await saveReviewMarkdown(markdown, reviewMarkdownFileName(detail));
       onNotice(
@@ -48,9 +50,11 @@ export function useReviewEvidence({
 
   async function download(kind: EvidenceKind): Promise<void> {
     if (!selectedId) return;
+    const sessionGeneration = getSessionGeneration();
     setDownloadKind(kind);
     try {
       const blob = await api.adminFile(selectedId, kind);
+      if (sessionGeneration !== getSessionGeneration()) return;
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;

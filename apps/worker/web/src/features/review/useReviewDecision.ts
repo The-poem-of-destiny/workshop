@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { ApiError, api } from "../../api";
+import { ApiError, api, getSessionGeneration } from "../../api";
 import { isBlockingFinding, parseCheckReport } from "./check-report";
 import { clearSubmissionSource } from "./source-files";
 import type { useReviewQueue } from "./useReviewQueue";
@@ -14,8 +14,8 @@ type ReviewDecisionOptions = Pick<
   | "setDecision"
   | "selectedId"
   | "setBusy"
-  | "cache"
-  | "inflight"
+  | "invalidateDetail"
+  | "setDiff"
   | "setCounts"
   | "advance"
   | "reloadSelection"
@@ -34,8 +34,8 @@ export function useReviewDecision({
   setDecision,
   selectedId,
   setBusy,
-  cache,
-  inflight,
+  invalidateDetail,
+  setDiff,
   setCounts,
   advance,
   reloadSelection,
@@ -83,6 +83,7 @@ export function useReviewDecision({
     if (!decision || !detail || !selectedId) return;
     const currentDecision = decision;
     const currentId = selectedId;
+    const sessionGeneration = getSessionGeneration();
     if (currentDecision === "reject" && !trimmedReason) {
       onError("拒绝审核必须填写理由。");
       return;
@@ -100,12 +101,12 @@ export function useReviewDecision({
         manifestHash: detail.revision.manifestHash ?? undefined,
         reportHash: detail.submission.checkReportHash ?? undefined,
       });
+      if (sessionGeneration !== getSessionGeneration()) return;
       setDecision(null);
       setReason("");
       onNotice(currentDecision === "approve" ? "已通过审核。" : "已拒绝审核。");
       clearSubmissionSource(currentId);
-      cache.current.delete(currentId);
-      inflight.current.delete(currentId);
+      invalidateDetail(currentId);
       setCounts((previous) => {
         if (!previous) return previous;
         const decremented = Math.max(0, previous.pending - 1);
@@ -115,6 +116,7 @@ export function useReviewDecision({
       });
       advance(currentId);
     } catch (value) {
+      if (sessionGeneration !== getSessionGeneration()) return;
       if (value instanceof ApiError && value.status === 409) {
         setDecision(null);
         setReason("");
@@ -137,7 +139,8 @@ export function useReviewDecision({
     selectedId,
     setBusy,
     setCounts,
-    cache,
+    invalidateDetail,
+    setDiff,
     setDetail,
     setItems,
     setPolling,

@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AdminSubmissionListItem, AdminSubmissionListResponse } from "../../api";
-import { api } from "../../api";
+import { api, getSessionGeneration, subscribeSessionChange } from "../../api";
 import { useReviewPolling } from "./useReviewPolling";
 import { useReviewSelection } from "./useReviewSelection";
 
@@ -26,32 +26,49 @@ export function useReviewQueue({ onError, onNotice }: ReviewQueueOptions) {
     );
   }, [items, query]);
   const selection = useReviewSelection({ items, visibleItems, setPolling, onError });
-  const { selectedRef, clearSelection, select, selectedId, setDetail, setDiff, cache } = selection;
+  const { selectedRef, clearSelection, select, selectedId, setDetail, setDiff, invalidateDetail } = selection;
   const position = selectedId ? visibleItems.findIndex((item) => item.id === selectedId) + 1 : 0;
+  useEffect(
+    () =>
+      subscribeSessionChange(() => {
+        setItems([]);
+        setCounts(null);
+        setNextCursor(null);
+        setQueueError(null);
+        setLoadingQueue(false);
+        setLoadingMore(false);
+      }),
+    [],
+  );
 
   async function refresh(): Promise<void> {
+    const sessionGeneration = getSessionGeneration();
     setLoadingQueue(true);
     setQueueError(null);
     try {
       const result = await api.adminSubmissions("pending");
+      if (sessionGeneration !== getSessionGeneration()) return;
       setItems(result.items);
       setCounts(result.counts);
       setNextCursor(result.nextCursor);
       if (selectedRef.current && !result.items.some((item) => item.id === selectedRef.current)) clearSelection();
     } catch (value) {
+      if (sessionGeneration !== getSessionGeneration()) return;
       const message = String(value);
       setQueueError(message);
       onError(message);
     } finally {
-      setLoadingQueue(false);
+      if (sessionGeneration === getSessionGeneration()) setLoadingQueue(false);
     }
   }
 
   async function loadMore(): Promise<void> {
     if (!nextCursor || loadingMore) return;
+    const sessionGeneration = getSessionGeneration();
     setLoadingMore(true);
     try {
       const result = await api.adminSubmissions("pending", nextCursor);
+      if (sessionGeneration !== getSessionGeneration()) return;
       setItems((previous) => {
         const seen = new Set(previous.map((item) => item.id));
         return [...previous, ...result.items.filter((item) => !seen.has(item.id))];
@@ -59,9 +76,10 @@ export function useReviewQueue({ onError, onNotice }: ReviewQueueOptions) {
       setCounts(result.counts);
       setNextCursor(result.nextCursor);
     } catch (value) {
+      if (sessionGeneration !== getSessionGeneration()) return;
       onError(String(value));
     } finally {
-      setLoadingMore(false);
+      if (sessionGeneration === getSessionGeneration()) setLoadingMore(false);
     }
   }
 
@@ -82,7 +100,7 @@ export function useReviewQueue({ onError, onNotice }: ReviewQueueOptions) {
     selectedRef,
     setDetail,
     setDiff,
-    cache,
+    invalidateDetail,
     setItems,
     setCounts,
     setPolling,
