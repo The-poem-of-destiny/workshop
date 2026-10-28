@@ -8,6 +8,7 @@ import { authRoutes, sessionRoutes } from "./http/routes/auth";
 import { authoringRoutes } from "./http/routes/authoring";
 import { clientRoutes } from "./http/routes/client";
 import { clientApiRoutes } from "./http/routes/client-api";
+import { companionRoutes } from "./http/routes/companion";
 import { downloadRoutes } from "./http/routes/downloads";
 import { homeRoutes } from "./http/routes/home";
 import { meRoutes } from "./http/routes/me";
@@ -80,6 +81,7 @@ app.route("/api/v1/home", homeRoutes);
 app.route("/api/v1/recommendations", recommendationRoutes);
 app.route("/api/v1/reference-sets", referenceRoutes);
 app.route("/api/v1/site", siteRoutes);
+app.route("/api/v1/companion-scripts", companionRoutes);
 
 app.get("/test-dist/CreativeWorkshop/index.js", (c) => {
   const origin = (c.env.PUBLIC_ORIGIN ?? new URL(c.req.url).origin).replace(/\/+$/, "");
