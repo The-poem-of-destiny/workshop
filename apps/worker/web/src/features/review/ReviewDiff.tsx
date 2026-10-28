@@ -47,7 +47,7 @@ export function ReviewDiff({ diff }: { diff: ReturnType<typeof useReviewQueue>["
       <div className="review-section-heading">
         <div>
           <h3>变更证据</h3>
-          <p>当前 revision 与上一版本的完整差异。</p>
+          <p>与本次提交冻结的公开基线比较；不会采用之后的新提交。</p>
         </div>
         {diff ? (
           <span className="review-diff-total">
@@ -57,9 +57,17 @@ export function ReviewDiff({ diff }: { diff: ReturnType<typeof useReviewQueue>["
       </div>
       {diff ? (
         <>
+          <p className="review-baseline">
+            内容基线：{diff.previousRevisionId ?? "无（首次提交）"} → {diff.revisionId}
+            <br />
+            finding 基线：
+            {diff.findingBaseline.available
+              ? `${diff.findingBaseline.revisionId} · 审核提交 ${diff.findingBaseline.submissionId}`
+              : "无可用基线报告；以下新增仅表示本次报告包含，不表示新引入问题"}
+          </p>
           <div className="review-finding-summary">
             <span>
-              保留 <b>{diff.findings.accepted.length}</b>
+              未变 <b>{diff.findings.accepted.length}</b>
             </span>
             <span>
               变更 <b>{diff.findings.changed.length}</b>
@@ -117,7 +125,7 @@ export function ReviewDiff({ diff }: { diff: ReturnType<typeof useReviewQueue>["
               <details key={group}>
                 <summary>
                   {group === "accepted"
-                    ? "已接受规则"
+                    ? "与基线一致的发现（不代表已认可）"
                     : group === "changed"
                       ? "规则有变化"
                       : group === "added"

@@ -290,8 +290,7 @@ function parseBlocks(source: string): Block[] {
   return blocks;
 }
 
-function renderBlock(block: Block, index: number): ReactNode {
-  const key = `md-block-${index}`;
+function renderBlock(block: Block, key: string): ReactNode {
   switch (block.kind) {
     case "paragraph":
       return <p key={key}>{renderLines(block.lines, key)}</p>;
@@ -330,5 +329,9 @@ function renderBlock(block: Block, index: number): ReactNode {
 
 export function Markdown({ text, className }: { text: string; className?: string }) {
   const blocks = useMemo(() => parseBlocks(text), [text]);
-  return <div className={className ? `markdown ${className}` : "markdown"}>{blocks.map(renderBlock)}</div>;
+  return (
+    <div className={className ? `markdown ${className}` : "markdown"}>
+      {keyedItems(blocks).map(({ item: block, key }) => renderBlock(block, key))}
+    </div>
+  );
 }

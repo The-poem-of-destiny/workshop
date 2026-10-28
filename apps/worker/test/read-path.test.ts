@@ -1,4 +1,5 @@
 import { env } from "cloudflare:test";
+import { projectPreviewSchema } from "@workshop/contracts";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { app } from "../src/app";
 import type { Env } from "../src/env";
@@ -211,22 +212,182 @@ describe("public read path", () => {
     });
   });
 
-  it("serves only published public preview text", async () => {
+  it("serves only published public preview text to authenticated readers", async () => {
     await seed();
     await bindings.DB.prepare("UPDATE project_revisions SET entry_index_ready = 1 WHERE id = 'r1'").run();
     await bindings.R2.put(
       "projects/p1/revisions/r1/worldbook.json",
       JSON.stringify({ entries: [{ uid: 7, name: "Greeting", content: "<p>hello</p>" }] }),
     );
-    const response = await app.request("/api/v1/projects/p1/preview/worldbook", undefined, bindings);
+    const response = await app.request(
+      "/api/v1/projects/p1/preview/worldbook",
+      { headers: { authorization: "Bearer test-token" } },
+      bindings,
+    );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       revisionId: "r1",
       kind: "worldbook",
       entries: [{ key: "uid:7", name: "Greeting", content: "<p>hello</p>" }],
     });
-    const privateResponse = await app.request("/api/v1/projects/p2/preview/worldbook", undefined, bindings);
+    const privateResponse = await app.request(
+      "/api/v1/projects/p2/preview/worldbook",
+      { headers: { authorization: "Bearer test-token" } },
+      bindings,
+    );
     expect(privateResponse.status).toBe(404);
+  });
+
+  it("returns only allowlisted behavior fields without inventing source defaults", async () => {
+    await seed();
+    await bindings.DB.prepare("UPDATE project_revisions SET entry_index_ready = 1 WHERE id = 'r1'").run();
+    await bindings.R2.put(
+      "projects/p1/revisions/r1/worldbook.json",
+      JSON.stringify({
+        entries: [
+          {
+            uid: 1,
+            key: ["legacy", 7],
+            keysecondary: ["secondary"],
+            constant: false,
+            selective: true,
+            selectiveLogic: 2,
+            position: 4,
+            order: 12,
+            depth: 3,
+            disable: true,
+            content: "plain",
+            arbitraryCode: "never expose",
+          },
+          {
+            uid: 2,
+            strategy: { type: "selective", keys: ["helper"], keys_secondary: { keys: ["other"], logic: "and_all" } },
+            position: { type: "at_depth", role: "user", order: 9, depth: 2 },
+            enabled: true,
+          },
+          { uid: 3 },
+        ],
+      }),
+    );
+    const response = await app.request(
+      "/api/v1/projects/p1/preview/worldbook",
+      { headers: { authorization: "Bearer test-token" } },
+      bindings,
+    );
+    expect(response.status).toBe(200);
+    const body = projectPreviewSchema.parse(await response.json());
+    expect(body.entries[0]?.behavior).toEqual({
+      kind: "worldbook",
+      keys: ["legacy"],
+      secondaryKeys: ["secondary"],
+      strategy: null,
+      constant: false,
+      selective: true,
+      selectiveLogic: 2,
+      position: 4,
+      role: null,
+      outletName: null,
+      order: 12,
+      depth: 3,
+      enabled: false,
+    });
+    expect(body.entries[1]?.behavior).toMatchObject({
+      keys: ["helper"],
+      secondaryKeys: ["other"],
+      strategy: "selective",
+      selectiveLogic: "and_all",
+      position: "at_depth",
+      role: "user",
+      order: 9,
+      depth: 2,
+      enabled: true,
+    });
+    expect(body.entries[2]?.behavior).toMatchObject({
+      position: null,
+      order: null,
+      depth: null,
+      enabled: null,
+      strategy: null,
+    });
+    expect(JSON.stringify(body)).not.toContain("arbitraryCode");
+    expect(
+      projectPreviewSchema.safeParse({
+        revisionId: "old",
+        kind: "worldbook",
+        entries: [{ key: "old", name: "Old", content: "text" }],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("keeps regex patterns and replacement code as display text", async () => {
+    await seed();
+    await bindings.DB.prepare(
+      "UPDATE project_revisions SET entry_index_ready = 1, regex_count = 1 WHERE id = 'r1'",
+    ).run();
+    await bindings.DB.prepare(`INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
+      VALUES ('regex1', 'p1', 'r1', 'regex', 'projects/p1/revisions/r1/regex.json', ?, 20, 'application/json', ?)`)
+      .bind("4".repeat(64), now)
+      .run();
+    const source = "<script>throw new Error('must not run')</script>😀";
+    await bindings.R2.put(
+      "projects/p1/revisions/r1/regex.json",
+      JSON.stringify([
+        {
+          id: "regex1",
+          scriptName: "Display",
+          findRegex: "[invalid(",
+          disabled: true,
+          replaceString: source,
+          arbitraryCode: "never expose",
+        },
+      ]),
+    );
+    const response = await app.request(
+      "/api/v1/projects/p1/preview/regex",
+      { headers: { authorization: "Bearer test-token" } },
+      bindings,
+    );
+    expect(response.status).toBe(200);
+    const body = projectPreviewSchema.parse(await response.json());
+    expect(body.entries).toHaveLength(1);
+    expect(body.entries[0]).toMatchObject({
+      content: source,
+      behavior: {
+        kind: "regex",
+        scriptName: "Display",
+        findRegex: "[invalid(",
+        disabled: true,
+        replacementLength: Array.from(source).length,
+      },
+    });
+    expect(JSON.stringify(body)).not.toContain("arbitraryCode");
+  });
+
+  it("returns empty previews for absent zero-count content but not missing expected assets", async () => {
+    await seed();
+    await bindings.DB.prepare(
+      "UPDATE project_revisions SET entry_index_ready = 1, regex_count = 0 WHERE id = 'r1'",
+    ).run();
+    const empty = await app.request(
+      "/api/v1/projects/p1/preview/regex",
+      { headers: { authorization: "Bearer test-token" } },
+      bindings,
+    );
+    expect(empty.status).toBe(200);
+    await expect(empty.json()).resolves.toEqual({ revisionId: "r1", kind: "regex", entries: [] });
+    await bindings.DB.prepare("UPDATE project_revisions SET regex_count = 1 WHERE id = 'r1'").run();
+    const missing = await app.request(
+      "/api/v1/projects/p1/preview/regex",
+      { headers: { authorization: "Bearer test-token" } },
+      bindings,
+    );
+    expect(missing.status).toBe(404);
+    const hidden = await app.request(
+      "/api/v1/projects/p2/preview/regex",
+      { headers: { authorization: "Bearer test-token" } },
+      bindings,
+    );
+    expect(hidden.status).toBe(404);
   });
 
   it("filters by author id and returns an empty page for others", async () => {

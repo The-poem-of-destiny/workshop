@@ -10,6 +10,9 @@ import { SORTS } from "./useCatalogueFilters";
 
 export function WorkshopCatalogue({
   hasFilters,
+  total,
+  period,
+  setPeriod,
   search,
   setSearch,
   projectType,
@@ -36,6 +39,9 @@ export function WorkshopCatalogue({
   changePage,
   nextCursor,
 }: {
+  total: number;
+  period: "all" | "7d" | "30d" | "90d";
+  setPeriod: (period: "all" | "7d" | "30d" | "90d") => void;
   hasFilters: ReturnType<typeof useCatalogue>["hasFilters"];
   search: ReturnType<typeof useCatalogue>["search"];
   setSearch: ReturnType<typeof useCatalogue>["setSearch"];
@@ -118,6 +124,18 @@ export function WorkshopCatalogue({
             </button>
           ))}
         </nav>
+        {sort === "downloads" || sort === "likes" ? (
+          <select
+            aria-label="统计周期"
+            value={period}
+            onChange={(event) => setPeriod(event.target.value as typeof period)}
+          >
+            <option value="all">全部时间</option>
+            <option value="7d">最近 7 天</option>
+            <option value="30d">最近 30 天</option>
+            <option value="90d">最近 90 天</option>
+          </select>
+        ) : null}
         <fieldset className="layout-switch" aria-label="浏览布局">
           {(["cards", "list"] as const).map((mode) => (
             <button
@@ -139,8 +157,8 @@ export function WorkshopCatalogue({
           : loadedQuery !== queryKey
             ? "加载失败"
             : projects.length === 0
-              ? ""
-              : `第 ${pageIndex * pageSize + 1}–${pageIndex * pageSize + projects.length} 条 · 第 ${pageIndex + 1} 页`}
+              ? `共 ${total} 个项目`
+              : `共 ${total} 个项目，当前显示 ${pageIndex * pageSize + 1}–${pageIndex * pageSize + projects.length} · 第 ${pageIndex + 1} 页`}
       </p>
       {!listLoading && loadedQuery !== queryKey ? (
         <button type="button" onClick={() => setListRetry((value) => value + 1)}>

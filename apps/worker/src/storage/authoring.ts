@@ -136,6 +136,7 @@ interface AuthorProjectRow extends SummaryRow {
   submission_checker_revision: string | null;
   submission_submitted_at: string | null;
   submission_resolved_at: string | null;
+  submission_withdrawn_at: string | null;
   review_decision: "approve" | "reject" | null;
   review_reason: string | null;
   review_created_at: string | null;
@@ -156,6 +157,7 @@ function toAuthorSubmission(row: AuthorProjectRow): AuthorSubmission | null {
     checkerRevision: row.submission_checker_revision,
     submittedAt: row.submission_submitted_at,
     resolvedAt: row.submission_resolved_at,
+    withdrawnAt: row.submission_withdrawn_at,
     decision: row.review_decision,
     reason: row.review_reason,
     reviewedAt: row.review_created_at,
@@ -193,6 +195,7 @@ export async function listAuthorProjects(db: D1Database, session: Session): Prom
       s.id AS submission_id, s.revision_id AS submission_revision_id, s.status AS submission_status,
       s.client_gate AS submission_gate, s.client_checker_revision AS submission_checker_revision,
       s.submitted_at AS submission_submitted_at, s.resolved_at AS submission_resolved_at,
+      s.withdrawn_at AS submission_withdrawn_at,
       s.check_status AS submission_check_status, s.check_error AS submission_check_error,
       s.checked_at AS submission_checked_at,
       rv.decision AS review_decision, rv.reason AS review_reason, rv.created_at AS review_created_at
@@ -231,7 +234,7 @@ export async function listAuthorSubmissions(
   const result = await db
     .prepare(`
     SELECT s.id, s.revision_id, s.status, s.client_gate AS gate, s.client_checker_revision AS checker_revision, s.submitted_at, s.resolved_at,
-      s.check_status, s.check_error, s.checked_at,
+      s.check_status, s.check_error, s.checked_at, s.withdrawn_at,
       rv.decision, rv.reason, rv.created_at
     FROM submissions s LEFT JOIN reviews rv ON rv.submission_id = s.id
     WHERE s.project_id = ?
@@ -249,6 +252,7 @@ export async function listAuthorSubmissions(
       check_status: AuthorSubmission["checkStatus"];
       check_error: string | null;
       checked_at: string | null;
+      withdrawn_at: string | null;
       decision: "approve" | "reject" | null;
       reason: string | null;
       created_at: string | null;
@@ -267,6 +271,7 @@ export async function listAuthorSubmissions(
     checkStatus: row.check_status,
     checkError: row.check_error,
     checkedAt: row.checked_at,
+    withdrawnAt: row.withdrawn_at,
   }));
 }
 

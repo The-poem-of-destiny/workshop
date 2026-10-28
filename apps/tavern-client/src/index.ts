@@ -1,18 +1,15 @@
 /* SillyTavern script: Creative Workshop host, installer and bridge. */
-
-import {
-  type InstallFileSet,
-  type InstallProject,
-  readRegistry,
-  saveScriptVariables,
-  workshopOrigin,
-} from "./install-registry.js";
-import { installProject, scanInstallStates, uninstallProject } from "./installation.js";
+import type { InstallIntent } from "../../../packages/contracts/src/install.js";
+import { createInstallManager } from "./install.js";
+import type { RecordSet } from "./install-model.js";
+import { saveScriptVariables, scriptVariables, workshopOrigin } from "./install-registry.js";
 import { normalizeWorkshopOrigin } from "./lib.js";
+import { characterRegexHost } from "./regex-host.js";
 
 const CLIENT_VERSION = __CW_CLIENT_VERSION__;
 const DEFAULT_ORIGIN = __CW_DEFAULT_ORIGIN__;
 const ORIGIN_VARIABLE = "cw_worker_origin";
+
 const BUTTON_ID = "cw-open-button";
 const OVERLAY_ID = "cw-overlay";
 const AGREEMENT_KEY = "cw_agreement_accepted";
@@ -28,25 +25,44 @@ const SCRIPT_CHANNEL: "stable" | "staging" = (() => {
   }
 })();
 
-async function contextPayload() {
-  try {
+const installations = createInstallManager({
+  character() {
+    const context = SillyTavern.getContext();
+    return context.characters?.[context.characterId]?.avatar ?? null;
+  },
+  names: () => getWorldbookNames(),
+  bindings: () => getCharWorldbookNames("current"),
+  book: (name) => getWorldbook(name),
+  ...characterRegexHost(getTavernRegexes, updateTavernRegexesWith),
+  updateBook: (name, update) => updateWorldbookWith(name, update),
+  createBook: (name) => createWorldbook(name, []),
+  async bind(name) {
     const bindings = getCharWorldbookNames("current");
-    const registry = readRegistry();
-    return {
-      connected: true,
-      characterName: typeof SillyTavern !== "undefined" ? (SillyTavern.getCurrentCharacterName?.() ?? null) : null,
-      worldbooks: {
-        primary: bindings.primary,
-        additional: bindings.additional || [],
-        available: getWorldbookNames(),
-      },
-      registry,
-      installStates: await scanInstallStates(registry),
-      clientVersion: CLIENT_VERSION,
-    };
-  } catch {
-    return { connected: false, error: "无法读取 SillyTavern 上下文" };
-  }
+    if (bindings.primary !== name && !bindings.additional.includes(name)) {
+      await rebindCharWorldbooks("current", { primary: bindings.primary, additional: [...bindings.additional, name] });
+    }
+  },
+  records: () => (scriptVariables().cw_install_instances as Record<string, RecordSet>) ?? {},
+  saveRecords: (records) =>
+    saveScriptVariables((variables) => {
+      variables.cw_install_instances = JSON.parse(
+        JSON.stringify(records, (_key, value) =>
+          value instanceof RegExp ? { $regexp: value.source, flags: value.flags } : value,
+        ),
+      );
+    }),
+  uuid: () => crypto.randomUUID(),
+});
+
+async function contextPayload() {
+  const bindings = getCharWorldbookNames("current");
+  return {
+    connected: true,
+    characterName: SillyTavern.getCurrentCharacterName?.() ?? null,
+    worldbooks: { primary: bindings.primary, additional: bindings.additional || [], available: getWorldbookNames() },
+    installationScan: await installations.scan(),
+    clientVersion: CLIENT_VERSION,
+  };
 }
 
 function send(payload: Record<string, unknown>) {
@@ -169,10 +185,9 @@ function showOverlay() {
 function onMessage(
   event: MessageEvent<{
     type?: string;
-    project?: InstallProject;
-    files?: InstallFileSet;
-    projectId?: unknown;
-    targetWorldbook?: unknown;
+    intent: InstallIntent;
+    previewId?: string;
+    requestId?: string;
   } | null>,
 ) {
   if (!activeFrame || event.source !== activeFrame.contentWindow) return;
@@ -191,29 +206,25 @@ function onMessage(
     activeFrame = null;
     return;
   }
-  if (data.type === "cw:scan") {
-    const registry = readRegistry();
-    void scanInstallStates(registry)
-      .then((installStates) => send({ type: "cw:scan-result", ok: true, registry, installStates }))
-      .catch((error) => send({ type: "cw:scan-result", ok: false, message: String(error?.message ?? error) }));
-    return;
-  }
-  if (data.type === "cw:uninstall") {
-    void uninstallProject(String(data.projectId ?? ""))
-      .then((result) => send({ type: "cw:uninstall-result", ok: true, projectId: data.projectId, ...result }))
-      .catch((error) => send({ type: "cw:uninstall-result", ok: false, message: String(error?.message ?? error) }));
-    return;
-  }
-  if (data.type === "cw:install") {
-    const project = data.project;
-    const files = data.files;
-    if (!project || !files || (typeof files.worldbook !== "string" && typeof files.regex !== "string")) {
-      send({ type: "cw:install-result", ok: false, message: "安装数据不完整" });
-      return;
-    }
-    void installProject(project, files, typeof data.targetWorldbook === "string" ? data.targetWorldbook : null)
-      .then((result) => send({ type: "cw:install-result", ok: true, projectId: project.id, ...result }))
-      .catch((error) => send({ type: "cw:install-result", ok: false, message: String(error?.message ?? error) }));
+  const handlers: Record<string, () => unknown> = {
+    "cw:scan": () => installations.scan(),
+    "cw:preview-install": () => installations.preview(data.intent),
+    "cw:confirm-install": () => installations.confirm(String(data.previewId ?? "")),
+    "cw:cancel-install": () => installations.cancel(String(data.previewId ?? "")),
+  };
+  const handler = handlers[data.type];
+  if (handler) {
+    Promise.resolve()
+      .then(handler)
+      .then((result) => send({ type: `${data.type}-result`, requestId: data.requestId, ok: true, result }))
+      .catch((error) =>
+        send({
+          type: `${data.type}-result`,
+          requestId: data.requestId,
+          ok: false,
+          message: String(error?.message ?? error),
+        }),
+      );
   }
 }
 

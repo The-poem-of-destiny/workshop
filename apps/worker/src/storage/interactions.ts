@@ -6,6 +6,7 @@ interface StateRow {
   liked: number;
   subscribed: number;
   rating: number | null;
+  comment: string | null;
 }
 
 export async function getInteractionState(
@@ -20,21 +21,28 @@ export async function getInteractionState(
     SELECT p.id AS project_id,
       EXISTS (SELECT 1 FROM project_likes l WHERE l.project_id = p.id AND l.user_id = ?) AS liked,
       EXISTS (SELECT 1 FROM project_subscriptions s WHERE s.project_id = p.id AND s.user_id = ?) AS subscribed,
-      (SELECT r.rating FROM project_ratings r WHERE r.project_id = p.id AND r.user_id = ?) AS rating
+      (SELECT r.rating FROM project_ratings r WHERE r.project_id = p.id AND r.user_id = ?) AS rating,
+      (SELECT r.comment_text FROM project_ratings r WHERE r.project_id = p.id AND r.user_id = ?) AS comment
     FROM projects p
     WHERE p.id IN (${placeholders})
       AND p.deleted_at IS NULL
       AND p.visibility = 'public'
       AND p.published_revision_id IS NOT NULL
   `)
-    .bind(userId, userId, userId, ...projectIds)
+    .bind(userId, userId, userId, userId, ...projectIds)
     .all<StateRow>();
   const byId = new Map(rows.results.map((row) => [row.project_id, row]));
   const items: InteractionStateItem[] = [];
   for (const projectId of projectIds) {
     const row = byId.get(projectId);
     if (row)
-      items.push({ projectId, liked: Boolean(row.liked), subscribed: Boolean(row.subscribed), rating: row.rating });
+      items.push({
+        projectId,
+        liked: Boolean(row.liked),
+        subscribed: Boolean(row.subscribed),
+        rating: row.rating,
+        comment: row.comment,
+      });
   }
   return { items };
 }
@@ -104,10 +112,10 @@ export async function setRating(db: D1Database, userId: string, projectId: strin
     VALUES (?, ?, ?, ?)
     ON CONFLICT(project_id, user_id) DO UPDATE SET
       rating = excluded.rating,
-      comment_text = excluded.comment_text,
+      comment_text = CASE WHEN ? THEN excluded.comment_text ELSE project_ratings.comment_text END,
       updated_at = CURRENT_TIMESTAMP
   `)
-    .bind(projectId, userId, input.rating, input.comment ?? null)
+    .bind(projectId, userId, input.rating, input.comment ?? null, input.comment !== undefined ? 1 : 0)
     .run();
 }
 

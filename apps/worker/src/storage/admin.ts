@@ -325,7 +325,7 @@ function approvalStatement(db: D1Database, target: SubmissionTargetRow, submissi
   return db
     .prepare(`
         UPDATE projects
-        SET published_revision_id = ?, published_at = ?,
+        SET published_revision_id = ?, published_at = ?, published_cover_asset_id = NULL,
             title = r.title, description = r.description, author_note = r.author_note,
             project_type = r.project_type, extension_type = r.extension_type,
             search_tags = r.tags, published_schema_version = r.schema_version,
@@ -341,12 +341,24 @@ function approvalStatement(db: D1Database, target: SubmissionTargetRow, submissi
         WHERE projects.id = s.project_id
           AND s.id = ? AND s.status = 'pending'
           AND s.revision_id = ?
+          AND s.check_status NOT IN ('queued', 'running')
+          AND s.check_report_hash IS ? AND s.review_checker_revision IS ?
+          AND r.manifest_hash IS ?
           AND projects.deleted_at IS NULL
           AND projects.published_revision_id IS s.base_published_revision_id
           AND projects.published_revision_id IS NOT s.revision_id
           AND NOT EXISTS (SELECT 1 FROM reviews WHERE submission_id = s.id)
       `)
-    .bind(target.revision_id, now, now, submissionId, target.revision_id);
+    .bind(
+      target.revision_id,
+      now,
+      now,
+      submissionId,
+      target.revision_id,
+      target.check_report_hash,
+      target.review_checker_revision,
+      target.manifest_hash,
+    );
 }
 
 export async function reviewAdminSubmission(
@@ -404,6 +416,9 @@ export async function reviewAdminSubmission(
       UPDATE submissions
       SET status = ?, resolved_at = ?
       WHERE id = ? AND status = 'pending'
+        AND check_status NOT IN ('queued', 'running')
+        AND check_report_hash IS ? AND review_checker_revision IS ?
+        AND EXISTS (SELECT 1 FROM project_revisions r WHERE r.id = submissions.revision_id AND r.manifest_hash IS ?)
         AND NOT EXISTS (SELECT 1 FROM reviews WHERE submission_id = ?)
         AND (
           ? = 0 OR EXISTS (
@@ -412,7 +427,18 @@ export async function reviewAdminSubmission(
           )
         )
     `)
-      .bind(nextStatus, now, submissionId, submissionId, approval ? 1 : 0, target.project_id, target.revision_id),
+      .bind(
+        nextStatus,
+        now,
+        submissionId,
+        target.check_report_hash,
+        target.review_checker_revision,
+        target.manifest_hash,
+        submissionId,
+        approval ? 1 : 0,
+        target.project_id,
+        target.revision_id,
+      ),
     db
       .prepare(`
       INSERT INTO reviews

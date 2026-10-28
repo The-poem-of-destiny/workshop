@@ -19,7 +19,7 @@ import { Input } from "./components/ui/input";
 
 import type { useCatalogue } from "./useCatalogue";
 import type { useHostConnection } from "./useHostConnection";
-import type { useWorkshopNavigation } from "./useWorkshopNavigation";
+import type { useWorkshopNavigation, WorkshopView } from "./useWorkshopNavigation";
 import type { useWorkshopSession } from "./useWorkshopSession";
 
 export function WorkshopHeader({
@@ -31,6 +31,7 @@ export function WorkshopHeader({
   search,
   setSearch,
   setView,
+  confirmLeave,
   connectionStatus,
   connectionLabel,
   connectionTitle,
@@ -56,7 +57,8 @@ export function WorkshopHeader({
   setSidebarCollapsed: ReturnType<typeof useWorkshopNavigation>["setSidebarCollapsed"];
   search: ReturnType<typeof useCatalogue>["search"];
   setSearch: ReturnType<typeof useCatalogue>["setSearch"];
-  setView: ReturnType<typeof useWorkshopNavigation>["setView"];
+  setView: (view: WorkshopView) => boolean;
+  confirmLeave: () => boolean;
   connectionStatus: ReturnType<typeof useHostConnection>["connectionStatus"];
   connectionLabel: ReturnType<typeof useHostConnection>["connectionLabel"];
   connectionTitle: ReturnType<typeof useHostConnection>["connectionTitle"];
@@ -100,8 +102,8 @@ export function WorkshopHeader({
           type="search"
           value={search}
           onChange={(event) => {
+            if (!setView("browse")) return;
             setSearch(event.target.value);
-            setView("browse");
           }}
           placeholder="搜索项目、作者、标签"
           aria-label="搜索"
@@ -127,7 +129,9 @@ export function WorkshopHeader({
             size="sm"
             variant="ghost"
             className="close-workshop"
-            onClick={() => postToHost({ type: "cw:close" })}
+            onClick={() => {
+              if (confirmLeave()) postToHost({ type: "cw:close" });
+            }}
           >
             关闭工坊
           </Button>

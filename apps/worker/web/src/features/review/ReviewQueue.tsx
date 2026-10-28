@@ -45,7 +45,7 @@ export function ReviewQueue({
   loadMore: ReturnType<typeof useReviewQueue>["loadMore"];
 }) {
   return (
-    <aside className={`review-queue${selectedId ? " review-queue-has-selection" : ""}`} aria-label="待审核队列">
+    <aside className="review-queue" aria-label="待审核队列">
       <div className="review-section-heading">
         <div>
           <h3>待审核队列</h3>

@@ -8,9 +8,11 @@ export function useAdminAudit({ onError }: AdminAuditOptions) {
   const [auditCursor, setAuditCursor] = useState<string | null>(null);
   const [auditBusy, setAuditBusy] = useState(false);
   const [auditLoadingMore, setAuditLoadingMore] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
   /** Bumped by every audit load so a slower, older request cannot overwrite newer results or the cursor. */
   const auditGeneration = useRef(0);
   async function loadAudit(action: string, cursor?: string): Promise<void> {
+    setAuditError(null);
     const generation = ++auditGeneration.current;
     if (cursor) {
       setAuditLoadingMore(true);
@@ -18,6 +20,7 @@ export function useAdminAudit({ onError }: AdminAuditOptions) {
       setAuditBusy(true);
       // A fresh first page invalidates pagination from the previous filter result set.
       setAuditCursor(null);
+      setAudit([]);
     }
     try {
       const result = await api.auditEvents({ action: action || undefined, cursor });
@@ -27,6 +30,7 @@ export function useAdminAudit({ onError }: AdminAuditOptions) {
     } catch (value) {
       if (generation !== auditGeneration.current) return;
       onError(`审计日志加载失败：${String(value)}`);
+      setAuditError(`审计日志加载失败：${String(value)}`);
     } finally {
       if (generation === auditGeneration.current) {
         setAuditBusy(false);
@@ -39,5 +43,5 @@ export function useAdminAudit({ onError }: AdminAuditOptions) {
     setAuditAction(action);
     void loadAudit(action);
   }
-  return { auditBusy, loadAudit, auditAction, changeAuditAction, audit, auditCursor, auditLoadingMore };
+  return { auditBusy, loadAudit, auditAction, changeAuditAction, audit, auditCursor, auditLoadingMore, auditError };
 }

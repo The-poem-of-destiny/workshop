@@ -36,7 +36,10 @@ export function AdminSite({
         <input
           type="file"
           accept="image/png,image/jpeg,image/webp"
-          onChange={(event) => void uploadBanner(event.target.files?.[0])}
+          onChange={(event) => {
+            void uploadBanner(event.target.files?.[0]);
+            event.target.value = "";
+          }}
         />
       </label>
       <div className="form-grid">

@@ -13,6 +13,71 @@ function entryName(entry: Record<string, unknown>, fallback: string): string {
   return fallback;
 }
 
+function stringItems(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function sourceRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function previewBehavior(
+  entry: Record<string, unknown>,
+  kind: ProjectPreviewKind,
+): NonNullable<ProjectPreview["entries"][number]["behavior"]> {
+  if (kind === "regex") {
+    return {
+      kind,
+      scriptName: typeof entry.scriptName === "string" ? entry.scriptName : null,
+      findRegex: typeof entry.findRegex === "string" ? entry.findRegex : null,
+      disabled:
+        entry.disabled === true || entry.disable === true
+          ? true
+          : entry.disabled === false || entry.disable === false
+            ? false
+            : null,
+      replacementLength: typeof entry.replaceString === "string" ? Array.from(entry.replaceString).length : null,
+    };
+  }
+  const position = sourceRecord(entry.position);
+  const strategy = sourceRecord(entry.strategy);
+  const secondary = sourceRecord(strategy?.keys_secondary);
+  const logic = secondary?.logic ?? entry.selectiveLogic;
+  const role = position?.role ?? entry.role;
+  const rawPosition = position?.type ?? entry.positionType ?? entry.position_type ?? entry.position;
+  return {
+    kind,
+    keys: stringItems(strategy?.keys ?? (Array.isArray(entry.key) ? entry.key : entry.keys)),
+    secondaryKeys: stringItems(
+      secondary?.keys ?? (Array.isArray(entry.keysecondary) ? entry.keysecondary : entry.key_secondary),
+    ),
+    strategy:
+      typeof strategy?.type === "string"
+        ? strategy.type
+        : typeof entry.strategy === "string"
+          ? entry.strategy
+          : entry.vectorized === true
+            ? "vectorized"
+            : null,
+    constant: typeof entry.constant === "boolean" ? entry.constant : null,
+    selective: typeof entry.selective === "boolean" ? entry.selective : null,
+    selectiveLogic: typeof logic === "string" ? logic : finiteNumber(logic),
+    role: typeof role === "string" ? role : finiteNumber(role),
+    outletName: typeof entry.outletName === "string" ? entry.outletName : null,
+    position: typeof rawPosition === "string" ? rawPosition : finiteNumber(rawPosition),
+    order: finiteNumber(position?.order ?? entry.order),
+    depth: finiteNumber(position?.depth ?? entry.depth),
+    enabled:
+      typeof entry.enabled === "boolean" ? entry.enabled : typeof entry.disable === "boolean" ? !entry.disable : null,
+  };
+}
+
 interface IndexedAsset {
   kind: ProjectEntryKind;
   r2_key: string;
@@ -93,16 +158,20 @@ export async function getProjectPreview(
 ): Promise<ProjectPreview | null> {
   const target = await db
     .prepare(`
-      SELECT p.published_revision_id AS revision_id, a.r2_key
+      SELECT p.published_revision_id AS revision_id, a.r2_key,
+        CASE WHEN ? = 'regex' THEN r.regex_count ELSE r.worldbook_count END AS entry_count
       FROM projects p
       JOIN project_revisions r ON r.id = p.published_revision_id AND r.project_id = p.id
-      JOIN assets a ON a.revision_id = r.id AND a.kind = ?
+      LEFT JOIN assets a ON a.revision_id = r.id AND a.kind = ?
       WHERE p.id = ? AND p.deleted_at IS NULL AND p.visibility = 'public'
         AND p.published_revision_id IS NOT NULL AND r.entry_index_ready = 1
     `)
-    .bind(kind, projectId)
-    .first<{ revision_id: string; r2_key: string }>();
+    .bind(kind, kind, projectId)
+    .first<{ revision_id: string; r2_key: string | null; entry_count: number }>();
   if (!target) return null;
+  if (!target.r2_key) {
+    return target.entry_count === 0 ? { revisionId: target.revision_id, kind, entries: [] } : null;
+  }
   const object = await r2.get(target.r2_key);
   if (!object) return null;
   let raw: unknown;
@@ -114,11 +183,14 @@ export async function getProjectPreview(
   const entries = extractProjectEntries(raw, kind).map((ref) => ({
     key: ref.entryKey,
     name: entryName(ref.entry, ref.entryKey),
+    behavior: previewBehavior(ref.entry, kind),
     content:
-      typeof ref.entry.content === "string"
-        ? ref.entry.content
-        : typeof ref.entry.replaceString === "string"
+      kind === "regex"
+        ? typeof ref.entry.replaceString === "string"
           ? ref.entry.replaceString
+          : ""
+        : typeof ref.entry.content === "string"
+          ? ref.entry.content
           : "",
   }));
   return { revisionId: target.revision_id, kind, entries };

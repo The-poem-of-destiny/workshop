@@ -187,10 +187,47 @@ describe("identity and interactions", () => {
     ).toBe(204);
     const state = await request("/api/v1/me/state?ids=p1");
     await expect(state.json()).resolves.toEqual({
-      items: [{ projectId: "p1", liked: true, subscribed: true, rating: 5 }],
+      items: [{ projectId: "p1", liked: true, subscribed: true, rating: 5, comment: "私密" }],
     });
     const publicProject = await app.request("/api/v1/projects/p1", undefined, bindings);
     expect(publicProject.status).toBe(200);
     expect(await publicProject.json()).not.toHaveProperty("rating");
+    expect(await (await app.request("/api/v1/projects/p1", undefined, bindings)).json()).not.toHaveProperty("comment");
+  });
+
+  it("preserves a stored comment when changing only stars and clears it only explicitly", async () => {
+    const save = (body: { rating: number; comment?: string }) =>
+      request("/api/v1/me/ratings/p1", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    expect((await save({ rating: 5, comment: "保留这条留言" })).status).toBe(204);
+    const initial = await request("/api/v1/me/state?ids=p1");
+    await expect(initial.json()).resolves.toMatchObject({
+      items: [{ rating: 5, comment: "保留这条留言" }],
+    });
+    expect((await save({ rating: 4 })).status).toBe(204);
+    const updated = await request("/api/v1/me/state?ids=p1");
+    await expect(updated.json()).resolves.toMatchObject({
+      items: [{ rating: 4, comment: "保留这条留言" }],
+    });
+    expect((await save({ rating: 3, comment: "" })).status).toBe(204);
+    const cleared = await request("/api/v1/me/state?ids=p1");
+    await expect(cleared.json()).resolves.toMatchObject({ items: [{ rating: 3, comment: "" }] });
+    expect((await request("/api/v1/me/ratings/p1", { method: "DELETE" })).status).toBe(204);
+    const removed = await request("/api/v1/me/state?ids=p1");
+    await expect(removed.json()).resolves.toMatchObject({ items: [{ rating: null, comment: null }] });
+  });
+
+  it("does not expose another user's rating comment through personal state", async () => {
+    await bindings.DB.prepare("INSERT INTO users (id, username, role) VALUES ('u2', 'other', 'member')").run();
+    await bindings.DB.prepare(
+      "INSERT INTO project_ratings (project_id, user_id, rating, comment_text) VALUES ('p1', 'u2', 2, '另一位用户的留言')",
+    ).run();
+    const personal = await request("/api/v1/me/state?ids=p1");
+    await expect(personal.json()).resolves.toMatchObject({ items: [{ rating: null, comment: null }] });
+    const anonymous = await app.request("/api/v1/me/state?ids=p1", undefined, bindings);
+    expect(anonymous.status).toBe(401);
   });
 });

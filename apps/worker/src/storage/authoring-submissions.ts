@@ -209,3 +209,34 @@ export async function submitRevision(
   }
   return { ok: true, submissionId, status: submissionStatus, checkStatus, rowVersion: expectedVersion + 1 };
 }
+
+export async function withdrawSubmission(
+  db: D1Database,
+  session: Session,
+  projectId: string,
+  submissionId: string,
+  expectedVersion: number,
+): Promise<{ rowVersion: number; submissionId: string; status: "superseded"; withdrawnAt: string } | null> {
+  const now = new Date().toISOString();
+  const results = await db.batch([
+    db
+      .prepare(`UPDATE submissions
+      SET status = 'superseded', resolved_at = ?, withdrawn_at = ?, withdrawn_by = ?,
+          check_lease_until = NULL, check_error = '作者已撤回提交'
+      WHERE id = ? AND project_id = ? AND status IN ('pending', 'checking')
+        AND EXISTS (SELECT 1 FROM projects p WHERE p.id = submissions.project_id
+          AND p.deleted_at IS NULL AND p.row_version = ?
+          AND (p.author_id = ? OR ? = 'owner'))`)
+      .bind(now, now, session.userId, submissionId, projectId, expectedVersion, session.userId, session.role),
+    db
+      .prepare(`UPDATE projects SET row_version = row_version + 1
+      WHERE id = ? AND changes() = 1`)
+      .bind(projectId),
+    db
+      .prepare(`INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
+      SELECT ?, 'submission.withdraw', 'submission', ?, ?, ?, ? WHERE changes() = 1`)
+      .bind(crypto.randomUUID(), submissionId, session.userId, JSON.stringify({ projectId }), now),
+  ]);
+  if ((results[0]?.meta.changes ?? 0) === 0) return null;
+  return { rowVersion: expectedVersion + 1, submissionId, status: "superseded", withdrawnAt: now };
+}

@@ -16,6 +16,8 @@ export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
 const entryChangeSchema = z.object({
   entryKey: z.string(),
   name: z.string(),
+  before: z.record(z.string(), jsonValueSchema).nullable(),
+  after: z.record(z.string(), jsonValueSchema).nullable(),
 });
 
 export const diffKindSchema = z.object({
@@ -23,6 +25,7 @@ export const diffKindSchema = z.object({
   modified: z.array(entryChangeSchema.extend({ changedFields: z.array(z.string()).optional() })),
   deleted: z.array(entryChangeSchema),
   unchanged: z.number().int().nonnegative(),
+  entries: z.array(z.object({ entryKey: z.string(), name: z.string(), value: z.record(z.string(), jsonValueSchema) })),
 });
 
 export const findingRefSchema = z.object({
@@ -43,6 +46,17 @@ export const findingDiffSchema = z.object({
 export const submissionDiffSchema = z.object({
   revisionId: z.string(),
   previousRevisionId: z.string().nullable(),
+  revisionNo: z.number().int(),
+  previousRevisionNo: z.number().int().nullable(),
+  findingBaseline: z.object({
+    revisionId: z.string().nullable(),
+    submissionId: z.string().nullable(),
+    available: z.boolean(),
+  }),
+  metadata: z.object({
+    before: z.record(z.string(), jsonValueSchema).nullable(),
+    after: z.record(z.string(), jsonValueSchema),
+  }),
   worldbook: diffKindSchema,
   regex: diffKindSchema,
   cover: z.object({

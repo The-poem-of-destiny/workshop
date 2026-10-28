@@ -86,3 +86,41 @@
 - 两个环境经配置、部署绑定与实测确认分开：staging = `workshop-staging` D1 + `workshop-client-staging` R2；production = `workshop-prod` D1 + `workshop-client-prod` R2。production 本次未被部署或修改。
 - 临时诊断工作流与任务分支均已删除，`main` 仅保留原有四个 workflow。本机 token 未上传到 GitHub；该约束记录在机器本地 `AGENTS.local.md`。
 
+
+## 本轮 W1～W7 改造与验证（2026-10-26，完成）
+
+- 范围依 D-40～D-47；本轮不 commit／push／PR／部署，不操作远程业务数据。W8 完整数据迁移与 W9 正式切换不在本轮执行范围。
+- 已整合统一资料／封面／内容冻结送审、人工 block／missing 路由、撤回历史与失效任务保护；独立审核／作者编辑／正文阅读任务层、管理分区；安装多位置实例及 diff 确认；周期排序／总数；配套脚本版本登记 API 与 CLI。实现存在不等于全部验收完成。
+- 全量检查第三轮曾退出 0：Worker 114 tests、domain 23 tests、Tavern client 13 tests、类型／schema／迁移／备份／Web build／Worker dry-run；另推送命令真实本地 HTTP 3 tests 通过。该结果早于下列独立复核修正，不能代替最终检查。
+- W1 后续复核修正：主动重检显式升级固定 checker；人工重检 pending 的耗尽租约回收；approve／reject 的最终 D1 事务按检查状态、报告 hash、checker revision、manifest CAS。新增竞争与租约回归后统一送审 16 tests 通过；撤回／替代完成后不发布、不重新排队，旧公开更新时间亦不受草稿修改影响。
+- W4／W5 第二轮按真实 Tavern Helper 字段投影修正：世界书身份存 extra，正则 UUID 归属记录按角色绑定且写前 pending 留痕；RegExp 的 source／flags 参与 diff 与状态核对；无角色证据的旧 registry 不赋予版本。当前安装客户端 16 tests 通过；测试宿主模拟实际字段剥除及默认值回读，并非真实 SillyTavern 运行。
+- 宿主能力边界：扫描全部可读世界书和当前角色正则，其他角色明确未扫描；宿主不存在跨世界书／正则事务，写入中断可能部分完成，必须报告失败并重扫，不伪称回滚成功或自动覆盖玩家内容。
+- W6 网关回归已通过：`SELF.fetch` 完整 Worker 入口覆盖 `period=all` 与周期隔离，10 tests 通过；实际浏览器 7d 下载排序返回 200、total=55、25 items，并在排序／周期变化后清 cursor。
+- 安装第三轮修复后客户端 17/17 tests 通过；实际 adapter 使用 Tavern Helper `type: "character"` 而非旧 scope 分支。完整扫描确认中断实例全部内容已不存在后，可在明确新装确认时清 pending；预览／取消不写。客户端构建通过（0.1.3，revision `aecc6567690f9c757401adaedb2116ab48e0fb0e8c18b87b7753816ff0720976`）。这不是实际 SillyTavern 验证，也不是最终全量检查。
+- 历史停止点：HTTP E2E 第五轮退出 1，按原上限停止；前 14 场景通过，旧点赞 selector `/^点赞\s*\d/` 超时（当前按钮只有“点赞／已点赞”，数量在独立统计区）。随后另获追加授权并于首轮完整通过，结果见下；未跳过后续旅程。
+- 本地 1440×1000／390×844 实际操作已覆盖作者独立任务层 dirty 取消、创建／上传／自检／提交及冻结历史，审核完整内容与差异、手机固定操作区和返回队列焦点，管理分区搜索保留，匿名不取正文、登录后独立阅读，周期切换及 Web 无宿主入口。证据 `/tmp/wb-w1-w7-ui-20261026/`；只写隔离本地，8800 的 0023／0024 仅 `/tmp/wb-preview-8800-state`。
+- 最终开放式对比发现的阅读关闭焦点与 HTTP `crypto.randomUUID is not a function` 均已修；阅读层显式恢复原条目按钮，桥使用 `getRandomValues` 生成关联 ID。评分评论回填／隐私说明与整体替换文案亦已修，具体差异和未纳入本轮的产品建议见 completion-audit。
+- 用户明确批准追加最多 **3 轮**；本次使用追加第 **1** 轮即获得完整 E2E 通过。浏览器专项一度因 1 天本地 debug session 到期返回 401；仅在隔离 state 续期后继续阻塞步骤，不改线上会话或扩大重试轮数。
+- 追加首轮 HTTP E2E **21/21 通过**（`local://modern-e2e-extra-round-1.log`）：包含真实排序、详情点赞、作者工作区、owner 工具、批准、拒绝理由及拒绝后再提交。后续详情安全修复由专项浏览器复验覆盖，不将早于修复的 E2E 冒充这些新增行为证明。
+- 最终 `pnpm check` 退出 0（`artifact://6319`）：Worker **123/123**（16 files）、domain **23/23**、content **7/7**、Tavern client **17/17**；类型检查、28 表 schema、迁移／SQL export／备份、Web build 与 staging dry-run 均通过。前一次仅被安装源码／regex-host 测试格式阻断，格式化这两文件后重跑成功；Biome **106 warnings** 与 bundle >500 kB 提示未隐藏。
+- CLI `node --test tools/push-companion-version.test.mjs`：3/3 通过，覆盖真实本地 HTTP PUT／匿名精确版本核对、拒绝不安全输入及凭据不泄漏；不代表已向线上推送版本。
+- HTTP 真实浏览器桥协议专项：未注入 UUID，原生 randomUUID 缺失仍可生成 requestId；scan／confirm 超时、dispose、严格 origin/source/requestId/type 过滤、preview → confirm → cancel 均符合预期。纯消息 host 模拟，无真实宿主写入。证据 `/tmp/wb-w1-w7-ui-20261026/retest-protocol.json`。
+- 会话恢复后专项浏览器完成：`/me` 200；1440×1000 和 390×844 下，阅读返回按钮及 Escape 都恢复原条目 option 焦点。评分评论保存、关闭重开回填、仅改星保留评论均通过；手机清空保存后重开评论为空、星级保留。4 次评分写入均 204，手机 scrollWidth=390，无横向 viewport overflow。证据 `/tmp/wb-w1-w7-ui-20261026/retest-auth-ui.json` 及同目录截图；自建 tab 已关闭。
+- W1～W7 与最终开放式对比审计完成；文档 checklist 已按本轮证据更新。清单外“阅读行为配置”“已存内容逐条删除”及其他可借鉴项仍明确记录为差异／建议，不声称全旧站等同；W8／W9、真实 ST、线上部署未执行。用户既有修改保留，无本轮 commit／push／PR／部署。
+- 用户随后授权补齐开放式对比审计中的两项明确缺口：阅读预览返回白名单行为配置并在登录阅读层纯文本展示；作者编辑器读取当前工作版本已保存世界书／正则条目，确认删除生成 successor，未保存本地选择或冻结版本阻止删除，公开快照不变且仍统一送审。行为配置只保留已确证字段；缺省为“未指定”，role 0/1/2 映射系统／用户／助手，未知值原样显示；regex `findRegex`、替换内容与源码不执行。
+- 补充最终 `pnpm check` 通过（`artifact://6405`）：覆盖新版本继承计数修复与回归；Worker 126/126、domain 23/23，schema／迁移／备份／Web build／staging dry-run 通过，Biome 107 warnings 未隐藏。此前专项阅读测试 18/18 通过。编辑器最后格式修正后 Worker/Web 类型检查也通过。
+- 真实浏览器桌面 1440×1000／手机 390×844 验收通过：世界书主副关键词、长词、position/order/depth、启用状态和正则表达式／替换长度与真实 preview GET 一致；脚本形态文本没有执行。作者 dirty 时禁用删除，取消零请求，确认删除生成新 revision 并保持旧文件／公开预览不变；关闭重开保留结果，统一送审后冻结。手机阅读与删除确认均无 viewport 横向溢出。证据 `/tmp/wb-gap-supplement/behavior-evidence.json`、`delete-evidence.json` 及同目录截图。
+- 删除验收发现新建版本虽继承内容但 summary 计数归零，已修复 `createRevision` 继承当前 revision 的条目计数。新增继承回归与真实 fixture 局部确认通过：未上传替代内容，新 draft worldbook=2，文件实际2条，UI同样显示2条；证据 `/tmp/wb-gap-supplement/delete-inherited-count-confirm.json`。浏览器自建 tab 已关闭，仅写本地隔离 fixture；没有 commit／push／PR／部署或远程业务写入。
+- 用户授权修复 107 条 lint 警告：补全 Hook 响应依赖、稳定回调、请求刷新身份与项目／版本重置边界；管理初始加载和轮询通过 Effect Event 读取最新通知回调；重复发现／条目使用内容身份加重复次数的 key；检查器循环移出条件赋值，CSS 按原匹配范围与值调整级联。未关闭规则、增加 suppress 或排除源码。
+- 修复后 `pnpm check` 通过（`artifact://6417`）：Biome 检查 219 个文件，零错误／零警告；Worker 126、domain 23、content 7、Tavern client 17 tests 全通过，类型／schema／迁移／备份／Web build／staging dry-run 通过。Vite 主 JS 845.71 kB 的 >500 kB 构建提示仍存在，不等于 lint 警告。
+- 修复后完整 `pnpm e2e:local` 单轮 21/21 通过（`local://lint-e2e-result.log`），未改断言或跳过旅程。当前没有文件行数、函数长度或认知复杂度上限；Biome 默认 1 MiB 是跳过分析阈值而非质量门禁，已在 README 明确。没有擅加阈值、commit／push／部署或远程业务写入。
+- CSS／Hook 专项真实 Chromium 1440×1000、390×844 通过：卡片 More 圆形／列表 More 方形及展开、侧栏 active 图标、桌面与手机详情尺寸、主按钮 hover、reduced-motion 均保留；筛选／清除／每页 50 可操作，作者任务层 idle 无 DOM 更新循环，各已测页面无横向溢出。截图 `/tmp/wb-lint-smoke/`；自建 tab 已关闭。该数据集只有一页，未专项验证下一页或错误重试；手机另有 7 条外部 Discord 头像 ORB 请求失败，无 JS console 错误，不将外部请求失败混为本次 lint 清零。
+
+## 最新 main 产品整合（2026-10-28，进行中）
+
+- 用户原 `feat/frontend-workflows` 工作树及索引保留；本地保护快照 `local/product-preserved-20261028` 为 `dc15e29b1186deabcde2a58eeecd8989efeb613f`，不推送该混合快照。整合在 `.worktree/product-integration-20261028/`，基线 `origin/main` 为 `bf095ce`，不是把旧架构覆盖 main。
+- 保留 main 的模块职责拆分、懒加载、Knip 循环／依赖门禁及 Biome 复杂度／函数与文件行数上限。上节没有行数门禁的描述是旧分支历史，不再描述本次基线。
+- `pnpm install --frozen-lockfile` 与完整 `pnpm check` 已通过：Biome 无警告，Knip 依赖／循环、全部工作区类型／测试、真实 workerd Worker 16 文件 126 测试、schema／迁移／备份、Wrangler 和 bundle 门禁通过；未降低规则。客户端 `0.2.0` 构建通过，打包 SHA-256 `fd148b434a6624956e36f96973181db00279e665d80f0aa6f67ea6a3bd2cf25d`；不代表发布渠道已上传。配套版本 CLI 本地 HTTP 风险测试 3/3 通过。独立本地 E2E 与专项浏览器正在执行；后续修复仍须重跑最终 head 的强制检查。
+- 本次授权范围为按关注点 commit／push／PR、强制 CI 与独立审查通过后正常合并；无生产部署、tag、远程业务迁移或个人 Cloudflare 凭据使用。W8／W9 与真实 SillyTavern 验证仍未执行。
+- 第一轮独立后端审查无发现；客户端／UI 审查指出纯正则实例更新首次新增世界书时缺少目标选择，已修复所有选择与预览消费者并获只读复核关闭。该修复仍需真实本地 UI 验证，静态审查不等于运行通过。
+- 第二轮产品独立审查无发现；工具审查发现导入包 SQL 未绑定已验证 target，以及 R2 无条件上传可覆盖旧对象两项 P1。正在修复为生成 SQL 精确校验及隔离副本、相同内容复用／不同内容拒绝／原子条件新建；远程导入未执行，修复与复审通过前不可合并工具切片。

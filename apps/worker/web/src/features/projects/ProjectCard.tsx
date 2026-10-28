@@ -1,4 +1,4 @@
-import { Bookmark, Download, History, MoreHorizontal, ThumbsUp, Upload } from "lucide-react";
+import { Bookmark, BookOpen, Download, History, MoreHorizontal, ThumbsUp, Upload } from "lucide-react";
 import { type MouseEvent, type PointerEvent, useEffect, useRef, useState } from "react";
 import type { ProjectSummary } from "../../api";
 
@@ -12,6 +12,8 @@ export function ProjectCard({
   onOpen: (p: ProjectSummary, opener: HTMLElement) => void;
 }) {
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const [failedCoverUrl, setFailedCoverUrl] = useState<string | null>(null);
+  const hasCover = Boolean(project.coverUrl && project.coverUrl !== failedCoverUrl);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDetailsElement>(null);
   useEffect(() => {
@@ -101,22 +103,25 @@ export function ProjectCard({
       onPointerLeave={resetTilt}
       onPointerCancel={resetTilt}
     >
-      <div className={`card-media${project.coverUrl ? "" : " card-media-empty"}`}>
-        {project.coverUrl ? (
-          <button className="card-cover-button" type="button" onClick={open} aria-label={`查看 ${project.title}`}>
-            <span className="cover">
+      <div className={`card-media${hasCover ? "" : " card-media-empty"}`}>
+        <button className="card-cover-button" type="button" onClick={open} aria-label={`查看 ${project.title}`}>
+          <span className={`cover${hasCover ? "" : " cover-placeholder"}`}>
+            {hasCover ? (
               <img
-                src={project.coverUrl}
+                src={project.coverUrl!}
                 alt=""
                 loading="lazy"
+                onError={() => setFailedCoverUrl(project.coverUrl)}
                 style={{
                   objectPosition: `${project.coverPositionX}% ${project.coverPositionY}%`,
                   transform: `scale(${project.coverZoom})`,
                 }}
               />
-            </span>
-          </button>
-        ) : null}
+            ) : (
+              <BookOpen aria-hidden="true" />
+            )}
+          </span>
+        </button>
         {layout === "cards" ? moreMenu : null}
         {layout === "cards" ? (
           <div className="card-content-counts">
@@ -130,9 +135,9 @@ export function ProjectCard({
           </div>
         ) : null}
       </div>
-      {layout === "cards" && project.coverUrl ? (
+      {layout === "cards" && hasCover ? (
         <div className="card-tint" aria-hidden="true">
-          <img src={project.coverUrl} alt="" loading="lazy" />
+          <img src={project.coverUrl ?? undefined} alt="" loading="lazy" />
         </div>
       ) : null}
       <div className="card-body">

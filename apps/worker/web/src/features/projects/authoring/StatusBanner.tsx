@@ -25,7 +25,9 @@ export function ProjectStatusBanner({
         (submission.checkError ? ` · ${submission.checkError}` : "")
       : submission.status === "approved"
         ? "这个版本已通过并冻结，继续修改请新建版本。"
-        : `最近提交：${SUBMISSION_STATUS_LABELS[submission.status]}。`;
+        : submission.withdrawnAt
+          ? `已于 ${formatDateTime(submission.withdrawnAt)} 撤回；继续修改请新建版本。`
+          : `最近提交：${SUBMISSION_STATUS_LABELS[submission.status]}。`;
   return (
     <div
       className={`workspace-banner${rejected ? " is-danger" : underReview ? " is-warning" : " is-info"}`}
@@ -36,7 +38,7 @@ export function ProjectStatusBanner({
         <p>{detail}</p>
         {rejected && submission.reason ? <p className="banner-reason">退回原因：{submission.reason}</p> : null}
       </div>
-      {frozen && !underReview ? (
+      {frozen ? (
         <button type="button" onClick={onNewRevision} disabled={busy}>
           新建版本
         </button>

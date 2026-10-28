@@ -35,7 +35,10 @@ export function useAdminData({
   const [site, setSite] = useState<SiteSettings | null>(null);
   const [banner, setBanner] = useState<SiteBanner>(EMPTY_BANNER);
   const [siteText, setSiteText] = useState("{}");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [projectBusy, setProjectBusy] = useState(false);
+  const [projectError, setProjectError] = useState<string | null>(null);
   const references = useAdminReferences({ refresh, onError, onNotice });
   const {
     setSets,
@@ -60,6 +63,7 @@ export function useAdminData({
   } = references;
   async function refresh(): Promise<void> {
     setBusy(true);
+    setLoadError(null);
     try {
       const [projectList, memberList, referenceList, siteValue, recommendationList] = await Promise.all([
         api.adminProjects(projectSearch || undefined),
@@ -78,9 +82,24 @@ export function useAdminData({
       setSiteText(JSON.stringify(siteValue.siteContent ?? {}, null, 2));
       setRecommendations(recommendationList.items);
     } catch (value) {
+      setLoadError(`管理数据加载失败：${String(value)}`);
       onError(String(value));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function searchProjects(): Promise<void> {
+    if (projectBusy) return;
+    setProjectBusy(true);
+    setProjectError(null);
+    try {
+      const result = await api.adminProjects(projectSearch.trim() || undefined);
+      setProjects(result.items);
+    } catch (value) {
+      setProjectError(`项目搜索失败：${String(value)}`);
+    } finally {
+      setProjectBusy(false);
     }
   }
 
@@ -107,6 +126,10 @@ export function useAdminData({
   }
   return {
     busy,
+    loadError,
+    projectBusy,
+    projectError,
+    searchProjects,
     refresh,
     site,
     uploadBanner,

@@ -21,12 +21,7 @@ import { createProject, getProjectSummary, softDeleteProject, updateVisibility }
 import { deleteProjectEntry, upsertAsset } from "../../storage/authoring-assets.js";
 import { getAuthoringProject } from "../../storage/authoring-model.js";
 import { createRevision, getRevisionForProject, patchProject } from "../../storage/authoring-revisions.js";
-import { type PrevalidatedContent, submitRevision } from "../../storage/authoring-submissions.js";
-import {
-  getPublishedMetadata,
-  updatePublishedCover,
-  updatePublishedMetadata,
-} from "../../storage/published-display.js";
+import { type PrevalidatedContent, submitRevision, withdrawSubmission } from "../../storage/authoring-submissions.js";
 import { jsonError, versionConflict } from "../errors.js";
 import { registerAuthoringGalleryRoutes } from "./authoring-gallery.js";
 import { ifMatchVersion, sessionOrError } from "./authoring-request.js";
@@ -187,115 +182,6 @@ authoringRoutes.patch("/:id", async (c) => {
   return c.json(result);
 });
 registerAuthoringGalleryRoutes(authoringRoutes);
-authoringRoutes.get("/:id/published-metadata", async (c) => {
-  const auth = await sessionOrError(c);
-  if (!auth.session) return auth.response;
-  const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
-  if (!project || !project.published_revision_id) return jsonError(c, "not_found", "Published project not found");
-  const metadata = await getPublishedMetadata(c.env.DB, project.id, auth.session);
-  if (!metadata) return jsonError(c, "not_found", "Published project not found");
-  return c.json({ rowVersion: project.row_version, ...metadata });
-});
-
-authoringRoutes.get("/:id/published-cover", async (c) => {
-  const auth = await sessionOrError(c);
-  if (!auth.session) return auth.response;
-  const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
-  if (!project || !project.published_revision_id) return jsonError(c, "not_found", "Published cover not found");
-  const asset = await c.env.DB.prepare(`
-    SELECT COALESCE(
-      (
-        SELECT a.r2_key FROM assets a
-        WHERE a.id = p.published_cover_asset_id AND a.project_id = p.id
-          AND a.revision_id IS NULL AND a.kind = 'cover'
-      ),
-      (
-        SELECT a.r2_key FROM assets a
-        WHERE a.revision_id = p.published_revision_id AND a.kind = 'cover' LIMIT 1
-      )
-    ) AS r2_key
-    FROM projects p WHERE p.id = ? AND p.deleted_at IS NULL
-  `)
-    .bind(project.id)
-    .first<{ r2_key: string | null }>();
-  if (!asset?.r2_key) return jsonError(c, "not_found", "Published cover not found");
-  const object = await c.env.R2.get(asset.r2_key);
-  if (!object) return jsonError(c, "not_found", "Published cover not found");
-  return new Response(object.body, {
-    headers: {
-      "content-type": object.httpMetadata?.contentType ?? "application/octet-stream",
-      "content-length": String(object.size),
-      "cache-control": "private, no-store",
-      "x-content-type-options": "nosniff",
-    },
-  });
-});
-
-authoringRoutes.patch("/:id/published-metadata", async (c) => {
-  const auth = await sessionOrError(c);
-  if (!auth.session) return auth.response;
-  const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
-  if (!project) return jsonError(c, "not_found", "Project not found");
-  const expectedVersion = ifMatchVersion(c.req.header("if-match"));
-  if (expectedVersion === null || expectedVersion !== project.row_version) {
-    return versionConflict(c, "project", expectedVersion, project.row_version);
-  }
-  if (await metadataRateLimited(c.env.DB, project.id, auth.session.userId)) {
-    return jsonError(c, "rate_limited", "Too many metadata updates; retry in a minute");
-  }
-  const parsed = patchProjectSchema.safeParse(await bodyJson(c));
-  if (!parsed.success) return jsonError(c, "bad_request", "Invalid project metadata", parsed.error.flatten());
-  if (parsed.data.discordThreadUrl !== undefined) {
-    const discord = normalizeThreadUrl(c, parsed.data.discordThreadUrl);
-    if (!discord.ok) return jsonError(c, "bad_request", `Discord 线程地址无效：${discord.reason}`);
-    parsed.data.discordThreadUrl = discord.value;
-  }
-  const result = await updatePublishedMetadata(c.env.DB, auth.session, project.id, expectedVersion, parsed.data);
-  if (result.kind === "conflict") {
-    const latest = await getAuthoringProject(c.env.DB, project.id, auth.session);
-    return versionConflict(c, "project", expectedVersion, latest?.row_version ?? project.row_version);
-  }
-  if (result.kind === "invalid") {
-    return jsonError(c, "bad_request", "Project metadata failed validation", result.findings);
-  }
-  return c.json({ rowVersion: result.rowVersion });
-});
-
-authoringRoutes.put("/:id/published-cover", async (c) => {
-  const auth = await sessionOrError(c);
-  if (!auth.session) return auth.response;
-  const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
-  if (!project) return jsonError(c, "not_found", "Project not found");
-  const expectedVersion = ifMatchVersion(c.req.header("if-match"));
-  if (expectedVersion === null || expectedVersion !== project.row_version) {
-    return versionConflict(c, "project", expectedVersion, project.row_version);
-  }
-  if (await metadataRateLimited(c.env.DB, project.id, auth.session.userId)) {
-    return jsonError(c, "rate_limited", "Too many metadata updates; retry in a minute");
-  }
-  const declaredLength = Number(c.req.header("content-length"));
-  if (!Number.isFinite(declaredLength) || declaredLength <= 0) {
-    return jsonError(c, "bad_request", "Content-Length required");
-  }
-  if (declaredLength > WORKSHOP_LIMITS.projectImageUploadBytes) {
-    return jsonError(c, "payload_too_large", "File exceeds 5MiB limit");
-  }
-  const mime = (c.req.header("content-type") ?? "").split(";", 1)[0]!.trim().toLowerCase();
-  if (!["image/png", "image/jpeg", "image/webp"].includes(mime)) {
-    return jsonError(c, "unsupported_media_type", "Unsupported content type");
-  }
-  const body = await c.req.raw.arrayBuffer();
-  if (body.byteLength > WORKSHOP_LIMITS.projectImageUploadBytes) {
-    return jsonError(c, "payload_too_large", "File exceeds 5MiB limit");
-  }
-  const result = await updatePublishedCover(c.env.DB, c.env.R2, auth.session, project.id, expectedVersion, body, mime);
-  if (result.kind === "conflict") {
-    const latest = await getAuthoringProject(c.env.DB, project.id, auth.session);
-    return versionConflict(c, "project", expectedVersion, latest?.row_version ?? project.row_version);
-  }
-  if (result.kind === "invalid") return jsonError(c, "bad_request", result.message);
-  return c.json({ rowVersion: result.rowVersion, sha256: result.sha256, bytes: result.bytes, mime: result.mime });
-});
 
 authoringRoutes.delete("/:id/revisions/:revisionId/entries/:kind/:entryKey", async (c) => {
   const auth = await sessionOrError(c);
@@ -393,20 +279,26 @@ authoringRoutes.post("/:id/revisions", async (c) => {
   return c.json(result, 201);
 });
 
-authoringRoutes.get("/:id/revisions/:revisionId/files/cover", async (c) => {
+authoringRoutes.get("/:id/revisions/:revisionId/files/:kind", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
+  const kind = uploadKindSchema.safeParse(c.req.param("kind"));
+  if (!kind.success) return jsonError(c, "bad_request", "Unsupported file kind");
   const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
   if (!project) return jsonError(c, "not_found", "Project not found");
+  const revision = await c.env.DB.prepare("SELECT id FROM project_revisions WHERE id = ? AND project_id = ?")
+    .bind(c.req.param("revisionId"), project.id)
+    .first<{ id: string }>();
+  if (!revision) return jsonError(c, "not_found", "Revision not found");
   const asset = await c.env.DB.prepare(`
     SELECT r2_key, mime FROM assets
-    WHERE project_id = ? AND revision_id = ? AND kind = 'cover'
+    WHERE project_id = ? AND revision_id = ? AND kind = ?
   `)
-    .bind(c.req.param("id"), c.req.param("revisionId"))
+    .bind(project.id, revision.id, kind.data)
     .first<{ r2_key: string; mime: string }>();
-  if (!asset) return jsonError(c, "not_found", "Cover not found");
+  if (!asset) return jsonError(c, "not_found", "Asset not found");
   const object = await c.env.R2.get(asset.r2_key);
-  if (!object) return jsonError(c, "not_found", "Cover not found");
+  if (!object) return jsonError(c, "not_found", "Asset not found");
   return new Response(object.body, {
     headers: {
       "content-type": asset.mime,
@@ -558,4 +450,24 @@ authoringRoutes.post("/:id/revisions/:revisionId/submit", async (c) => {
     },
     201,
   );
+});
+
+authoringRoutes.post("/:id/submissions/:submissionId/withdraw", async (c) => {
+  const auth = await sessionOrError(c);
+  if (!auth.session) return auth.response;
+  const expectedVersion = ifMatchVersion(c.req.header("if-match"));
+  if (expectedVersion === null) return jsonError(c, "precondition_failed", "If-Match is required");
+  const project = await getAuthoringProject(c.env.DB, c.req.param("id"), auth.session);
+  if (!project) return jsonError(c, "not_found", "Project not found");
+  if (expectedVersion !== project.row_version)
+    return versionConflict(c, "project", expectedVersion, project.row_version);
+  const result = await withdrawSubmission(
+    c.env.DB,
+    auth.session,
+    project.id,
+    c.req.param("submissionId"),
+    expectedVersion,
+  );
+  if (!result) return jsonError(c, "conflict", "提交已处理或项目已发生变化，请刷新后重试");
+  return c.json(result);
 });

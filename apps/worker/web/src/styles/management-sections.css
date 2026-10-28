@@ -1,0 +1,117 @@
+.management-sections {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.management-index h2 {
+  margin: 0 0 10px;
+}
+
+.management-index-links {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.management-index-links > button {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 20px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  white-space: normal;
+}
+
+.management-index-links > button:hover,
+.management-index-links > button:focus-visible {
+  background: var(--surface);
+}
+
+.management-index-links > button > span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.management-task-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.management-task-heading h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.management-task-heading .hint {
+  margin-left: auto;
+}
+
+.management-sections > .panel {
+  box-shadow: none;
+}
+
+.management-sections .audit-event pre {
+  max-width: 100%;
+  overflow: auto;
+}
+
+@media (max-width: 640px) {
+  .management-index-links {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .management-task-heading {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 10px 0;
+    background: var(--surface);
+  }
+
+  .management-task-heading .hint {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+
+  .management-sections .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .management-sections button,
+  .management-sections select,
+  .management-sections input:not([type="file"]) {
+    min-height: 44px;
+  }
+
+  .management-sections .member-row,
+  .management-sections .recommendation-row {
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .management-sections .member-row > span {
+    flex: 1 1 180px;
+  }
+
+  .management-sections .member-row > select {
+    width: auto;
+    max-width: 100%;
+  }
+
+  .management-sections .button-row,
+  .management-sections .recommendation-actions {
+    flex-wrap: wrap;
+  }
+}

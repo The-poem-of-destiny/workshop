@@ -1,16 +1,3 @@
-export async function hashText(value: string): Promise<string> {
-  try {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  } catch {
-    let hash = 0;
-    for (let index = 0; index < value.length; index += 1) {
-      hash = (hash * 31 + value.charCodeAt(index)) | 0;
-    }
-    return `fallback-${hash}`;
-  }
-}
-
 export function worldbookEntries(raw: unknown): Record<string, unknown>[] {
   if (Array.isArray(raw)) return raw.filter((item) => item && typeof item === "object") as Record<string, unknown>[];
   if (!raw || typeof raw !== "object") return [];
@@ -45,22 +32,6 @@ export function entryKey(entry: { uid?: unknown; extensions?: unknown }, index: 
   return value.startsWith("uid:") ? value : `uid:${value}`;
 }
 
-export function entryName(entry: { comment?: unknown; name?: unknown }, key: string): string {
-  for (const value of [entry.comment, entry.name]) {
-    if (typeof value === "string" && value.trim()) return value;
-  }
-  return key;
-}
-
-export function projectEntry<Entry extends { extensions?: unknown }>(
-  entry: Entry,
-): entry is Entry & { extensions: WorkshopWorldbookExtensions & { cw_project_id: string } } {
-  const extensions = entry.extensions;
-  if (!extensions || typeof extensions !== "object") return false;
-  const values: Record<string, unknown> = extensions as Record<string, unknown>;
-  return typeof values.cw_project_id === "string";
-}
-
 export function normalizeWorkshopOrigin(value: unknown, fallback: string): string {
   const raw = typeof value === "string" && value.trim() ? value.trim() : fallback;
   try {
@@ -70,17 +41,4 @@ export function normalizeWorkshopOrigin(value: unknown, fallback: string): strin
   } catch {
     return fallback;
   }
-}
-
-export function hasForeignBaselineConflict(
-  current: WorkshopWorldbookEntry[],
-  incoming: { comment?: unknown; name?: unknown },
-  incomingKey: string,
-): boolean {
-  const name = entryName(incoming, incomingKey);
-  if (!name.startsWith("[DLC]")) return false;
-  return current.some((entry) => {
-    if (projectEntry(entry)) return false;
-    return entryName(entry, incomingKey) === name;
-  });
 }

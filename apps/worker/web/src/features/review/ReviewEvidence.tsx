@@ -1,4 +1,5 @@
 import { CheckReportSection } from "./CheckReportView";
+import { ContentComparison } from "./ContentComparison";
 import { gateLabels } from "./check-report";
 import { ReviewDiff } from "./ReviewDiff";
 import type { useReviewDecision } from "./useReviewDecision";
@@ -30,7 +31,6 @@ function formatDate(value: string): string {
 
 export function ReviewEvidence({
   selectedId,
-  clearSelection,
   loadingDetail,
   detailError,
   select,
@@ -47,14 +47,8 @@ export function ReviewEvidence({
   diff,
   downloadKind,
   download,
-  position,
-  moveSelection,
-  visibleItems,
-  openDecision,
-  manualApproval,
 }: {
   selectedId: ReturnType<typeof useReviewQueue>["selectedId"];
-  clearSelection: ReturnType<typeof useReviewQueue>["clearSelection"];
   loadingDetail: ReturnType<typeof useReviewQueue>["loadingDetail"];
   detailError: ReturnType<typeof useReviewQueue>["detailError"];
   select: ReturnType<typeof useReviewQueue>["select"];
@@ -71,19 +65,9 @@ export function ReviewEvidence({
   diff: ReturnType<typeof useReviewQueue>["diff"];
   downloadKind: ReturnType<typeof useReviewEvidence>["downloadKind"];
   download: ReturnType<typeof useReviewEvidence>["download"];
-  position: ReturnType<typeof useReviewQueue>["position"];
-  moveSelection: ReturnType<typeof useReviewQueue>["moveSelection"];
-  visibleItems: ReturnType<typeof useReviewQueue>["visibleItems"];
-  openDecision: ReturnType<typeof useReviewDecision>["openDecision"];
-  manualApproval: ReturnType<typeof useReviewDecision>["manualApproval"];
 }) {
   return (
-    <main className={`review-evidence${selectedId ? " review-evidence-visible" : ""}`} aria-live="polite">
-      {selectedId ? (
-        <button className="review-mobile-back" type="button" onClick={clearSelection}>
-          返回队列
-        </button>
-      ) : null}
+    <main className="review-evidence review-evidence-visible" aria-live="polite">
       {loadingDetail ? (
         <div className="review-state review-detail-state" role="status">
           正在加载提交证据...
@@ -113,10 +97,8 @@ export function ReviewEvidence({
           <section className="review-evidence-intro">
             <div>
               <p className="review-eyebrow">SUBMISSION #{detail.revision.revisionNo}</p>
-              <h2>{detail.project.title}</h2>
-              <p className="review-description">
-                {detail.revision.description || detail.project.description || "未提供项目描述。"}
-              </p>
+              <h2>{detail.revision.title}</h2>
+              <p className="review-description">{detail.revision.description || "未提供项目描述。"}</p>
               {detail.revision.authorNote ? (
                 <div className="review-author-note">
                   <strong>作者备注</strong>
@@ -148,6 +130,7 @@ export function ReviewEvidence({
             >
               重新检查
             </button>
+            <span className="review-muted">主动重检可选；未主动运行也可依据冻结内容作人工决定。</span>
             <button
               className="review-button review-button-secondary"
               type="button"
@@ -215,6 +198,7 @@ export function ReviewEvidence({
             checkerRevision={latestRun?.reviewCheckerRevision ?? detail.submission.reviewCheckerRevision ?? null}
           />
 
+          {diff ? <ContentComparison diff={diff} /> : null}
           <ReviewDiff diff={diff} />
 
           <section className="review-section">
@@ -250,48 +234,6 @@ export function ReviewEvidence({
               })}
             </div>
           </section>
-
-          <div className="review-action-bar" data-testid="review-action-bar">
-            <button
-              className="review-button review-button-secondary"
-              type="button"
-              disabled={position <= 1}
-              onClick={() => moveSelection(-1)}
-            >
-              上一个
-            </button>
-            <span className="review-action-position">
-              {position > 0 ? position : "–"}/{visibleItems.length}
-            </span>
-            <button
-              className="review-button review-button-secondary"
-              type="button"
-              disabled={position <= 0 || position >= visibleItems.length}
-              onClick={() => moveSelection(1)}
-            >
-              下一个
-            </button>
-            <span className="review-action-spacer" />
-            <button
-              className="review-button review-button-primary"
-              type="button"
-              disabled={busy || checking}
-              title={checking ? "检查完成前不能批准" : undefined}
-              onClick={() => openDecision("approve")}
-              data-testid="review-approve"
-            >
-              {manualApproval ? "人工批准" : "批准"}
-            </button>
-            <button
-              className="review-button review-button-danger"
-              type="button"
-              disabled={busy}
-              onClick={() => openDecision("reject")}
-              data-testid="review-reject"
-            >
-              拒绝
-            </button>
-          </div>
         </>
       ) : (
         <div className="review-empty-detail">

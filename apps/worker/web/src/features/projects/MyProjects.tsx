@@ -1,13 +1,13 @@
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { type AuthorProject, api } from "../../api";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../../components/ui/dialog";
 import "../../styles/workspaces.css";
+import "../../styles/task-workspaces.css";
 import { ProjectStatusBanner } from "./authoring/StatusBanner";
 import { ProjectEditor } from "./ProjectEditor";
-import { PublishedDisplayEditor } from "./PublishedDisplayEditor";
 import { metadataPayload, projectForm } from "./projectMetadata";
 
 type ProjectStatus = "draft" | "public" | "review" | "rejected";
-type DetailTab = "draft" | "display";
 
 function statusOf(item: AuthorProject): ProjectStatus {
   const submission = item.latestSubmission;
@@ -24,61 +24,68 @@ const STATUS_LABELS: Record<ProjectStatus, string> = {
   rejected: "已退回",
 };
 
-const TAB_HINTS: Record<DetailTab, string> = {
-  draft: "草稿内容：编辑标题、标签等元数据，上传世界书、正则和封面，然后提交审核。",
-  display: "公开展示：审核通过后，项目页上展示的标题、简介、标签和封面可以在这里单独调整。",
-};
-
 export function MyProjects({
   onCreate,
   onError,
   onNotice,
   initialSelectedId,
+  onDirtyChange,
   onInitialSelectionConsumed,
 }: {
   onCreate: () => void;
   onError: (message: string) => void;
   onNotice: (message: string) => void;
   initialSelectedId?: string | null;
+  onDirtyChange?: (dirty: boolean) => void;
   onInitialSelectionConsumed?: () => void;
 }) {
   const [items, setItems] = useState<AuthorProject[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | ProjectStatus>("all");
-  const [tab, setTab] = useState<DetailTab>("draft");
+  const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const editorOpener = useRef<HTMLButtonElement | null>(null);
+  const reportError = useRef(onError);
+  useEffect(() => {
+    reportError.current = onError;
+  }, [onError]);
 
-  async function refresh(): Promise<void> {
+  const refresh = useCallback(async (): Promise<void> => {
     setLoading(true);
     try {
       const result = await api.myProjects();
       setItems(result.items);
-      if (selectedId && !result.items.some((item) => item.project.id === selectedId)) setSelectedId(null);
+      setSelectedId((current) =>
+        current && !result.items.some((item) => item.project.id === current) ? null : current,
+      );
     } catch (reason) {
-      onError(String(reason));
+      reportError.current(String(reason));
     } finally {
       setLoading(false);
     }
-  }
-
-  const loadInitial = useEffectEvent(() => void refresh());
-  const consumeInitialSelection = useEffectEvent(() => onInitialSelectionConsumed?.());
-  useEffect(() => {
-    loadInitial();
-    consumeInitialSelection();
   }, []);
 
-  const previousSelection = useRef(selectedId);
+  const consumeInitialSelection = useEffectEvent(() => onInitialSelectionConsumed?.());
   useEffect(() => {
-    if (previousSelection.current !== selectedId) {
-      previousSelection.current = selectedId;
-      setTab("draft");
-    }
-  }, [selectedId]);
+    void refresh();
+    consumeInitialSelection();
+  }, [refresh]);
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    return () => onDirtyChange?.(false);
+  }, [dirty, onDirtyChange]);
+
+  function closeEditor(): void {
+    if (dirty && !window.confirm("有尚未保存的资料或未上传的文件，确定放弃并返回项目索引？")) return;
+    setDirty(false);
+    setSelectedId(null);
+  }
 
   async function createRevision(entry: AuthorProject): Promise<void> {
+    if (dirty && !window.confirm("有尚未保存的资料或未上传的文件，确定放弃并新建版本？")) return;
     setBusy(true);
     try {
       const result = await api.createRevision(
@@ -174,7 +181,10 @@ export function MyProjects({
                   key={item.project.id}
                   type="button"
                   className={`project-row workspace-project-row${item.project.id === selectedId ? " selected" : ""}`}
-                  onClick={() => setSelectedId(item.project.id)}
+                  onClick={(event) => {
+                    editorOpener.current = event.currentTarget;
+                    setSelectedId(item.project.id);
+                  }}
                 >
                   <span className="workspace-project-main">
                     <strong>{item.project.title}</strong>
@@ -190,43 +200,40 @@ export function MyProjects({
           </div>
         ) : null}
       </section>
-      {selected ? (
-        <section className="workspace-detail">
-          <ProjectStatusBanner entry={selected} busy={busy} onNewRevision={() => void createRevision(selected)} />
-          <div className="workspace-tabs" role="tablist" aria-label="项目内容">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === "draft"}
-              className={`workspace-tab${tab === "draft" ? " is-active" : ""}`}
-              onClick={() => setTab("draft")}
-            >
-              草稿内容
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === "display"}
-              className={`workspace-tab${tab === "display" ? " is-active" : ""}`}
-              onClick={() => setTab("display")}
-            >
-              公开展示
-            </button>
-          </div>
-          <p className="workspace-tab-hint">{TAB_HINTS[tab]}</p>
-          <div className="editor-stack workspace-editors">
-            {tab === "draft" ? (
-              <ProjectEditor entry={selected} onRefresh={refresh} onError={onError} onNotice={onNotice} />
-            ) : (
-              <PublishedDisplayEditor entry={selected} onRefresh={refresh} onError={onError} onNotice={onNotice} />
-            )}
-          </div>
-        </section>
-      ) : (
-        <section className="workspace-section workspace-selection-hint">
-          <p className="workspace-muted">尚未选择项目</p>
-        </section>
-      )}
+      <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && closeEditor()}>
+        {selected ? (
+          <DialogContent
+            className="task-workspace author-task"
+            aria-describedby="author-task-description"
+            onCloseAutoFocus={(event) => {
+              event.preventDefault();
+              editorOpener.current?.focus({ preventScroll: true });
+            }}
+          >
+            <header className="task-workspace-header">
+              <div>
+                <DialogTitle>{selected.project.title} · 编辑任务</DialogTitle>
+                <DialogDescription id="author-task-description">
+                  资料、封面与内容作为同一快照送审，审核前不改变公开版本。
+                </DialogDescription>
+              </div>
+              <button type="button" onClick={closeEditor}>
+                返回我的项目
+              </button>
+            </header>
+            <div className="task-workspace-body">
+              <ProjectStatusBanner entry={selected} busy={busy} onNewRevision={() => void createRevision(selected)} />
+              <ProjectEditor
+                entry={selected}
+                onRefresh={refresh}
+                onError={onError}
+                onNotice={onNotice}
+                onDirtyChange={setDirty}
+              />
+            </div>
+          </DialogContent>
+        ) : null}
+      </Dialog>
     </div>
   );
 }

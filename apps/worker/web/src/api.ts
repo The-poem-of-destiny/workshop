@@ -26,7 +26,6 @@ import type {
   ProjectPreview,
   ProjectPreviewKind,
   ProjectSummary,
-  PublishedMetadataResponse,
   Recommendation,
   ReferenceItem,
   ReferenceSet,
@@ -62,7 +61,6 @@ export type {
   ProjectPreview,
   ProjectPreviewKind,
   ProjectSummary,
-  PublishedMetadataResponse,
   Recommendation,
   ReferenceItem,
   ReferenceSet,
@@ -170,6 +168,7 @@ export const api = {
   projects: (params: {
     search?: string;
     sort?: string;
+    period?: "all" | "7d" | "30d" | "90d";
     cursor?: string;
     limit?: number;
     projectType?: string;
@@ -179,6 +178,7 @@ export const api = {
     const query = new URLSearchParams({ limit: String(params.limit ?? 25) });
     if (params.search) query.set("search", params.search);
     if (params.sort) query.set("sort", params.sort);
+    if (params.period) query.set("period", params.period);
     if (params.cursor) query.set("cursor", params.cursor);
     if (params.projectType) query.set("projectType", params.projectType);
     if (params.authorId) query.set("authorId", params.authorId);
@@ -198,9 +198,15 @@ export const api = {
   deleteRating: (id: string) => requestJson<null>(`/api/v1/me/ratings/${encodeURIComponent(id)}`, { method: "DELETE" }),
   recommendations: () => requestJson<{ items: Recommendation[] }>("/api/v1/recommendations"),
   meState: (ids: string[]) =>
-    requestJson<{ items: { projectId: string; liked: boolean; subscribed: boolean; rating: number | null }[] }>(
-      `/api/v1/me/state?ids=${encodeURIComponent(ids.join(","))}`,
-    ),
+    requestJson<{
+      items: {
+        projectId: string;
+        liked: boolean;
+        subscribed: boolean;
+        rating: number | null;
+        comment: string | null;
+      }[];
+    }>(`/api/v1/me/state?ids=${encodeURIComponent(ids.join(","))}`),
   setLike: (id: string, liked: boolean) =>
     requestJson<null>(`/api/v1/me/likes/${encodeURIComponent(id)}`, { method: liked ? "PUT" : "DELETE" }),
   setSubscription: (id: string, subscribed: boolean) =>
@@ -233,6 +239,21 @@ export const api = {
       method: "DELETE",
       headers: { "if-match": String(rowVersion) },
     }),
+  authorAsset: (id: string, revisionId: string, kind: "worldbook" | "regex") =>
+    requestJson<unknown>(
+      `/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/files/${kind}`,
+    ),
+  deleteProjectEntry: (
+    id: string,
+    revisionId: string,
+    rowVersion: number,
+    kind: "worldbook" | "regex",
+    entryKey: string,
+  ) =>
+    requestJson<{ rowVersion: number; revisionId: string; entryCount: number }>(
+      `/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/entries/${kind}/${encodeURIComponent(entryKey)}`,
+      { method: "DELETE", headers: { "if-match": String(rowVersion) } },
+    ),
   authorCover: async (id: string, revisionId: string): Promise<Blob> => {
     const response = await fetch(
       `/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/files/cover`,
@@ -241,30 +262,6 @@ export const api = {
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
     return response.blob();
   },
-  publishedMetadata: (id: string) =>
-    requestJson<PublishedMetadataResponse>(`/api/v1/projects/${encodeURIComponent(id)}/published-metadata`),
-  patchPublishedMetadata: (id: string, rowVersion: number, body: Record<string, unknown>) =>
-    requestJson<{ rowVersion: number }>(`/api/v1/projects/${encodeURIComponent(id)}/published-metadata`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json", "if-match": String(rowVersion) },
-      body: JSON.stringify(body),
-    }),
-  publishedCover: async (id: string): Promise<Blob> => {
-    const response = await fetch(`/api/v1/projects/${encodeURIComponent(id)}/published-cover`, {
-      headers: authHeaders(),
-    });
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-    return response.blob();
-  },
-  uploadPublishedCover: (id: string, rowVersion: number, file: File) =>
-    requestJson<{ rowVersion: number; sha256: string; bytes: number; mime: string }>(
-      `/api/v1/projects/${encodeURIComponent(id)}/published-cover`,
-      {
-        method: "PUT",
-        headers: { "content-type": file.type || "application/octet-stream", "if-match": String(rowVersion) },
-        body: file,
-      },
-    ),
   uploadFile: (id: string, revisionId: string, rowVersion: number, kind: "worldbook" | "regex" | "cover", file: File) =>
     requestJson<UploadResponse>(
       `/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/files/${kind}`,
@@ -273,6 +270,11 @@ export const api = {
         headers: { "content-type": file.type || "application/octet-stream", "if-match": String(rowVersion) },
         body: file,
       },
+    ),
+  withdrawSubmission: (id: string, submissionId: string, rowVersion: number) =>
+    requestJson<{ rowVersion: number; submissionId: string; status: "superseded"; withdrawnAt: string }>(
+      `/api/v1/projects/${encodeURIComponent(id)}/submissions/${encodeURIComponent(submissionId)}/withdraw`,
+      { method: "POST", headers: { "if-match": String(rowVersion) } },
     ),
   submitProject: (
     id: string,

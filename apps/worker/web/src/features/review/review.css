@@ -51,9 +51,9 @@
   font-size: 13px;
   font-weight: 600;
   transition:
-    border-color 120ms ease,
-    background 120ms ease,
-    color 120ms ease;
+    border-color var(--motion-duration, 120ms) ease,
+    background var(--motion-duration, 120ms) ease,
+    color var(--motion-duration, 120ms) ease;
 }
 
 .review-button:hover:not(:disabled),
@@ -1477,4 +1477,151 @@
     flex-direction: column;
     gap: 4px;
   }
+}
+
+.review-columns {
+  display: block;
+}
+.review-queue-has-selection {
+  display: block;
+}
+.review-task-dialog {
+  --review-line: var(--border);
+  --review-line-strong: var(--border-strong);
+  width: min(1180px, calc(100vw - 32px));
+  max-width: none;
+  height: min(940px, calc(100dvh - 32px));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0;
+  padding: 0;
+}
+.review-task-header {
+  min-width: 0;
+}
+.review-task-scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  padding: 0 22px 22px;
+}
+.review-task-dialog .review-evidence {
+  display: block;
+  border-top: 0;
+}
+.review-task-footer {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 20px;
+  border-top: 1px solid var(--review-line);
+  background: var(--bg);
+}
+.review-task-footer .review-action-bar {
+  position: static;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.review-baseline {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.review-task-dialog details {
+  min-width: 0;
+}
+.review-task-dialog summary {
+  cursor: pointer;
+  padding: 10px 0;
+  overflow-wrap: anywhere;
+}
+.review-task-dialog summary:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.review-comparison-head,
+.review-comparison-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.review-comparison-field h5 {
+  margin: 10px 0 5px;
+  overflow-wrap: anywhere;
+}
+.review-comparison-values pre,
+.review-full-entry {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.review-comparison-values .review-before {
+  border-left: 3px solid var(--danger);
+}
+.review-comparison-values .review-after {
+  border-left: 3px solid #a8d7ad;
+}
+@media (max-width: 680px) {
+  .review-task-dialog {
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+  }
+  .review-task-scroll {
+    padding: 0 12px 16px;
+  }
+  .review-task-footer {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 12px max(8px, env(safe-area-inset-bottom));
+  }
+  .review-task-footer .review-action-bar .review-button {
+    flex: 1 1 auto;
+  }
+  .review-task-footer .review-action-bar {
+    gap: 5px;
+  }
+  .review-comparison-values {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .review-comparison-values pre::before {
+    display: block;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .review-comparison-values pre:first-child::before {
+    content: "之前（公开基线）";
+  }
+  .review-comparison-values pre:last-child::before {
+    content: "之后（本次提交）";
+  }
+}
+.review-findings li strong {
+  color: var(--warning);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.review-findings li span {
+  overflow-wrap: anywhere;
+}
+
+.review-findings li small {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: 11px;
+}
+.review-external-links h4 span {
+  color: var(--muted);
+  font-weight: 400;
 }

@@ -140,9 +140,9 @@ function FindingGroupBlock({
       </button>
       {open ? (
         <div className="review-report-group-body">
-          {group.findings.map((finding, index) => {
-            const key = `${group.key}:${index}`;
-            const active = source?.groupKey === key;
+          {keyedItems(group.findings).map(({ item: finding, key }) => {
+            const sourceKey = `${group.key}:${key}`;
+            const active = source?.groupKey === sourceKey;
             const targetable = Boolean(finding.entryId || finding.entry);
             return (
               <div className="review-finding-slot" key={key}>
@@ -154,7 +154,7 @@ function FindingGroupBlock({
                           onOpenSource(
                             active
                               ? null
-                              : { groupKey: key, kind: findingSourceKind(finding), target: targetFor(finding) },
+                              : { groupKey: sourceKey, kind: findingSourceKind(finding), target: targetFor(finding) },
                           )
                       : undefined
                   }

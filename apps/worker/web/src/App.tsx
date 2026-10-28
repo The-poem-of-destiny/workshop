@@ -1,12 +1,9 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { api, type HomeResponse, type ProjectSummary } from "./api";
-
-import { ConfirmDialog } from "./components/ui/confirm-dialog";
-
 import { InstallDialog } from "./features/installed/InstallDialog";
-
 import { ProjectDetail } from "./features/projects/ProjectDetail";
+import { InstallInstanceChoice } from "./InstallInstanceChoice";
 
 import { useCatalogue } from "./useCatalogue";
 import { useHostConnection } from "./useHostConnection";
@@ -28,6 +25,8 @@ export function App() {
   const embedded = new URLSearchParams(location.search).get("embed") === "1";
   const {
     view,
+    onDirtyChange,
+    confirmLeave,
     setView,
     setSidebarOpen,
     headerRef,
@@ -40,6 +39,9 @@ export function App() {
   } = useWorkshopNavigation();
   const {
     setTag,
+    total,
+    period,
+    setPeriod,
     search,
     setSearch,
     projectType,
@@ -78,21 +80,19 @@ export function App() {
     connectionLabel,
     connectionTitle,
     postToHost,
-    installConflicts,
-    setInstallConflicts,
+    bridge,
     scanning,
-    updatingId,
     installing,
     rescanInstalls,
-    performInstall,
+    prepareInstall,
     requestUninstall,
     install,
     installTarget,
-    chooseInstallTarget,
     setInstallTarget,
-    uninstallTarget,
-    confirmUninstall,
-    setUninstallTarget,
+    instanceChoice,
+    setInstanceChoice,
+    instanceOperation,
+    completeInstall,
   } = useHostConnection({ embedded, me, login, setError, setNotice });
   const { installedUpdateCount, installedItems, installedLoading, installedPending, reloadInstalledProjects } =
     useInstalledProjects(context);
@@ -128,7 +128,7 @@ export function App() {
   const selectedInstallState = selected ? installationState(selected) : "notInstalled";
 
   function applyTag(value: string): void {
-    setView("browse");
+    if (!setView("browse")) return;
     setTag((current) => (current === value ? "" : value));
     setSidebarOpen(false);
   }
@@ -142,6 +142,7 @@ export function App() {
         sidebarOpen={sidebarOpen}
         sidebarCollapsed={sidebarCollapsed}
         setSidebarCollapsed={setSidebarCollapsed}
+        confirmLeave={confirmLeave}
         search={search}
         setSearch={setSearch}
         setView={setView}
@@ -153,7 +154,9 @@ export function App() {
         me={me}
         avatarFailed={avatarFailed}
         setAvatarFailed={setAvatarFailed}
-        logout={logout}
+        logout={() => {
+          if (confirmLeave()) logout();
+        }}
         login={login}
         drawerToggle={drawerToggle}
         setSidebarOpen={setSidebarOpen}
@@ -209,11 +212,10 @@ export function App() {
             loginFallback={loginFallback}
             notice={notice}
             setNotice={setNotice}
-            installConflicts={installConflicts}
-            setInstallConflicts={setInstallConflicts}
           />
           <WorkshopWorkspaces
             view={view}
+            onDirtyChange={onDirtyChange}
             me={me}
             setNewlyCreatedProjectId={setNewlyCreatedProjectId}
             setView={setView}
@@ -231,15 +233,17 @@ export function App() {
             installedPending={installedPending}
             embedded={embedded}
             scanning={scanning}
-            updatingId={updatingId}
-            installing={installing}
+            installing={installing || installTarget !== null}
             rescanInstalls={rescanInstalls}
             reloadInstalledProjects={reloadInstalledProjects}
-            performInstall={performInstall}
-            requestUninstall={requestUninstall}
+            prepareInstall={prepareInstall}
+            instanceOperation={instanceOperation}
           >
             <WorkshopCatalogue
               hasFilters={hasFilters}
+              total={total}
+              period={period}
+              setPeriod={setPeriod}
               search={search}
               setSearch={setSearch}
               projectType={projectType}
@@ -274,8 +278,8 @@ export function App() {
               onInstall={install}
               onUninstall={requestUninstall}
               onAuthor={(value) => {
+                if (!setView("browse")) return;
                 setAuthor(value);
-                setView("browse");
                 setSelected(null);
               }}
               onTag={(value) => {
@@ -283,55 +287,50 @@ export function App() {
                 setSelected(null);
               }}
               onProjectType={(value) => {
+                if (!setView("browse")) return;
                 setProjectType(value);
-                setView("browse");
                 setSelected(null);
               }}
               onLogin={login}
-              installedWorldbook={selected ? (context?.registry?.[selected.id]?.worldbookName ?? null) : null}
+              installedWorldbook={
+                context?.installationScan?.instances
+                  .filter((instance) => instance.projectId === selected.id)
+                  .map((instance) => instance.location.worldbook ?? "角色正则")
+                  .join("、") || null
+              }
               onError={setError}
               onSubscriptionChange={(projectId, subscribed) => {
                 if (view === "subs") setSubscriptionOverrides((previous) => ({ ...previous, [projectId]: subscribed }));
               }}
               installState={selectedInstallState}
               loggedIn={Boolean(me)}
-              installing={installing}
+              installing={installing || installTarget !== null}
               connected={Boolean(context?.connected)}
               opener={detailOpener}
             />
           ) : null}
         </main>
       </div>
-      <InstallDialog
-        open={installTarget !== null}
-        projectTitle={installTarget?.title ?? ""}
-        primary={context?.worldbooks?.primary ?? null}
-        additional={context?.worldbooks?.additional ?? []}
-        available={context?.worldbooks?.available ?? []}
-        busy={installing}
-        onSelect={chooseInstallTarget}
-        onClose={() => setInstallTarget(null)}
+      {installTarget && bridge ? (
+        <InstallDialog
+          open
+          projectTitle={installTarget.title}
+          intent={installTarget.intent}
+          scan={context?.installationScan ?? null}
+          bridge={bridge}
+          primary={context?.worldbooks?.primary ?? null}
+          onCompleted={completeInstall}
+          onClose={() => setInstallTarget(null)}
+        />
+      ) : null}
+      <InstallInstanceChoice
+        instanceChoice={instanceChoice}
+        setInstanceChoice={setInstanceChoice}
+        installing={installing}
+        prepareInstall={prepareInstall}
+        instanceOperation={instanceOperation}
+        installedItems={installedItems}
       />
-      <ConfirmDialog
-        open={uninstallTarget !== null}
-        title="卸载此项目？"
-        description={
-          uninstallTarget
-            ? `将从「${uninstallTarget.worldbookName}」中移除「${uninstallTarget.title}」的工坊条目。你修改过的条目会被保留，工坊订阅不受影响，之后可以重新安装。`
-            : ""
-        }
-        confirmLabel="卸载"
-        danger
-        busy={installing}
-        onConfirm={confirmUninstall}
-        onCancel={() => setUninstallTarget(null)}
-      >
-        {uninstallTarget ? (
-          <p>
-            目标世界书：<strong>{uninstallTarget.worldbookName}</strong>
-          </p>
-        ) : null}
-      </ConfirmDialog>
     </div>
   );
 }

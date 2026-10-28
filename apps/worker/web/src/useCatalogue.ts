@@ -4,6 +4,8 @@ import { useCatalogueFilters } from "./useCatalogueFilters";
 export function useCatalogue({ setError }: { setError: (message: string | null) => void }) {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [total, setTotal] = useState(0);
+  const [period, setPeriod] = useState<"all" | "7d" | "30d" | "90d">("all");
   const {
     search,
     sort,
@@ -20,6 +22,7 @@ export function useCatalogue({ setError }: { setError: (message: string | null) 
     setLayout,
     hasFilters,
   } = useCatalogueFilters();
+  const effectivePeriod = sort === "downloads" || sort === "likes" ? period : "all";
   const [pageSize, setPageSize] = useState(25);
   const [paging, setPaging] = useState<{ key: string; cursors: (string | undefined)[]; index: number }>({
     key: "",
@@ -30,7 +33,15 @@ export function useCatalogue({ setError }: { setError: (message: string | null) 
   const [loadedQuery, setLoadedQuery] = useState("");
   const [listRetry, setListRetry] = useState(0);
   const listRequest = useRef<{ retry: number } | null>(null);
-  const queryKey = JSON.stringify([search.trim(), sort, projectType, author?.id, tag.trim(), pageSize]);
+  const queryKey = JSON.stringify([
+    search.trim(),
+    sort,
+    effectivePeriod,
+    projectType,
+    author?.id,
+    tag.trim(),
+    pageSize,
+  ]);
   const pageIndex = paging.key === queryKey ? paging.index : 0;
   const pageCursors = paging.key === queryKey ? paging.cursors : [undefined];
   const pageCursor = pageCursors[pageIndex];
@@ -47,6 +58,7 @@ export function useCatalogue({ setError }: { setError: (message: string | null) 
         .projects({
           search: search.trim() || undefined,
           sort,
+          period: effectivePeriod,
           projectType: projectType || undefined,
           authorId: author?.id,
           tag: tag.trim() || undefined,
@@ -57,6 +69,7 @@ export function useCatalogue({ setError }: { setError: (message: string | null) 
           if (!cancelled && requestId === listRequest.current) {
             setProjects(result.items);
             setNextCursor(result.nextCursor);
+            setTotal(result.total);
             setLoadedQuery(queryKey);
             setListLoading(false);
           }
@@ -72,14 +85,13 @@ export function useCatalogue({ setError }: { setError: (message: string | null) 
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [search, sort, projectType, author, tag, pageCursor, pageSize, queryKey, listRetry, setError]);
+  }, [search, sort, effectivePeriod, projectType, author, tag, pageCursor, pageSize, queryKey, listRetry, setError]);
   function changePage(index: number): void {
-    if (listLoading || index < 0) return;
+    if (listLoading || index < 0 || Math.abs(index - pageIndex) !== 1) return;
     const cursors = [...pageCursors];
-    if (index > pageIndex) {
+    if (index > pageIndex && cursors[index] === undefined) {
       if (loadedQuery !== queryKey || !nextCursor) return;
       cursors[index] = nextCursor;
-      cursors.length = index + 1;
     }
     setListLoading(true);
     setPaging({ key: queryKey, cursors, index });
@@ -87,6 +99,9 @@ export function useCatalogue({ setError }: { setError: (message: string | null) 
   }
   const pageTags = [...new Set(projects.flatMap((project) => project.tags))].slice(0, 10);
   return {
+    total,
+    period,
+    setPeriod,
     setTag,
     search,
     setSearch,

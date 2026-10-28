@@ -5,6 +5,7 @@ export const interactionStateItemSchema = z.object({
   liked: z.boolean(),
   subscribed: z.boolean(),
   rating: z.number().int().min(1).max(5).nullable(),
+  comment: z.string().nullable(),
 });
 
 export const meStateResponseSchema = z.object({

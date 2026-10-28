@@ -37,6 +37,8 @@ export interface WorkingRevisionRow extends ProjectAccessRow {
   revision_cover_position_x: number;
   revision_cover_position_y: number;
   revision_cover_zoom: number;
+  revision_worldbook_count: number | null;
+  revision_regex_count: number | null;
 }
 
 export interface RevisionResult {
@@ -88,6 +90,7 @@ export async function getWorkingRevision(
       r.version_label AS revision_version_label, r.precautions AS revision_precautions,
       r.cover_position_x AS revision_cover_position_x, r.cover_position_y AS revision_cover_position_y,
       r.cover_zoom AS revision_cover_zoom,
+      r.worldbook_count AS revision_worldbook_count, r.regex_count AS revision_regex_count,
       EXISTS (SELECT 1 FROM submissions s WHERE s.revision_id = p.working_revision_id) AS working_revision_frozen
     FROM projects p LEFT JOIN project_revisions r ON r.id = p.working_revision_id
     WHERE p.id = ? AND p.deleted_at IS NULL AND (p.author_id = ? OR ? = 'owner')
