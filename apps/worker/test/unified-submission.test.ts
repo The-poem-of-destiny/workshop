@@ -135,6 +135,16 @@ async function submit(draft: Draft, gate?: "pass" | "warn" | "block"): Promise<S
   draft.rowVersion = result.rowVersion;
   return result;
 }
+async function submitQueued(draft: Draft): Promise<Submitted> {
+  const submitted = await submit(draft, "block");
+  await bindings.DB.prepare(`
+    UPDATE submissions SET client_gate = 'pass', status = 'checking', check_status = 'queued'
+    WHERE id = ?
+  `)
+    .bind(submitted.submissionId)
+    .run();
+  return submitted;
+}
 async function nextRevision(draft: Draft, title = "Successor metadata") {
   const response = await author(`/${draft.id}/revisions`, json("POST", { title }, draft.rowVersion));
   expect(response.status).toBe(201);
@@ -375,17 +385,8 @@ describe("unified frozen submissions", () => {
       const draft = await published();
       const original = await publicProject(draft.id);
       await nextRevision(draft);
-      // Build the queued state without launching submit's waitUntil checker,
-      // so this test can exercise withdrawal before the checker claims it.
-      const submitted = await submit(draft, "block");
-      if (gate === "pass") {
-        await bindings.DB.prepare(`
-          UPDATE submissions SET client_gate = 'pass', status = 'checking', check_status = 'queued'
-          WHERE id = ?
-        `)
-          .bind(submitted.submissionId)
-          .run();
-      }
+      // Keep the checker unstarted until after withdrawal.
+      const submitted = gate === "pass" ? await submitQueued(draft) : await submit(draft, "block");
       const path = `/${draft.id}/submissions/${submitted.submissionId}/withdraw`;
       expect((await author(path, { method: "POST" })).status).toBe(412);
       expect((await author(path, json("POST", {}, draft.rowVersion - 1))).status).toBe(412);
@@ -416,7 +417,7 @@ describe("unified frozen submissions", () => {
     const draft = await published();
     const original = await publicProject(draft.id);
     await nextRevision(draft, "Obsolete candidate");
-    const submitted = await submit(draft, "pass");
+    const submitted = await submitQueued(draft);
     let successor: Submitted | undefined;
     await runAcrossMutation(submitted.submissionId, async () => {
       expect((await detail(submitted.submissionId)).submission.checkStatus).toBe("running");
@@ -460,8 +461,9 @@ describe("unified frozen submissions", () => {
     const original = await publicProject(draft.id);
     await nextRevision(draft);
     const submitted = await submit(draft, "block");
-    const queued = await admin(`/submissions/${submitted.submissionId}/recheck`, json("POST", {}));
-    expect(queued.status).toBe(202);
+    expect(
+      await workerExports.DataService.authorAdminRecheck("Bearer reviewer-token", submitted.submissionId),
+    ).toMatchObject({ kind: "ok" });
     expect(
       (
         await admin(
@@ -546,7 +548,9 @@ describe("unified frozen submissions", () => {
       checkStatus: "needs_human",
       checkAttempts: 3,
     });
-    expect((await admin(`/submissions/${submitted.submissionId}/recheck`, json("POST", {}))).status).toBe(202);
+    expect(
+      await workerExports.DataService.authorAdminRecheck("Bearer reviewer-token", submitted.submissionId),
+    ).toMatchObject({ kind: "ok" });
     await run(submitted.submissionId);
     expect((await detail(submitted.submissionId)).submission).toMatchObject({
       status: "pending",

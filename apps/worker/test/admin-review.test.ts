@@ -1,4 +1,5 @@
 import { env, SELF } from "cloudflare:test";
+import { exports as workerExports } from "cloudflare:workers";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { DataEnv } from "../src/data/env";
@@ -86,6 +87,14 @@ describe("admin review and publishing", () => {
     await expect(response.json()).resolves.toMatchObject({
       items: [{ id: "s1", projectTitle: "Draft title", gate: "warn", checkerRevision: "client-1" }],
     });
+  });
+
+  it("restricts rechecks to reviewers and queues an unresolved submission", async () => {
+    expect((await request("/submissions/s1/recheck", "member-token", { method: "POST" })).status).toBe(403);
+    expect((await request("/submissions/missing/recheck", "reviewer-token", { method: "POST" })).status).toBe(404);
+    const response = await request("/submissions/s1/recheck", "reviewer-token", { method: "POST" });
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({ ok: true, status: "queued" });
   });
 
   it("lists multiple statuses in one request and paginates with a keyset cursor", async () => {
@@ -252,8 +261,10 @@ describe("admin review and publishing", () => {
       findings: { accepted: [], changed: [], added: [], removed: [] },
     });
 
-    const recheck = await request("/submissions/s1/recheck", "reviewer-token", { method: "POST" });
-    expect(recheck.status).toBe(202);
+    // The HTTP route starts the checker in the background; queue directly so
+    // its state can be inspected before any checker claims the submission.
+    const recheck = await workerExports.DataService.authorAdminRecheck("Bearer reviewer-token", "s1");
+    expect(recheck).toMatchObject({ kind: "ok" });
     const row = await bindings.DB.prepare("SELECT status, check_status FROM submissions WHERE id = 's1'").first<
       Record<string, unknown>
     >();

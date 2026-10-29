@@ -590,25 +590,36 @@ describe("authoring write paths", () => {
     const successorSubmit = await request(`/${first.project.id}/revisions/${third.revisionId}/submit`, {
       method: "POST",
       headers: { "if-match": String(successorAsset.rowVersion) },
-      body: JSON.stringify({ gate: "warn", checkerRevision: "c1" }),
+      body: JSON.stringify({ gate: "block", checkerRevision: "c1" }),
     });
     expect(successorSubmit.status).toBe(201);
-    const secondSubmission = (await successorSubmit.json()) as { rowVersion: number };
-    const statuses = await bindings.DB.prepare(
-      "SELECT status FROM submissions WHERE project_id = ? ORDER BY submitted_at",
-    )
+    const successor = (await successorSubmit.json()) as { submissionId: string };
+    // Stage the queued successor without starting submit's background checker.
+    await bindings.DB.prepare(`
+      UPDATE submissions SET client_gate = 'warn', status = 'checking', check_status = 'queued'
+      WHERE id = ?
+    `)
+      .bind(successor.submissionId)
+      .run();
+    const statuses = await bindings.DB.prepare("SELECT revision_id, status FROM submissions WHERE project_id = ?")
       .bind(first.project.id)
-      .all<{ status: string }>();
-    expect(statuses.results.map((row) => row.status)).toEqual(["superseded", "checking"]);
+      .all<{ revision_id: string; status: string }>();
+    expect(statuses.results).toHaveLength(2);
+    expect(statuses.results).toEqual(
+      expect.arrayContaining([
+        { revision_id: first.workingRevisionId, status: "superseded" },
+        { revision_id: third.revisionId, status: "checking" },
+      ]),
+    );
 
-    // A fresh working revision can still be uploaded; size is rejected before buffering.
-    const fresh = await request(`/${first.project.id}/revisions`, {
+    // Use an independent draft for the upload limit check.
+    const fresh = await request("/", {
       method: "POST",
-      headers: { "if-match": String(secondSubmission.rowVersion) },
-      body: JSON.stringify({ title: "Fourth" }),
+      body: JSON.stringify({ title: "Upload limit" }),
     });
-    const fourth = (await fresh.json()) as { revisionId: string; rowVersion: number };
-    const oversized = await request(`/${first.project.id}/revisions/${fourth.revisionId}/files/cover`, {
+    expect(fresh.status).toBe(201);
+    const fourth = (await fresh.json()) as { project: { id: string }; workingRevisionId: string; rowVersion: number };
+    const oversized = await request(`/${fourth.project.id}/revisions/${fourth.workingRevisionId}/files/cover`, {
       method: "PUT",
       body: "x",
       headers: {

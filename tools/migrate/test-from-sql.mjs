@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -13,8 +14,12 @@ try {
   const r2 = path.join(dir, "r2");
   const out = path.join(dir, "out");
   await mkdir(path.join(r2, "projects", "public"), { recursive: true });
-  await writeFile(path.join(r2, "projects", "public", "worldbook.json"), '{"entries":[{"content":"ok"}]}');
-  await writeFile(path.join(r2, "projects", "public", "regex-public.json"), '[{"scriptName":"r","replaceString":"x"}]');
+  const fixtures = {
+    worldbook: Buffer.from('{"entries":[{"content":"ok"}]}'),
+    regex: Buffer.from('[{"scriptName":"r","replaceString":"x"}]'),
+  };
+  await writeFile(path.join(r2, "projects", "public", "worldbook.json"), fixtures.worldbook);
+  await writeFile(path.join(r2, "projects", "public", "regex-public.json"), fixtures.regex);
   await writeFile(
     source,
     `
@@ -42,10 +47,12 @@ try {
   );
   const assets = JSON.parse(await readFile(path.join(out, "assets.json"), "utf8"));
   assert.deepEqual(assets.map((asset) => asset.kind).sort(), ["regex", "worldbook"]);
-  assert.equal(
-    assets.every((asset) => typeof asset.content_base64 === "string" && /^[a-f0-9]{64}$/.test(asset.sha256)),
-    true,
-  );
+  for (const asset of assets) {
+    const expected = fixtures[asset.kind];
+    assert.deepEqual(Buffer.from(asset.content_base64, "base64"), expected, `${asset.kind} content`);
+    assert.equal(asset.bytes, expected.length, `${asset.kind} byte length`);
+    assert.equal(asset.sha256, createHash("sha256").update(expected).digest("hex"), `${asset.kind} SHA-256`);
+  }
   console.log("sql export tests passed");
 } finally {
   await rm(dir, { recursive: true, force: true });
