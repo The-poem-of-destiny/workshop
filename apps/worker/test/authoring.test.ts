@@ -1,13 +1,13 @@
-import { env } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
 import { type Session, uploadResponseSchema } from "@workshop/contracts";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { Env } from "../src/env";
-import { authoringRoutes } from "../src/http/routes/authoring";
+import type { DataEnv } from "../src/data/env";
+
 import { listAuthorProjects } from "../src/storage/authoring";
-import { upsertAsset } from "../src/storage/authoring-assets";
+import { upsertStreamedAsset } from "../src/storage/authoring-assets";
 import { applySchema } from "./support/schema";
 
-const bindings = env as unknown as Env;
+const bindings = env as unknown as DataEnv;
 const now = "2026-10-21T00:00:00.000Z";
 const validWorldbook = JSON.stringify({ entries: [{ uid: 1, name: "Entry", content: "Text" }] });
 const validWorldbookBytes = new TextEncoder().encode(validWorldbook).byteLength;
@@ -15,6 +15,35 @@ const validWorldbookBytes = new TextEncoder().encode(validWorldbook).byteLength;
 async function tokenHash(token: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function upsertAsset(
+  db: D1Database,
+  r2: R2Bucket,
+  projectId: string,
+  revisionId: string,
+  expectedVersion: number,
+  kind: Parameters<typeof upsertStreamedAsset>[4],
+  body: ArrayBuffer,
+  mime: string,
+  entryCount?: number,
+) {
+  const digest = await crypto.subtle.digest("SHA-256", body);
+  const sha256 = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return upsertStreamedAsset(
+    db,
+    projectId,
+    revisionId,
+    expectedVersion,
+    kind,
+    sha256,
+    body.byteLength,
+    mime,
+    entryCount,
+    async (key, options) => {
+      await r2.put(key, body, options);
+    },
+  );
 }
 
 async function seedUser(id: string, role: "member" | "owner" = "member", token = `${id}-token`) {
@@ -29,7 +58,7 @@ async function seedUser(id: string, role: "member" | "owner" = "member", token =
 async function request(path: string, init: RequestInit = {}, token = "author-token") {
   const headers = new Headers(init.headers);
   headers.set("authorization", `Bearer ${token}`);
-  return authoringRoutes.request(path, { ...init, headers }, bindings);
+  return SELF.fetch("https://workshop.test/api/v1/projects" + (path === "/" ? "" : path), { ...init, headers });
 }
 
 beforeAll(async () => {
@@ -89,6 +118,25 @@ describe("authoring write paths", () => {
         details: { resource: "project", expectedVersion: 99, currentVersion: 1 },
       },
     });
+  });
+
+  it("accepts only one concurrent metadata update with the same version", async () => {
+    const created = await request("/", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Concurrent project" }),
+    });
+    const { project, rowVersion } = (await created.json()) as { project: { id: string }; rowVersion: number };
+    const update = (title: string) =>
+      request(`/${project.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "if-match": String(rowVersion) },
+        body: JSON.stringify({ title }),
+      });
+    const responses = await Promise.all([update("First"), update("Second")]);
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 412]);
+    const conflict = responses.find((response) => response.status === 412);
+    await expect(conflict!.json()).resolves.toMatchObject({ error: { code: "precondition_failed" } });
   });
 
   it("hides projects from non-authors and permits owners", async () => {
@@ -259,7 +307,7 @@ describe("authoring write paths", () => {
     expect(await saved.text()).toBe(twoEntries);
     expect((await request(savedPath, {}, "other-token")).status).toBe(404);
     expect((await request(savedPath, {}, "owner-token")).status).toBe(200);
-    expect((await authoringRoutes.request(savedPath, {}, bindings)).status).toBe(401);
+    expect((await SELF.fetch("https://workshop.test/api/v1/projects" + savedPath, {})).status).toBe(401);
     const unrelated = await request("/", { method: "POST", body: JSON.stringify({ title: "Other project" }) });
     const otherProject = (await unrelated.json()) as { project: { id: string } };
     expect(
@@ -467,12 +515,15 @@ describe("authoring write paths", () => {
     const submit = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/submit`, {
       method: "POST",
       headers: { "if-match": String(uploaded.rowVersion) },
-      body: JSON.stringify({ gate: "warn", checkerRevision: "c1" }),
+      body: JSON.stringify({ gate: "block", checkerRevision: "c1" }),
     });
     expect(submit.status).toBe(201);
+    const current = await bindings.DB.prepare("SELECT row_version FROM projects WHERE id = ?")
+      .bind(first.project.id)
+      .first<{ row_version: number }>();
     const frozenDelete = await request(
       `/${first.project.id}/revisions/${first.workingRevisionId}/entries/worldbook/${encodeURIComponent("uid:1")}`,
-      { method: "DELETE", headers: { "if-match": String(uploaded.rowVersion + 1) } },
+      { method: "DELETE", headers: { "if-match": String(current!.row_version) } },
     );
     expect(frozenDelete.status).toBe(409);
     const firstSubmission = (await submit.json()) as { rowVersion: number };
@@ -480,7 +531,7 @@ describe("authoring write paths", () => {
     // A submitted revision cannot be submitted or uploaded again.
     const resubmit = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/submit`, {
       method: "POST",
-      headers: { "if-match": String(firstSubmission.rowVersion) },
+      headers: { "if-match": String(current!.row_version) },
       body: JSON.stringify({ gate: "warn", checkerRevision: "c1" }),
     });
     expect(resubmit.status).toBe(409);
@@ -495,7 +546,7 @@ describe("authoring write paths", () => {
       headers: {
         "content-type": "application/json",
         "content-length": String(validWorldbookBytes),
-        "if-match": String(firstSubmission.rowVersion),
+        "if-match": String(current!.row_version),
       },
     });
     expect(frozen.status).toBe(404);
@@ -539,25 +590,36 @@ describe("authoring write paths", () => {
     const successorSubmit = await request(`/${first.project.id}/revisions/${third.revisionId}/submit`, {
       method: "POST",
       headers: { "if-match": String(successorAsset.rowVersion) },
-      body: JSON.stringify({ gate: "warn", checkerRevision: "c1" }),
+      body: JSON.stringify({ gate: "block", checkerRevision: "c1" }),
     });
     expect(successorSubmit.status).toBe(201);
-    const secondSubmission = (await successorSubmit.json()) as { rowVersion: number };
-    const statuses = await bindings.DB.prepare(
-      "SELECT status FROM submissions WHERE project_id = ? ORDER BY submitted_at",
-    )
+    const successor = (await successorSubmit.json()) as { submissionId: string };
+    // Stage the queued successor without starting submit's background checker.
+    await bindings.DB.prepare(`
+      UPDATE submissions SET client_gate = 'warn', status = 'checking', check_status = 'queued'
+      WHERE id = ?
+    `)
+      .bind(successor.submissionId)
+      .run();
+    const statuses = await bindings.DB.prepare("SELECT revision_id, status FROM submissions WHERE project_id = ?")
       .bind(first.project.id)
-      .all<{ status: string }>();
-    expect(statuses.results.map((row) => row.status)).toEqual(["superseded", "checking"]);
+      .all<{ revision_id: string; status: string }>();
+    expect(statuses.results).toHaveLength(2);
+    expect(statuses.results).toEqual(
+      expect.arrayContaining([
+        { revision_id: first.workingRevisionId, status: "superseded" },
+        { revision_id: third.revisionId, status: "checking" },
+      ]),
+    );
 
-    // A fresh working revision can still be uploaded; size is rejected before buffering.
-    const fresh = await request(`/${first.project.id}/revisions`, {
+    // Use an independent draft for the upload limit check.
+    const fresh = await request("/", {
       method: "POST",
-      headers: { "if-match": String(secondSubmission.rowVersion) },
-      body: JSON.stringify({ title: "Fourth" }),
+      body: JSON.stringify({ title: "Upload limit" }),
     });
-    const fourth = (await fresh.json()) as { revisionId: string; rowVersion: number };
-    const oversized = await request(`/${first.project.id}/revisions/${fourth.revisionId}/files/cover`, {
+    expect(fresh.status).toBe(201);
+    const fourth = (await fresh.json()) as { project: { id: string }; workingRevisionId: string; rowVersion: number };
+    const oversized = await request(`/${fourth.project.id}/revisions/${fourth.workingRevisionId}/files/cover`, {
       method: "PUT",
       body: "x",
       headers: {
@@ -587,14 +649,17 @@ describe("authoring write paths", () => {
       body: JSON.stringify({}),
     });
     expect(submission.status).toBe(201);
-    const submitted = (await submission.json()) as { rowVersion: number };
+    await submission.json();
 
     await bindings.DB.prepare("UPDATE projects SET published_revision_id = ? WHERE id = ?")
       .bind(first.workingRevisionId, first.project.id)
       .run();
+    const current = await bindings.DB.prepare("SELECT row_version FROM projects WHERE id = ?")
+      .bind(first.project.id)
+      .first<{ row_version: number }>();
     const edited = await request(`/${first.project.id}`, {
       method: "PATCH",
-      headers: { "if-match": String(submitted.rowVersion) },
+      headers: { "if-match": String(current!.row_version) },
       body: JSON.stringify({ title: "Changed after submit", projectType: "扩展", tags: ["规则"] }),
     });
     expect(edited.status).toBe(409);

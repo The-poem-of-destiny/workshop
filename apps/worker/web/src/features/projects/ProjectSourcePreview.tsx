@@ -27,7 +27,7 @@ export function ProjectSourcePreview({
   const [previewEntryKey, setPreviewEntryKey] = useState<string | null>(null);
   const [previewReading, setPreviewReading] = useState(false);
   const [previewRequested, setPreviewRequested] = useState(false);
-  const previews = useRef<Partial<Record<PreviewKind, Promise<PreviewData>>>>({});
+  const previews = useRef<Record<string, Promise<PreviewData>>>({});
   const previewOpener = useRef<HTMLButtonElement | null>(null);
   const previewRequest = useRef<{ generation: number } | null>(null);
   useEffect(() => {
@@ -40,12 +40,14 @@ export function ProjectSourcePreview({
     setPreviewSearch("");
     setPreviewEntryKey(null);
     setPreviewReading(false);
+    if (!loggedIn) previews.current = {};
     if (!loggedIn || !previewRequested) {
       setPreviewLoading(false);
       return;
     }
     setPreviewLoading(true);
-    let pending = previews.current[previewKind];
+    const key = JSON.stringify([project.id, project.publishedRevisionId, previewKind]);
+    let pending = previews.current[key];
     if (!pending) {
       pending = api.projectPreview(project.id, previewKind).then((value) => {
         if (project.publishedRevisionId && value.revisionId !== project.publishedRevisionId) {
@@ -53,9 +55,9 @@ export function ProjectSourcePreview({
         }
         return value;
       });
-      previews.current[previewKind] = pending;
+      previews.current[key] = pending;
       void pending.catch(() => {
-        if (previews.current[previewKind] === pending) delete previews.current[previewKind];
+        if (previews.current[key] === pending) delete previews.current[key];
       });
     }
     pending

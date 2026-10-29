@@ -1,14 +1,14 @@
-import { env } from "cloudflare:test";
-import { projectPreviewSchema } from "@workshop/contracts";
+import { env, SELF } from "cloudflare:test";
+import { homeResponseSchema, projectPreviewSchema } from "@workshop/contracts";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { app } from "../src/app";
-import type { Env } from "../src/env";
+
+import type { DataEnv } from "../src/data/env";
 import { consumeDownloadToken } from "../src/storage/downloads";
 import { listPublishedProjects } from "../src/storage/projects";
 import { hashSessionToken } from "../src/storage/session-hash";
 import { applySchema } from "./support/schema";
 
-const bindings = env as unknown as Env;
+const bindings = env as unknown as DataEnv;
 const now = "2026-10-21T00:00:00.000Z";
 
 beforeAll(async () => {
@@ -198,7 +198,7 @@ async function seed() {
 describe("public read path", () => {
   it("lists only published public projects", async () => {
     await seed();
-    const response = await app.request("/api/v1/projects", undefined, bindings);
+    const response = await SELF.fetch(new URL("/api/v1/projects", "https://workshop.test").toString(), undefined);
     expect(response.status).toBe(200);
     const body = (await response.json()) as { items: Array<Record<string, unknown>> };
     expect(body.items).toHaveLength(1);
@@ -212,6 +212,69 @@ describe("public read path", () => {
     });
   });
 
+  it("returns a canonical batch of public projects and missing ids", async () => {
+    await seed();
+    const response = await SELF.fetch("https://workshop.test/api/v1/projects/batch?ids=p2%2C%20p1%20%2Cmissing%2Cp1");
+    expect(response.status).toBe(200);
+    const result = await response.json<{ items: Array<{ id: string }>; missingIds: string[] }>();
+    expect(result.items.map((item) => item.id)).toEqual(["p1"]);
+    expect(result.missingIds).toEqual(["missing", "p2"]);
+    expect(response.headers.get("cache-control")).toContain("public");
+  });
+
+  it("rejects malformed batch queries without caching them", async () => {
+    const tooMany = Array.from({ length: 51 }, (_, index) => `p${index}`).join(",");
+    for (const query of ["", "?ids=", "?ids=p1,,p2", "?ids=p1&ids=p2", "?ids=p1&extra=x", `?ids=${tooMany}`]) {
+      const response = await SELF.fetch(`https://workshop.test/api/v1/projects/batch${query}`);
+      expect(response.status, query).toBe(400);
+      expect(response.headers.get("cache-control"), query).toContain("no-store");
+    }
+  });
+
+  it("keeps a usable home list when discovery fails and never caches the partial response", async () => {
+    await seed();
+    await bindings.DB.exec("ALTER TABLE discovery_exposures RENAME TO discovery_exposures_test_hidden");
+    try {
+      const response = await SELF.fetch("https://workshop.test/api/v1/home");
+      const home = homeResponseSchema.parse(await response.json());
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toContain("no-store");
+      expect(home.discovery).toMatchObject({
+        ok: false,
+        error: { code: "internal", message: "Discovery unavailable" },
+      });
+      expect(home.projects).toMatchObject({ ok: true, data: { items: [{ id: "p1" }] } });
+    } finally {
+      await bindings.DB.exec("ALTER TABLE discovery_exposures_test_hidden RENAME TO discovery_exposures");
+    }
+  });
+
+  it("returns a no-store error when all home sections fail", async () => {
+    await seed();
+    await bindings.DB.exec("ALTER TABLE site_settings RENAME TO site_settings_test_hidden");
+    await bindings.DB.exec("ALTER TABLE discovery_exposures RENAME TO discovery_exposures_test_hidden");
+    await bindings.DB.exec("ALTER TABLE projects RENAME TO projects_test_hidden");
+    try {
+      const response = await SELF.fetch("https://workshop.test/api/v1/home");
+      expect(response.status).toBe(500);
+      expect(response.headers.get("cache-control")).toContain("no-store");
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: "internal", message: "Home unavailable" },
+      });
+      const site = await SELF.fetch("https://workshop.test/api/v1/site");
+      expect(site.status).toBe(500);
+      expect(site.headers.get("cache-control")).toContain("no-store");
+      expect(site.headers.get("access-control-allow-origin")).toBe("*");
+      await expect(site.json()).resolves.toMatchObject({
+        error: { code: "internal", message: "Internal server error" },
+      });
+    } finally {
+      await bindings.DB.exec("ALTER TABLE projects_test_hidden RENAME TO projects");
+      await bindings.DB.exec("ALTER TABLE discovery_exposures_test_hidden RENAME TO discovery_exposures");
+      await bindings.DB.exec("ALTER TABLE site_settings_test_hidden RENAME TO site_settings");
+    }
+  });
+
   it("serves only published public preview text to authenticated readers", async () => {
     await seed();
     await bindings.DB.prepare("UPDATE project_revisions SET entry_index_ready = 1 WHERE id = 'r1'").run();
@@ -219,10 +282,9 @@ describe("public read path", () => {
       "projects/p1/revisions/r1/worldbook.json",
       JSON.stringify({ entries: [{ uid: 7, name: "Greeting", content: "<p>hello</p>" }] }),
     );
-    const response = await app.request(
-      "/api/v1/projects/p1/preview/worldbook",
+    const response = await SELF.fetch(
+      new URL("/api/v1/projects/p1/preview/worldbook", "https://workshop.test").toString(),
       { headers: { authorization: "Bearer test-token" } },
-      bindings,
     );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -230,12 +292,44 @@ describe("public read path", () => {
       kind: "worldbook",
       entries: [{ key: "uid:7", name: "Greeting", content: "<p>hello</p>" }],
     });
-    const privateResponse = await app.request(
-      "/api/v1/projects/p2/preview/worldbook",
+    const privateResponse = await SELF.fetch(
+      new URL("/api/v1/projects/p2/preview/worldbook", "https://workshop.test").toString(),
       { headers: { authorization: "Bearer test-token" } },
-      bindings,
     );
     expect(privateResponse.status).toBe(404);
+  });
+
+  it("checks current session and publication before each fixed preview", async () => {
+    await seed();
+    await bindings.DB.prepare("UPDATE project_revisions SET entry_index_ready = 1 WHERE id IN ('r1', 'r3')").run();
+    await bindings.R2.put("projects/p1/revisions/r1/worldbook.json", '{"entries":[{"uid":1,"content":"first"}]}');
+    const url = "https://workshop.test/api/v1/projects/p1/preview/worldbook";
+    const request = (token: string) => SELF.fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    for (const token of ["test-token", "other-token"]) {
+      const response = await request(token);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toContain("no-store");
+      await expect(response.json()).resolves.toMatchObject({ revisionId: "r1", entries: [{ content: "first" }] });
+    }
+    await bindings.DB.prepare("DELETE FROM sessions WHERE user_id = 'u1'").run();
+    expect((await request("test-token")).status).toBe(401);
+    await bindings.DB.prepare("UPDATE projects SET visibility = 'private' WHERE id = 'p1'").run();
+    expect((await request("other-token")).status).toBe(404);
+    await bindings.DB.prepare(
+      "UPDATE projects SET visibility = 'public', published_revision_id = 'r3' WHERE id = 'p1'",
+    ).run();
+    await bindings.DB.prepare(`INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
+      VALUES ('worldbook3', 'p1', 'r3', 'worldbook', 'projects/p1/revisions/r3/worldbook.json', ?, 20, 'application/json', ?)`)
+      .bind("2".repeat(64), now)
+      .run();
+    await bindings.R2.put("projects/p1/revisions/r3/worldbook.json", '{"entries":[{"uid":2,"content":"second"}]}');
+    const changed = await request("other-token");
+    expect(changed.status).toBe(200);
+    await expect(changed.json()).resolves.toMatchObject({ revisionId: "r3", entries: [{ content: "second" }] });
+    await bindings.R2.put("projects/p1/revisions/r3/worldbook.json", "invalid JSON");
+    expect((await request("other-token")).status).toBe(404);
+    await bindings.R2.delete("projects/p1/revisions/r3/worldbook.json");
+    expect((await request("other-token")).status).toBe(404);
   });
 
   it("returns only allowlisted behavior fields without inventing source defaults", async () => {
@@ -269,10 +363,9 @@ describe("public read path", () => {
         ],
       }),
     );
-    const response = await app.request(
-      "/api/v1/projects/p1/preview/worldbook",
+    const response = await SELF.fetch(
+      new URL("/api/v1/projects/p1/preview/worldbook", "https://workshop.test").toString(),
       { headers: { authorization: "Bearer test-token" } },
-      bindings,
     );
     expect(response.status).toBe(200);
     const body = projectPreviewSchema.parse(await response.json());
@@ -342,10 +435,9 @@ describe("public read path", () => {
         },
       ]),
     );
-    const response = await app.request(
-      "/api/v1/projects/p1/preview/regex",
+    const response = await SELF.fetch(
+      new URL("/api/v1/projects/p1/preview/regex", "https://workshop.test").toString(),
       { headers: { authorization: "Bearer test-token" } },
-      bindings,
     );
     expect(response.status).toBe(200);
     const body = projectPreviewSchema.parse(await response.json());
@@ -368,34 +460,34 @@ describe("public read path", () => {
     await bindings.DB.prepare(
       "UPDATE project_revisions SET entry_index_ready = 1, regex_count = 0 WHERE id = 'r1'",
     ).run();
-    const empty = await app.request(
-      "/api/v1/projects/p1/preview/regex",
-      { headers: { authorization: "Bearer test-token" } },
-      bindings,
-    );
+    const empty = await SELF.fetch(new URL("/api/v1/projects/p1/preview/regex", "https://workshop.test").toString(), {
+      headers: { authorization: "Bearer test-token" },
+    });
     expect(empty.status).toBe(200);
     await expect(empty.json()).resolves.toEqual({ revisionId: "r1", kind: "regex", entries: [] });
     await bindings.DB.prepare("UPDATE project_revisions SET regex_count = 1 WHERE id = 'r1'").run();
-    const missing = await app.request(
-      "/api/v1/projects/p1/preview/regex",
-      { headers: { authorization: "Bearer test-token" } },
-      bindings,
-    );
+    const missing = await SELF.fetch(new URL("/api/v1/projects/p1/preview/regex", "https://workshop.test").toString(), {
+      headers: { authorization: "Bearer test-token" },
+    });
     expect(missing.status).toBe(404);
-    const hidden = await app.request(
-      "/api/v1/projects/p2/preview/regex",
-      { headers: { authorization: "Bearer test-token" } },
-      bindings,
-    );
+    const hidden = await SELF.fetch(new URL("/api/v1/projects/p2/preview/regex", "https://workshop.test").toString(), {
+      headers: { authorization: "Bearer test-token" },
+    });
     expect(hidden.status).toBe(404);
   });
 
   it("filters by author id and returns an empty page for others", async () => {
     await seed();
-    const mine = await app.request("/api/v1/projects?authorId=u1", undefined, bindings);
+    const mine = await SELF.fetch(
+      new URL("/api/v1/projects?authorId=u1", "https://workshop.test").toString(),
+      undefined,
+    );
     expect(mine.status).toBe(200);
     await expect(mine.json()).resolves.toMatchObject({ items: [{ id: "p1", author: { id: "u1" } }] });
-    const other = await app.request("/api/v1/projects?authorId=u2", undefined, bindings);
+    const other = await SELF.fetch(
+      new URL("/api/v1/projects?authorId=u2", "https://workshop.test").toString(),
+      undefined,
+    );
     expect(other.status).toBe(200);
     await expect(other.json()).resolves.toMatchObject({ items: [], nextCursor: null });
   });
@@ -446,23 +538,35 @@ describe("public read path", () => {
 
   it("filters by exact tag", async () => {
     await seed();
-    const tagged = await app.request(`/api/v1/projects?tag=${encodeURIComponent("奇幻")}`, undefined, bindings);
+    const tagged = await SELF.fetch(
+      new URL(`/api/v1/projects?tag=${encodeURIComponent("奇幻")}`, "https://workshop.test").toString(),
+      undefined,
+    );
     expect(tagged.status).toBe(200);
     await expect(tagged.json()).resolves.toMatchObject({ items: [{ id: "p1" }] });
-    const missing = await app.request(`/api/v1/projects?tag=${encodeURIComponent("不存在")}`, undefined, bindings);
+    const missing = await SELF.fetch(
+      new URL(`/api/v1/projects?tag=${encodeURIComponent("不存在")}`, "https://workshop.test").toString(),
+      undefined,
+    );
     await expect(missing.json()).resolves.toMatchObject({ items: [] });
   });
 
   it("supports one- and two-character search across title, tags and author", async () => {
     await seed();
     for (const query of ["命", "命定", "奇幻", "作者", "命定之"]) {
-      const response = await app.request(`/api/v1/projects?search=${encodeURIComponent(query)}`, undefined, bindings);
+      const response = await SELF.fetch(
+        new URL(`/api/v1/projects?search=${encodeURIComponent(query)}`, "https://workshop.test").toString(),
+        undefined,
+      );
       expect(response.status).toBe(200);
       const body = (await response.json()) as { items: Array<{ id: string }> };
       expect(body.items.map((item) => item.id)).toEqual(["p1"]);
     }
     for (const query of ['"', "'", "-"]) {
-      const response = await app.request(`/api/v1/projects?search=${encodeURIComponent(query)}`, undefined, bindings);
+      const response = await SELF.fetch(
+        new URL(`/api/v1/projects?search=${encodeURIComponent(query)}`, "https://workshop.test").toString(),
+        undefined,
+      );
       expect(response.status).toBe(200);
     }
     const plan = await bindings.DB.prepare(`
@@ -477,7 +581,7 @@ describe("public read path", () => {
 
   it("returns project detail and hides private projects", async () => {
     await seed();
-    const detail = await app.request("/api/v1/projects/p1", undefined, bindings);
+    const detail = await SELF.fetch(new URL("/api/v1/projects/p1", "https://workshop.test").toString(), undefined);
     expect(detail.status).toBe(200);
     await expect(detail.json()).resolves.toMatchObject({
       id: "p1",
@@ -485,17 +589,22 @@ describe("public read path", () => {
       discordThreadUrl: "https://discord.com/channels/1/2",
     });
 
-    const hidden = await app.request("/api/v1/projects/p2", undefined, bindings);
+    const hidden = await SELF.fetch(new URL("/api/v1/projects/p2", "https://workshop.test").toString(), undefined);
     expect(hidden.status).toBe(404);
   });
 
   it("counts an authenticated download atomically", async () => {
     await seed();
-    const anonymous = await app.request("/api/v1/projects/p1/downloads", { method: "POST" }, bindings);
+    const anonymous = await SELF.fetch(new URL("/api/v1/projects/p1/downloads", "https://workshop.test").toString(), {
+      method: "POST",
+    });
     expect(anonymous.status).toBe(401);
 
-    const headers = { authorization: "Bearer test-token" };
-    const response = await app.request("/api/v1/projects/p1/downloads", { method: "POST", headers }, bindings);
+    const headers = { authorization: "Bearer other-token" };
+    const response = await SELF.fetch(new URL("/api/v1/projects/p1/downloads", "https://workshop.test").toString(), {
+      method: "POST",
+      headers,
+    });
     expect(response.status).toBe(201);
     const ticket = (await response.json()) as { files: Array<{ kind: string; url: string; expiresAt: string }> };
     expect(ticket.files).toHaveLength(1);
@@ -506,36 +615,54 @@ describe("public read path", () => {
     }>();
     expect(afterIssue?.downloads_count).toBe(12);
 
-    const otherUser = await app.request(
-      ticket.files[0]!.url,
-      {
-        headers: { authorization: "Bearer other-token" },
-      },
-      bindings,
-    );
+    const otherUser = await SELF.fetch(new URL(ticket.files[0]!.url, "https://workshop.test").toString(), {
+      headers: { authorization: "Bearer test-token" },
+    });
     expect(otherUser.status).toBe(404);
-    const download = await app.request(ticket.files[0]!.url, { headers }, bindings);
+    const download = await SELF.fetch(new URL(ticket.files[0]!.url, "https://workshop.test").toString(), { headers });
     expect(download.status).toBe(200);
     await expect(download.text()).resolves.toBe('{"entries":[]}');
-    const replay = await app.request(ticket.files[0]!.url, { headers }, bindings);
+    const replay = await SELF.fetch(new URL(ticket.files[0]!.url, "https://workshop.test").toString(), { headers });
     expect(replay.status).toBe(404);
 
-    const concurrentIssue = await app.request("/api/v1/projects/p1/downloads", { method: "POST", headers }, bindings);
+    const concurrentIssue = await SELF.fetch(
+      new URL("/api/v1/projects/p1/downloads", "https://workshop.test").toString(),
+      { method: "POST", headers },
+    );
     const concurrentTicket = (await concurrentIssue.json()) as { files: Array<{ url: string }> };
     const concurrent = await Promise.all([
-      app.request(concurrentTicket.files[0]!.url, { headers }, bindings),
-      app.request(concurrentTicket.files[0]!.url, { headers }, bindings),
+      SELF.fetch(new URL(concurrentTicket.files[0]!.url, "https://workshop.test").toString(), { headers }),
+      SELF.fetch(new URL(concurrentTicket.files[0]!.url, "https://workshop.test").toString(), { headers }),
     ]);
     expect(concurrent.filter((response) => response.status === 200)).toHaveLength(1);
     expect(concurrent.filter((response) => response.status === 404)).toHaveLength(1);
+    const authorHeaders = { authorization: "Bearer test-token" };
+    const authorIssue = await SELF.fetch(new URL("/api/v1/projects/p1/downloads", "https://workshop.test").toString(), {
+      method: "POST",
+      headers: authorHeaders,
+    });
+    const authorTicket = (await authorIssue.json()) as { files: Array<{ url: string }> };
+    const authorDownload = await SELF.fetch(new URL(authorTicket.files[0]!.url, "https://workshop.test").toString(), {
+      headers: authorHeaders,
+    });
+    expect(authorDownload.status).toBe(200);
+    await authorDownload.arrayBuffer();
 
-    const sessionBound = await app.request("/api/v1/projects/p1/downloads", { method: "POST", headers }, bindings);
+    const sessionBound = await SELF.fetch(
+      new URL("/api/v1/projects/p1/downloads", "https://workshop.test").toString(),
+      { method: "POST", headers },
+    );
     const sessionTicket = (await sessionBound.json()) as { files: Array<{ url: string }> };
-    await bindings.DB.prepare("UPDATE sessions SET session_version = 2 WHERE user_id = 'u1'").run();
-    expect((await app.request(sessionTicket.files[0]!.url, { headers }, bindings)).status).toBe(404);
-    await bindings.DB.prepare("UPDATE sessions SET session_version = 1 WHERE user_id = 'u1'").run();
+    await bindings.DB.prepare("UPDATE sessions SET session_version = 2 WHERE user_id = 'u2'").run();
+    expect(
+      (await SELF.fetch(new URL(sessionTicket.files[0]!.url, "https://workshop.test").toString(), { headers })).status,
+    ).toBe(404);
+    await bindings.DB.prepare("UPDATE sessions SET session_version = 1 WHERE user_id = 'u2'").run();
 
-    const duplicate = await app.request("/api/v1/projects/p1/downloads", { method: "POST", headers }, bindings);
+    const duplicate = await SELF.fetch(new URL("/api/v1/projects/p1/downloads", "https://workshop.test").toString(), {
+      method: "POST",
+      headers,
+    });
     expect(duplicate.status).toBe(201);
     const duplicateTicket = (await duplicate.json()) as { files: Array<{ url: string }> };
     await bindings.DB.prepare(
@@ -543,7 +670,10 @@ describe("public read path", () => {
     )
       .bind("2000-01-01T00:00:00.000Z")
       .run();
-    expect((await app.request(duplicateTicket.files[0]!.url, { headers }, bindings)).status).toBe(404);
+    expect(
+      (await SELF.fetch(new URL(duplicateTicket.files[0]!.url, "https://workshop.test").toString(), { headers }))
+        .status,
+    ).toBe(404);
 
     const project = await bindings.DB.prepare("SELECT downloads_count FROM projects WHERE id = 'p1'").first<{
       downloads_count: number;
@@ -557,11 +687,10 @@ describe("public read path", () => {
 
   it.each(["ticket", "session"] as const)("rechecks %s expiry after opening R2 without counting", async (boundary) => {
     await seed();
-    const issued = await app.request(
-      "/api/v1/projects/p1/downloads",
-      { method: "POST", headers: { authorization: "Bearer test-token" } },
-      bindings,
-    );
+    const issued = await SELF.fetch(new URL("/api/v1/projects/p1/downloads", "https://workshop.test").toString(), {
+      method: "POST",
+      headers: { authorization: "Bearer test-token" },
+    });
     const ticket = (await issued.json()) as { files: Array<{ url: string }> };
     const token = ticket.files[0]!.url.split("/").pop()!;
     const currentSessionHash = await hashSessionToken("test-token");
@@ -609,10 +738,15 @@ describe("public read path", () => {
 
   it("separates published public images from private draft delivery", async () => {
     await seed();
-    const publicCover = await app.request("/api/v1/public-assets/covers/p1.webp", undefined, bindings);
+    const publicCover = await SELF.fetch(
+      new URL("/api/v1/public-assets/covers/p1.webp", "https://workshop.test").toString(),
+      undefined,
+    );
     expect(publicCover.status).toBe(200);
     expect(new Uint8Array(await publicCover.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
-    expect(publicCover.headers.get("cache-control")).toBe("public, max-age=300, stale-if-error=0");
+    const cacheControl = publicCover.headers.get("cache-control") ?? "";
+    expect(cacheControl).toMatch(/^public, max-age=\d+, stale-if-error=0$/);
+    expect(Number(/max-age=(\d+)/.exec(cacheControl)?.[1])).toBeLessThanOrEqual(300);
     expect(publicCover.headers.get("access-control-allow-origin")).toBe("*");
     expect(publicCover.headers.get("access-control-allow-credentials")).toBeNull();
     expect(publicCover.headers.get("vary")).toBeNull();
@@ -620,26 +754,50 @@ describe("public read path", () => {
     const headers = { authorization: "Bearer test-token" };
     for (const key of ["covers/p1/r3-cover.webp", "covers/p2/r2-cover.webp"]) {
       for (const options of [undefined, { headers }]) {
-        const denied = await app.request(`/api/v1/public-assets/${key}`, options, bindings);
+        const denied = await SELF.fetch(
+          new URL(`/api/v1/public-assets/${key}`, "https://workshop.test").toString(),
+          options,
+        );
         expect(denied.status).toBe(404);
         expect(denied.headers.get("cache-control")).toBe("private, no-store");
       }
-      expect((await app.request(`/api/v1/assets/${key}`, undefined, bindings)).status).toBe(404);
-      const ownImage = await app.request(`/api/v1/assets/${key}`, { headers }, bindings);
+      expect(
+        (await SELF.fetch(new URL(`/api/v1/assets/${key}`, "https://workshop.test").toString(), undefined)).status,
+      ).toBe(404);
+      const ownImage = await SELF.fetch(new URL(`/api/v1/assets/${key}`, "https://workshop.test").toString(), {
+        headers,
+      });
       expect(ownImage.status).toBe(200);
       expect(ownImage.headers.get("cache-control")).toBe("private, no-store");
+      await ownImage.arrayBuffer();
     }
-    const legacyPublic = await app.request("/api/v1/assets/covers/p1.webp", undefined, bindings);
+    const legacyPublic = await SELF.fetch(
+      new URL("/api/v1/assets/covers/p1.webp", "https://workshop.test").toString(),
+      undefined,
+    );
     expect(legacyPublic.status).toBe(200);
     expect(legacyPublic.headers.get("cache-control")).toBe("private, no-store");
+    await legacyPublic.arrayBuffer();
 
     await bindings.DB.prepare("UPDATE projects SET visibility = 'private' WHERE id = 'p1'").run();
-    expect((await app.request("/api/v1/public-assets/covers/p1.webp", { headers }, bindings)).status).toBe(404);
+    expect(
+      (
+        await SELF.fetch(new URL("/api/v1/public-assets/covers/p1.webp", "https://workshop.test").toString(), {
+          headers,
+        })
+      ).status,
+    ).toBe(404);
     await bindings.DB.prepare("UPDATE projects SET visibility = 'public', deleted_at = ? WHERE id = 'p1'")
       .bind(now)
       .run();
-    expect((await app.request("/api/v1/public-assets/covers/p1.webp", undefined, bindings)).status).toBe(404);
-    expect((await app.request("/api/v1/assets/covers/p1.webp", { headers }, bindings)).status).toBe(404);
+    expect(
+      (await SELF.fetch(new URL("/api/v1/public-assets/covers/p1.webp", "https://workshop.test").toString(), undefined))
+        .status,
+    ).toBe(404);
+    expect(
+      (await SELF.fetch(new URL("/api/v1/assets/covers/p1.webp", "https://workshop.test").toString(), { headers }))
+        .status,
+    ).toBe(404);
   });
 
   it("projects legacy banner URLs publicly without retaining replaced banner access", async () => {
@@ -658,24 +816,38 @@ describe("public read path", () => {
     await bindings.DB.prepare("UPDATE site_settings SET value = ? WHERE key = 'discover_banner'")
       .bind(JSON.stringify(banner))
       .run();
-    const site = await app.request("/api/v1/site", undefined, bindings);
+    const site = await SELF.fetch(new URL("/api/v1/site", "https://workshop.test").toString(), undefined);
     await expect(site.json()).resolves.toMatchObject({
       banner: { imageUrl: "/api/v1/public-assets/banners/old.webp" },
     });
-    expect((await app.request("/api/v1/public-assets/banners/old.webp", undefined, bindings)).status).toBe(200);
+    expect(
+      (
+        await SELF.fetch(
+          new URL("/api/v1/public-assets/banners/old.webp", "https://workshop.test").toString(),
+          undefined,
+        )
+      ).status,
+    ).toBe(200);
     banner.imageUrl = "/api/v1/public-assets/banners/new.webp";
     await bindings.DB.prepare("UPDATE site_settings SET value = ? WHERE key = 'discover_banner'")
       .bind(JSON.stringify(banner))
       .run();
-    expect((await app.request(banner.imageUrl, undefined, bindings)).status).toBe(200);
-    expect((await app.request("/api/v1/public-assets/banners/old.webp", undefined, bindings)).status).toBe(404);
+    expect((await SELF.fetch(new URL(banner.imageUrl, "https://workshop.test").toString(), undefined)).status).toBe(
+      200,
+    );
     expect(
       (
-        await app.request(
-          "/api/v1/assets/banners/old.webp",
-          { headers: { authorization: "Bearer test-token" } },
-          bindings,
+        await SELF.fetch(
+          new URL("/api/v1/public-assets/banners/old.webp", "https://workshop.test").toString(),
+          undefined,
         )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await SELF.fetch(new URL("/api/v1/assets/banners/old.webp", "https://workshop.test").toString(), {
+          headers: { authorization: "Bearer test-token" },
+        })
       ).status,
     ).toBe(404);
   });
@@ -685,7 +857,9 @@ describe("public read path", () => {
     await bindings.DB.prepare(
       "UPDATE project_revisions SET manifest_hash = 'unindexed-manifest' WHERE id = 'r1'",
     ).run();
-    expect((await app.request("/api/v1/projects/p1/entries", undefined, bindings)).status).toBe(404);
+    expect(
+      (await SELF.fetch(new URL("/api/v1/projects/p1/entries", "https://workshop.test").toString(), undefined)).status,
+    ).toBe(404);
 
     const content = "stored 😀";
     const contentHash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content)))]
@@ -699,7 +873,10 @@ describe("public read path", () => {
       bindings.DB.prepare("UPDATE project_revisions SET entry_index_ready = 1 WHERE id = 'r1'"),
     ]);
     await bindings.R2.delete("projects/p1/revisions/r1/worldbook.json");
-    const response = await app.request("/api/v1/projects/p1/entries", undefined, bindings);
+    const response = await SELF.fetch(
+      new URL("/api/v1/projects/p1/entries", "https://workshop.test").toString(),
+      undefined,
+    );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       revisionId: "r1",
@@ -707,24 +884,32 @@ describe("public read path", () => {
     });
 
     await bindings.DB.prepare("DELETE FROM revision_entry_index WHERE revision_id = 'r1'").run();
-    const empty = await app.request("/api/v1/projects/p1/entries", undefined, bindings);
+    const empty = await SELF.fetch(
+      new URL("/api/v1/projects/p1/entries", "https://workshop.test").toString(),
+      undefined,
+    );
     await expect(empty.json()).resolves.toEqual({ revisionId: "r1", entries: [] });
   });
 
   it("returns acquisition tickets only after client version and channel checks", async () => {
     await seed();
-    expect((await app.request("/api/v1/projects/p1/acquisitions", { method: "POST" }, bindings)).status).toBe(401);
+    expect(
+      (
+        await SELF.fetch(new URL("/api/v1/projects/p1/acquisitions", "https://workshop.test").toString(), {
+          method: "POST",
+        })
+      ).status,
+    ).toBe(401);
     await bindings.DB.prepare("INSERT INTO site_settings (key, value, updated_at) VALUES ('client_channels', ?, ?)")
       .bind(JSON.stringify({ stable: { revision: "r1", version: "1.0.0" } }), now)
       .run();
-    const missingChannel = await app.request(
-      "/api/v1/projects/p1/acquisitions",
+    const missingChannel = await SELF.fetch(
+      new URL("/api/v1/projects/p1/acquisitions", "https://workshop.test").toString(),
       { method: "POST", headers: { authorization: "Bearer test-token", "x-client-version": "1.0.0" } },
-      bindings,
     );
     expect(missingChannel.status).toBe(426);
-    const wrongChannel = await app.request(
-      "/api/v1/projects/p1/acquisitions",
+    const wrongChannel = await SELF.fetch(
+      new URL("/api/v1/projects/p1/acquisitions", "https://workshop.test").toString(),
       {
         method: "POST",
         headers: {
@@ -733,11 +918,10 @@ describe("public read path", () => {
           "x-client-channel": "staging",
         },
       },
-      bindings,
     );
     expect(wrongChannel.status).toBe(426);
-    const wrongVersion = await app.request(
-      "/api/v1/projects/p1/acquisitions",
+    const wrongVersion = await SELF.fetch(
+      new URL("/api/v1/projects/p1/acquisitions", "https://workshop.test").toString(),
       {
         method: "POST",
         headers: {
@@ -746,21 +930,16 @@ describe("public read path", () => {
           "x-client-channel": "stable",
         },
       },
-      bindings,
     );
     expect(wrongVersion.status).toBe(426);
-    const response = await app.request(
-      "/api/v1/projects/p1/acquisitions",
-      {
-        method: "POST",
-        headers: {
-          authorization: "Bearer test-token",
-          "x-client-version": "1.0.0",
-          "x-client-channel": "stable",
-        },
+    const response = await SELF.fetch(new URL("/api/v1/projects/p1/acquisitions", "https://workshop.test").toString(), {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-token",
+        "x-client-version": "1.0.0",
+        "x-client-channel": "stable",
       },
-      bindings,
-    );
+    });
     expect(response.status).toBe(201);
     const acquisition = (await response.json()) as {
       project: { id: string; version: string };
@@ -770,31 +949,30 @@ describe("public read path", () => {
     expect(acquisition.project).toMatchObject({ id: "p1", version: "r1" });
     expect(acquisition.release.files).toMatchObject([{ kind: "worldbook" }]);
     expect(acquisition.tickets.map((ticket) => ticket.kind)).toEqual(["worldbook"]);
-    const file = await app.request(
-      acquisition.tickets[0]!.url,
-      {
-        headers: { authorization: "Bearer test-token" },
-      },
-      bindings,
-    );
+    const file = await SELF.fetch(new URL(acquisition.tickets[0]!.url, "https://workshop.test").toString(), {
+      headers: { authorization: "Bearer test-token" },
+    });
     expect(file.status).toBe(200);
     await expect(file.text()).resolves.toBe('{"entries":[]}');
   });
 
   it("serves home, recommendations, references and banner", async () => {
     await seed();
-    const [home, recommendations, references, site] = await Promise.all([
-      app.request("/api/v1/home", undefined, bindings),
-      app.request("/api/v1/recommendations", undefined, bindings),
-      app.request("/api/v1/reference-sets", undefined, bindings),
-      app.request("/api/v1/site", undefined, bindings),
+    const [home, recommendations, references, site, projects] = await Promise.all([
+      SELF.fetch(new URL("/api/v1/home", "https://workshop.test").toString(), undefined),
+      SELF.fetch(new URL("/api/v1/recommendations", "https://workshop.test").toString(), undefined),
+      SELF.fetch(new URL("/api/v1/reference-sets", "https://workshop.test").toString(), undefined),
+      SELF.fetch(new URL("/api/v1/site", "https://workshop.test").toString(), undefined),
+      SELF.fetch(new URL("/api/v1/projects", "https://workshop.test").toString(), undefined),
     ]);
     expect(home.status).toBe(200);
-    await expect(home.json()).resolves.toMatchObject({
-      latest: [{ id: "p1" }],
-      recommendations: [{ id: "p1" }],
-      banner: { positionX: 40 },
+    const homeData = homeResponseSchema.parse(await home.json());
+    expect(homeData).toMatchObject({
+      site: { ok: true, data: { banner: { positionX: 40 } } },
+      discovery: { ok: true },
+      projects: { ok: true, data: { items: [{ id: "p1" }] } },
     });
+    expect(homeData.projects.ok && homeData.projects.data).toEqual(await projects.json());
     await expect(recommendations.json()).resolves.toMatchObject({
       items: [{ id: "rec1", project: { id: "p1" } }],
     });

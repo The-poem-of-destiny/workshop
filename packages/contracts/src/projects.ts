@@ -137,6 +137,23 @@ export const projectListResponseSchema = z.object({
 
 export type ProjectListResponse = z.infer<typeof projectListResponseSchema>;
 
+export const projectBatchQuerySchema = z
+  .object({
+    ids: z
+      .string()
+      .transform((value) => value.split(",").map((id) => id.trim()))
+      .pipe(z.array(z.string().min(1).max(80)).min(1).max(50))
+      .transform((ids) => [...new Set(ids)].sort()),
+  })
+  .strict();
+
+export const projectBatchResponseSchema = z.object({
+  items: z.array(projectSummarySchema),
+  missingIds: z.array(z.string()),
+});
+
+export type ProjectBatchResponse = z.infer<typeof projectBatchResponseSchema>;
+
 export const projectEntryIndexSchema = z.object({
   revisionId: z.string(),
   entries: z.array(

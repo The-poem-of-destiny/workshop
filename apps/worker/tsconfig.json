@@ -15,5 +15,5 @@
       "@workshop/contracts": ["../../packages/contracts/src/index.ts"]
     }
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+  "include": ["worker-configuration.d.ts", "src/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
 }

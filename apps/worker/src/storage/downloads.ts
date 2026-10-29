@@ -147,7 +147,10 @@ export async function consumeDownloadToken(
     `)
       .bind(hash),
   ]);
-  if ((results[0]?.meta.changes ?? 0) === 0) return "not_found";
+  if ((results[0]?.meta.changes ?? 0) === 0) {
+    await object.body.cancel().catch(() => {});
+    return "not_found";
+  }
   return {
     object,
     mime: row.mime,

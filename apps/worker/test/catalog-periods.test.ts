@@ -1,8 +1,8 @@
 import { env, SELF } from "cloudflare:test";
 import { projectListQuerySchema, projectListResponseSchema } from "@workshop/contracts";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { app } from "../src/app";
-import type { Env } from "../src/env";
+
+import type { DataEnv } from "../src/data/env";
 import { canonicalPublicRequest } from "../src/http/public-cache";
 import { consumeDownloadToken, issueDownloadTickets } from "../src/storage/downloads";
 import { setLike, unsetLike } from "../src/storage/interactions";
@@ -10,7 +10,7 @@ import { isValidProjectListCursor, listPublishedProjects } from "../src/storage/
 import { hashSessionToken } from "../src/storage/session-hash";
 import { applySchema } from "./support/schema";
 
-const bindings = env as unknown as Env;
+const bindings = env as unknown as DataEnv;
 const asOf = "2026-10-26T12:00:00.000Z";
 
 beforeAll(async () => applySchema(bindings.DB));
@@ -74,7 +74,10 @@ describe("catalog net windows on real D1", () => {
   it("rejects anonymous complete previews and returns authenticated content privately", async () => {
     await project("preview");
     await bindings.DB.prepare("UPDATE project_revisions SET entry_index_ready = 1 WHERE id = 'r-preview'").run();
-    const anonymous = await app.request("/api/v1/projects/preview/preview/worldbook", {}, bindings);
+    const anonymous = await SELF.fetch(
+      new URL("/api/v1/projects/preview/preview/worldbook", "https://workshop.test").toString(),
+      {},
+    );
     expect(anonymous.status).toBe(401);
     expect(anonymous.headers.get("cache-control")).toContain("no-store");
     const token = "catalog-preview-session";
@@ -83,12 +86,11 @@ describe("catalog net windows on real D1", () => {
       VALUES (?, 'u', 1, '2099-01-01T00:00:00.000Z')`)
       .bind(tokenHash)
       .run();
-    const response = await app.request(
-      "/api/v1/projects/preview/preview/worldbook",
+    const response = await SELF.fetch(
+      new URL("/api/v1/projects/preview/preview/worldbook", "https://workshop.test").toString(),
       {
         headers: { authorization: `Bearer ${token}` },
       },
-      bindings,
     );
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toContain("private");
@@ -169,10 +171,12 @@ describe("catalog net windows on real D1", () => {
     expect([...first.items, ...second.items, ...third.items].map((item) => item.id)).toEqual(["a", "e", "d", "b", "c"]);
     expect(third.nextCursor).toBeNull();
     expect((await listPublishedProjects(bindings.DB, { ...query, tag: "不存在" })).total).toBe(0);
-    const invalid = await app.request(
-      `/api/v1/projects?sort=likes&period=7d&cursor=${encodeURIComponent(first.nextCursor!)}`,
+    const invalid = await SELF.fetch(
+      new URL(
+        `/api/v1/projects?sort=likes&period=7d&cursor=${encodeURIComponent(first.nextCursor!)}`,
+        "https://workshop.test",
+      ).toString(),
       {},
-      bindings,
     );
     expect(invalid.status).toBe(400);
   });

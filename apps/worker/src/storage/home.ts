@@ -1,4 +1,10 @@
-import { type Banner, bannerSchema, type Recommendation } from "@workshop/contracts";
+import {
+  type Banner,
+  bannerSchema,
+  type HomeResponse,
+  type Recommendation,
+  siteSettingsSchema,
+} from "@workshop/contracts";
 import { getPublishedProjectsByIds, listPublishedProjects } from "./projects.js";
 
 interface RecommendationRow {
@@ -113,15 +119,22 @@ export async function getDiscovery(db: D1Database) {
   };
 }
 
-export async function getHome(db: D1Database) {
-  const [banner, latest, recommendations] = await Promise.all([
-    getBanner(db),
-    listPublishedProjects(db, { limit: 6, sort: "updated" }),
-    listRecommendations(db),
+export async function getHome(db: D1Database): Promise<HomeResponse> {
+  const [site, discovery, projects] = await Promise.allSettled([
+    Promise.all([getBanner(db), getSiteContent(db)]).then(([banner, siteContent]) =>
+      siteSettingsSchema.parse({ banner, siteContent }),
+    ),
+    getDiscovery(db),
+    listPublishedProjects(db, { limit: 25, sort: "updated", period: "all" }),
   ]);
+  function section<T>(result: PromiseSettledResult<T>, message: string) {
+    return result.status === "fulfilled"
+      ? { ok: true as const, data: result.value }
+      : { ok: false as const, error: { code: "internal" as const, message } };
+  }
   return {
-    banner,
-    latest: latest.items,
-    recommendations: recommendations.slice(0, 4).map((item) => item.project),
+    site: section(site, "Site unavailable"),
+    discovery: section(discovery, "Discovery unavailable"),
+    projects: section(projects, "Projects unavailable"),
   };
 }

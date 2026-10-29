@@ -5,10 +5,11 @@ import { Button } from "./components/ui/button";
 import { Discovery } from "./features/projects/Discovery";
 import { ProjectCard } from "./features/projects/ProjectCard";
 import type { useCatalogue } from "./useCatalogue";
-
 import { SORTS } from "./useCatalogueFilters";
+import type { HomeLoadState } from "./useWorkshopHome";
 
 export function WorkshopCatalogue({
+  home,
   hasFilters,
   total,
   period,
@@ -39,6 +40,7 @@ export function WorkshopCatalogue({
   changePage,
   nextCursor,
 }: {
+  home: HomeLoadState;
   total: number;
   period: "all" | "7d" | "30d" | "90d";
   setPeriod: (period: "all" | "7d" | "30d" | "90d") => void;
@@ -110,6 +112,7 @@ export function WorkshopCatalogue({
       ) : null}
       {!hasFilters ? (
         <Discovery
+          home={home}
           onOpen={(project, opener) => {
             detailOpener.current = opener;
             setSelected(project);

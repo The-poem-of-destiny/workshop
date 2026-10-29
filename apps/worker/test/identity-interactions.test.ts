@@ -1,11 +1,11 @@
-import { env } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { app } from "../src/app";
-import type { Env } from "../src/env";
+import type { DataEnv } from "../src/data/env";
+import { identityMe } from "../src/data/identity-operations";
 import { hashSessionToken } from "../src/storage/session-hash";
 import { applySchema } from "./support/schema";
 
-const bindings = env as unknown as Env;
+const bindings = env as unknown as DataEnv;
 const now = "2026-10-21T00:00:00.000Z";
 const token = "identity-interactions-token";
 
@@ -53,19 +53,15 @@ beforeEach(async () => {
 const auth = { Authorization: `Bearer ${token}` };
 
 async function request(path: string, init?: RequestInit): Promise<Response> {
-  return app.request(
-    path,
-    { ...init, headers: { ...auth, ...init?.headers } },
-    {
-      ...bindings,
-      ALLOWED_ORIGINS: "https://workshop.example",
-    },
-  );
+  return SELF.fetch(new URL(path, "https://workshop.test").toString(), {
+    ...init,
+    headers: { ...auth, ...init?.headers },
+  });
 }
 
 describe("identity and interactions", () => {
   it("requires a valid session and returns the me shape", async () => {
-    const anonymous = await app.request("/api/v1/me", undefined, bindings);
+    const anonymous = await SELF.fetch(new URL("/api/v1/me", "https://workshop.test").toString(), undefined);
     expect(anonymous.status).toBe(401);
     const response = await request("/api/v1/me");
     expect(response.status).toBe(200);
@@ -86,35 +82,23 @@ describe("identity and interactions", () => {
   });
 
   it("validates origins and exposes only flow status", async () => {
-    const rejected = await app.request(
-      "/api/v1/auth/flows",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json", origin: "https://evil.example" },
-        body: JSON.stringify({ mode: "browser" }),
-      },
-      { ...bindings, ALLOWED_ORIGINS: "https://workshop.example" },
-    );
+    const rejected = await SELF.fetch("https://workshop.test/api/v1/auth/flows", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://evil.example" },
+      body: JSON.stringify({ mode: "browser" }),
+    });
     expect(rejected.status).toBe(403);
-    const missing = await app.request(
-      "/api/v1/auth/flows",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ mode: "browser" }),
-      },
-      { ...bindings, ALLOWED_ORIGINS: "https://workshop.example" },
-    );
+    const missing = await SELF.fetch("https://workshop.test/api/v1/auth/flows", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "browser" }),
+    });
     expect(missing.status).toBe(403);
-    const created = await app.request(
-      "/api/v1/auth/flows",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json", origin: "https://workshop.example" },
-        body: JSON.stringify({ mode: "device" }),
-      },
-      { ...bindings, ALLOWED_ORIGINS: "https://workshop.example", DISCORD_CLIENT_ID: "" },
-    );
+    const created = await SELF.fetch("https://workshop.test/api/v1/auth/flows", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://localhost:8787" },
+      body: JSON.stringify({ mode: "device" }),
+    });
     expect(created.status).toBe(201);
     const flow = (await created.json()) as {
       id: string;
@@ -124,15 +108,17 @@ describe("identity and interactions", () => {
       deviceCode: string;
     };
     expect(flow.state).toEqual(expect.any(String));
-    expect(flow.url).toContain("/auth/pending");
+    expect(flow.url).toContain("https://discord.com/oauth2/authorize");
     const rawCookie = created.headers.get("set-cookie") ?? "";
     const cookie = /cw_oauth_binding=([^;]+)/.exec(rawCookie)?.[0] ?? "";
-    const unauthorized = await app.request(`/api/v1/auth/flows/${flow.id}`, { headers: { cookie } }, bindings);
-    expect(unauthorized.status).toBe(404);
-    const status = await app.request(
-      `/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`,
+    const unauthorized = await SELF.fetch(
+      new URL(`/api/v1/auth/flows/${flow.id}`, "https://workshop.test").toString(),
       { headers: { cookie } },
-      bindings,
+    );
+    expect(unauthorized.status).toBe(404);
+    const status = await SELF.fetch(
+      new URL(`/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`, "https://workshop.test").toString(),
+      { headers: { cookie } },
     );
     expect(status.status).toBe(200);
     await expect(status.json()).resolves.toEqual({ status: "pending", expiresAt: flow.expiresAt });
@@ -146,13 +132,12 @@ describe("identity and interactions", () => {
     )
       .bind(await hashSessionToken(tokenValue, "staging-secret"))
       .run();
-    const headers = { authorization: `Bearer ${tokenValue}` };
     expect(
-      (await app.request("/api/v1/me", { headers }, { ...bindings, SESSION_HASH_SECRET: "staging-secret" })).status,
-    ).toBe(200);
+      (await identityMe({ ...bindings, SESSION_HASH_SECRET: "staging-secret" }, tokenValue, { kind: "me" })).ok,
+    ).toBe(true);
     expect(
-      (await app.request("/api/v1/me", { headers }, { ...bindings, SESSION_HASH_SECRET: "wrong-secret" })).status,
-    ).toBe(401);
+      (await identityMe({ ...bindings, SESSION_HASH_SECRET: "wrong-secret" }, tokenValue, { kind: "me" })).ok,
+    ).toBe(false);
   });
 
   it("applies idempotent likes and subscriptions and keeps ratings private", async () => {
@@ -182,10 +167,15 @@ describe("identity and interactions", () => {
     await expect(state.json()).resolves.toEqual({
       items: [{ projectId: "p1", liked: true, subscribed: true, rating: 5, comment: "私密" }],
     });
-    const publicProject = await app.request("/api/v1/projects/p1", undefined, bindings);
+    const publicProject = await SELF.fetch(
+      new URL("/api/v1/projects/p1", "https://workshop.test").toString(),
+      undefined,
+    );
     expect(publicProject.status).toBe(200);
     expect(await publicProject.json()).not.toHaveProperty("rating");
-    expect(await (await app.request("/api/v1/projects/p1", undefined, bindings)).json()).not.toHaveProperty("comment");
+    expect(
+      await (await SELF.fetch(new URL("/api/v1/projects/p1", "https://workshop.test").toString(), undefined)).json(),
+    ).not.toHaveProperty("comment");
   });
 
   it("preserves a stored comment when changing only stars and clears it only explicitly", async () => {
@@ -220,7 +210,10 @@ describe("identity and interactions", () => {
     ).run();
     const personal = await request("/api/v1/me/state?ids=p1");
     await expect(personal.json()).resolves.toMatchObject({ items: [{ rating: null, comment: null }] });
-    const anonymous = await app.request("/api/v1/me/state?ids=p1", undefined, bindings);
+    const anonymous = await SELF.fetch(
+      new URL("/api/v1/me/state?ids=p1", "https://workshop.test").toString(),
+      undefined,
+    );
     expect(anonymous.status).toBe(401);
   });
 });

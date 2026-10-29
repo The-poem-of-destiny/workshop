@@ -192,23 +192,35 @@ async function sha256Hex(body: ArrayBuffer): Promise<string> {
   return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export async function upsertAsset(
+export async function upsertStreamedAsset(
   db: D1Database,
-  r2: R2Bucket,
   projectId: string,
   revisionId: string,
   expectedVersion: number,
   kind: UploadResult["kind"],
-  body: ArrayBuffer,
+  sha256: string,
+  bytes: number,
+  mime: string,
+  entryCount: number | undefined,
+  copyTo: (key: string, options?: R2PutOptions) => Promise<void>,
+): Promise<UploadResult | null> {
+  const r2Key = assetKey(projectId, revisionId, kind, sha256, mime);
+  await copyTo(r2Key, { httpMetadata: { contentType: mime } });
+  return registerAsset(db, projectId, revisionId, expectedVersion, kind, sha256, r2Key, bytes, mime, entryCount);
+}
+
+async function registerAsset(
+  db: D1Database,
+  projectId: string,
+  revisionId: string,
+  expectedVersion: number,
+  kind: UploadResult["kind"],
+  sha256: string,
+  r2Key: string,
+  bytes: number,
   mime: string,
   entryCount?: number,
 ): Promise<UploadResult | null> {
-  const sha256 = await sha256Hex(body);
-  const r2Key = assetKey(projectId, revisionId, kind, sha256, mime);
-  // Content-addressed keys make a pre-insert put safe: a frozen revision never
-  // points at the new key, and identical bytes reuse the same object.
-  await r2.put(r2Key, body, { httpMetadata: { contentType: mime } });
-
   if (kind !== "cover" && (!Number.isInteger(entryCount) || (entryCount ?? 0) < 0)) {
     throw new Error("Validated entry count is required for content uploads");
   }
@@ -234,7 +246,7 @@ export async function upsertAsset(
         kind,
         r2Key,
         sha256,
-        body.byteLength,
+        bytes,
         mime,
         now,
         projectId,
@@ -266,7 +278,7 @@ export async function upsertAsset(
   );
   const results = await db.batch(statements);
   if ((results.at(-1)?.meta.changes ?? 0) === 0) return null;
-  return { kind, sha256, bytes: body.byteLength, mime, r2Key, rowVersion: expectedVersion + 1 };
+  return { kind, sha256, bytes, mime, r2Key, rowVersion: expectedVersion + 1 };
 }
 
 function extensionForMime(mime: string): string {

@@ -21,6 +21,7 @@ import type {
   HomeResponse,
   JsonValue,
   MeResponse,
+  ProjectBatchResponse,
   ProjectDetail,
   ProjectGalleryResponse,
   ProjectListResponse,
@@ -36,6 +37,7 @@ import type {
   SubmitResponse,
   UploadResponse,
 } from "@workshop/contracts";
+import { projectBatchQuerySchema, projectBatchResponseSchema } from "@workshop/contracts";
 
 export type {
   AdminAuditEvent,
@@ -56,6 +58,7 @@ export type {
   HomeResponse,
   JsonValue,
   MeResponse,
+  ProjectBatchResponse,
   ProjectDetail,
   ProjectGalleryResponse,
   ProjectListResponse,
@@ -158,7 +161,24 @@ export const api = {
   hasSession: () => Boolean(token()),
   me: () => requestJson<MeResponse>("/api/v1/me"),
   home: () => requestJson<HomeResponse>("/api/v1/home", {}, true),
-  discovery: () => requestJson<DiscoveryResponse>("/api/v1/projects/discovery", {}, true),
+  projectsByIds: async (ids: string[]): Promise<ProjectBatchResponse> => {
+    if (ids.length === 0) return { items: [], missingIds: [] };
+    if (ids.length > 50 || ids.some((id) => id.includes(","))) throw new Error("Invalid project batch IDs");
+    const normalized = projectBatchQuerySchema.parse({ ids: ids.join(",") }).ids;
+    const query = new URLSearchParams({ ids: normalized.join(",") });
+    const response = projectBatchResponseSchema.parse(
+      await requestJson<unknown>(`/api/v1/projects/batch?${query}`, {}, true),
+    );
+    const returned = [...response.items.map((item) => item.id), ...response.missingIds];
+    if (
+      returned.length !== normalized.length ||
+      new Set(returned).size !== normalized.length ||
+      returned.some((id) => !normalized.includes(id))
+    ) {
+      throw new Error("Invalid project batch response");
+    }
+    return response;
+  },
   project: (id: string) => requestJson<ProjectDetail>(`/api/v1/projects/${encodeURIComponent(id)}`, {}, true),
   projectPreview: (id: string, kind: ProjectPreviewKind) =>
     requestJson<ProjectPreview>(`/api/v1/projects/${encodeURIComponent(id)}/preview/${encodeURIComponent(kind)}`),
@@ -193,16 +213,20 @@ export const api = {
     authorId?: string;
     tag?: string;
   }) => {
-    const query = new URLSearchParams({ limit: String(params.limit ?? 25) });
-    if (params.search) query.set("search", params.search);
-    if (params.sort) query.set("sort", params.sort);
-    if (params.period) query.set("period", params.period);
+    const query = new URLSearchParams();
+    if (params.limit !== undefined && params.limit !== 25) query.set("limit", String(params.limit));
+    if (params.search?.trim()) query.set("search", params.search.trim());
+    if (params.sort && params.sort !== "updated") query.set("sort", params.sort);
+    if (params.period && params.period !== "all" && (params.sort === "likes" || params.sort === "downloads")) {
+      query.set("period", params.period);
+    }
     if (params.cursor) query.set("cursor", params.cursor);
     if (params.projectType) query.set("projectType", params.projectType);
-    if (params.authorId) query.set("authorId", params.authorId);
-    if (params.tag) query.set("tag", params.tag);
+    if (params.authorId?.trim()) query.set("authorId", params.authorId.trim());
+    if (params.tag?.trim()) query.set("tag", params.tag.trim());
     query.sort();
-    return requestJson<ProjectListResponse>(`/api/v1/projects?${query}`, {}, true);
+    const search = query.toString();
+    return requestJson<ProjectListResponse>(`/api/v1/projects${search ? `?${search}` : ""}`, {}, true);
   },
   myProjects: () => requestJson<AuthorProjectListResponse>("/api/v1/me/projects"),
   subscriptions: () => requestJson<{ items: ProjectSummary[] }>("/api/v1/me/subscriptions"),

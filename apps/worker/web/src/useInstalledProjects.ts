@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ApiError, api, type ProjectSummary } from "./api";
+import { api, type ProjectSummary } from "./api";
 import type { InstalledItem } from "./features/installed/Installed";
 
 import type { HostContext } from "./useHostConnection";
@@ -36,22 +36,30 @@ export function useInstalledProjects(context: InstalledProjectsOptions, enabled:
     const request = { active: true, generation: installedReload };
     installedRequest.current = request;
     setInstalledLoading(true);
+    setInstalledProjects({});
+    setInstalledFailed({});
+    const batches: string[][] = [];
+    for (let index = 0; index < ids.length; index += 50) batches.push(ids.slice(index, index + 50));
     void Promise.all(
-      ids.map(async (id) => {
+      batches.map(async (batch) => {
         try {
-          return { id, project: await api.project(id), failed: false } as const;
-        } catch (reason) {
-          // A 404 means the project left the workshop; anything else is a transient lookup failure.
-          if (reason instanceof ApiError && reason.status === 404) return { id, project: null, failed: false } as const;
-          return { id, project: null, failed: true } as const;
+          const result = await api.projectsByIds(batch);
+          if (!request.active || installedRequest.current !== request) return;
+          setInstalledProjects((previous) => ({
+            ...previous,
+            ...Object.fromEntries(result.items.map((project) => [project.id, project])),
+            ...Object.fromEntries(result.missingIds.map((id) => [id, null])),
+          }));
+        } catch {
+          if (!request.active || installedRequest.current !== request) return;
+          setInstalledFailed((previous) => ({
+            ...previous,
+            ...Object.fromEntries(batch.map((id) => [id, true as const])),
+          }));
         }
       }),
-    ).then((entries) => {
+    ).then(() => {
       if (!request.active || installedRequest.current !== request) return;
-      setInstalledProjects(Object.fromEntries(entries.map((entry) => [entry.id, entry.project] as const)));
-      setInstalledFailed(
-        Object.fromEntries(entries.filter((entry) => entry.failed).map((entry) => [entry.id, true] as const)),
-      );
       setInstalledLoading(false);
     });
     return () => {

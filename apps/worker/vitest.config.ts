@@ -14,5 +14,7 @@ export default defineConfig({
   ],
   test: {
     include: ["test/**/*.test.ts"],
+    // Avoid parked console RPCs hanging teardown: cloudflare/workers-sdk#15719.
+    disableConsoleIntercept: true,
   },
 });

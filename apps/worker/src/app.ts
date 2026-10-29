@@ -1,5 +1,6 @@
 import { healthResponseSchema } from "@workshop/contracts";
-import { type Context, Hono } from "hono";
+import { Hono } from "hono";
+import { dataClient } from "./data-client";
 import type { Env } from "./env";
 import { jsonError } from "./http/errors";
 import { shouldSampleRequest } from "./http/observability";
@@ -16,7 +17,6 @@ import { projectsRoutes } from "./http/routes/projects";
 import { recommendationRoutes } from "./http/routes/recommendations";
 import { referenceRoutes } from "./http/routes/references";
 import { siteRoutes } from "./http/routes/site";
-import { requireSession } from "./http/session";
 
 export const app = new Hono<{ Bindings: Env }>();
 
@@ -25,6 +25,7 @@ export const app = new Hono<{ Bindings: Env }>();
 app.use("*", async (c, next) => {
   const started = Date.now();
   await next();
+  c.res = new Response(c.res.body, c.res);
   const rate = Number(c.env.LOG_SAMPLE_RATE ?? "0.1");
   if (shouldSampleRequest(c.res.status, rate, Math.random())) {
     const entry = {
@@ -62,6 +63,7 @@ app.use("/api/*", async (c, next) => {
     });
   }
   await next();
+  c.res = new Response(c.res.body, c.res);
   if (allowedOrigin) {
     c.res.headers.set("access-control-allow-origin", allowedOrigin);
     c.res.headers.set("vary", "Origin");
@@ -109,141 +111,16 @@ app.get("/assets/*", async (c) => {
   return new Response(response.body, { status: response.status, headers });
 });
 
-async function getRegisteredBannerKey(db: D1Database): Promise<string | null> {
-  const registered = await db.prepare("SELECT value FROM site_settings WHERE key = 'discover_banner'").first<{
-    value: string;
-  }>();
-  try {
-    const parsed = registered ? (JSON.parse(registered.value) as { imageUrl?: unknown }) : null;
-    if (typeof parsed?.imageUrl !== "string") return null;
-    const pathname = parsed.imageUrl.startsWith("http") ? new URL(parsed.imageUrl).pathname : parsed.imageUrl;
-    return pathname.replace(/^\/api\/v1\/(?:public-assets|assets)\//, "");
-  } catch {
-    return null;
-  }
-}
+app.get("/api/v1/public-assets/*", (c) => dataClient(c.executionCtx).fetch(c.req.raw));
+app.get("/api/v1/assets/*", (c) => dataClient(c.executionCtx).fetch(c.req.raw));
 
-async function serveImage(c: Context<{ Bindings: Env }>, publicOnly: boolean) {
-  c.header("cache-control", "private, no-store");
-  if (publicOnly) c.header("access-control-allow-origin", "*");
-  const key = c.req.path.replace(/^\/api\/v1\/(?:public-assets|assets)\//, "");
-  if (!key.startsWith("covers/") && !key.startsWith("gallery/") && !key.startsWith("banners/")) {
-    return jsonError(c, "not_found", "Asset not found");
-  }
-
-  let publiclyCacheable = false;
-  if (key.startsWith("gallery/")) {
-    const publicAssociation = await c.env.DB.prepare(`
-      SELECT EXISTS (
-        SELECT 1 FROM project_gallery g JOIN projects p ON p.id = g.project_id
-        WHERE g.r2_key = ? AND p.deleted_at IS NULL AND p.visibility = 'public'
-          AND p.published_revision_id IS NOT NULL
-      ) AS permitted
-    `)
-      .bind(key)
-      .first<{ permitted: number }>();
-    publiclyCacheable = Boolean(publicAssociation?.permitted);
-    if (!publiclyCacheable) {
-      if (publicOnly) return jsonError(c, "not_found", "Asset not found");
-      const session = await requireSession(c);
-      if (!session) return jsonError(c, "not_found", "Asset not found");
-      const privateAssociation = await c.env.DB.prepare(`
-        SELECT EXISTS (
-          SELECT 1 FROM project_gallery g JOIN projects p ON p.id = g.project_id
-          WHERE g.r2_key = ? AND p.deleted_at IS NULL AND (p.author_id = ? OR ? = 'owner')
-        ) AS permitted
-      `)
-        .bind(key, session.userId, session.role)
-        .first<{ permitted: number }>();
-      if (!privateAssociation?.permitted) return jsonError(c, "not_found", "Asset not found");
-    }
-  } else if (key.startsWith("covers/")) {
-    // A content-addressed R2 key can be associated with more than one asset.
-    // Resolve authorization by a currently permitted association, rather than
-    // whichever joined row SQLite happens to return first.
-    const publicAssociation = await c.env.DB.prepare(`
-      SELECT EXISTS (
-        SELECT 1
-        FROM assets a
-        JOIN projects p ON p.id = a.project_id
-        WHERE a.r2_key = ? AND a.kind = 'cover'
-          AND p.deleted_at IS NULL
-          AND p.visibility = 'public'
-          AND p.published_revision_id IS NOT NULL
-          AND (
-            (a.id = p.published_cover_asset_id AND a.revision_id IS NULL)
-            OR (
-              p.published_cover_asset_id IS NULL
-              AND a.revision_id = p.published_revision_id
-            )
-          )
-      ) AS permitted
-    `)
-      .bind(key)
-      .first<{ permitted: number }>();
-    publiclyCacheable = Boolean(publicAssociation?.permitted);
-
-    if (!publiclyCacheable) {
-      if (publicOnly) return jsonError(c, "not_found", "Asset not found");
-      const session = await requireSession(c);
-      if (!session) return jsonError(c, "not_found", "Asset not found");
-      const privateAssociation = await c.env.DB.prepare(`
-        SELECT EXISTS (
-          SELECT 1
-          FROM assets a
-          JOIN projects p ON p.id = a.project_id
-          WHERE a.r2_key = ? AND a.kind = 'cover' AND p.deleted_at IS NULL
-            AND (
-              (
-                (p.author_id = ? OR ? = 'owner')
-                AND (a.revision_id = p.working_revision_id OR a.id = p.published_cover_asset_id)
-              )
-              OR (
-                ? IN ('reviewer', 'owner')
-                AND a.revision_id IS NOT NULL
-                AND EXISTS (
-                  SELECT 1
-                  FROM submissions s
-                  WHERE s.revision_id = a.revision_id
-                    AND s.status IN ('pending', 'checking')
-                )
-              )
-            )
-        ) AS permitted
-      `)
-        .bind(key, session.userId, session.role, session.role)
-        .first<{ permitted: number }>();
-      if (!privateAssociation?.permitted) return jsonError(c, "not_found", "Asset not found");
-    }
-  } else {
-    const registeredKey = await getRegisteredBannerKey(c.env.DB);
-    if (registeredKey !== key) return jsonError(c, "not_found", "Asset not found");
-  }
-
-  const object = await c.env.R2.get(key);
-  if (!object) return jsonError(c, "not_found", "Asset not found");
-  c.header("cache-control", publicOnly ? "public, max-age=300, stale-if-error=0" : "private, no-store");
-  return new Response(object.body, {
-    headers: {
-      "content-type": object.httpMetadata?.contentType ?? "application/octet-stream",
-      "content-length": String(object.size),
-      "cache-control": publicOnly ? "public, max-age=300, stale-if-error=0" : "private, no-store",
-      ...(publicOnly ? { "access-control-allow-origin": "*" } : { vary: "Authorization" }),
-    },
-  });
-}
-
-app.get("/api/v1/public-assets/*", (c) => serveImage(c, true));
-app.get("/api/v1/assets/*", (c) => serveImage(c, false));
-
-app.get("/api/v1/health", (c) => {
+app.get("/api/v1/health", async (c) => {
   const body = healthResponseSchema.parse({
     ok: true,
     service: "workshop",
     version: c.env.APP_VERSION ?? "dev",
     bindings: {
-      db: Boolean(c.env.DB),
-      r2: Boolean(c.env.R2),
+      ...(await dataClient(c.executionCtx).healthBindings()),
       assets: Boolean(c.env.ASSETS),
     },
   });

@@ -1,8 +1,6 @@
 export interface Env {
-  DB: D1Database;
-  R2: R2Bucket;
-  CONTENT_SERVICE: DurableObjectNamespace;
-  ASSETS?: Fetcher;
+  CONTENT_SERVICE: WorkerBindings["CONTENT_SERVICE"];
+  ASSETS?: WorkerBindings["ASSETS"];
   APP_VERSION?: string;
   ALLOWED_ORIGINS?: string;
   PUBLIC_ORIGIN?: string;

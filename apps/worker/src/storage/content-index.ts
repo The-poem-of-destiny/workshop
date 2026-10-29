@@ -1,5 +1,6 @@
 import type { ProjectEntryIndex, ProjectPreview, ProjectPreviewKind } from "@workshop/contracts";
 import { extractProjectEntries, type ProjectEntryKind } from "@workshop/domain";
+import type { ProjectPreviewTarget } from "../data/contracts.js";
 
 async function hash(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
@@ -150,15 +151,14 @@ export async function getProjectEntryIndex(db: D1Database, projectId: string): P
   };
 }
 
-export async function getProjectPreview(
+export async function resolveProjectPreviewTarget(
   db: D1Database,
-  r2: R2Bucket,
   projectId: string,
   kind: ProjectPreviewKind,
-): Promise<ProjectPreview | null> {
+): Promise<ProjectPreviewTarget | null> {
   const target = await db
     .prepare(`
-      SELECT p.published_revision_id AS revision_id, a.r2_key,
+      SELECT p.published_revision_id AS revision_id, a.r2_key, a.sha256,
         CASE WHEN ? = 'regex' THEN r.regex_count ELSE r.worldbook_count END AS entry_count
       FROM projects p
       JOIN project_revisions r ON r.id = p.published_revision_id AND r.project_id = p.id
@@ -167,12 +167,23 @@ export async function getProjectPreview(
         AND p.published_revision_id IS NOT NULL AND r.entry_index_ready = 1
     `)
     .bind(kind, kind, projectId)
-    .first<{ revision_id: string; r2_key: string | null; entry_count: number }>();
-  if (!target) return null;
-  if (!target.r2_key) {
-    return target.entry_count === 0 ? { revisionId: target.revision_id, kind, entries: [] } : null;
-  }
-  const object = await r2.get(target.r2_key);
+    .first<{ revision_id: string; r2_key: string | null; sha256: string | null; entry_count: number }>();
+  if (!target || Boolean(target.r2_key) !== Boolean(target.sha256)) return null;
+  if (!target.r2_key && target.entry_count !== 0) return null;
+  return {
+    projectId,
+    revisionId: target.revision_id,
+    kind,
+    r2Key: target.r2_key,
+    sha256: target.sha256,
+    entryCount: target.entry_count,
+  };
+}
+
+export async function loadProjectPreview(r2: R2Bucket, target: ProjectPreviewTarget): Promise<ProjectPreview | null> {
+  const { kind, revisionId } = target;
+  if (!target.r2Key) return target.entryCount === 0 ? { revisionId, kind, entries: [] } : null;
+  const object = await r2.get(target.r2Key);
   if (!object) return null;
   let raw: unknown;
   try {
@@ -193,5 +204,5 @@ export async function getProjectPreview(
           ? ref.entry.content
           : "",
   }));
-  return { revisionId: target.revision_id, kind, entries };
+  return { revisionId, kind, entries };
 }

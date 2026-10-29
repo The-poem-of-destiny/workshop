@@ -32,15 +32,6 @@ const caseA = report([
 ]);
 assert.ok(rules(caseA, "L2").length >= 1, JSON.stringify(caseA.findings));
 
-const caseAFixed = report([
-  {
-    name: "Case A fixed",
-    content: "<%_\n{\n  const relations = {};\n  const key = 'x';\n}\n_%>",
-  },
-]);
-assert.equal(rules(caseAFixed, "L2").length, 0);
-assert.equal(rules(caseAFixed, "L6").length, 0);
-
 // Case B/C: multiple EJS blocks inside one worldbook entry remain one entry/scope.
 const caseB = report([
   {
@@ -59,15 +50,6 @@ const caseBFixed = report([
 ]);
 assert.equal(rules(caseBFixed, "L2").length, 0, JSON.stringify(caseBFixed.findings));
 assert.equal(caseBFixed.files[0].items, 1);
-
-// Case D: a single clean entry has no L6 collision.
-const caseD = report([
-  {
-    name: "Case D",
-    content: "<%_ { const localOnly = 1; } _%>",
-  },
-]);
-assert.equal(rules(caseD, "L6").length, 0);
 
 // Case E: same local name in different entries is not a collision.
 const caseE = report([

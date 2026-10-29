@@ -1,4 +1,4 @@
-import { projectListQuerySchema } from "@workshop/contracts";
+import { projectBatchQuerySchema, projectListQuerySchema } from "@workshop/contracts";
 
 const CANONICAL_PUBLIC_ORIGIN = "https://public.workshop.invalid";
 const TRACKING_PARAMETERS: Record<string, true> = { fbclid: true, gclid: true, mc_cid: true, mc_eid: true };
@@ -43,6 +43,15 @@ function canonicalSearch(
   return query;
 }
 
+function canonicalProjectBatchSearch(source: URLSearchParams): URLSearchParams | null {
+  for (const [name] of source) {
+    if (isTrackingParameter(name)) continue;
+    if (name !== "ids" || source.getAll(name).length !== 1) return null;
+  }
+  const parsed = projectBatchQuerySchema.safeParse({ ids: source.get("ids") ?? undefined });
+  return parsed.success ? new URLSearchParams({ ids: parsed.data.ids.join(",") }) : null;
+}
+
 function canonicalProjectListSearch(source: URLSearchParams): URLSearchParams | null {
   const values = Object.fromEntries(source);
   for (const [name] of source) {
@@ -73,6 +82,8 @@ function canonicalPublicUrl(request: Request): URL | null | undefined {
 
   if (pathname === "/api/v1/projects") {
     query = canonicalProjectListSearch(incoming.searchParams);
+  } else if (pathname === "/api/v1/projects/batch") {
+    query = canonicalProjectBatchSearch(incoming.searchParams);
   } else if (pathname === "/api/v1/projects/rankings") {
     query = canonicalSearch(incoming.searchParams, RANKING_PARAMETERS, { kind: "7d" });
     if (query && query.has("kind") && !RANKING_KINDS[query.get("kind") ?? ""]) return null;
@@ -85,6 +96,7 @@ function canonicalPublicUrl(request: Request): URL | null | undefined {
     /^\/api\/v1\/projects\/[^/]+(?:\/entries)?$/.test(pathname) ||
     /^\/api\/v1\/reference-sets\/[^/]+$/.test(pathname) ||
     /^\/api\/v1\/public-assets\/(?:covers|gallery|banners)\/.+/.test(pathname) ||
+    /^\/client\/v\/[a-f0-9]{8,64}\/index\.js$/.test(pathname) ||
     /^\/client\/checker\/v\/[a-f0-9]{8,64}\/(?:browser-checker\.js|upload-checker\.mjs|review-checker\.mjs|manifest\.json|NOTICES\.txt)$/.test(
       pathname,
     )

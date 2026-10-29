@@ -1,26 +1,14 @@
 import { app } from "./app";
+import { fetchPublic } from "./data-client";
 import type { Env } from "./env";
 import { canonicalPublicRequest } from "./http/public-cache";
 import { publicWritePaths, purgePublicPaths } from "./http/public-invalidation";
+import { publicResponse } from "./http/public-response";
 import { runScheduled } from "./scheduler";
 
 export { ContentService } from "./content-service";
-
-function publicResponse(response: Response): Response {
-  const headers = new Headers(response.headers);
-  headers.delete("cdn-cache-control");
-  headers.delete("cloudflare-cdn-cache-control");
-  headers.delete("vary");
-  headers.set("access-control-allow-origin", "*");
-  if (response.ok && !headers.has("set-cookie")) {
-    if (!headers.get("cache-control")?.includes("immutable")) {
-      headers.set("cache-control", "public, max-age=300, stale-if-error=0");
-    }
-  } else {
-    headers.set("cache-control", "private, no-store");
-  }
-  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
-}
+export { CachedReads } from "./data/cached-reads";
+export { DataService } from "./data/service";
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
@@ -38,7 +26,15 @@ export default {
       // No identity-bearing request ever reaches a public projection. The
       // entrypoint cache may answer before this code executes, so these URLs
       // must never fall back to private data.
-      return publicResponse(await app.fetch(publicRequest.request, env, ctx));
+      try {
+        return publicResponse(await fetchPublic(ctx, publicRequest.request), request);
+      } catch (error) {
+        console.error("Unhandled worker error", error);
+        return publicResponse(
+          Response.json({ error: { code: "internal", message: "Internal server error" } }, { status: 500 }),
+          request,
+        );
+      }
     }
     const response = await app.fetch(request, env, ctx);
     const paths = publicWritePaths(request);
@@ -46,6 +42,6 @@ export default {
     return response;
   },
   scheduled(event, env, ctx) {
-    ctx.waitUntil(runScheduled(env, event.scheduledTime));
+    ctx.waitUntil(runScheduled(env, ctx.exports, event.scheduledTime));
   },
 } satisfies ExportedHandler<Env>;

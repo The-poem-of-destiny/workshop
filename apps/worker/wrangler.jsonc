@@ -12,6 +12,14 @@
       "cache": {
         "enabled": false
       }
+    },
+    "CachedReads": {
+      "type": "worker",
+      "cache": { "enabled": false }
+    },
+    "DataService": {
+      "type": "worker",
+      "cache": { "enabled": false }
     }
   },
   "observability": {
@@ -103,6 +111,14 @@
           "cache": {
             "enabled": true
           }
+        },
+        "CachedReads": {
+          "type": "worker",
+          "cache": { "enabled": true }
+        },
+        "DataService": {
+          "type": "worker",
+          "cache": { "enabled": false }
         }
       }
     },
@@ -139,6 +155,11 @@
       ],
       "cache": {
         "enabled": false
+      },
+      "exports": {
+        "default": { "type": "worker", "cache": { "enabled": false } },
+        "CachedReads": { "type": "worker", "cache": { "enabled": false } },
+        "DataService": { "type": "worker", "cache": { "enabled": false } }
       }
     }
   }

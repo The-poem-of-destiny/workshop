@@ -7,124 +7,111 @@ import {
 } from "@workshop/contracts";
 import { Hono } from "hono";
 import type { Env } from "../../env";
-import { listAuthorProjects, listAuthorSubmissions } from "../../storage/authoring.js";
-import { getMe } from "../../storage/identity.js";
-import {
-  getInteractionState,
-  interactionProjectExists,
-  listSubscribedProjects,
-  setLike,
-  setRating,
-  setSubscription,
-  unsetLike,
-  unsetRating,
-  unsetSubscription,
-} from "../../storage/interactions.js";
 import { jsonError } from "../errors.js";
-import { requireSession } from "../session.js";
+import { sessionToken } from "../session.js";
 
 export const meRoutes = new Hono<{ Bindings: Env }>();
 
 meRoutes.get("/", async (c) => {
-  const session = await requireSession(c);
-  if (!session) return jsonError(c, "unauthorized", "Login required");
-  const me = await getMe(c.env.DB, session.userId);
-  if (!me) return jsonError(c, "unauthorized", "Login required");
-  return c.json(meResponseSchema.parse(me));
+  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), { kind: "me" });
+  if (!result.ok) return jsonError(c, "unauthorized", "Login required");
+  return c.json(meResponseSchema.parse(result.data));
 });
 
 meRoutes.get("/projects", async (c) => {
-  const session = await requireSession(c);
-  if (!session) return jsonError(c, "unauthorized", "Login required");
-  const items = await listAuthorProjects(c.env.DB, session);
-  return c.json(authorProjectListResponseSchema.parse({ items }));
+  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), { kind: "projects" });
+  if (!result.ok) return jsonError(c, "unauthorized", "Login required");
+  return c.json(authorProjectListResponseSchema.parse(result.data));
 });
 
 meRoutes.get("/projects/:id/submissions", async (c) => {
-  const session = await requireSession(c);
-  if (!session) return jsonError(c, "unauthorized", "Login required");
-  const items = await listAuthorSubmissions(c.env.DB, session, c.req.param("id"));
-  if (!items) return jsonError(c, "not_found", "Project not found");
-  return c.json(authorSubmissionListResponseSchema.parse({ items }));
+  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), {
+    kind: "submissions",
+    projectId: c.req.param("id"),
+  });
+  if (!result.ok)
+    return result.error === "unauthorized"
+      ? jsonError(c, "unauthorized", "Login required")
+      : jsonError(c, "not_found", "Project not found");
+  return c.json(authorSubmissionListResponseSchema.parse(result.data));
 });
 
 meRoutes.get("/subscriptions", async (c) => {
-  const session = await requireSession(c);
-  if (!session) return jsonError(c, "unauthorized", "Login required");
-  return c.json({ items: await listSubscribedProjects(c.env.DB, session.userId) });
+  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), { kind: "subscriptions" });
+  if (!result.ok) return jsonError(c, "unauthorized", "Login required");
+  return c.json(result.data);
 });
 
 meRoutes.get("/state", async (c) => {
-  const session = await requireSession(c);
-  if (!session) return jsonError(c, "unauthorized", "Login required");
-  const rawIds = c.req.query("ids") ?? "";
-  const ids = rawIds
+  const ids = (c.req.query("ids") ?? "")
     .split(",")
     .map((id) => id.trim())
     .filter(Boolean);
-  if (ids.length > 50) return jsonError(c, "bad_request", "At most 50 project IDs are allowed");
-  const state = await getInteractionState(c.env.DB, session.userId, ids);
-  return c.json(meStateResponseSchema.parse(state));
+  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), { kind: "state", ids });
+  if (!result.ok)
+    return result.error === "too_many_ids"
+      ? jsonError(c, "bad_request", "At most 50 project IDs are allowed")
+      : jsonError(c, "unauthorized", "Login required");
+  return c.json(meStateResponseSchema.parse(result.data));
 });
 
-meRoutes.put("/likes/:id", async (c) => {
-  const session = await requireSession(c);
-  if (!session) return jsonError(c, "unauthorized", "Login required");
-  const projectId = c.req.param("id");
-  if (!(await interactionProjectExists(c.env.DB, projectId))) return jsonError(c, "not_found", "Project not found");
-  await setLike(c.env.DB, session.userId, projectId);
-  return c.body(null, 204);
-});
-
-meRoutes.delete("/likes/:id", async (c) => {
-  const session = await requireSession(c);
-  if (!session) return jsonError(c, "unauthorized", "Login required");
-  const projectId = c.req.param("id");
-  if (!(await interactionProjectExists(c.env.DB, projectId))) return jsonError(c, "not_found", "Project not found");
-  await unsetLike(c.env.DB, session.userId, projectId);
-  return c.body(null, 204);
-});
-
-meRoutes.put("/subscriptions/:id", async (c) => {
-  const session = await requireSession(c);
-  if (!session) return jsonError(c, "unauthorized", "Login required");
-  const projectId = c.req.param("id");
-  if (!(await interactionProjectExists(c.env.DB, projectId))) return jsonError(c, "not_found", "Project not found");
-  await setSubscription(c.env.DB, session.userId, projectId);
-  return c.body(null, 204);
-});
-
-meRoutes.delete("/subscriptions/:id", async (c) => {
-  const session = await requireSession(c);
-  if (!session) return jsonError(c, "unauthorized", "Login required");
-  const projectId = c.req.param("id");
-  if (!(await interactionProjectExists(c.env.DB, projectId))) return jsonError(c, "not_found", "Project not found");
-  await unsetSubscription(c.env.DB, session.userId, projectId);
-  return c.body(null, 204);
-});
+for (const [path, kind] of [
+  ["likes", "like"],
+  ["subscriptions", "subscription"],
+] as const) {
+  for (const [method, enabled] of [
+    ["put", true],
+    ["delete", false],
+  ] as const) {
+    meRoutes[method](`/${path}/:id`, async (c) => {
+      const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), {
+        kind,
+        projectId: c.req.param("id"),
+        enabled,
+      });
+      if (!result.ok)
+        return result.error === "unauthorized"
+          ? jsonError(c, "unauthorized", "Login required")
+          : jsonError(c, "not_found", "Project not found");
+      return c.body(null, 204);
+    });
+  }
+}
 
 meRoutes.put("/ratings/:id", async (c) => {
-  const session = await requireSession(c);
-  if (!session) return jsonError(c, "unauthorized", "Login required");
-  const projectId = c.req.param("id");
-  if (!(await interactionProjectExists(c.env.DB, projectId))) return jsonError(c, "not_found", "Project not found");
   let body: unknown;
+  let invalidJson = false;
   try {
     body = await c.req.json();
   } catch {
-    return jsonError(c, "bad_request", "Invalid JSON body");
+    invalidJson = true;
   }
   const parsed = ratingInputSchema.safeParse(body);
-  if (!parsed.success) return jsonError(c, "bad_request", "Invalid rating", parsed.error.flatten());
-  await setRating(c.env.DB, session.userId, projectId, parsed.data);
+  const input = invalidJson ? "invalid_json" : parsed.success ? parsed.data : "invalid_rating";
+  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), {
+    kind: "rating",
+    projectId: c.req.param("id"),
+    input,
+  });
+  if (!result.ok) {
+    if (result.error === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+    if (result.error === "invalid_json") return jsonError(c, "bad_request", "Invalid JSON body");
+    if (result.error === "invalid_rating" && !parsed.success)
+      return jsonError(c, "bad_request", "Invalid rating", parsed.error.flatten());
+    return jsonError(c, "not_found", "Project not found");
+  }
   return c.body(null, 204);
 });
 
 meRoutes.delete("/ratings/:id", async (c) => {
-  const session = await requireSession(c);
-  if (!session) return jsonError(c, "unauthorized", "Login required");
-  const projectId = c.req.param("id");
-  if (!(await interactionProjectExists(c.env.DB, projectId))) return jsonError(c, "not_found", "Project not found");
-  await unsetRating(c.env.DB, session.userId, projectId);
+  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), {
+    kind: "rating",
+    projectId: c.req.param("id"),
+    input: null,
+  });
+  if (!result.ok)
+    return result.error === "unauthorized"
+      ? jsonError(c, "unauthorized", "Login required")
+      : jsonError(c, "not_found", "Project not found");
   return c.body(null, 204);
 });

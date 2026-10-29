@@ -178,7 +178,10 @@ export function validateProjectContentText(text: string, kind: ProjectEntryKind)
       error: error instanceof Error ? error.message : "项目 JSON 无法解析",
     };
   }
+  return validateProjectContent(raw, kind);
+}
 
+export function validateProjectContent(raw: unknown, kind: ProjectEntryKind): ProjectContentValidation {
   if (kind === "worldbook") {
     const values = getWorldbookImportValues(raw);
     if (values === null) {
