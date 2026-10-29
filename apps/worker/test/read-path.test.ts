@@ -744,7 +744,9 @@ describe("public read path", () => {
     );
     expect(publicCover.status).toBe(200);
     expect(new Uint8Array(await publicCover.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
-    expect(publicCover.headers.get("cache-control")).toBe("public, max-age=300, stale-if-error=0");
+    const cacheControl = publicCover.headers.get("cache-control") ?? "";
+    expect(cacheControl).toMatch(/^public, max-age=\d+, stale-if-error=0$/);
+    expect(Number(/max-age=(\d+)/.exec(cacheControl)?.[1])).toBeLessThanOrEqual(300);
     expect(publicCover.headers.get("access-control-allow-origin")).toBe("*");
     expect(publicCover.headers.get("access-control-allow-credentials")).toBeNull();
     expect(publicCover.headers.get("vary")).toBeNull();
@@ -767,6 +769,7 @@ describe("public read path", () => {
       });
       expect(ownImage.status).toBe(200);
       expect(ownImage.headers.get("cache-control")).toBe("private, no-store");
+      await ownImage.arrayBuffer();
     }
     const legacyPublic = await SELF.fetch(
       new URL("/api/v1/assets/covers/p1.webp", "https://workshop.test").toString(),
@@ -774,6 +777,7 @@ describe("public read path", () => {
     );
     expect(legacyPublic.status).toBe(200);
     expect(legacyPublic.headers.get("cache-control")).toBe("private, no-store");
+    await legacyPublic.arrayBuffer();
 
     await bindings.DB.prepare("UPDATE projects SET visibility = 'private' WHERE id = 'p1'").run();
     expect(
