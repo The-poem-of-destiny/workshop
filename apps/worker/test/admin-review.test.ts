@@ -1,12 +1,12 @@
-import { env } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { app } from "../src/app";
-import type { Env } from "../src/env";
-import { adminRoutes } from "../src/http/routes/admin";
+
+import type { DataEnv } from "../src/data/env";
+
 import { applySchema } from "./support/schema";
 import { splitSql } from "./support/sql";
 
-const bindings = env as unknown as Env;
+const bindings = env as unknown as DataEnv;
 const now = "2026-10-21T00:00:00.000Z";
 
 async function tokenHash(token: string) {
@@ -61,14 +61,10 @@ async function seed() {
 }
 
 function request(path: string, token = "reviewer-token", init?: RequestInit) {
-  return adminRoutes.request(
-    path,
-    {
-      ...init,
-      headers: { authorization: `Bearer ${token}`, ...(init?.headers ?? {}) },
-    },
-    bindings,
-  );
+  return SELF.fetch("https://workshop.test/api/v1/admin" + path, {
+    ...init,
+    headers: { authorization: `Bearer ${token}`, ...(init?.headers ?? {}) },
+  });
 }
 
 beforeAll(async () => {
@@ -410,7 +406,7 @@ describe("admin review and publishing", () => {
     expect(rejected.status).toBe(201);
 
     const headers = { authorization: "Bearer member-token" };
-    const mine = await app.request("/api/v1/me/projects", { headers }, bindings);
+    const mine = await SELF.fetch(new URL("/api/v1/me/projects", "https://workshop.test").toString(), { headers });
     expect(mine.status).toBe(200);
     await expect(mine.json()).resolves.toMatchObject({
       items: [
@@ -420,7 +416,10 @@ describe("admin review and publishing", () => {
         },
       ],
     });
-    const history = await app.request("/api/v1/me/projects/p1/submissions", { headers }, bindings);
+    const history = await SELF.fetch(
+      new URL("/api/v1/me/projects/p1/submissions", "https://workshop.test").toString(),
+      { headers },
+    );
     expect(history.status).toBe(200);
     await expect(history.json()).resolves.toMatchObject({
       items: [{ status: "rejected", reason: "unsafe" }],

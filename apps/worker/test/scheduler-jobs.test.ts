@@ -1,10 +1,10 @@
 import { env } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { Env } from "../src/env";
+import type { DataEnv } from "../src/data/env";
 import { buildRankings, cleanupExpired } from "../src/storage/rankings";
 import { applySchema } from "./support/schema";
 
-const bindings = env as unknown as Env;
+const bindings = env as unknown as DataEnv;
 const now = "2026-10-21T00:00:00.000Z";
 
 async function seedProject(id: string, downloads: number) {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Local HTTP E2E: starts the real Worker in workerd against local D1/R2,
- * seeds two users, then exercises the full author -> review -> public flow.
+ * seeds an author, member and owner, then exercises the full author -> review -> public flow.
  *
  * Usage: node tools/e2e-local.mjs
  * Requires: built apps/worker/web/dist and local D1 migrations.
@@ -27,6 +27,7 @@ let server;
 const screenshotDir = process.env.E2E_SCREENSHOT_DIR ?? "";
 const authorToken = "e2e-author-token";
 const ownerToken = "e2e-owner-token";
+const memberToken = "e2e-member-token";
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -143,18 +144,20 @@ async function main() {
       stateDir,
       "--command",
       `
-      DELETE FROM download_events WHERE user_id IN ('e2e-author','e2e-owner');
+      DELETE FROM download_events WHERE user_id IN ('e2e-author','e2e-owner','e2e-member');
       DELETE FROM reviews WHERE reviewer_id IN ('e2e-author','e2e-owner');
       DELETE FROM submissions WHERE submitted_by IN ('e2e-author','e2e-owner');
       DELETE FROM assets WHERE project_id IN (SELECT id FROM projects WHERE author_id = 'e2e-author');
       DELETE FROM project_revisions WHERE project_id IN (SELECT id FROM projects WHERE author_id = 'e2e-author');
       DELETE FROM projects WHERE author_id = 'e2e-author';
-      DELETE FROM sessions WHERE user_id IN ('e2e-author','e2e-owner');
-      DELETE FROM users WHERE id IN ('e2e-author','e2e-owner');
+      DELETE FROM sessions WHERE user_id IN ('e2e-author','e2e-owner','e2e-member');
+      DELETE FROM users WHERE id IN ('e2e-author','e2e-owner','e2e-member');
       INSERT INTO users (id, username, global_name, role) VALUES ('e2e-author','e2e-author','E2E Author','member');
       INSERT INTO users (id, username, global_name, role) VALUES ('e2e-owner','e2e-owner','E2E Owner','owner');
+      INSERT INTO users (id, username, global_name, role) VALUES ('e2e-member','e2e-member','E2E Member','member');
       INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ('${hash(authorToken)}','e2e-author','2099-01-01T00:00:00.000Z');
       INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ('${hash(ownerToken)}','e2e-owner','2099-01-01T00:00:00.000Z');
+      INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ('${hash(memberToken)}','e2e-member','2099-01-01T00:00:00.000Z');
     `,
     ]);
 
@@ -452,7 +455,20 @@ async function main() {
       const replay = await api(ticket.files[0].url, {}, authorToken);
       assert(replay.response.status === 404, "ticket replay");
       const detail = await api(`/api/v1/projects/${project.project.id}`);
-      assert(JSON.parse(detail.body).counts.downloads === 1, "download counted exactly once");
+      assert(JSON.parse(detail.body).counts.downloads === 0, "author download does not increment public count");
+      const memberIssue = await api(
+        `/api/v1/projects/${project.project.id}/downloads`,
+        { method: "POST" },
+        memberToken,
+      );
+      assert(memberIssue.response.status === 201, `member ticket ${memberIssue.response.status}: ${memberIssue.body}`);
+      const memberUrl = JSON.parse(memberIssue.body).files[0].url;
+      const memberFile = await api(memberUrl, {}, memberToken);
+      assert(memberFile.response.status === 200 && memberFile.body.includes("hello"), "member ticket download");
+      const memberReplay = await api(memberUrl, {}, memberToken);
+      assert(memberReplay.response.status === 404, "member ticket replay");
+      const counted = await api(`/api/v1/projects/${project.project.id}`);
+      assert(JSON.parse(counted.body).counts.downloads === 1, "member download counted exactly once");
     });
 
     await check("author subscribes to a public project", async () => {
@@ -645,7 +661,7 @@ async function main() {
           const sortRequest = (value) =>
             page.waitForResponse((response) => {
               const url = new URL(response.url());
-              return url.pathname === "/api/v1/projects" && url.searchParams.get("sort") === value;
+              return url.pathname === "/api/v1/projects" && (url.searchParams.get("sort") ?? "updated") === value;
             });
           const sortButton = (label) => page.locator(".sorts").getByRole("button", { name: label, exact: true });
           for (const [sort, label, metric] of [

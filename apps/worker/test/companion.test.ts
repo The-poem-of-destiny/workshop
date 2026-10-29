@@ -1,23 +1,19 @@
-import { env } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { app } from "../src/app";
-import type { Env } from "../src/env";
+
+import type { DataEnv } from "../src/data/env";
 import { applySchema } from "./support/schema";
 
-const bindings = env as unknown as Env;
+const bindings = env as unknown as DataEnv;
 const base = "/api/v1/companion-scripts/character-manager";
 const input = { displayName: "角色管理库", downloadUrl: "https://example.org/character-manager/v0.3.4.js" };
 
 async function put(version: string, token: string | null = "owner-token", body: unknown = input) {
-  return app.request(
-    `${base}/versions/${version}`,
-    {
-      method: "PUT",
-      headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify(body),
-    },
-    bindings,
-  );
+  return SELF.fetch(new URL(`${base}/versions/${version}`, "https://workshop.test").toString(), {
+    method: "PUT",
+    headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body),
+  });
 }
 
 beforeAll(() => applySchema(bindings.DB));
@@ -74,15 +70,11 @@ describe("companion release registration", () => {
       expect((await put("0.3.4", "owner-token", body)).status).toBe(400);
     }
     expect((await put("bad%20version")).status).toBe(400);
-    const malformed = await app.request(
-      `${base}/versions/0.3.4`,
-      {
-        method: "PUT",
-        headers: { authorization: "Bearer owner-token" },
-        body: "{",
-      },
-      bindings,
-    );
+    const malformed = await SELF.fetch(new URL(`${base}/versions/0.3.4`, "https://workshop.test").toString(), {
+      method: "PUT",
+      headers: { authorization: "Bearer owner-token" },
+      body: "{",
+    });
     expect(malformed.status).toBe(400);
     expect(
       await bindings.DB.prepare("SELECT COUNT(*) AS n FROM site_settings WHERE key LIKE 'companion:%'").first("n"),
@@ -90,17 +82,21 @@ describe("companion release registration", () => {
   });
 
   it("publishes and anonymously reads an exact immutable release plus latest", async () => {
-    expect((await app.request(base, undefined, bindings)).status).toBe(404);
+    expect((await SELF.fetch(new URL(base, "https://workshop.test").toString(), undefined)).status).toBe(404);
     const response = await put("0.3.4");
     expect(response.status).toBe(201);
     const record = await response.json();
     expect(record).toMatchObject({ ...input, scriptId: "character-manager", version: "0.3.4" });
     expect(record).not.toHaveProperty("actorId");
-    const exact = await app.request(`${base}/versions/0.3.4`, undefined, bindings);
+    const exact = await SELF.fetch(new URL(`${base}/versions/0.3.4`, "https://workshop.test").toString(), undefined);
     expect(exact.headers.get("cache-control")).toContain("no-store");
     expect(await exact.json()).toEqual(record);
-    expect(await (await app.request(base, undefined, bindings)).json()).toEqual(record);
-    expect((await app.request(`${base}/versions/unknown`, undefined, bindings)).status).toBe(404);
+    expect(await (await SELF.fetch(new URL(base, "https://workshop.test").toString(), undefined)).json()).toEqual(
+      record,
+    );
+    expect(
+      (await SELF.fetch(new URL(`${base}/versions/unknown`, "https://workshop.test").toString(), undefined)).status,
+    ).toBe(404);
     expect((await put("0.3.4")).status).toBe(200);
     expect(
       (await put("0.3.4", "owner-token", { ...input, downloadUrl: "https://example.org/changed.js" })).status,
@@ -108,14 +104,18 @@ describe("companion release registration", () => {
     expect(
       await bindings.DB.prepare("SELECT COUNT(*) AS n FROM audit_events WHERE action = 'companion.publish'").first("n"),
     ).toBe(1);
-    expect(await (await app.request(`${base}/versions/0.3.4`, undefined, bindings)).json()).toEqual(record);
+    expect(
+      await (await SELF.fetch(new URL(`${base}/versions/0.3.4`, "https://workshop.test").toString(), undefined)).json(),
+    ).toEqual(record);
   });
 
   it("keeps latest at the last new registration when an older version is replayed", async () => {
     await put("0.3.4");
     expect((await put("0.3.5")).status).toBe(201);
     expect((await put("0.3.4")).status).toBe(200);
-    expect(await (await app.request(base, undefined, bindings)).json()).toMatchObject({ version: "0.3.5" });
+    expect(await (await SELF.fetch(new URL(base, "https://workshop.test").toString(), undefined)).json()).toMatchObject(
+      { version: "0.3.5" },
+    );
     expect(
       await bindings.DB.prepare("SELECT COUNT(*) AS n FROM audit_events WHERE action = 'companion.publish'").first("n"),
     ).toBe(2);
@@ -136,8 +136,12 @@ describe("companion release registration", () => {
       put("0.3.4", "owner-token", { ...input, downloadUrl: "https://example.org/other.js" }),
     ]);
     expect(responses.map((response) => response.status).sort()).toEqual([201, 409]);
-    const exact = await (await app.request(`${base}/versions/0.3.4`, undefined, bindings)).json();
-    expect(await (await app.request(base, undefined, bindings)).json()).toEqual(exact);
+    const exact = await (
+      await SELF.fetch(new URL(`${base}/versions/0.3.4`, "https://workshop.test").toString(), undefined)
+    ).json();
+    expect(await (await SELF.fetch(new URL(base, "https://workshop.test").toString(), undefined)).json()).toEqual(
+      exact,
+    );
     expect(
       await bindings.DB.prepare("SELECT COUNT(*) AS n FROM audit_events WHERE action = 'companion.publish'").first("n"),
     ).toBe(1);

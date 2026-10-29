@@ -1,5 +1,5 @@
 import type { ProjectGalleryResponse, Session } from "@workshop/contracts";
-import { detectImageDimensions, WORKSHOP_LIMITS } from "@workshop/domain";
+import { type ImageDimensions, WORKSHOP_LIMITS } from "@workshop/domain";
 
 type GalleryRow = { slot: number; r2_key: string; mime: string };
 
@@ -9,10 +9,6 @@ function galleryKey(projectId: string, slot: number, sha256: string, mime: strin
   return `gallery/${projectId}/${slot}-${sha256}.${MIME_EXT[mime]!}`;
 }
 
-async function sha256Hex(body: ArrayBuffer): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", body);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
 async function deleteIfUnreferenced(db: D1Database, r2: R2Bucket, r2Key: string): Promise<void> {
   try {
     const referenced = await db.prepare("SELECT 1 FROM project_gallery WHERE r2_key = ? LIMIT 1").bind(r2Key).first();
@@ -74,25 +70,30 @@ export async function uploadGalleryImage(
   projectId: string,
   slot: number,
   expectedVersion: number,
-  body: ArrayBuffer,
+  body: {
+    bytes: number;
+    sha256: string;
+    dimensions: ImageDimensions | null;
+    copyTo: (key: string, options?: R2PutOptions) => Promise<void>;
+  },
   mime: string,
 ): Promise<GalleryWriteResult> {
   if (!Number.isInteger(slot) || slot < 0 || slot > 1)
     return { kind: "invalid", message: "Gallery slot must be 0 or 1" };
   if (!MIME_EXT[mime]) return { kind: "invalid", message: "Unsupported content type" };
-  if (body.byteLength === 0 || body.byteLength > WORKSHOP_LIMITS.projectImageUploadBytes) {
+  if (body.bytes === 0 || body.bytes > WORKSHOP_LIMITS.projectImageUploadBytes) {
     return { kind: "invalid", message: "Gallery image exceeds 5MiB limit" };
   }
-  const dimensions = detectImageDimensions(new Uint8Array(body));
+  const dimensions = body.dimensions;
   if (!dimensions || dimensions.mime !== mime)
     return { kind: "invalid", message: "Image format does not match content type" };
   if (dimensions.width > WORKSHOP_LIMITS.coverMaxDimension || dimensions.height > WORKSHOP_LIMITS.coverMaxDimension) {
     return { kind: "invalid", message: "Image dimensions cannot exceed 4096×4096" };
   }
-  const sha256 = await sha256Hex(body);
+  const sha256 = body.sha256;
   const r2Key = galleryKey(projectId, slot, sha256, mime);
   try {
-    await r2.put(r2Key, body, { httpMetadata: { contentType: mime } });
+    await body.copyTo(r2Key, { httpMetadata: { contentType: mime } });
   } catch {
     return { kind: "invalid", message: "Image storage failed" };
   }
@@ -108,7 +109,7 @@ export async function uploadGalleryImage(
         .bind(
           r2Key,
           sha256,
-          body.byteLength,
+          body.bytes,
           mime,
           now,
           projectId,
@@ -130,7 +131,7 @@ export async function uploadGalleryImage(
           slot,
           r2Key,
           sha256,
-          body.byteLength,
+          body.bytes,
           mime,
           now,
           projectId,
@@ -156,7 +157,7 @@ export async function uploadGalleryImage(
     await deleteIfUnreferenced(db, r2, r2Key);
     return { kind: "conflict" };
   }
-  return { kind: "ok", rowVersion: expectedVersion + 1, sha256, bytes: body.byteLength, mime, r2Key };
+  return { kind: "ok", rowVersion: expectedVersion + 1, sha256, bytes: body.bytes, mime, r2Key };
 }
 
 export async function deleteGalleryImage(

@@ -1,11 +1,11 @@
-import { env } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { app } from "../src/app";
-import type { Env } from "../src/env";
+
+import type { DataEnv } from "../src/data/env";
 import { applySchema } from "./support/schema";
 import { splitSql } from "./support/sql";
 
-const bindings = env as unknown as Env;
+const bindings = env as unknown as DataEnv;
 const now = "2026-10-21T00:00:00.000Z";
 
 async function hash(token: string) {
@@ -23,14 +23,10 @@ async function seedSession(token: string, userId: string) {
 }
 
 function request(path: string, token: string, init?: RequestInit) {
-  return app.request(
-    path,
-    {
-      ...init,
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...(init?.headers ?? {}) },
-    },
-    bindings,
-  );
+  return SELF.fetch(new URL(path, "https://workshop.test").toString(), {
+    ...init,
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...(init?.headers ?? {}) },
+  });
 }
 
 beforeAll(() => applySchema(bindings.DB));
@@ -98,7 +94,9 @@ describe("admin writes", () => {
     expect(
       (await request("/api/v1/site", "owner-token", { method: "PUT", body: JSON.stringify({ banner }) })).status,
     ).toBe(200);
-    await expect((await app.request("/api/v1/site", undefined, bindings)).json()).resolves.toMatchObject({ banner });
+    await expect(
+      (await SELF.fetch(new URL("/api/v1/site", "https://workshop.test").toString(), undefined)).json(),
+    ).resolves.toMatchObject({ banner });
   });
 
   it("uploads a banner and registers its public URL", async () => {
@@ -122,7 +120,7 @@ describe("admin writes", () => {
     expect(owner.status).toBe(201);
     const body = (await owner.json()) as { banner: { imageUrl: string } };
     expect(body.banner.imageUrl).toMatch(/^\/api\/v1\/public-assets\/banners\/[a-f0-9]{64}\.png$/);
-    const asset = await app.request(body.banner.imageUrl, undefined, bindings);
+    const asset = await SELF.fetch(new URL(body.banner.imageUrl, "https://workshop.test").toString(), undefined);
     expect(asset.status).toBe(200);
     expect(asset.headers.get("content-type")).toContain("image/png");
   });

@@ -1,8 +1,8 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import type { Env } from "../src/env";
+import type { DataEnv } from "../src/data/env";
 
-const bindings = env as unknown as Env;
+const bindings = env as unknown as DataEnv;
 
 describe("local Cloudflare bindings", () => {
   it("round-trips a row through D1", async () => {

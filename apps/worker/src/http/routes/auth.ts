@@ -1,3 +1,4 @@
+import type { AuthFlowMode } from "@workshop/contracts";
 import {
   authFlowCreateSchema,
   authFlowRedeemSchema,
@@ -7,21 +8,27 @@ import {
 } from "@workshop/contracts";
 import { Hono } from "hono";
 import type { Env } from "../../env";
-import { getMe, revokeSessionByToken, sha256Hex } from "../../storage/identity.js";
-import {
-  type AuthFlowRow,
-  createOpaqueSession,
-  getFlowById,
-  getFlowByState,
-  insertOAuthFlow,
-  markFlowAuthorized,
-  markFlowError,
-  markFlowRedeemed,
-  upsertDiscordUser,
-} from "../../storage/oauth.js";
 import { jsonError } from "../errors.js";
-import { requireSession } from "../session.js";
+import { sessionToken } from "../session.js";
 
+interface AuthFlowRow {
+  id: string;
+  code_verifier: string | null;
+  code_challenge: string | null;
+  redeem_hash: string | null;
+  origin: string;
+  mode: AuthFlowMode;
+  status: "pending" | "authorized" | "redeemed" | "expired";
+  user_id: string | null;
+  error: string | null;
+  expires_at: string;
+  browser_binding_hash: string | null;
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 const CALLBACK_PATH = "/api/v1/auth/callback";
 const FLOW_TTL_MS = 10 * 60 * 1000;
 const DISCORD_API = "https://discord.com/api";
@@ -233,12 +240,10 @@ export const authRoutes = new Hono<{ Bindings: Env }>();
 export const sessionRoutes = new Hono<{ Bindings: Env }>();
 
 sessionRoutes.delete("/current", async (c) => {
-  const session = await requireSession(c);
-  if (!session) return jsonError(c, "unauthorized", "Login required");
-  const authorization = c.req.header("authorization");
-  const token = authorization?.slice("Bearer ".length);
-  if (!token) return jsonError(c, "unauthorized", "Login required");
-  await revokeSessionByToken(c.env.DB, token, c.env.SESSION_HASH_SECRET);
+  const token = sessionToken(c);
+  if (!token || !(await c.executionCtx.exports.DataService.identityRevoke(token))) {
+    return jsonError(c, "unauthorized", "Login required");
+  }
   return c.body(null, 204);
 });
 
@@ -267,7 +272,7 @@ authRoutes.post("/flows", async (c) => {
   const deviceCode = parsed.data.mode === "device" ? randomToken(32) : null;
   const binding = randomToken(32);
   const expiresAt = new Date(Date.now() + FLOW_TTL_MS).toISOString();
-  await insertOAuthFlow(c.env.DB, {
+  await c.executionCtx.exports.DataService.identityCreateFlow({
     id,
     state,
     verifier,
@@ -310,29 +315,13 @@ authRoutes.post("/flows", async (c) => {
 
 authRoutes.get("/flows/:id", async (c) => {
   const deviceSecret = c.req.query("deviceCode") ?? c.req.header("x-device-secret") ?? "";
-  const flow = await getFlowById(c.env.DB, c.req.param("id"));
-  if (!flow || (flow.mode !== "browser" && !(await bindingMatches(c, flow)))) {
-    return jsonError(c, "not_found", "Auth flow not found");
-  }
-  if (
-    flow.mode === "device" &&
-    (!deviceSecret || !flow.redeem_hash || (await sha256Hex(deviceSecret)) !== flow.redeem_hash)
-  ) {
-    return jsonError(c, "not_found", "Auth flow not found");
-  }
-  const expired = flow.status === "pending" && Date.parse(flow.expires_at) <= Date.now();
-  if (expired) {
-    await c.env.DB.prepare("UPDATE oauth_flows SET status = 'expired' WHERE id = ? AND status = 'pending'")
-      .bind(flow.id)
-      .run();
-  }
-  return c.json(
-    authFlowStatusSchema.parse({
-      status: expired ? "expired" : flow.status,
-      expiresAt: flow.expires_at,
-      ...(flow.error ? { error: flow.error } : {}),
-    }),
+  const flow = await c.executionCtx.exports.DataService.identityFlowStatus(
+    c.req.param("id"),
+    [cookieValue(c, "cw_oauth_binding"), cookieValue(c, "cw_oauth_binding_p")].filter(Boolean),
+    deviceSecret,
   );
+  if (!flow) return jsonError(c, "not_found", "Auth flow not found");
+  return c.json(authFlowStatusSchema.parse(flow));
 });
 
 authRoutes.post("/flows/:id/redeem", async (c) => {
@@ -344,52 +333,33 @@ authRoutes.post("/flows/:id/redeem", async (c) => {
   }
   const parsed = authFlowRedeemSchema.safeParse(body);
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid redeem request", parsed.error.flatten());
-  const flow = await getFlowById(c.env.DB, c.req.param("id"));
-  if (!flow) return jsonError(c, "conflict", "Auth flow is not ready for redemption");
-  if (flow.mode !== "browser" && !(await bindingMatches(c, flow))) {
-    return jsonError(c, "forbidden", "Auth flow does not belong to this browser");
-  }
-  if (flow.status !== "authorized" || !flow.user_id) {
+  const result = await c.executionCtx.exports.DataService.identityRedeemFlow(
+    c.req.param("id"),
+    [cookieValue(c, "cw_oauth_binding"), cookieValue(c, "cw_oauth_binding_p")].filter(Boolean),
+    parsed.data,
+  );
+  if (!result.ok) {
+    if (result.error === "binding") return jsonError(c, "forbidden", "Auth flow does not belong to this browser");
+    if (result.error === "secret") return jsonError(c, "forbidden", "Invalid redeem secret");
+    if (result.error === "expired") return jsonError(c, "conflict", "Auth flow expired");
+    if (result.error === "redeemed") return jsonError(c, "conflict", "Auth flow was already redeemed");
+    if (result.error === "user_not_found") return jsonError(c, "internal", "User not found");
     return jsonError(c, "conflict", "Auth flow is not ready for redemption");
   }
-  if (Date.parse(flow.expires_at) <= Date.now()) return jsonError(c, "conflict", "Auth flow expired");
-
-  let secretOk = false;
-  if (flow.mode === "device") {
-    secretOk = Boolean(
-      parsed.data.deviceCode && flow.redeem_hash && (await sha256Hex(parsed.data.deviceCode)) === flow.redeem_hash,
-    );
-  } else if (flow.mode === "embed") {
-    const codeOk = Boolean(
-      parsed.data.code && flow.redeem_hash && (await sha256Hex(parsed.data.code)) === flow.redeem_hash,
-    );
-    const verifierOk = Boolean(
-      parsed.data.verifier && flow.code_challenge && (await s256(parsed.data.verifier)) === flow.code_challenge,
-    );
-    secretOk = codeOk && verifierOk;
-  }
-  if (!secretOk) return jsonError(c, "forbidden", "Invalid redeem secret");
-
-  if (!(await markFlowRedeemed(c.env.DB, flow.id))) {
-    return jsonError(c, "conflict", "Auth flow was already redeemed");
-  }
-  const { token, expiresAt } = await createOpaqueSession(c.env.DB, flow.user_id, c.env.SESSION_HASH_SECRET);
-  const me = await getMe(c.env.DB, flow.user_id);
-  if (!me) return jsonError(c, "internal", "User not found");
-  return c.json(authSessionResponseSchema.parse({ token, expiresAt, user: me.user }));
+  return c.json(authSessionResponseSchema.parse(result));
 });
 
 authRoutes.get("/callback", async (c) => {
   const state = c.req.query("state") ?? "";
   const code = c.req.query("code") ?? "";
   const oauthError = c.req.query("error");
-  const flow = state ? await getFlowByState(c.env.DB, state) : null;
+  const flow = state ? await c.executionCtx.exports.DataService.identityFlowByState(state) : null;
   if (!flow) return htmlResponse(errorHtml("登录状态无效或已过期。"), 400);
   if (flow.mode !== "browser" && !(await bindingMatches(c, flow))) {
     return htmlResponse(errorHtml("登录状态无效或已过期。"), 400);
   }
   if (oauthError) {
-    await markFlowError(c.env.DB, flow.id, `Discord 返回错误：${oauthError}`);
+    await c.executionCtx.exports.DataService.identityFlowError(flow.id, `Discord 返回错误：${oauthError}`);
     return htmlResponse(errorHtml("Discord 未完成授权。"), 400);
   }
   if (flow.status !== "pending" || Date.parse(flow.expires_at) <= Date.now()) {
@@ -399,13 +369,16 @@ authRoutes.get("/callback", async (c) => {
 
   try {
     const result = await exchangeDiscord(c, flow, code);
-    await upsertDiscordUser(c.env.DB, result.user);
+    const redeemCode = flow.mode === "embed" ? randomToken(32) : null;
+    const authorized = await c.executionCtx.exports.DataService.identityAuthorizeFlow(
+      flow.id,
+      result.user,
+      result.guildId,
+      redeemCode,
+    );
+    if (!authorized) return htmlResponse(errorHtml("登录状态已被使用。"), 409);
     if (flow.mode === "browser") {
-      if (!(await markFlowAuthorized(c.env.DB, flow.id, result.user.id, result.guildId, null))) {
-        return htmlResponse(errorHtml("登录状态已被使用。"), 409);
-      }
-      const { token } = await createOpaqueSession(c.env.DB, result.user.id, c.env.SESSION_HASH_SECRET);
-      await markFlowRedeemed(c.env.DB, flow.id);
+      const token = authorized.token;
       return htmlResponse(
         callbackHtml(
           JSON.stringify({
@@ -419,10 +392,6 @@ authRoutes.get("/callback", async (c) => {
       );
     }
 
-    const redeemCode = flow.mode === "embed" ? randomToken(32) : null;
-    if (!(await markFlowAuthorized(c.env.DB, flow.id, result.user.id, result.guildId, redeemCode))) {
-      return htmlResponse(errorHtml("登录状态已被使用。"), 409);
-    }
     if (flow.mode === "embed") {
       return htmlResponse(
         callbackHtml(
@@ -448,7 +417,7 @@ authRoutes.get("/callback", async (c) => {
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "登录失败";
-    await markFlowError(c.env.DB, flow.id, message);
+    await c.executionCtx.exports.DataService.identityFlowError(flow.id, message);
     return htmlResponse(errorHtml(message), 400);
   }
 });

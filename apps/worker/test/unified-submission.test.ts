@@ -1,15 +1,15 @@
-import { env } from "cloudflare:test";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { app } from "../src/app";
+import { env, SELF } from "cloudflare:test";
+import { exports as workerExports } from "cloudflare:workers";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { REVIEW_CHECKER_REVISION } from "../src/content-checker";
 import { ContentService } from "../src/content-service";
-import type { Env } from "../src/env";
-import { adminRoutes } from "../src/http/routes/admin";
-import { authoringRoutes } from "../src/http/routes/authoring";
+import type { DataEnv } from "../src/data/env";
 import { runScheduled } from "../src/scheduler";
+import { reviewAdminSubmission } from "../src/storage/admin";
 import { applySchema } from "./support/schema";
 
-const bindings = env as unknown as Env;
+const bindings = env as unknown as DataEnv;
 const now = "2026-10-21T00:00:00.000Z";
 const worldbook = JSON.stringify({ entries: [{ uid: 1, name: "Frozen entry", content: "Original content" }] });
 const png = Uint8Array.from([
@@ -78,12 +78,12 @@ interface Detail {
 function author(path: string, init: RequestInit = {}, token = "author-token") {
   const headers = new Headers(init.headers);
   headers.set("authorization", `Bearer ${token}`);
-  return authoringRoutes.request(path, { ...init, headers }, bindings);
+  return SELF.fetch("https://workshop.test/api/v1/projects" + (path === "/" ? "" : path), { ...init, headers });
 }
 function admin(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   headers.set("authorization", "Bearer reviewer-token");
-  return adminRoutes.request(path, { ...init, headers }, bindings);
+  return SELF.fetch("https://workshop.test/api/v1/admin" + path, { ...init, headers });
 }
 function json(method: string, body: unknown, version?: number): RequestInit {
   return {
@@ -159,7 +159,7 @@ async function run(id: string) {
   return response.json();
 }
 async function publicProject(id: string) {
-  const response = await app.request(`/api/v1/projects/${id}`, undefined, bindings);
+  const response = await SELF.fetch(new URL(`/api/v1/projects/${id}`, "https://workshop.test").toString(), undefined);
   expect(response.status).toBe(200);
   return response.json() as Promise<{
     title: string;
@@ -174,6 +174,15 @@ async function published(): Promise<Draft> {
   await upload(draft, "cover", png);
   const submission = await submit(draft, "pass");
   await run(submission.submissionId);
+  await vi.waitFor(
+    async () => {
+      expect((await detail(submission.submissionId)).submission).toMatchObject({
+        status: "approved",
+        checkStatus: "done",
+      });
+    },
+    { timeout: 5_000 },
+  );
   await refresh(draft);
   const response = await author(`/${draft.id}/visibility`, json("PATCH", { visibility: "public" }, draft.rowVersion));
   expect(response.status).toBe(200);
@@ -181,37 +190,35 @@ async function published(): Promise<Draft> {
   return draft;
 }
 async function history(id: string) {
-  const response = await app.request(
-    `/api/v1/me/projects/${id}/submissions`,
+  const response = await SELF.fetch(
+    new URL(`/api/v1/me/projects/${id}/submissions`, "https://workshop.test").toString(),
     {
       headers: { authorization: "Bearer author-token" },
     },
-    bindings,
   );
   expect(response.status).toBe(200);
   return response.json() as Promise<{ items: Array<{ id: string; status: string; withdrawnAt: string | null }> }>;
 }
 
-// Interpose only at the real R2 read boundary, after the checker has acquired its
-// D1 lease. The callback performs real author API writes before checking resumes.
+// Pause after the real data service reads the checker input, then perform
+// author writes before the check resumes.
 async function runAcrossMutation(id: string, mutation: () => Promise<void>) {
   let intercepted = false;
-  const r2 = new Proxy(bindings.R2, {
+  const data = new Proxy(workerExports.DataService, {
     get(target, property) {
-      if (property === "get")
-        return async (key: string) => {
-          const object = await target.get(key);
-          if (!intercepted) {
-            intercepted = true;
-            await mutation();
-          }
-          return object;
+      if (property === "contentLoadSubmission") {
+        return async (revisionId: string) => {
+          const result = await target.contentLoadSubmission(revisionId);
+          intercepted = true;
+          await mutation();
+          return result;
         };
-      const value = Reflect.get(target, property);
-      return typeof value === "function" ? value.bind(target) : value;
+      }
+      return Reflect.get(target, property);
     },
   });
-  const checker = new ContentService({} as DurableObjectState, { ...bindings, R2: r2 });
+  const state = { exports: { ...workerExports, DataService: data } } as DurableObjectState;
+  const checker = new ContentService(state, bindings);
   const response = await checker.fetch(new Request("https://content-service/run", json("POST", { submissionId: id })));
   const result = (await response.json()) as { error?: string };
   // A lost publication precondition may be reported as a conflict by the
@@ -242,7 +249,7 @@ describe("unified frozen submissions", () => {
   it("keeps draft metadata and cover private, then publishes inherited content with the reviewed snapshot", async () => {
     const draft = await published();
     const original = await publicProject(draft.id);
-    const originalCover = await app.request(original.coverUrl, undefined, bindings);
+    const originalCover = await SELF.fetch(new URL(original.coverUrl, "https://workshop.test").toString(), undefined);
     expect(originalCover.status).toBe(200);
     expect(new Uint8Array(await originalCover.arrayBuffer())).toEqual(png);
     await nextRevision(draft);
@@ -303,15 +310,14 @@ describe("unified frozen submissions", () => {
     });
     const released = await publicProject(draft.id);
     expect(released.coverUrl).not.toBe(original.coverUrl);
-    const releasedCover = await app.request(released.coverUrl, undefined, bindings);
+    const releasedCover = await SELF.fetch(new URL(released.coverUrl, "https://workshop.test").toString(), undefined);
     expect(releasedCover.status).toBe(200);
     expect(new Uint8Array(await releasedCover.arrayBuffer())).toEqual(successorPng);
-    const preview = await app.request(
-      `/api/v1/projects/${draft.id}/preview/worldbook`,
+    const preview = await SELF.fetch(
+      new URL(`/api/v1/projects/${draft.id}/preview/worldbook`, "https://workshop.test").toString(),
       {
         headers: { authorization: "Bearer author-token" },
       },
-      bindings,
     );
     expect(preview.status).toBe(200);
     await expect(preview.json()).resolves.toMatchObject({
@@ -348,11 +354,16 @@ describe("unified frozen submissions", () => {
       const submitted = await submit(draft, gate);
       expect(submitted).toMatchObject({ status: "checking", checkStatus: "queued" });
       await run(submitted.submissionId);
-      expect((await detail(submitted.submissionId)).submission).toMatchObject({
-        status: "approved",
-        checkStatus: "done",
-        checkAttempts: 1,
-      });
+      await vi.waitFor(
+        async () => {
+          expect((await detail(submitted.submissionId)).submission).toMatchObject({
+            status: "approved",
+            checkStatus: "done",
+            checkAttempts: 1,
+          });
+        },
+        { timeout: 5_000 },
+      );
       const response = await author(`/${draft.id}/draft`);
       await expect(response.json()).resolves.toMatchObject({ project: { publishedRevisionId: draft.revisionId } });
     },
@@ -364,12 +375,25 @@ describe("unified frozen submissions", () => {
       const draft = await published();
       const original = await publicProject(draft.id);
       await nextRevision(draft);
-      const submitted = await submit(draft, gate);
+      // Build the queued state without launching submit's waitUntil checker,
+      // so this test can exercise withdrawal before the checker claims it.
+      const submitted = await submit(draft, "block");
+      if (gate === "pass") {
+        await bindings.DB.prepare(`
+          UPDATE submissions SET client_gate = 'pass', status = 'checking', check_status = 'queued'
+          WHERE id = ?
+        `)
+          .bind(submitted.submissionId)
+          .run();
+      }
       const path = `/${draft.id}/submissions/${submitted.submissionId}/withdraw`;
       expect((await author(path, { method: "POST" })).status).toBe(412);
       expect((await author(path, json("POST", {}, draft.rowVersion - 1))).status).toBe(412);
       expect((await author(path, json("POST", {}, draft.rowVersion), "other-token")).status).toBe(404);
-      expect((await detail(submitted.submissionId)).submission.status).toBe(submitted.status);
+      expect((await detail(submitted.submissionId)).submission).toMatchObject({
+        status: gate === "pass" ? "checking" : "pending",
+        checkStatus: gate === "pass" ? "queued" : "needs_human",
+      });
       const response = await author(path, json("POST", {}, draft.rowVersion));
       expect(response.status).toBe(200);
       const withdrawn = await history(draft.id);
@@ -480,8 +504,12 @@ describe("unified frozen submissions", () => {
     await bindings.DB.prepare("UPDATE submissions SET review_checker_revision = ? WHERE id = ?")
       .bind("retired-checker-w1", submitted.submissionId)
       .run();
-    const response = await admin(`/submissions/${submitted.submissionId}/recheck`, json("POST", {}));
-    expect(response.status).toBe(202);
+    // The HTTP route starts a background checker immediately. Invoke the same
+    // authorized recheck operation directly here so this test can await the
+    // real checker run and inspect its result without racing that background run.
+    expect(
+      await workerExports.DataService.authorAdminRecheck("Bearer reviewer-token", submitted.submissionId),
+    ).toMatchObject({ kind: "ok" });
     await expect(run(submitted.submissionId)).resolves.toMatchObject({
       revision: REVIEW_CHECKER_REVISION,
       manual: true,
@@ -504,15 +532,15 @@ describe("unified frozen submissions", () => {
       check_attempts = 3, check_lease_until = ? WHERE id = ?`)
       .bind("2030-01-01T12:01:00.000Z", submitted.submissionId)
       .run();
-    await runScheduled(bindings, Date.parse("2030-01-01T12:00:00.000Z"));
+    await runScheduled(bindings, workerExports, Date.parse("2030-01-01T12:00:00.000Z"));
     expect((await detail(submitted.submissionId)).submission).toMatchObject({
       status: "pending",
       checkStatus: "running",
       checkAttempts: 3,
     });
-    await runScheduled(bindings, Date.parse("2030-01-01T12:01:00.000Z"));
+    await runScheduled(bindings, workerExports, Date.parse("2030-01-01T12:01:00.000Z"));
     expect((await detail(submitted.submissionId)).submission.checkStatus).toBe("running");
-    await runScheduled(bindings, Date.parse("2030-01-01T12:02:00.000Z"));
+    await runScheduled(bindings, workerExports, Date.parse("2030-01-01T12:02:00.000Z"));
     expect((await detail(submitted.submissionId)).submission).toMatchObject({
       status: "pending",
       checkStatus: "needs_human",
@@ -539,15 +567,17 @@ describe("unified frozen submissions", () => {
     const submitted = await submit(draft, "block");
     const frozen = await detail(submitted.submissionId);
     let intercepted = false;
-    // All reads, statements and the final batch are real D1 operations. The
-    // boundary callback lets a real recheck win after target evidence was read.
+    // Pause the storage transaction after it has read the target, so a real
+    // recheck can change the evidence before the guarded D1 batch executes.
     const db = new Proxy(bindings.DB, {
       get(target, property) {
         if (property === "batch")
           return async (statements: D1PreparedStatement[]) => {
             expect(intercepted).toBe(false);
             intercepted = true;
-            expect((await admin(`/submissions/${submitted.submissionId}/recheck`, json("POST", {}))).status).toBe(202);
+            expect(
+              await workerExports.DataService.authorAdminRecheck("Bearer reviewer-token", submitted.submissionId),
+            ).toMatchObject({ kind: "ok" });
             if (race === "new-report") {
               await run(submitted.submissionId);
               expect((await detail(submitted.submissionId)).submission.checkReportHash).toMatch(/^[0-9a-f]{64}$/);
@@ -558,21 +588,26 @@ describe("unified frozen submissions", () => {
         return typeof value === "function" ? value.bind(target) : value;
       },
     });
-    const response = await adminRoutes.request(
-      `/submissions/${submitted.submissionId}/review`,
-      {
-        ...json("POST", {
+    const result = await reviewAdminSubmission(db, submitted.submissionId, "reviewer", {
+      decision,
+      reason: "人工已阅读先前冻结证据",
+      revisionId: frozen.revision.id,
+      manifestHash: frozen.revision.manifestHash,
+    });
+    expect(intercepted).toBe(true);
+    expect(result.kind).toBe("conflict");
+    if (race === "queued") {
+      const response = await admin(
+        `/submissions/${submitted.submissionId}/review`,
+        json("POST", {
           decision,
           reason: "人工已阅读先前冻结证据",
           revisionId: frozen.revision.id,
           manifestHash: frozen.revision.manifestHash,
         }),
-        headers: { "content-type": "application/json", authorization: "Bearer reviewer-token" },
-      },
-      { ...bindings, DB: db },
-    );
-    expect(intercepted).toBe(true);
-    expect(response.status).toBe(409);
+      );
+      expect(response.status).toBe(409);
+    }
     expect((await detail(submitted.submissionId)).submission).toMatchObject({
       status: "pending",
       checkStatus: race === "queued" ? "queued" : "needs_human",
@@ -583,4 +618,45 @@ describe("unified frozen submissions", () => {
       .first<{ count: number }>();
     expect(reviews?.count).toBe(0);
   });
+
+  it.each(["approve", "reject"] as const)(
+    "allows only one concurrent %s review through the HTTP API",
+    async (decision) => {
+      const draft = await published();
+      const original = await publicProject(draft.id);
+      await nextRevision(draft);
+      const submitted = await submit(draft, "block");
+      const frozen = await detail(submitted.submissionId);
+      const evidence = {
+        decision,
+        reason: "人工已阅读冻结证据",
+        revisionId: frozen.revision.id,
+        manifestHash: frozen.revision.manifestHash,
+      };
+      const responses = await Promise.all([
+        admin(`/submissions/${submitted.submissionId}/review`, json("POST", evidence)),
+        admin(`/submissions/${submitted.submissionId}/review`, json("POST", evidence)),
+      ]);
+      expect(responses.map((response) => response.status).sort()).toEqual([201, 409]);
+      expect((await detail(submitted.submissionId)).submission.status).toBe(
+        decision === "approve" ? "approved" : "rejected",
+      );
+      const project = await publicProject(draft.id);
+      if (decision === "approve") {
+        expect(project.publishedRevisionId).toBe(frozen.revision.id);
+      } else {
+        expect(project).toEqual(original);
+      }
+      const reviews = await bindings.DB.prepare("SELECT COUNT(*) AS count FROM reviews WHERE submission_id = ?")
+        .bind(submitted.submissionId)
+        .first<{ count: number }>();
+      expect(reviews?.count).toBe(1);
+      const audits = await bindings.DB.prepare(
+        "SELECT COUNT(*) AS count FROM audit_events WHERE target_id = ? AND action = ?",
+      )
+        .bind(submitted.submissionId, `review.${decision}`)
+        .first<{ count: number }>();
+      expect(audits?.count).toBe(1);
+    },
+  );
 });

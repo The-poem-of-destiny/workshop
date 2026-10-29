@@ -1,6 +1,6 @@
 import { Hono } from "hono";
+import { dataClient } from "../../data-client";
 import type { Env } from "../../env";
-import { getClientChannel } from "../../storage/client.js";
 import { jsonError } from "../errors.js";
 
 export const clientApiRoutes = new Hono<{ Bindings: Env }>();
@@ -8,7 +8,7 @@ export const clientApiRoutes = new Hono<{ Bindings: Env }>();
 clientApiRoutes.use("*", async (c, next) => {
   await next();
   c.header("access-control-allow-origin", "*");
-  c.header("cache-control", "no-store");
+  if (!c.res.headers.has("cache-control")) c.header("cache-control", "no-store");
 });
 
 clientApiRoutes.get("/version", async (c) => {
@@ -16,8 +16,9 @@ clientApiRoutes.get("/version", async (c) => {
   if (channel !== "stable" && channel !== "staging") {
     return jsonError(c, "not_found", "Client channel not found");
   }
-  const current = await getClientChannel(c.env.DB, channel);
+  const current = await dataClient(c.executionCtx).distributionClientChannel(channel);
   if (!current) return jsonError(c, "not_found", "Client channel not found");
+  c.header("cache-control", "public, max-age=5, stale-if-error=0");
   return c.json({ channel, ...current });
 });
 
@@ -26,7 +27,7 @@ clientApiRoutes.get("/compatibility", async (c) => {
   if (channel !== "stable" && channel !== "staging") {
     return jsonError(c, "not_found", "Client channel not found");
   }
-  const current = await getClientChannel(c.env.DB, channel);
+  const current = await dataClient(c.executionCtx).distributionClientChannel(channel);
   const version = c.req.query("version");
   if (!current) {
     return c.json({
@@ -38,6 +39,7 @@ clientApiRoutes.get("/compatibility", async (c) => {
       reason: "channel_unavailable",
     });
   }
+  c.header("cache-control", "public, max-age=5, stale-if-error=0");
   const compatible = Boolean(version && version === current.version);
   return c.json({
     compatible,

@@ -1,11 +1,12 @@
 import { env } from "cloudflare:test";
+import { exports as workerExports } from "cloudflare:workers";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { REVIEW_CHECKER_REVISION } from "../src/content-checker";
-import type { Env } from "../src/env";
+import type { DataEnv } from "../src/data/env";
 import { runScheduled } from "../src/scheduler";
 import { applySchema } from "./support/schema";
 
-const bindings = env as unknown as Env;
+const bindings = env as unknown as DataEnv;
 const now = "2026-10-21T00:00:00.000Z";
 
 function service() {
@@ -172,7 +173,7 @@ describe("ContentService", () => {
     const content = JSON.stringify({ entries: [{ uid: 1, name: "Entry", content: "plain" }] });
     await seedProject("p5", content);
     await seedSubmission("s5", "p5");
-    await runScheduled(bindings);
+    await runScheduled(bindings, workerExports);
     const submission = await bindings.DB.prepare("SELECT status, check_status FROM submissions WHERE id = 's5'").first<
       Record<string, unknown>
     >();
@@ -183,7 +184,7 @@ describe("ContentService", () => {
     const content = JSON.stringify({ entries: [{ uid: 1, name: "Entry", content: "plain" }] });
     await seedProject("p4", content);
     await seedSubmission("s4", "p4", "warn", "queued", 3);
-    await runScheduled(bindings);
+    await runScheduled(bindings, workerExports);
     const submission = await bindings.DB.prepare(
       "SELECT status, check_status, check_error FROM submissions WHERE id = 's4'",
     ).first<Record<string, unknown>>();

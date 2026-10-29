@@ -1,6 +1,7 @@
 import { BookOpen, History } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { api, type ProjectSummary } from "../../api";
+import { useMemo, useState } from "react";
+import type { ProjectSummary } from "../../api";
+import type { HomeLoadState } from "../../useWorkshopHome";
 import "../../styles/discovery.css";
 
 function DiscoveryCard({
@@ -92,25 +93,18 @@ function DiscoveryCard({
   );
 }
 
-export function Discovery({ onOpen }: { onOpen: (project: ProjectSummary, opener: HTMLElement) => void }) {
-  const [items, setItems] = useState<ProjectSummary[]>([]);
-  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
-  useEffect(() => {
-    let active = true;
-    api
-      .discovery()
-      .then((result) => {
-        if (!active) return;
-        setItems(result.items);
-        setState("ready");
-      })
-      .catch(() => {
-        if (active) setState("error");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+const emptyItems: ProjectSummary[] = [];
+
+export function Discovery({
+  home,
+  onOpen,
+}: {
+  home: HomeLoadState;
+  onOpen: (project: ProjectSummary, opener: HTMLElement) => void;
+}) {
+  const state =
+    home.status === "loading" ? "loading" : home.status === "error" || !home.data.discovery.ok ? "error" : "ready";
+  const items = home.status === "ready" && home.data.discovery.ok ? home.data.discovery.data.items : emptyItems;
   const discovered = useMemo(() => {
     const next = [...items];
     for (let index = next.length - 1; index > 0; index -= 1) {

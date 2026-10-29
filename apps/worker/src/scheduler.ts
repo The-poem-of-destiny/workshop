@@ -1,47 +1,23 @@
 import type { Env } from "./env";
 import { PROJECT_PROJECTIONS, purgePublicPaths } from "./http/public-invalidation";
-import { buildRankings, cleanupExpired } from "./storage/rankings.js";
 
-const MAX_ATTEMPTS = 3;
-
-export async function runScheduled(env: Env, scheduledTime?: number): Promise<void> {
+export async function runScheduled(env: Env, exports: Cloudflare.Exports, scheduledTime?: number): Promise<void> {
   const scheduled = new Date(scheduledTime ?? Date.now());
+  const timestamp = scheduled.getTime();
+  const data = exports.DataService;
   if (scheduled.getUTCMinutes() === 5) {
-    await buildRankings(env.DB, scheduled);
-    await purgePublicPaths(["/api/v1/projects/rankings"]);
+    await data.buildScheduledRankings(timestamp);
+    await purgePublicPaths(["/api/v1/projects/rankings", "/api/v1/projects/discovery", "/api/v1/home"]);
   }
   if (scheduled.getUTCHours() === 0 && scheduled.getUTCMinutes() === 5) {
     const dryRun = env.CLEANUP_DRY_RUN === "1";
-    const result = await cleanupExpired(env.DB, dryRun, scheduled);
+    const result = await data.cleanupScheduledData(dryRun, timestamp);
     if (dryRun) console.log("cleanup dry-run", result);
   }
-  const now = scheduled.toISOString();
 
-  await env.DB.prepare(`
-    UPDATE submissions
-    SET status = 'pending', check_status = 'needs_human', check_lease_until = NULL,
-        check_error = COALESCE(check_error, '检查超时次数已达上限，转人工审核。')
-    WHERE status IN ('checking', 'pending') AND check_status IN ('queued', 'running') AND check_attempts >= ?
-      AND (check_lease_until IS NULL OR check_lease_until < ?)
-  `)
-    .bind(MAX_ATTEMPTS, now)
-    .run();
-
-  const due = await env.DB.prepare(`
-    SELECT id FROM submissions
-    WHERE status IN ('checking', 'pending')
-      AND check_status IN ('queued', 'running')
-      AND check_attempts < ?
-      AND (check_lease_until IS NULL OR check_lease_until < ?)
-    ORDER BY submitted_at ASC
-    LIMIT 20
-  `)
-    .bind(MAX_ATTEMPTS, now)
-    .all<{ id: string }>();
-
-  if (due.results.length === 0) return;
-  for (const row of due.results) {
-    await enqueueSubmission(env, row.id);
+  const due = await data.findDueSubmissions(timestamp);
+  for (const submissionId of due) {
+    await enqueueSubmission(env, submissionId);
   }
 }
 

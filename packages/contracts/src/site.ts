@@ -1,5 +1,7 @@
 import { z } from "zod";
-import { projectSummarySchema } from "./projects.js";
+import { siteSettingsSchema } from "./admin-dto.js";
+import { errorResponseSchema } from "./errors.js";
+import { discoveryResponseSchema, projectListResponseSchema } from "./projects.js";
 
 export const bannerSchema = z.object({
   imageUrl: z.string().nullable(),
@@ -13,10 +15,16 @@ export const bannerSchema = z.object({
 
 export type Banner = z.infer<typeof bannerSchema>;
 
+const homeSection = <T extends z.ZodType>(data: T) =>
+  z.discriminatedUnion("ok", [
+    z.object({ ok: z.literal(true), data }),
+    z.object({ ok: z.literal(false), error: errorResponseSchema.shape.error }),
+  ]);
+
 export const homeResponseSchema = z.object({
-  banner: bannerSchema.nullable(),
-  latest: z.array(projectSummarySchema),
-  recommendations: z.array(projectSummarySchema),
+  site: homeSection(siteSettingsSchema),
+  discovery: homeSection(discoveryResponseSchema),
+  projects: homeSection(projectListResponseSchema),
 });
 
 export type HomeResponse = z.infer<typeof homeResponseSchema>;

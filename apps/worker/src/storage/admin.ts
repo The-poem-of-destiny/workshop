@@ -310,13 +310,13 @@ export async function getAdminSubmission(db: D1Database, id: string) {
 export async function getSubmissionAsset(db: D1Database, submissionId: string, kind: "worldbook" | "regex" | "cover") {
   return db
     .prepare(`
-    SELECT a.r2_key, a.mime, a.bytes
+    SELECT a.r2_key, a.mime, a.bytes, a.sha256
     FROM submissions s
     JOIN assets a ON a.revision_id = s.revision_id
     WHERE s.id = ? AND a.kind = ?
   `)
     .bind(submissionId, kind)
-    .first<{ r2_key: string; mime: string; bytes: number }>();
+    .first<{ r2_key: string; mime: string; bytes: number; sha256: string }>();
 }
 
 function approvalStatement(db: D1Database, target: SubmissionTargetRow, submissionId: string, now: string) {

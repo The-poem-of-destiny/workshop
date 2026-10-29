@@ -8,6 +8,7 @@
     "deploy:staging": "wrangler deploy --config wrangler.jsonc --env staging",
     "deploy:production": "wrangler deploy --config wrangler.jsonc --env production",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p web/tsconfig.json",
+    "check:data-boundary": "node tools/check-data-boundary.mjs",
     "test": "vitest run --config vitest.config.ts",
     "test:watch": "vitest --config vitest.config.ts",
     "web:build": "vite build --config web/vite.config.ts",
@@ -18,6 +19,7 @@
   "dependencies": {
     "@radix-ui/react-dialog": "^1.3.1",
     "@radix-ui/react-slot": "^1.5.0",
+    "@streamparser/json": "0.0.26",
     "@workshop/content": "workspace:*",
     "@workshop/contracts": "workspace:*",
     "@workshop/domain": "workspace:*",
@@ -39,6 +41,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
+    "typescript-api": "npm:typescript@5.9.3",
     "vite": "^8.3.5",
     "vitest": "^5.0.5",
     "wrangler": "^4.152.0"

@@ -1,16 +1,8 @@
-import type { ProjectEntryIndex, Session, SubmitProject } from "@workshop/contracts";
+import type { Session, SubmitProject } from "@workshop/contracts";
 import { type ProjectEntryKind, validateProjectContentPolicy } from "@workshop/domain";
 import { REVIEW_CHECKER_REVISION } from "../content-checker.js";
+import type { PrevalidatedContent } from "../data/contracts.js";
 import { getWorkingRevision, parseTags, type WorkingRevisionRow } from "./authoring-model.js";
-
-export interface PrevalidatedContent {
-  presence: Record<ProjectEntryKind, boolean>;
-  counts: Record<ProjectEntryKind, number>;
-  hashes: Partial<Record<ProjectEntryKind, string>>;
-  conflict: string | null;
-  error: string | null;
-  entries: ProjectEntryIndex["entries"];
-}
 
 export type SubmitRevisionResult =
   | {

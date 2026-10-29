@@ -1,12 +1,24 @@
-import { env } from "cloudflare:test";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { app } from "../src/app";
-import type { Env } from "../src/env";
+import { env, SELF } from "cloudflare:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { DataEnv } from "../src/data/env";
 import { applySchema } from "./support/schema";
 
-const bindings = env as unknown as Env;
+const bindings = env as unknown as DataEnv;
 const ORIGIN = "https://workshop.test";
 const GUILD = "123456789012345678";
+const originalSettings = {
+  ALLOWED_ORIGINS: bindings.ALLOWED_ORIGINS,
+  PUBLIC_ORIGIN: bindings.PUBLIC_ORIGIN,
+  DISCORD_CLIENT_ID: bindings.DISCORD_CLIENT_ID,
+  DISCORD_CLIENT_SECRET: bindings.DISCORD_CLIENT_SECRET,
+  DISCORD_ALLOWED_GUILD_IDS: bindings.DISCORD_ALLOWED_GUILD_IDS,
+  DISCORD_GUILD_ROLE_IDS: bindings.DISCORD_GUILD_ROLE_IDS,
+};
+
+function request(path: string, init?: RequestInit): Promise<Response> {
+  return SELF.fetch(new URL(path, ORIGIN).toString(), init);
+}
 
 async function s256(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
@@ -21,6 +33,7 @@ function mockDiscord(guilds: string[] = [GUILD], rolesByGuild: Record<string, st
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (!url.startsWith("https://discord.com/api/")) throw new Error(`unexpected fetch ${url}`);
       if (url.endsWith("/oauth2/token")) return Response.json({ access_token: "access-token" });
       if (url.endsWith("/users/@me")) {
         return Response.json({ id: "discord-user", username: "tester", global_name: "Tester", avatar: null });
@@ -36,15 +49,11 @@ function mockDiscord(guilds: string[] = [GUILD], rolesByGuild: Record<string, st
 let bindingCookie = "";
 
 async function createFlow(body: unknown) {
-  const response = await app.request(
-    "/api/v1/auth/flows",
-    {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: ORIGIN },
-      body: JSON.stringify(body),
-    },
-    bindings,
-  );
+  const response = await request("/api/v1/auth/flows", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: ORIGIN },
+    body: JSON.stringify(body),
+  });
   const raw = response.headers.get("set-cookie") ?? "";
   const match = /cw_oauth_binding=([^;]+)/.exec(raw);
   bindingCookie = match ? `cw_oauth_binding=${match[1]}` : "";
@@ -56,13 +65,9 @@ function withBinding(headers: Record<string, string> = {}): Record<string, strin
 }
 
 async function callback(state: string) {
-  return app.request(
-    `/api/v1/auth/callback?state=${encodeURIComponent(state)}&code=code`,
-    {
-      headers: withBinding(),
-    },
-    bindings,
-  );
+  return request(`/api/v1/auth/callback?state=${encodeURIComponent(state)}&code=code`, {
+    headers: withBinding(),
+  });
 }
 
 beforeAll(async () => {
@@ -88,6 +93,10 @@ afterEach(() => {
   bindings.DISCORD_GUILD_ROLE_IDS = "";
 });
 
+afterAll(() => {
+  Object.assign(bindings, originalSettings);
+});
+
 describe("OAuth flows", () => {
   it("completes an embed login with an iframe verifier", async () => {
     const verifier = "a".repeat(64);
@@ -103,39 +112,27 @@ describe("OAuth flows", () => {
     const code = /"code":"([^"]+)"/.exec(html)?.[1];
     expect(code).toBeTruthy();
 
-    const status = await app.request(`/api/v1/auth/flows/${flow.id}`, { headers: withBinding() }, bindings);
+    const status = await request(`/api/v1/auth/flows/${flow.id}`, { headers: withBinding() });
     await expect(status.json()).resolves.toMatchObject({ status: "authorized" });
 
-    const redeemed = await app.request(
-      `/api/v1/auth/flows/${flow.id}/redeem`,
-      {
-        method: "POST",
-        headers: withBinding({ "content-type": "application/json" }),
-        body: JSON.stringify({ code, verifier }),
-      },
-      bindings,
-    );
+    const redeemed = await request(`/api/v1/auth/flows/${flow.id}/redeem`, {
+      method: "POST",
+      headers: withBinding({ "content-type": "application/json" }),
+      body: JSON.stringify({ code, verifier }),
+    });
     expect(redeemed.status).toBe(200);
     const session = (await redeemed.json()) as { token: string; user: { id: string } };
     expect(session.user.id).toBe("discord-user");
-    const me = await app.request(
-      "/api/v1/me",
-      {
-        headers: { authorization: `Bearer ${session.token}` },
-      },
-      bindings,
-    );
+    const me = await request("/api/v1/me", {
+      headers: { authorization: `Bearer ${session.token}` },
+    });
     expect(me.status).toBe(200);
 
-    const replay = await app.request(
-      `/api/v1/auth/flows/${flow.id}/redeem`,
-      {
-        method: "POST",
-        headers: withBinding({ "content-type": "application/json" }),
-        body: JSON.stringify({ code, verifier }),
-      },
-      bindings,
-    );
+    const replay = await request(`/api/v1/auth/flows/${flow.id}/redeem`, {
+      method: "POST",
+      headers: withBinding({ "content-type": "application/json" }),
+      body: JSON.stringify({ code, verifier }),
+    });
     expect(replay.status).toBe(409);
   });
 
@@ -144,40 +141,28 @@ describe("OAuth flows", () => {
     const flow = (await created.json()) as { id: string; state: string; deviceCode: string };
     expect(flow.deviceCode).toEqual(expect.any(String));
     expect((await callback(flow.state)).status).toBe(200);
-    const wrongStatus = await app.request(
-      `/api/v1/auth/flows/${flow.id}?deviceCode=wrong-wrong-wrong-wrong`,
-      { headers: withBinding() },
-      bindings,
-    );
+    const wrongStatus = await request(`/api/v1/auth/flows/${flow.id}?deviceCode=wrong-wrong-wrong-wrong`, {
+      headers: withBinding(),
+    });
     expect(wrongStatus.status).toBe(404);
-    const authorized = await app.request(
-      `/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`,
-      { headers: withBinding() },
-      bindings,
-    );
+    const authorized = await request(`/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`, {
+      headers: withBinding(),
+    });
     expect(authorized.status).toBe(200);
     await expect(authorized.json()).resolves.toMatchObject({ status: "authorized" });
 
-    const wrong = await app.request(
-      `/api/v1/auth/flows/${flow.id}/redeem`,
-      {
-        method: "POST",
-        headers: withBinding({ "content-type": "application/json" }),
-        body: JSON.stringify({ deviceCode: "wrong-wrong-wrong-wrong" }),
-      },
-      bindings,
-    );
+    const wrong = await request(`/api/v1/auth/flows/${flow.id}/redeem`, {
+      method: "POST",
+      headers: withBinding({ "content-type": "application/json" }),
+      body: JSON.stringify({ deviceCode: "wrong-wrong-wrong-wrong" }),
+    });
     expect(wrong.status).toBe(403);
 
-    const redeemed = await app.request(
-      `/api/v1/auth/flows/${flow.id}/redeem`,
-      {
-        method: "POST",
-        headers: withBinding({ "content-type": "application/json" }),
-        body: JSON.stringify({ deviceCode: flow.deviceCode }),
-      },
-      bindings,
-    );
+    const redeemed = await request(`/api/v1/auth/flows/${flow.id}/redeem`, {
+      method: "POST",
+      headers: withBinding({ "content-type": "application/json" }),
+      body: JSON.stringify({ deviceCode: flow.deviceCode }),
+    });
     expect(redeemed.status).toBe(200);
     await expect(redeemed.json()).resolves.toMatchObject({ user: { id: "discord-user" } });
   });
@@ -185,27 +170,18 @@ describe("OAuth flows", () => {
   it("rejects a device flow callback and redemption from another browser", async () => {
     const created = await createFlow({ mode: "device" });
     const flow = (await created.json()) as { id: string; state: string; deviceCode: string };
-    const withoutCookie = await app.request(
+    const withoutCookie = await request(
       `/api/v1/auth/callback?state=${encodeURIComponent(flow.state)}&code=code`,
       undefined,
-      bindings,
     );
     expect(withoutCookie.status).toBe(400);
-    const status = await app.request(
-      `/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`,
-      undefined,
-      bindings,
-    );
+    const status = await request(`/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`, undefined);
     expect(status.status).toBe(404);
-    const redeemed = await app.request(
-      `/api/v1/auth/flows/${flow.id}/redeem`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ deviceCode: flow.deviceCode }),
-      },
-      bindings,
-    );
+    const redeemed = await request(`/api/v1/auth/flows/${flow.id}/redeem`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ deviceCode: flow.deviceCode }),
+    });
     expect(redeemed.status).toBe(403);
   });
 
@@ -215,20 +191,16 @@ describe("OAuth flows", () => {
     await bindings.DB.prepare("UPDATE oauth_flows SET expires_at = ? WHERE id = ?")
       .bind("2000-01-01T00:00:00.000Z", flow.id)
       .run();
-    const denied = await app.request(
-      `/api/v1/auth/flows/${flow.id}?deviceCode=wrong-wrong-wrong-wrong`,
-      { headers: withBinding() },
-      bindings,
-    );
+    const denied = await request(`/api/v1/auth/flows/${flow.id}?deviceCode=wrong-wrong-wrong-wrong`, {
+      headers: withBinding(),
+    });
     expect(denied.status).toBe(404);
     await expect(
       bindings.DB.prepare("SELECT status FROM oauth_flows WHERE id = ?").bind(flow.id).first(),
     ).resolves.toMatchObject({ status: "pending" });
-    const expired = await app.request(
-      `/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`,
-      { headers: withBinding() },
-      bindings,
-    );
+    const expired = await request(`/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`, {
+      headers: withBinding(),
+    });
     expect(expired.status).toBe(200);
     await expect(expired.json()).resolves.toEqual({ status: "expired", expiresAt: "2000-01-01T00:00:00.000Z" });
     await expect(
@@ -247,13 +219,9 @@ describe("OAuth flows", () => {
     expect(html).toContain(`"targetOrigin":"${ORIGIN}"`);
     expect(
       (
-        await app.request(
-          "/api/v1/me",
-          {
-            headers: { authorization: `Bearer ${token}` },
-          },
-          bindings,
-        )
+        await request("/api/v1/me", {
+          headers: { authorization: `Bearer ${token}` },
+        })
       ).status,
     ).toBe(200);
     expect((await callback(flow.state)).status).toBe(400);
@@ -265,11 +233,9 @@ describe("OAuth flows", () => {
     const flow = (await created.json()) as { id: string; state: string; deviceCode: string };
     const done = await callback(flow.state);
     expect(done.status).toBe(400);
-    const status = await app.request(
-      `/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`,
-      { headers: withBinding() },
-      bindings,
-    );
+    const status = await request(`/api/v1/auth/flows/${flow.id}?deviceCode=${flow.deviceCode}`, {
+      headers: withBinding(),
+    });
     await expect(status.json()).resolves.toMatchObject({
       status: "pending",
       error: "你的账号不在允许的 Discord 服务器中",
@@ -285,11 +251,9 @@ describe("OAuth flows", () => {
     const deniedFlow = (await deniedCreated.json()) as { id: string; state: string; deviceCode: string; url: string };
     expect(deniedFlow.url).toContain("guilds.members.read");
     expect((await callback(deniedFlow.state)).status).toBe(400);
-    const deniedStatus = await app.request(
-      `/api/v1/auth/flows/${deniedFlow.id}?deviceCode=${deniedFlow.deviceCode}`,
-      { headers: withBinding() },
-      bindings,
-    );
+    const deniedStatus = await request(`/api/v1/auth/flows/${deniedFlow.id}?deviceCode=${deniedFlow.deviceCode}`, {
+      headers: withBinding(),
+    });
     await expect(deniedStatus.json()).resolves.toMatchObject({
       status: "pending",
       error: "你的账号缺少允许的 Discord 身份组",
@@ -323,36 +287,24 @@ describe("OAuth flows", () => {
   });
 
   it("only allows configured origins for auth and CORS preflight", async () => {
-    const disallowed = await app.request(
-      "/api/v1/auth/flows",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json", origin: "https://evil.example" },
-        body: JSON.stringify({ mode: "browser" }),
-      },
-      bindings,
-    );
+    const disallowed = await request("/api/v1/auth/flows", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://evil.example" },
+      body: JSON.stringify({ mode: "browser" }),
+    });
     expect(disallowed.status).toBe(403);
 
-    const preflight = await app.request(
-      "/api/v1/projects",
-      {
-        method: "OPTIONS",
-        headers: { origin: ORIGIN, "access-control-request-method": "GET" },
-      },
-      bindings,
-    );
+    const preflight = await request("/api/v1/projects", {
+      method: "OPTIONS",
+      headers: { origin: ORIGIN, "access-control-request-method": "GET" },
+    });
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get("access-control-allow-origin")).toBe(ORIGIN);
 
-    const denied = await app.request(
-      "/api/v1/projects",
-      {
-        method: "OPTIONS",
-        headers: { origin: "https://evil.example" },
-      },
-      bindings,
-    );
+    const denied = await request("/api/v1/projects", {
+      method: "OPTIONS",
+      headers: { origin: "https://evil.example" },
+    });
     expect(denied.status).toBe(403);
   });
 });

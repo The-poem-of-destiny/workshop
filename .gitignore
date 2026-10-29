@@ -4,6 +4,7 @@ doc/
 node_modules/
 .wrangler/
 worker-configuration.d.ts
+!apps/worker/worker-configuration.d.ts
 .ai-bridge/
 
 # machine-local agent context — never commit
