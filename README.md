@@ -40,13 +40,15 @@ workshop/
 - 审核：独立任务层、云检查与人工审核、发布指针切换、成员角色、审计；
 - 互动：点赞、订阅、评分、按用户/项目/日幂等的下载计数；评分与留言仅本人可通过个人状态接口读取。重新打开详情回填留言；评分接口省略 `comment` 保留已有留言，空字符串清空；
 - 客户端：版本化分发、按安装位置扫描多实例，安装／更新／卸载先预览差异再确认；登记配套脚本的精确版本与下载地址，不代管脚本数据；
-- 缓存：明确允许的匿名公开投影使用 Workers Cache，300 秒 TTL，公开变更尽力 purge；私有读取、授权与下载保持 `private, no-store`。预发启用、生产关闭，真实缓存命中与失效仍需验证。详见 `docs/plans/refactor-2026-10/api-design.md`。
+- 缓存：匿名公开投影可使用 default 与内部 `CachedReads` 双层 Workers Cache；私有资格与计数始终实时，不可变文件字节可在内部复用。环境配置、失效与撤回限制见[运行配置与缓存](docs/reference/runtime-configuration.md)。
 
-接口以 `/api/v1` 为前缀。契约在 `packages/contracts`，领域规则在 `packages/domain`，checker 与内容审计在 `packages/content`。
+接口以 `/api/v1` 为前缀，调用方式见 [Worker API 参考](docs/reference/worker-api.md)。共享契约在 `packages/contracts`，领域规则在 `packages/domain`，checker 与内容审计在 `packages/content`。
 
 ## 文档与 Agent
 
 - 当前行为、契约、教程和参考：`docs/`
+- [Worker API 参考](docs/reference/worker-api.md)、[API 缓存设计](docs/reference/cache-design.md)、[运行配置](docs/reference/runtime-configuration.md)、[宿主协议](docs/reference/host-protocol.md)
+- [玩家、作者与审核操作](docs/guides/using-workshop.md)、[部署与恢复](docs/operations/deployment-safety.md)
 - refactor 计划、checklist、状态和决策：`docs/plans/refactor-2026-10/`
 - 审计证据和报告：`docs/audits/`
 - Agent Note、决策理由和讨论记录：`.agents/notes/`
@@ -72,6 +74,7 @@ pnpm e2e:local             # 真实 workerd + 本地 D1/R2 + Chromium E2E
 ### 程序性质量门禁
 
 - `pnpm check:workspace` 从 workspace 声明发现包，要求每包有 typecheck/test 或在单一策略表中有明确豁免。新增包未分类、缺脚本及过期豁免均失败；`--if-present` 不再意味着可静默漏检。content 是 JavaScript；contracts 的 schema 由消费者测试覆盖，不保留空测试命令。
+- `pnpm --filter @workshop/worker check:data-boundary` 检查运行时网关和 Durable Object 不直接导入或访问 D1/R2 数据实现；`pnpm check` 已包含该门禁。同 Worker bindings 不是平台级隔离。
 - `pnpm check:unused` 使用固定 Knip 6.43.0 检查全部 workspace 的依赖；入口覆盖 package exports、Worker、嵌套 Vite/CSS、自定义 esbuild、tools 与测试。`knip.jsonc` 仅为宿主 Cloudflare 模块和跨 workspace 命令保留有据例外；未用、未声明依赖均阻断。文件／导出维度只作人工审计，未作为持续门禁。
 - `pnpm check:cycles` 复用同一个 Knip，静态运行时循环以 error 阻断；实际入口可达的 TS／TSX、workspace runtime exports 在范围内。纯类型边和动态导入不参与，未达入口的孤立循环不在保障范围；不使用会漏掉当前 Worker 入口的 `--production`，不新增依赖图工具或第二套 TypeScript。
 - pnpm 显式设置 `minimumReleaseAge: 1440`，保留安装脚本白名单 `esbuild`／`workerd`；不保留已过期的 Cloudflare 冷静期例外。CI 冻结 lockfile；安全更新若确需例外，应限定具体版本并重新审查，不全局关闭策略。
@@ -100,7 +103,7 @@ pnpm exec wrangler d1 migrations apply workshop-staging --local --config wrangle
 
 - **CI**：`.github/workflows/ci.yml` 在相关路径 push/PR 时运行 `pnpm check` 和 `pnpm e2e:local`。
 - **Staging**：`ci` 在 `main` 成功后，`.github/workflows/deploy-staging.yml` 自动触发；staging environment 只允许 `main`，没有额外 reviewer gate。流水线构建 Web artifact 并记录 SHA-256，然后执行 D1 migration、Worker 部署、记录 Worker version 和 health smoke。
-- **Production**：推送 `v*` tag 触发 `.github/workflows/deploy-production.yml`；production environment 要求 1 名 reviewer，并只允许 `v*` tag。流水线查找该 commit 的 staging 成功记录，下载同一 Web artifact，审批后校验 SHA 与 artifact hash，再执行 migration、部署、记录 Worker version 和 health smoke。
+- **Production**：推送 `v*` tag 触发 `.github/workflows/deploy-production.yml`；production environment 要求 1 名 reviewer，并只允许 `v*` tag。流水线查找该 commit 的 staging 成功记录，下载同一 artifact，校验文件 SHA-256 清单及 manifest 的 `sourceSha`，再执行 migration、部署、记录 Worker version 和 health smoke。
 - 生产发布必须使用 staging 已验证的同一 commit，不接受本地或其他分支的构建。staging artifact 现在包含 Web 静态资源、Worker bundle 与 Tavern client；production 下载并校验同一 artifact，再发布 stable client。
 - Release artifact 包含构建目录中的隐藏文件（包括 Vite manifest），确保上传内容与 SHA-256 清单一致。
 - Git 仓库与 Cloudflare 运行时是两套独立状态：推送不等于部署，部署后必须单独核对 Worker version。

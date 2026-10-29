@@ -12,7 +12,7 @@ This application contains the backend and its React site. The Web build is serve
 | Database structure and runtime bindings | Numbered SQL in [`migrations/`](migrations/); bindings and asset routing in [`wrangler.jsonc`](wrangler.jsonc), binding types in [`src/env.ts`](src/env.ts) |
 | Client bundle distribution rather than host installation logic | [`src/http/routes/client.ts`](src/http/routes/client.ts), [`src/http/routes/client-api.ts`](src/http/routes/client-api.ts) |
 
-Shared request/response schemas belong to [`packages/contracts`](../../packages/contracts/), and reusable domain rules to [`packages/domain`](../../packages/domain/). The [API design document](../../docs/plans/refactor-2026-10/api-design.md) provides design context rather than a second route inventory.
+Shared request/response schemas belong to [`packages/contracts`](../../packages/contracts/), and reusable domain rules to [`packages/domain`](../../packages/domain/). Current HTTP behavior is documented in the [Worker API reference](../../docs/reference/worker-api.md); bindings, authentication configuration and caching are covered by the [runtime reference](../../docs/reference/runtime-configuration.md).
 
 ## Web navigation
 
