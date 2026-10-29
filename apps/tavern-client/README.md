@@ -17,6 +17,8 @@ A browser script running inside SillyTavern. It opens the Workshop site in an if
 
 Shared installation types are defined in [`packages/contracts/src/install.ts`](../../packages/contracts/src/install.ts). Client artifact serving and backend client endpoints are in the Worker's [`client.ts`](../worker/src/http/routes/client.ts) and [`client-api.ts`](../worker/src/http/routes/client-api.ts), separate from host-side mutations here.
 
+The [host protocol reference](../../docs/reference/host-protocol.md) covers message and failure semantics; the [user guide](../../docs/guides/using-workshop.md) covers installation and author/reviewer workflows.
+
 The multi-instance scan/preview/confirm protocol replaces the old direct-install messages without a compatibility shim. Its package version is bumped with the protocol cutover so the existing exact-version channel check can reject old client releases after channel publication. A Git merge or bundle build is not channel publication; no production release is performed by this integration.
 
 ## Source and output
