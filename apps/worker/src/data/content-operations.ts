@@ -142,7 +142,7 @@ export async function contentAutoPublish(
     // conditional on this successful pointer transition.
     env.DB.prepare(`
       UPDATE projects
-      SET published_revision_id = ?, published_at = ?, published_cover_asset_id = NULL,
+      SET published_revision_id = ?, published_at = ?, published_updated_at = ?, published_cover_asset_id = NULL,
           title = r.title, description = r.description, author_note = r.author_note,
           project_type = r.project_type, extension_type = r.extension_type,
           search_tags = r.tags, published_schema_version = r.schema_version,
@@ -161,7 +161,7 @@ export async function contentAutoPublish(
         AND projects.deleted_at IS NULL
         AND projects.published_revision_id IS s.base_published_revision_id
         AND projects.published_revision_id IS NOT s.revision_id
-    `).bind(target.revision_id, now, now, target.id, target.revision_id),
+    `).bind(target.revision_id, now, now, now, target.id, target.revision_id),
     env.DB.prepare(`
       UPDATE submissions
       SET status = 'approved', check_status = 'done', check_lease_until = NULL,

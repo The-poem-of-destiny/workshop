@@ -170,36 +170,30 @@ export async function authorAdminUpdateReferenceSet(
 export async function authorAdminRecheck(env: DataEnv, authorization: string | undefined, id: string) {
   const auth = await reviewer(env, authorization);
   if (auth.kind !== "ok") return auth;
-  const target = await env.DB.prepare(`
-    SELECT status, check_status, review_checker_revision FROM submissions WHERE id = ?
-  `)
-    .bind(id)
-    .first<{ status: string; check_status: string; review_checker_revision: string | null }>();
-  if (!target) return { kind: "not_found" as const };
-  if (target.status !== "pending" && target.status !== "checking") return { kind: "resolved" as const };
-  if (target.check_status === "queued" || target.check_status === "running") return { kind: "running" as const };
   const now = new Date().toISOString();
-  await env.DB.batch([
+  const [audit] = await env.DB.batch([
+    env.DB.prepare(`
+      INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
+      SELECT ?, 'checker.recheck', 'submission', id, ?,
+        json_object('reason', 'explicit reviewer recheck', 'previousRevision', review_checker_revision), ?
+      FROM submissions
+      WHERE id = ? AND status IN ('pending', 'checking') AND check_status NOT IN ('queued', 'running')
+    `).bind(crypto.randomUUID(), auth.session.userId, now, id),
     env.DB.prepare(`
       UPDATE submissions
       SET status = 'pending', check_status = 'queued', check_attempts = 0,
           check_lease_until = NULL, check_error = NULL, review_checker_revision = NULL
-      WHERE id = ? AND status IN ('pending', 'checking') AND check_status NOT IN ('queued', 'running')
+      WHERE id = ? AND changes() = 1
     `).bind(id),
-    env.DB.prepare(`
-      INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
-      SELECT ?, 'checker.recheck', 'submission', ?, ?, ?, ?
-      WHERE EXISTS (SELECT 1 FROM submissions WHERE id = ? AND check_status = 'queued')
-    `).bind(
-      crypto.randomUUID(),
-      id,
-      auth.session.userId,
-      JSON.stringify({ reason: "explicit reviewer recheck", previousRevision: target.review_checker_revision }),
-      now,
-      id,
-    ),
   ]);
-  return { kind: "ok" as const };
+  if ((audit?.meta.changes ?? 0) !== 0) return { kind: "ok" as const };
+
+  const target = await env.DB.prepare("SELECT status FROM submissions WHERE id = ?")
+    .bind(id)
+    .first<{ status: string }>();
+  if (!target) return { kind: "not_found" as const };
+  if (target.status !== "pending" && target.status !== "checking") return { kind: "resolved" as const };
+  return { kind: "running" as const };
 }
 
 export async function authorAdminFetch(request: Request, env: DataEnv, context: ExecutionContext): Promise<Response> {

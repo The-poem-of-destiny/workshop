@@ -186,10 +186,9 @@ describe("catalog net windows on real D1", () => {
     await project("b");
     await bindings.DB.prepare(`UPDATE projects SET downloads_count = 5, likes_count = 4,
       published_at = '2020-01-01T00:00:00.000Z', updated_at = '2099-01-01T00:00:00.000Z' WHERE id = 'a'`).run();
-    await bindings.DB.prepare(`INSERT INTO submissions
-      (id, project_id, revision_id, status, submitted_by, resolved_at)
-      VALUES ('approved-a', 'a', 'r-a', 'approved', 'u', '2026-10-26T11:00:00.000Z'),
-        ('approved-b', 'b', 'r-b', 'approved', 'u', '2026-10-26T10:00:00.000Z')`).run();
+    await bindings.DB.prepare(`UPDATE projects SET published_updated_at = CASE id
+      WHEN 'a' THEN '2026-10-26T11:00:00.000Z'
+      ELSE '2026-10-26T10:00:00.000Z' END WHERE id IN ('a', 'b')`).run();
     // A draft edit newer than either approval must not move b ahead of a.
     await bindings.DB.prepare("UPDATE projects SET updated_at = '2099-12-31T00:00:00.000Z' WHERE id = 'b'").run();
     for (const sort of ["likes", "downloads", "updated"] as const) {

@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { sealImportPackage } from "./import-package.mjs";
 import { extract, migrationSql, transform } from "./lib.mjs";
 import { buildManifest } from "./r2-copy.mjs";
@@ -62,6 +63,8 @@ try {
         tags: '["worldbook"]',
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-02T00:00:00Z",
+        latest_approved_at: "2024-01-01T12:00:00Z",
+        reviewed_at: "2024-01-01T06:00:00Z",
       },
       {
         id: "draft",
@@ -126,6 +129,14 @@ try {
     ["public"],
     "only public published releases survive",
   );
+  assert.equal(first.tables.projects[0].published_at, "2024-01-01T12:00:00Z");
+  assert.equal(first.tables.projects[0].published_updated_at, "2024-01-01T12:00:00Z");
+  const fallbackSource = await extract(source);
+  const fallbackProject = fallbackSource.tables.projects.find((row) => row.id === "public");
+  delete fallbackProject.latest_approved_at;
+  assert.equal(transform(fallbackSource).tables.projects[0].published_updated_at, "2024-01-01T06:00:00Z");
+  delete fallbackProject.reviewed_at;
+  assert.equal(transform(fallbackSource).tables.projects[0].published_updated_at, "2024-01-02T00:00:00Z");
   assert.deepEqual(
     first.tables.users.map((user) => [user.id, user.role]),
     [["author", "member"]],
@@ -243,6 +254,7 @@ db.executescript(open(sys.argv[1]).read())
 assert db.execute("SELECT username, role FROM users WHERE id='author'").fetchone() == ('existing identity', 'owner')
 assert db.execute("SELECT title FROM projects WHERE id='old-project'").fetchone() == ('Do not change',)
 assert db.execute("SELECT title FROM projects WHERE id='public'").fetchone() == ('Published',)
+assert db.execute("SELECT published_updated_at FROM projects WHERE id='public'").fetchone() == ('2024-01-01T12:00:00Z',)
 assert db.execute('SELECT count(*) FROM project_revisions').fetchone()[0] == 1
 assert db.execute('SELECT count(*) FROM assets').fetchone()[0] == 3
 `,
@@ -255,6 +267,39 @@ assert db.execute('SELECT count(*) FROM assets').fetchone()[0] == 3
     0,
     `approved SQL must insert imported data without changing existing state: ${execution.stderr}`,
   );
+
+  const migration = spawnSync(
+    "python3",
+    [
+      "-c",
+      `
+import sqlite3, sys
+db = sqlite3.connect(':memory:')
+db.executescript("""
+CREATE TABLE projects (id TEXT PRIMARY KEY, published_revision_id TEXT, published_at TEXT, updated_at TEXT);
+CREATE TABLE project_revisions (id TEXT PRIMARY KEY, created_at TEXT);
+CREATE TABLE submissions (revision_id TEXT, status TEXT, resolved_at TEXT);
+INSERT INTO project_revisions VALUES ('r1', '2020-01-01'), ('r2', '2020-02-01'), ('r3', '2020-03-01');
+INSERT INTO projects VALUES ('history', 'r1', '2020-01-02', '2025-01-01'),
+  ('published', 'r2', '2020-02-02', '2025-02-01'),
+  ('revision', 'r3', NULL, '2025-03-01'), ('draft', NULL, NULL, '2025-04-01');
+INSERT INTO submissions VALUES ('r1', 'approved', '2020-01-03'),
+  ('r1', 'approved', '2020-01-04'), ('r1', 'rejected', '2025-01-01'),
+  ('r2', 'pending', '2025-02-01');
+""")
+for migration in sys.argv[1:]:
+    with open(migration, encoding='utf-8') as source:
+        db.executescript(source.read())
+assert db.execute("SELECT id, published_updated_at FROM projects ORDER BY id").fetchall() == [
+    ('draft', None), ('history', '2020-01-04'), ('published', '2020-02-02'), ('revision', '2020-03-01')]
+assert db.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE '%cache_epoch%'").fetchall() == []
+`,
+      fileURLToPath(new URL("../../apps/worker/migrations/0025_remove_public_cache_epoch.sql", import.meta.url)),
+      fileURLToPath(new URL("../../apps/worker/migrations/0026_published_updated_at.sql", import.meta.url)),
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(migration.status, 0, `historical publication timestamps must survive migration: ${migration.stderr}`);
 
   console.log("migration tests passed");
 } finally {
