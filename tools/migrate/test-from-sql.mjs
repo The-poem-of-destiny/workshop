@@ -69,7 +69,10 @@ try {
   });
   assert.equal(ordered.status, 0, ordered.stderr);
   const orderedProjects = JSON.parse(await readFile(path.join(out, "projects.json"), "utf8"));
-  assert.deepEqual(orderedProjects.map((project) => project.id), ["b", "c"]);
+  assert.deepEqual(
+    orderedProjects.map((project) => project.id),
+    ["b", "c"],
+  );
   const limited = spawnSync(
     "python3",
     [path.join(here, "from_d1_sql.py"), source, r2, out, "--dedupe-name-author", "--limit", "1"],
@@ -78,8 +81,14 @@ try {
   assert.equal(limited.status, 0, limited.stderr);
   const limitedProjects = JSON.parse(await readFile(path.join(out, "projects.json"), "utf8"));
   const selection = JSON.parse(await readFile(path.join(out, "selection.json"), "utf8"));
-  assert.deepEqual(limitedProjects.map((project) => project.id), ["b"]);
-  assert.deepEqual(selection.selected.map((project) => project.id), ["b"]);
+  assert.deepEqual(
+    limitedProjects.map((project) => project.id),
+    ["b"],
+  );
+  assert.deepEqual(
+    selection.selected.map((project) => project.id),
+    ["b"],
+  );
   assert.deepEqual(selection.overLimit, ["c"]);
   assert.deepEqual(selection.deduped, [{ id: "a", kept: "c", reason: "same_name_author" }]);
   console.log("sql export tests passed");
