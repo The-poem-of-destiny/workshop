@@ -20,6 +20,7 @@ export function ProjectDetail({
   project,
   onClose,
   onInstall,
+  onUpdate,
   onUninstall,
   onAuthor,
   onTag,
@@ -37,6 +38,7 @@ export function ProjectDetail({
   project: ProjectSummary;
   onClose: () => void;
   onInstall: (p: ProjectSummary) => void;
+  onUpdate: (p: ProjectSummary) => void;
   onUninstall: (p: ProjectSummary) => void;
   onAuthor: (author: { id: string; name: string }) => void;
   onTag: (tag: string) => void;
@@ -232,13 +234,23 @@ export function ProjectDetail({
                   </div>
                 ) : (
                   <div className="actions">
+                    {installState !== "notInstalled" ? (
+                      <button
+                        type="button"
+                        className="primary"
+                        disabled={installing || installState === "upToDate"}
+                        onClick={() => onUpdate(project)}
+                      >
+                        {installing ? "安装中…" : installLabels[installState]}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
-                      className="primary"
-                      disabled={installing || installState === "upToDate"}
+                      className={installState === "notInstalled" ? "primary" : undefined}
+                      disabled={installing}
                       onClick={() => onInstall(project)}
                     >
-                      {installing ? "安装中…" : installLabels[installState]}
+                      安装到新位置
                     </button>
                     {installState !== "notInstalled" ? (
                       <button type="button" disabled={installing} onClick={() => onUninstall(project)}>

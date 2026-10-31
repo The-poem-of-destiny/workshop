@@ -31,6 +31,7 @@ function harness() {
     fail: null,
     beforeUpdate: null,
     failFinalSave: false,
+    beforeRead: null,
   };
   let n = 0;
   const manager = createInstallManager({
@@ -38,6 +39,7 @@ function harness() {
     names: () => Object.keys(state.books),
     bindings: () => clone(state.bindings),
     async book(name) {
+      await state.beforeRead?.(name);
       if (state.fail === name) throw new Error("read failed");
       return clone(state.books[name].map(persistBook));
     },
@@ -150,7 +152,7 @@ test("updater rechecks latest content, preventing read/write gap overwrite", asy
 test("scan explicitly reports all books, failed reads and ambiguous names or malformed metadata without writes", async () => {
   const h = harness();
   h.state.books.A = [
-    { uid: 1, name: "[DLC] guessed", content: "x" },
+    { uid: 1, name: "[WS] guessed", content: "x" },
     {
       uid: 2,
       content: '<%# poem-workshop-meta:v1-start\n{"cw_project_id":"p"} %>',
@@ -318,4 +320,116 @@ test("copied instance stamps at an unregistered location do not authorize deleti
   assert.equal(h.state.writes, writes);
   assert.equal(h.state.books.A[0].content, "1");
   assert.equal(h.state.books.B[0].content, "1");
+});
+
+test("official entries remain untouched; WS requires identity and installed names are marked once", async () => {
+  const h = harness();
+  h.state.books.A = [
+    { name: "[DLC] official", content: "official" },
+    { name: "[工坊] old", content: "old" },
+  ];
+  const preview = await h.manager.preview({
+    action: "install",
+    project: { id: "p", version: "1" },
+    files: { worldbook: JSON.stringify({ entries: [{ name: "[WS] Entry", content: "new" }] }) },
+    targetWorldbook: "A",
+  });
+  await h.manager.confirm(preview.previewId);
+  assert.deepEqual(
+    h.state.books.A.map((row) => row.name),
+    ["[DLC] official", "[工坊] old", "[WS] Entry"],
+  );
+  const remove = await h.manager.preview({ action: "uninstall", instanceId: preview.instanceId });
+  await h.manager.confirm(remove.previewId);
+  assert.deepEqual(
+    h.state.books.A.map((row) => row.name),
+    ["[DLC] official", "[工坊] old"],
+  );
+  h.state.books.A.push({ name: "[WS] unowned", content: "unknown" });
+  await assert.rejects(
+    h.manager.preview({
+      action: "install",
+      project: { id: "p", version: "1" },
+      files: files("1"),
+      targetWorldbook: "A",
+    }),
+    /身份存疑/,
+  );
+});
+
+test("ambiguous neighboring book and character-like book names do not block another location", async () => {
+  const h = harness();
+  const id = await install(h, "A");
+  h.state.books["A-extra"] = [{ name: "[WS] unknown" }];
+  h.state.books["角色:avatar.png"] = [{ name: "[WS] unknown" }];
+  const preview = await h.manager.preview({ action: "uninstall", instanceId: id });
+  await h.manager.confirm(preview.previewId);
+  assert.equal(h.state.books["A-extra"].length, 1);
+  assert.equal(h.state.books["角色:avatar.png"].length, 1);
+});
+
+test("closing a session invalidates pending and in-flight previews and confirmations before writes", async () => {
+  const h = harness();
+  const id = await install(h, "A");
+  const pending = await h.manager.preview({ action: "uninstall", instanceId: id });
+  h.manager.cancelAll();
+  await assert.rejects(h.manager.confirm(pending.previewId), /取消/);
+  let release;
+  let entered;
+  const waiting = new Promise((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  h.state.beforeRead = async () => {
+    entered();
+    await gate;
+  };
+  const preparing = h.manager.preview({ action: "uninstall", instanceId: id });
+  await waiting;
+  h.manager.cancelAll();
+  release();
+  await assert.rejects(preparing, /取消/);
+  h.state.beforeRead = null;
+  const ready = await h.manager.preview({ action: "uninstall", instanceId: id });
+  let resume;
+  let started;
+  const begun = new Promise((resolve) => {
+    started = resolve;
+  });
+  const blocked = new Promise((resolve) => {
+    resume = resolve;
+  });
+  h.state.beforeRead = async () => {
+    started();
+    await blocked;
+  };
+  const writes = h.state.writes;
+  const confirming = h.manager.confirm(ready.previewId);
+  await begun;
+  h.manager.cancelAll();
+  resume();
+  await assert.rejects(confirming, /取消/);
+  assert.equal(h.state.writes, writes);
+});
+
+test("updating a regex-only instance can add a worldbook", async () => {
+  const h = harness();
+  const first = await h.manager.preview({
+    action: "install",
+    project: { id: "p", version: "1" },
+    files: { regex: files("1").regex },
+  });
+  await h.manager.confirm(first.previewId);
+  const update = await h.manager.preview({
+    action: "update",
+    instanceId: first.instanceId,
+    project: { id: "p", version: "2" },
+    files: files("2"),
+    targetWorldbook: "B",
+  });
+  await h.manager.confirm(update.previewId);
+  assert.equal(h.state.books.B[0].name, "[WS] Entry");
+  assert.equal((await h.manager.scan()).instances[0].location.worldbook, "B");
 });

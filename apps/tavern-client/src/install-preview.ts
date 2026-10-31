@@ -86,7 +86,12 @@ function incoming(host: InstallHost, intent: InstallIntent, old: Group | null | 
     book = incomingWorldbook(intent, stamp);
     regex = incomingRegex(host, intent);
   }
-  book = book.map((row) => projectWorldbook(row));
+  book = book.map((row) => {
+    const projected = projectWorldbook(row);
+    const name = String(projected.name ?? "");
+    projected.name = name.includes("[WS]") ? name : `[WS] ${name}`;
+    return projected;
+  });
   regex = regex.map((row) => projectRegex(row));
   return { book, regex };
 }
@@ -132,14 +137,9 @@ function validateTarget(
   if (old?.instance.location.worldbook && !snapshot.books.has(old.instance.location.worldbook))
     throw new Error("来源世界书读取失败");
   if (
-    found.scan.ambiguous.some(
-      (item) =>
-        (target.worldbook &&
-          (item.location === target.worldbook || item.location.startsWith(`${target.worldbook} /`))) ||
-        (old?.instance.location.worldbook && item.location.startsWith(old.instance.location.worldbook)) ||
-        ((old?.instance.location.character || intent.files?.regex) &&
-          item.location.startsWith(`角色:${snapshot.character}`)),
-    )
+    (target.worldbook && found.ambiguousBooks.has(target.worldbook)) ||
+    (old?.instance.location.worldbook && found.ambiguousBooks.has(old.instance.location.worldbook)) ||
+    ((old?.instance.location.character || intent.files?.regex) && found.ambiguousCharacter)
   )
     throw new Error("操作位置含身份存疑内容，请先手动卸载并重新下载");
 }

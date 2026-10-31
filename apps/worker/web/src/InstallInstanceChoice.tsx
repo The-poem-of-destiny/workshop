@@ -11,8 +11,8 @@ export function InstallInstanceChoice({
   instanceOperation,
   installedItems,
 }: {
-  instanceChoice: { project: ProjectSummary; action: "install" | "uninstall" } | null;
-  setInstanceChoice: (value: { project: ProjectSummary; action: "install" | "uninstall" } | null) => void;
+  instanceChoice: { project: ProjectSummary; action: "update" | "uninstall" } | null;
+  setInstanceChoice: (value: { project: ProjectSummary; action: "update" | "uninstall" } | null) => void;
   installing: boolean;
   prepareInstall: (project: ProjectSummary, action?: "install" | "update", instanceId?: string) => Promise<void>;
   instanceOperation: (item: InstalledItem, action: "uninstall" | "migrate") => void;
@@ -30,16 +30,6 @@ export function InstallInstanceChoice({
           <DialogTitle>选择安装位置或实例</DialogTitle>
           <DialogDescription>每次操作只针对明确选择的实例，不会自动更新第一个位置。</DialogDescription>
         </DialogHeader>
-        {instanceChoice?.action === "install" ? (
-          <Button
-            disabled={installing}
-            onClick={() => {
-              if (instanceChoice) void prepareInstall(instanceChoice.project);
-            }}
-          >
-            安装到新位置
-          </Button>
-        ) : null}
         {installedItems
           .filter((item) => item.instance.projectId === instanceChoice?.project.id)
           .map((item) => (
