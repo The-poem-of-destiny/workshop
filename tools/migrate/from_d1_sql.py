@@ -200,6 +200,8 @@ def main() -> int:
         selection["deduped"] = dropped
     if args.order == "updated-desc":
         projects.sort(key=lambda row: (row.get("updated_at") or "", row["id"]), reverse=True)
+    else:
+        projects.sort(key=lambda row: row["id"])
     if args.limit is not None:
         dropped = [row["id"] for row in projects[args.limit :]]
         projects = projects[: args.limit]
