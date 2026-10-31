@@ -86,12 +86,7 @@ function incoming(host: InstallHost, intent: InstallIntent, old: Group | null | 
     book = incomingWorldbook(intent, stamp);
     regex = incomingRegex(host, intent);
   }
-  book = book.map((row) => {
-    const projected = projectWorldbook(row);
-    const name = String(projected.name ?? "");
-    projected.name = name.includes("[WS]") ? name : `[WS] ${name}`;
-    return projected;
-  });
+  book = book.map((row) => projectWorldbook(row));
   regex = regex.map((row) => projectRegex(row));
   return { book, regex };
 }

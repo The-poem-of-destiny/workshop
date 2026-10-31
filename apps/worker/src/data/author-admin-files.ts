@@ -13,6 +13,40 @@ import { hashContentStream } from "./streaming-content.js";
 import { streamImage, UploadLimitError } from "./streaming-image.js";
 import { type StagedStream, stageStream } from "./streaming-staging.js";
 
+async function persistNormalizedWorldbook(
+  env: DataEnv,
+  response: Response,
+  projectId: string,
+  revisionId: string,
+  version: number,
+  mime: string,
+) {
+  if (!response.body) throw new Error("Normalized worldbook body missing");
+  const normalized = hashContentStream(response.body);
+  const output = await stageStream(
+    env.R2,
+    normalized.body,
+    WORKSHOP_LIMITS.projectUploadBytes,
+    Number(response.headers.get("content-length")),
+  );
+  try {
+    return await upsertStreamedAsset(
+      env.DB,
+      projectId,
+      revisionId,
+      version,
+      "worldbook",
+      await normalized.digest,
+      output.bytes,
+      mime,
+      Number(response.headers.get("x-entry-count")),
+      output.copyTo.bind(output),
+    );
+  } finally {
+    await output.dispose().catch(() => {});
+  }
+}
+
 const files = new Hono<{ Bindings: DataEnv; Variables: { session: AuthenticatedSession } }>();
 
 files.use("*", async (c, next) => {
@@ -95,13 +129,16 @@ files.put("/api/v1/projects/:id/revisions/:revisionId/files/:kind", async (c) =>
       throw error;
     }
     try {
-      const sha256 = await hashed.digest;
       const id = c.env.CONTENT_SERVICE.idFromName("content-validator");
+      const endpoint = parsedKind.data === "worldbook" ? "normalize-worldbook" : "validate-stream";
       const response = await c.env.CONTENT_SERVICE.get(id).fetch(
-        `https://content-service/validate-stream?kind=${parsedKind.data}`,
+        `https://content-service/${endpoint}?kind=${parsedKind.data}`,
         { method: "POST", body: await staged.open() },
       );
       if (!response.ok) throw new Error("Content validation service unavailable");
+      const count = response.headers.get("x-entry-count");
+      if (parsedKind.data === "worldbook" && count !== null)
+        return await persistNormalizedWorldbook(c.env, response, project.id, revision.id, expectedVersion, mime);
       const validation = (await response.json()) as ProjectContentValidation;
       if (!validation.valid) return jsonError(c, "bad_request", validation.error);
       return await upsertStreamedAsset(
@@ -110,7 +147,7 @@ files.put("/api/v1/projects/:id/revisions/:revisionId/files/:kind", async (c) =>
         revision.id,
         expectedVersion,
         parsedKind.data,
-        sha256,
+        await hashed.digest,
         staged.bytes,
         mime,
         validation.entryCount,

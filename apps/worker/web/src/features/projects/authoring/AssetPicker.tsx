@@ -94,6 +94,9 @@ export function AssetPicker({
       <div className="asset-picker-heading">
         {hint ? <p className="field-hint">{hint}</p> : null}
         <p className="field-hint">选择文件后先在本地解析预览，确认无误再点击上传。</p>
+        <p className="field-hint">
+          世界书条目名称会自动加上 [WS]；请按下方最终名称编写并检查引用，动态 EJS 无法完全自动检查。
+        </p>
       </div>
       <div className="asset-grid">
         <div className="asset-card">

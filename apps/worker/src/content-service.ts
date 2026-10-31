@@ -75,7 +75,7 @@ async function baselineConflict(
   const refs = extractProjectEntries(parsed, "worldbook");
   if (refs.length === 0) return null;
   const fingerprints = await Promise.all(
-    refs.map(async (ref) => {
+    refs.flatMap((ref) => {
       const entry = ref.entry;
       const name = String(entry.comment ?? entry.name ?? "")
         .replace(/\r\n/g, "\n")
@@ -83,7 +83,8 @@ async function baselineConflict(
       const content = String(entry.content ?? "")
         .replace(/\r\n/g, "\n")
         .trim();
-      return sha256(JSON.stringify({ name, content }));
+      const names = name.startsWith("[WS] ") ? [name, name.slice(5)] : [name];
+      return names.map((candidate) => sha256(JSON.stringify({ name: candidate, content })));
     }),
   );
   return findConflict(fingerprints);
@@ -98,12 +99,17 @@ export class ContentService implements DurableObject {
   async fetch(request: Request): Promise<Response> {
     if (request.method !== "POST") return Response.json({ error: "method_not_allowed" }, { status: 405 });
     const url = new URL(request.url);
-    if (url.pathname === "/validate-stream") {
+    if (url.pathname === "/validate-stream" || url.pathname === "/normalize-worldbook") {
       const kind = url.searchParams.get("kind");
-      if ((kind !== "worldbook" && kind !== "regex") || !request.body) {
+      if (
+        (kind !== "worldbook" && kind !== "regex") ||
+        !request.body ||
+        (url.pathname === "/normalize-worldbook" && kind !== "worldbook")
+      ) {
         return Response.json({ error: "bad_request" }, { status: 400 });
       }
-      return Response.json(await validateContentStream(request.body, kind));
+      const result = await validateContentStream(request.body, kind, url.pathname === "/normalize-worldbook");
+      return result instanceof Response ? result : Response.json(result);
     }
     let submissionId = "";
     let validateRevision = "";

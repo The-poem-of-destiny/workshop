@@ -1,10 +1,17 @@
 import { JSONParser } from "@streamparser/json";
-import { type ProjectContentValidation, type ProjectEntryKind, validateProjectContent } from "@workshop/domain";
+import {
+  markWorldbookNames,
+  type ProjectContentValidation,
+  type ProjectEntryKind,
+  validateProjectContent,
+  WORKSHOP_LIMITS,
+} from "@workshop/domain";
 
 export async function validateContentStream(
   body: ReadableStream<Uint8Array>,
   kind: ProjectEntryKind,
-): Promise<ProjectContentValidation> {
+  normalize = false,
+): Promise<ProjectContentValidation | Response> {
   const parser = new JSONParser();
   let raw: unknown;
   let hasRoot = false;
@@ -49,5 +56,18 @@ export async function validateContentStream(
   } catch {
     return { valid: false, entryCount: 0, error: "项目 JSON 无法解析" };
   }
-  return validateProjectContent(raw, kind);
+  const validation = validateProjectContent(raw, kind);
+  if (!normalize || !validation.valid) return validation;
+  markWorldbookNames(raw);
+  const bytes = new TextEncoder().encode(JSON.stringify(raw));
+  if (bytes.byteLength > WORKSHOP_LIMITS.projectUploadBytes) {
+    return { valid: false, entryCount: 0, error: "添加条目名称标记后文件超过 10 MiB 限制" };
+  }
+  return new Response(bytes, {
+    headers: {
+      "content-type": "application/json",
+      "content-length": String(bytes.byteLength),
+      "x-entry-count": String(validation.entryCount),
+    },
+  });
 }

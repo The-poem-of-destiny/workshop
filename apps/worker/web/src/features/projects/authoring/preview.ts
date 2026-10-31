@@ -1,4 +1,4 @@
-import { normalizeProjectType, PROJECT_CONTENT_POLICY } from "@workshop/domain";
+import { markWorldbookNames, normalizeProjectType, PROJECT_CONTENT_POLICY } from "@workshop/domain";
 
 export type WorldbookEntryPreview = {
   name: string;
@@ -182,6 +182,13 @@ export async function loadWorldbookAsset(file: File): Promise<ParseResult<Worldb
     text = await file.text();
   } catch {
     return { ok: false, error: `无法读取 ${file.name}，请重新选择文件。` };
+  }
+  try {
+    const root: unknown = JSON.parse(text);
+    markWorldbookNames(root);
+    text = JSON.stringify(root);
+  } catch {
+    return { ok: false, error: `${file.name}：不是有效的 JSON。` };
   }
   const parsed = parseWorldbookText(text);
   if (!parsed.ok) return { ok: false, error: `${file.name}：${parsed.error}` };

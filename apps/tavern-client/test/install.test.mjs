@@ -75,7 +75,7 @@ function harness() {
   return { state, manager };
 }
 const files = (text) => ({
-  worldbook: JSON.stringify({ entries: [{ uid: 1, name: "Entry", content: text }] }),
+  worldbook: JSON.stringify({ entries: [{ uid: 1, name: "[WS] Entry", content: text }] }),
   regex: JSON.stringify([{ id: "r", scriptName: "R", findRegex: "a", replaceString: text }]),
 });
 async function install(h, target, version = "1") {
@@ -432,4 +432,28 @@ test("updating a regex-only instance can add a worldbook", async () => {
   await h.manager.confirm(update.previewId);
   assert.equal(h.state.books.B[0].name, "[WS] Entry");
   assert.equal((await h.manager.scan()).instances[0].location.worldbook, "B");
+});
+
+test("historical unmarked names and dynamic name references survive installation", async () => {
+  const h = harness();
+  const source = {
+    entries: [
+      { name: "Library", content: "text" },
+      { name: "Caller", content: "<%- await getwi(/^Library$/) %>" },
+    ],
+  };
+  const p = await h.manager.preview({
+    action: "install",
+    project: { id: "old", version: "1" },
+    files: { worldbook: JSON.stringify(source) },
+    targetWorldbook: "A",
+  });
+  await h.manager.confirm(p.previewId);
+  assert.deepEqual(
+    h.state.books.A.map((row) => [row.name, row.content]),
+    [
+      ["Library", "text"],
+      ["Caller", "<%- await getwi(/^Library$/) %>"],
+    ],
+  );
 });
