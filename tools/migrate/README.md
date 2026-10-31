@@ -32,7 +32,7 @@ This is the public-sample importer, not the complete business migration required
 python3 tools/migrate/from_d1_sql.py legacy.sql legacy-r2 /tmp/workshop-public-export
 ```
 
-Selection flags `--exclude-ids`, `--require-assets`, `--dedupe-name-author`, `--order updated-desc`, and `--limit` can narrow that public set. `selection.json` records dropped projects; narrowing is not a full-migration acceptance result.
+Selection flags `--include-ids`, `--exclude-ids`, `--require-assets`, `--dedupe-name-author`, and `--limit` can narrow that public set. After filtering and deduplication, projects are ordered by ID ascending by default, or by update time descending with `--order updated-desc`, before `--limit` is applied. `selection.json` records dropped projects; narrowing is not a full-migration acceptance result.
 
 ## Local commands
 
