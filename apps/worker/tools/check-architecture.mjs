@@ -71,7 +71,7 @@ function scanFile(base, dir, file, names, errors) {
     let target = absolute ? path.relative(base, absolute).split(path.sep).join("/") : undefined;
     if (!specifier.startsWith(".")) {
       const name = specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/")[0];
-      target = names.get(name) || target;
+      target = target || names.get(name);
       if (!target && name.startsWith("@workshop/")) report(node, `unknown workspace import '${specifier}'`);
     }
     if (!target) return;
@@ -82,11 +82,9 @@ function scanFile(base, dir, file, names, errors) {
     }
     if (inside(relative, "apps/worker/src/storage") && inside(target, "apps/worker/src/data")) {
       const typeOnly =
-        ts.isImportDeclaration(node) &&
-        (node.importClause?.isTypeOnly ||
-          (node.importClause?.namedBindings &&
-            ts.isNamedImports(node.importClause.namedBindings) &&
-            node.importClause.namedBindings.elements.every((item) => item.isTypeOnly)));
+        (ts.isImportDeclaration(node) && node.importClause?.isTypeOnly) ||
+        (ts.isExportDeclaration(node) && node.isTypeOnly) ||
+        ts.isImportTypeNode(node);
       if (target !== "apps/worker/src/data/contracts.ts" || !typeOnly)
         report(node, `storage may only import data contracts as types: '${specifier}'`);
     }

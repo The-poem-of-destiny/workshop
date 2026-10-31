@@ -71,3 +71,33 @@ test("resolves TypeScript path aliases before checking boundaries", (t) => {
   put("packages/domain/src/index.ts", 'export { x } from "@other/index";');
   assert.match(checkArchitecture(root).join("\n"), /forbidden dependency on '@other\/index'/);
 });
+
+test("checks resolved paths even when an alias matches a workspace package name", (t) => {
+  const { root, put } = fixture(t);
+  put("apps/worker/src/data/contracts.ts", "export interface Contract {}");
+  put(
+    "apps/worker/web/tsconfig.json",
+    JSON.stringify({
+      compilerOptions: { baseUrl: ".", paths: { "@workshop/contracts": ["../src/data/contracts.ts"] } },
+    }),
+  );
+  put("apps/worker/web/src/index.ts", 'import type { Contract } from "@workshop/contracts";');
+  assert.match(checkArchitecture(root).join("\n"), /Web cannot import Worker implementation '@workshop\/contracts'/);
+});
+
+test("distinguishes erased type declarations from runtime imports and exports", (t) => {
+  const { root, put } = fixture(t);
+  put("apps/worker/src/data/contracts.ts", "export interface Contract {}");
+  put(
+    "apps/worker/src/storage/types.ts",
+    'import type { Contract } from "../data/contracts.js";\nexport type { Contract } from "../data/contracts.js";\ntype Other = import("../data/contracts.js").Contract;',
+  );
+  assert.deepEqual(checkArchitecture(root), []);
+  put(
+    "apps/worker/src/storage/runtime.ts",
+    'import {} from "../data/contracts.js";\nimport { type Contract } from "../data/contracts.js";\nexport { type Contract } from "../data/contracts.js";',
+  );
+  const errors = checkArchitecture(root);
+  assert.equal(errors.length, 3);
+  for (const error of errors) assert.match(error, /storage may only import data contracts as types/);
+});
