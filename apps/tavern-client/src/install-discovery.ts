@@ -40,7 +40,7 @@ export async function capture(host: InstallHost) {
 function legacyRegexAssignments(
   snapshot: Snapshot,
   assigned: Map<string, Identity>,
-  suspect: (location: string, reason: string) => void,
+  suspect: (location: string, reason: string, scope: { book?: string; character?: boolean }) => void,
 ) {
   const { books, character, regex } = snapshot;
   const parseRecord = (input: unknown) => {
@@ -84,8 +84,8 @@ function legacyRegexAssignments(
           throw new Error("角色正则记录启用、损坏或写入未完成");
         for (const record of manifest.projects) parseRecord(record);
       } catch (error) {
-        suspect(name, String(error));
-        suspect(`角色:${character}`, "主世界书中的角色正则归属记录不可靠");
+        suspect(name, String(error), { book: name });
+        suspect(`角色:${character}`, "主世界书中的角色正则归属记录不可靠", { character: true });
       }
     }
   const recordRows = new Set<Row>();
@@ -98,7 +98,7 @@ function legacyRegexAssignments(
         parseRecord(record);
         recordRows.add(row);
       } catch (error) {
-        suspect(`角色:${character}`, String(error));
+        suspect(`角色:${character}`, String(error), { character: true });
       }
     }
   return recordRows;
@@ -106,7 +106,7 @@ function legacyRegexAssignments(
 function discoverRegex(
   snapshot: Snapshot,
   add: (row: Row, id: Identity, location: InstallLocation, kind: "book" | "regex") => void,
-  suspect: (location: string, reason: string) => void,
+  suspect: (location: string, reason: string, scope: { book?: string; character?: boolean }) => void,
 ) {
   const { character, regex, records } = snapshot;
   const assigned = new Map<string, Identity>();
@@ -129,7 +129,7 @@ function discoverRegex(
       const id = assigned.get(String(row.id)) ?? regexIdentity(row);
       if (id) add(row, id, { worldbook: null, character }, "regex");
     } catch (error) {
-      suspect(`角色:${character} / ${row.id}`, String(error));
+      suspect(`角色:${character} / ${row.id}`, String(error), { character: true });
     }
   }
 }
@@ -137,7 +137,7 @@ function finalizeGroups(
   snapshot: Snapshot,
   groups: Map<string, Group>,
   ambiguous: InstallScan["ambiguous"],
-  suspect: (location: string, reason: string) => void,
+  suspect: (location: string, reason: string, scope: { book?: string; character?: boolean }) => void,
 ) {
   const { records, books, character } = snapshot;
   for (const [id, record] of Object.entries(records)) {
@@ -163,8 +163,10 @@ function finalizeGroups(
       suspect(
         group.instance.location.worldbook ?? `角色:${character}`,
         "安装操作中断，持久归属记录尚未验收；请手动卸载所属内容后重新下载",
+        group.instance.location.worldbook ? { book: group.instance.location.worldbook } : { character: true },
       );
-      if (group.instance.location.character) suspect(`角色:${character}`, "存在未完成的正则安装记录");
+      if (group.instance.location.character)
+        suspect(`角色:${character}`, "存在未完成的正则安装记录", { character: true });
     }
     group.instance.entryCount = group.book.length;
     group.instance.regexCount = group.regex.length;
@@ -181,7 +183,7 @@ function finalizeGroups(
 function instanceAssembler(
   snapshot: Snapshot,
   groups: Map<string, Group>,
-  suspect: (location: string, reason: string) => void,
+  suspect: (location: string, reason: string, scope: { book?: string; character?: boolean }) => void,
 ) {
   const { character, records } = snapshot;
   const seenKeys = new Map<string, Set<string>>();
@@ -215,7 +217,11 @@ function instanceAssembler(
         (kind === "regex" && remembered.location.character !== character)
       ) {
         group.invalid = true;
-        suspect(location.worldbook ?? `角色:${character}`, "实例标记被复制到非登记位置");
+        suspect(
+          location.worldbook ?? `角色:${character}`,
+          "实例标记被复制到非登记位置",
+          location.worldbook ? { book: location.worldbook } : { character: true },
+        );
       }
       old.location = copy(remembered.location);
     }
@@ -230,7 +236,11 @@ function instanceAssembler(
       duplicate
     ) {
       group.invalid = true;
-      suspect(location.worldbook ?? `角色:${character}`, "实例身份、版本或条目身份冲突");
+      suspect(
+        location.worldbook ?? `角色:${character}`,
+        "实例身份、版本或条目身份冲突",
+        location.worldbook ? { book: location.worldbook } : { character: true },
+      );
     }
     if (kind === "book") old.location.worldbook = location.worldbook;
     if (kind === "regex") old.location.character = character;
@@ -242,7 +252,13 @@ export function discover(snapshot: Snapshot): Discovery {
   const { books, character } = snapshot;
   const ambiguous: InstallScan["ambiguous"] = [];
   const groups = new Map<string, Group>();
-  const suspect = (location: string, reason: string) => ambiguous.push({ location, reason, guidance });
+  const ambiguousBooks = new Set<string>();
+  let ambiguousCharacter = false;
+  const suspect = (location: string, reason: string, scope: { book?: string; character?: boolean }) => {
+    if (scope.book !== undefined) ambiguousBooks.add(scope.book);
+    if (scope.character) ambiguousCharacter = true;
+    ambiguous.push({ location, reason, guidance });
+  };
   const add = instanceAssembler(snapshot, groups, suspect);
   for (const [name, rows] of books)
     for (const [index, row] of rows.entries()) {
@@ -251,7 +267,7 @@ export function discover(snapshot: Snapshot): Discovery {
         const id = identity(row);
         if (id) add(row, id, { worldbook: name, character: null }, "book");
       } catch (error) {
-        suspect(`${name} / ${row.uid ?? index}`, String(error));
+        suspect(`${name} / ${row.uid ?? index}`, String(error), { book: name });
       }
     }
   discoverRegex(snapshot, add, suspect);
@@ -259,6 +275,8 @@ export function discover(snapshot: Snapshot): Discovery {
   return {
     clearedPending,
     groups,
+    ambiguousBooks,
+    ambiguousCharacter,
     scan: {
       instances: [...groups.values()].filter((g) => !g.invalid).map((g) => g.instance),
       scope: {

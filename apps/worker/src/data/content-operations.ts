@@ -121,12 +121,16 @@ export async function contentLoadRevision(env: ContentEnv, revisionId: string, p
   return readFiles(env, assets.results);
 }
 export async function contentBaselineConflict(env: ContentEnv, fingerprints: string[]): Promise<string | null> {
-  if (!fingerprints.length) return null;
-  const match = await env.DB.prepare(`SELECT display_name FROM reference_items WHERE kind = 'worldbook'
-    AND exact_hash IN (${fingerprints.map(() => "?").join(", ")}) LIMIT 1`)
-    .bind(...fingerprints)
-    .first<{ display_name: string }>();
-  return match?.display_name ?? null;
+  const maxParameters = 100;
+  for (let offset = 0; offset < fingerprints.length; offset += maxParameters) {
+    const batch = fingerprints.slice(offset, offset + maxParameters);
+    const match = await env.DB.prepare(`SELECT display_name FROM reference_items WHERE kind = 'worldbook'
+      AND exact_hash IN (${batch.map(() => "?").join(", ")}) LIMIT 1`)
+      .bind(...batch)
+      .first<{ display_name: string }>();
+    if (match) return match.display_name;
+  }
+  return null;
 }
 
 export async function contentAutoPublish(

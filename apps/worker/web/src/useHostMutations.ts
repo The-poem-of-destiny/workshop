@@ -1,5 +1,5 @@
 import type { InstallIntent } from "@workshop/contracts";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type MeResponse, type ProjectSummary } from "./api";
 import type { InstalledItem } from "./features/installed/Installed";
 import type { InstallBridge, InstallCompletion } from "./lib/install-bridge";
@@ -27,11 +27,19 @@ export function useHostMutations({
 }: HostMutationOptions) {
   const [installing, setInstalling] = useState(false);
   const hostMutationPending = useRef(false);
+  const currentUser = useRef(me);
+  currentUser.current = me;
   const [installTarget, setInstallTarget] = useState<{ title: string; intent: InstallIntent } | null>(null);
   const [instanceChoice, setInstanceChoice] = useState<{
     project: ProjectSummary;
-    action: "install" | "uninstall";
+    action: "update" | "uninstall";
   } | null>(null);
+  useEffect(() => {
+    if (!me) {
+      setInstallTarget(null);
+      setInstanceChoice(null);
+    }
+  }, [me]);
   async function prepareInstall(
     project: ProjectSummary,
     action: "install" | "update" = "install",
@@ -53,6 +61,7 @@ export function useHostMutations({
       const payload = await api.acquisitions(project.id);
       const files: { worldbook?: string; regex?: string } = {};
       for (const ticket of payload.tickets) files[ticket.kind] = await api.downloadTicketText(ticket.url);
+      if (!currentUser.current || currentUser.current.id !== me.id) return;
       setInstanceChoice(null);
       setInstallTarget({ title: project.title, intent: { action, instanceId, project: payload.project, files } });
     } catch (reason) {
@@ -72,16 +81,30 @@ export function useHostMutations({
       login();
       return;
     }
-    if (context.installationScan?.instances.some((instance) => instance.projectId === project.id)) {
-      setInstanceChoice({ project, action: "install" });
-    } else void prepareInstall(project);
+    void prepareInstall(project);
+  }
+  function requestUpdate(project: ProjectSummary): void {
+    if (hostMutationPending.current || installTarget) return;
+    if (!me) {
+      login();
+      return;
+    }
+    setInstanceChoice({ project, action: "update" });
   }
   function requestUninstall(project: ProjectSummary): void {
     if (hostMutationPending.current || installTarget) return;
+    if (!me) {
+      login();
+      return;
+    }
     setInstanceChoice({ project, action: "uninstall" });
   }
   function instanceOperation(item: InstalledItem, action: "uninstall" | "migrate"): void {
     if (!bridge || hostMutationPending.current || installTarget) return;
+    if (!me) {
+      login();
+      return;
+    }
     setInstanceChoice(null);
     setInstallTarget({
       title: item.project?.title ?? item.instance.projectId,
@@ -102,6 +125,7 @@ export function useHostMutations({
     setInstanceChoice,
     prepareInstall,
     install,
+    requestUpdate,
     requestUninstall,
     instanceOperation,
     completeInstall,
