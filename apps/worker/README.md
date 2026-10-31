@@ -7,12 +7,14 @@ This application contains the backend and its React site. The Web build is serve
 | Task | Entry points |
 | --- | --- |
 | Request dispatch, public-cache routing, scheduled work | [`src/index.ts`](src/index.ts), [`src/http/public-cache.ts`](src/http/public-cache.ts), [`src/scheduler.ts`](src/scheduler.ts) |
-| API composition and HTTP handlers | [`src/app.ts`](src/app.ts) mounts [`src/http/routes/`](src/http/routes/); handlers delegate persistence to [`src/storage/`](src/storage/) |
+| API composition and HTTP handlers | [`src/app.ts`](src/app.ts) mounts [`src/http/routes/`](src/http/routes/); handlers use [`src/data-client.ts`](src/data-client.ts) to reach DataService or CachedReads, which own access to [`src/storage/`](src/storage/) |
 | Content validation and submission processing | [`src/content-service.ts`](src/content-service.ts), [`src/content-checker.ts`](src/content-checker.ts); checker implementation belongs to [`packages/content`](../../packages/content/) |
 | Database structure and runtime bindings | Numbered SQL in [`migrations/`](migrations/); bindings and asset routing in [`wrangler.jsonc`](wrangler.jsonc), binding types in [`src/env.ts`](src/env.ts) |
 | Client bundle distribution rather than host installation logic | [`src/http/routes/client.ts`](src/http/routes/client.ts), [`src/http/routes/client-api.ts`](src/http/routes/client-api.ts) |
 
 Shared request/response schemas belong to [`packages/contracts`](../../packages/contracts/), and reusable domain rules to [`packages/domain`](../../packages/domain/). Current HTTP behavior is documented in the [Worker API reference](../../docs/reference/worker-api.md); bindings, authentication configuration and caching are covered by the [runtime reference](../../docs/reference/runtime-configuration.md).
+
+The data boundary is enforced by `check:data-boundary`; storage may refer to `data/contracts.ts` only for types. Some data operations currently reuse HTTP helpers and the data client, so the repository does not claim a strictly one-way HTTP-to-storage layer stack. See the [cache design](../../docs/reference/cache-design.md) for authorization and cache isolation.
 
 ## Web navigation
 

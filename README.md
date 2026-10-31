@@ -74,6 +74,7 @@ pnpm e2e:local             # 真实 workerd + 本地 D1/R2 + Chromium E2E
 ### 程序性质量门禁
 
 - `pnpm check:workspace` 从 workspace 声明发现包，要求每包有 typecheck/test 或在单一策略表中有明确豁免。新增包未分类、缺脚本及过期豁免均失败；`--if-present` 不再意味着可静默漏检。content 是 JavaScript；contracts 的 schema 由消费者测试覆盖，不保留空测试命令。
+- `pnpm check:architecture` 检查 workspace 清单的全部依赖类别及生产源码中的包依赖方向、Web 到 Worker 实现的反向依赖、storage 到 data 的运行时反向依赖；包含相对路径、TypeScript 路径别名、类型、重导出和动态导入。规则仅覆盖已分类 workspace 的源码，不覆盖工具脚本和测试；动态模块名在覆盖范围内不允许。
 - `pnpm --filter @workshop/worker check:data-boundary` 检查运行时网关和 Durable Object 不直接导入或访问 D1/R2 数据实现；`pnpm check` 已包含该门禁。同 Worker bindings 不是平台级隔离。
 - `pnpm check:unused` 使用固定 Knip 6.43.0 检查全部 workspace 的依赖；入口覆盖 package exports、Worker、嵌套 Vite/CSS、自定义 esbuild、tools 与测试。`knip.jsonc` 仅为宿主 Cloudflare 模块和跨 workspace 命令保留有据例外；未用、未声明依赖均阻断。文件／导出维度只作人工审计，未作为持续门禁。
 - `pnpm check:cycles` 复用同一个 Knip，静态运行时循环以 error 阻断；实际入口可达的 TS／TSX、workspace runtime exports 在范围内。纯类型边和动态导入不参与，未达入口的孤立循环不在保障范围；不使用会漏掉当前 Worker 入口的 `--production`，不新增依赖图工具或第二套 TypeScript。
