@@ -97,6 +97,28 @@ describe("admin review and publishing", () => {
     await expect(response.json()).resolves.toEqual({ ok: true, status: "queued" });
   });
 
+  it("allows only one concurrent reviewer recheck and records one audit", async () => {
+    const results = await Promise.all([
+      workerExports.DataService.authorAdminRecheck("Bearer reviewer-token", "s1"),
+      workerExports.DataService.authorAdminRecheck("Bearer owner-token", "s1"),
+    ]);
+    expect(results.map((result) => result.kind).sort()).toEqual(["ok", "running"]);
+
+    const submission = await bindings.DB.prepare(
+      "SELECT status, check_status, review_checker_revision FROM submissions WHERE id = 's1'",
+    ).first<Record<string, unknown>>();
+    expect(submission).toEqual({ status: "pending", check_status: "queued", review_checker_revision: null });
+    const audits = await bindings.DB.prepare(
+      "SELECT actor_id, detail FROM audit_events WHERE target_id = 's1' AND action = 'checker.recheck'",
+    ).all<{ actor_id: string; detail: string }>();
+    expect(audits.results).toHaveLength(1);
+    expect(audits.results[0]?.actor_id).toBe(results[0]?.kind === "ok" ? "reviewer" : "owner");
+    expect(JSON.parse(audits.results[0]!.detail)).toEqual({
+      reason: "explicit reviewer recheck",
+      previousRevision: "checker-1",
+    });
+  });
+
   it("lists multiple statuses in one request and paginates with a keyset cursor", async () => {
     await bindings.DB.prepare(`
       INSERT INTO projects (id, author_id, title, visibility, working_revision_id, updated_at)
@@ -163,7 +185,7 @@ describe("admin review and publishing", () => {
     });
     expect(response.status).toBe(201);
     const project = await bindings.DB.prepare(
-      "SELECT published_revision_id, title, search_tags, row_version FROM projects WHERE id = 'p1'",
+      "SELECT published_revision_id, published_updated_at, title, search_tags, row_version FROM projects WHERE id = 'p1'",
     ).first<Record<string, unknown>>();
     expect(project).toMatchObject({
       published_revision_id: "r1",
@@ -171,6 +193,11 @@ describe("admin review and publishing", () => {
       search_tags: '["submitted"]',
       row_version: 2,
     });
+    const submission = await bindings.DB.prepare("SELECT resolved_at FROM submissions WHERE id = 's1'").first<{
+      resolved_at: string;
+    }>();
+    expect(submission?.resolved_at).toEqual(expect.any(String));
+    expect(project?.published_updated_at).toBe(submission?.resolved_at);
     const review = await bindings.DB.prepare(
       "SELECT manifest_hash, checker_version FROM reviews WHERE submission_id = 's1'",
     ).first<Record<string, unknown>>();

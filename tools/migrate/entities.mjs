@@ -102,6 +102,7 @@ export function projectRows(sourceProject, userById, projects, skipped) {
     metadata_checked_by: null,
     entry_index_ready: 1,
   };
+  const publishedAt = sourceProject.latest_approved_at ?? sourceProject.reviewed_at ?? times.updated_at;
   const project = {
     id,
     author_id: authorId,
@@ -114,7 +115,8 @@ export function projectRows(sourceProject, userById, projects, skipped) {
     visibility: "public",
     working_revision_id: revision.id,
     published_revision_id: revision.id,
-    published_at: sourceProject.latest_approved_at ?? sourceProject.reviewed_at ?? times.updated_at,
+    published_at: publishedAt,
+    published_updated_at: publishedAt,
     row_version: 1,
     created_at: times.created_at,
     updated_at: times.updated_at,
