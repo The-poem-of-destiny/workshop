@@ -1,6 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { type Session, uploadResponseSchema } from "@workshop/contracts";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { contentBaselineConflict } from "../src/data/content-operations";
 import type { DataEnv } from "../src/data/env";
 
 import { listAuthorProjects } from "../src/storage/authoring";
@@ -749,6 +750,75 @@ describe("authoring write paths", () => {
       .bind(project.project.id)
       .first<{ count: number }>();
     expect(count?.count).toBe(0);
+  });
+
+  it("submits large worldbooks and detects official matches in later fingerprint batches", async () => {
+    const entries = Array.from({ length: 120 }, (_, uid) => ({ uid, name: `Entry ${uid}`, content: `Content ${uid}` }));
+    const text = JSON.stringify({ entries });
+    async function uploadAndSubmit(title: string) {
+      const created = await request("/", { method: "POST", body: JSON.stringify({ title }) });
+      const project = (await created.json()) as { project: { id: string }; workingRevisionId: string };
+      const path = `/${project.project.id}/revisions/${project.workingRevisionId}`;
+      const upload = await request(`${path}/files/worldbook`, {
+        method: "PUT",
+        body: text,
+        headers: {
+          "content-type": "application/json",
+          "content-length": String(new TextEncoder().encode(text).length),
+          "if-match": "1",
+        },
+      });
+      expect(upload.status).toBe(200);
+      const uploaded = (await upload.json()) as { rowVersion: number };
+      const submitted = await request(`${path}/submit`, {
+        method: "POST",
+        headers: { "if-match": String(uploaded.rowVersion) },
+        body: JSON.stringify({ gate: "pass" }),
+      });
+      return { project, submitted };
+    }
+    const first = await uploadAndSubmit("Large valid book");
+    expect(first.submitted.status).toBe(201);
+    const indexed = await bindings.DB.prepare(
+      "SELECT COUNT(*) AS count FROM revision_entry_index WHERE revision_id = ?",
+    )
+      .bind(first.project.workingRevisionId)
+      .first<{ count: number }>();
+    expect(indexed?.count).toBe(120);
+
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(JSON.stringify({ name: "Entry 119", content: "Content 119" })),
+    );
+    const fingerprint = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    await bindings.DB.prepare(`
+      INSERT INTO reference_sets (id, name, created_by) VALUES ('rs-large', 'Baseline', 'author');
+      INSERT INTO reference_versions (id, reference_set_id, version_label, version_ordinal, grace_until, created_by)
+        VALUES ('rv-large', 'rs-large', 'v1', 1, '2099-01-01T00:00:00.000Z', 'author');
+      INSERT INTO reference_items (id, reference_version_id, kind, display_name, exact_hash, normalized_content_hash, name_hash, structure_hash)
+        VALUES ('ri-large', 'rv-large', 'worldbook', 'Late match', ?, 'n', 'h', 's');
+    `)
+      .bind(fingerprint)
+      .run();
+    const limitedDB = {
+      prepare(sql: string) {
+        return {
+          bind(...values: string[]) {
+            if (values.length > 100) throw new Error("D1 parameter limit exceeded");
+            return bindings.DB.prepare(sql).bind(...values);
+          },
+        };
+      },
+    } as unknown as D1Database;
+    const candidates = [...Array.from({ length: 239 }, (_, index) => `nonmatching-${index}`), fingerprint];
+    await expect(contentBaselineConflict({ DB: limitedDB, R2: bindings.R2 }, candidates)).resolves.toBe("Late match");
+    const second = await uploadAndSubmit("Large conflicting book");
+    expect(second.submitted.status).toBe(400);
+    expect(await second.submitted.text()).toContain("Late match");
+    const rejected = await bindings.DB.prepare("SELECT COUNT(*) AS count FROM submissions WHERE project_id = ?")
+      .bind(second.project.project.id)
+      .first<{ count: number }>();
+    expect(rejected?.count).toBe(0);
   });
 
   it("rate limits rapid metadata writes", async () => {
