@@ -5,6 +5,7 @@ Development harnesses, repository checks, and data-operation utilities. Command 
 ## Checks and local harnesses
 
 - [Workspace check](check-workspace.mjs) checks repository structure and configuration. [Schema check](check-schema.mjs) replays the [Worker migration chain](../apps/worker/migrations/) into in-memory SQLite and exercises schema invariants; it does not apply remote migrations.
+- [Architecture check](../apps/worker/tools/check-architecture.mjs) enforces workspace dependency direction, Web isolation from Worker implementation and storage's type-only data contracts. The separate Worker data-boundary check guards data and storage access from the gateway.
 - [Local E2E](e2e-local.mjs) starts a real local Worker with D1/R2 and drives API/browser flows. It seeds and mutates local state, using isolated temporary state by default.
 - [Preview debug harness](preview-debug.mjs) seeds accounts and sample author/review data into local preview state and serves the debug frontend. It is not a read-only viewer; its backend endpoint and state selection are defined in the script.
 
