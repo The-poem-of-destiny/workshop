@@ -113,7 +113,7 @@ Q-06 已定：审核台拉 pending，checking 只显示计数；响应一次返�
 - [ ] 确认目标为 `workshop-prod` D1 和 `workshop-client-prod` R2，不是 staging；生产凭据的 S3 发布能力尚未在本次 staging 发布中得到证明。
 - [ ] 按 [部署 runbook](../../operations/deployment-safety.md) 验证备份与恢复、迁移影响、停写安排和回滚条件，再授权生产切换。生产备份上传仍是 Wrangler REST 路径，不能用客户端 S3 上传成功代替该路径的权限验证。
 - [ ] 选定已通过 CI／staging 的 main commit，明确同意发布后才创建受保护的 `v*` tag 并人工审批；不要为了检查凭据而创建发布 tag。
-- [ ] 发布后核对精确 Worker 版本、客户端渠道 revision／实际 SHA、登录和关键旅程。Workers Cache production 保持关闭；若以后开启，需另做 hosted HIT、隔离／失效等验证，依据 D-38，不再要求接受已被取代的 D-37。
+- [ ] 发布后核对精确 Worker 版本、客户端渠道 revision／实际 SHA、登录和关键旅程，并按 [缓存设计](../../reference/cache-design.md) 验证目标环境的 Cache API 行为及陈旧风险；当前 hosted 行为尚未验证，不假定全球 purge 或即时撤回。
 
 ## 7. 不应交给你“验收通过”的未实现项
 

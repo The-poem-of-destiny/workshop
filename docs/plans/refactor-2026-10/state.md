@@ -2,7 +2,7 @@
 
 本文件只记录当前工作状态，不作为设计完成或线上部署证明。设计见 [api-design.md](api-design.md)，发现与验证见 [api-audit.md](api-audit.md)，前端映射见 [frontend-fidelity.md](frontend-fidelity.md)。
 
-2026-10-29 缓存切换以 [D-48](decisions.md#d-48-公开入口缓存与有界陈旧) 和 [api-design.md](api-design.md#6-缓存设计公开投影与实时权限分离) 为准；以下旧阶段记录不代表当前部署或授权状态。default entrypoint 的公开投影在 staging 配置 300 秒缓存、尽力 purge，production 关闭；真实 hosted HIT／失效尚待验证。迁移 0025 保留 epoch 行以兼容旧 Worker，删除写触发器。
+当前工作树的缓存方案以 [API 缓存设计](../../reference/cache-design.md) 和 [运行配置](../../reference/runtime-configuration.md) 为准：停用 Workers Cache，按分类 TTL 使用各 PoP 的 Cache API，不使用全球 purge 或 epoch。以下阶段记录是历史，不代表当前实现、部署或授权状态。hosted 行为尚未验证，上线仍需用户明确授权。
 
 ## Git 与部署边界
 

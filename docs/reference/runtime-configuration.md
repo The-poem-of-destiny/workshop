@@ -15,7 +15,7 @@
 | `DISCORD_ALLOWED_GUILD_IDS` | `1417861565679669272,1134557553011998840` | 同顶层 | 空字符串 |
 | `DISCORD_GUILD_ROLE_IDS` | `1134557553011998840:1335363403870502912` | 同顶层 | 空字符串 |
 
-顶层配置还声明 `ASSETS` 静态资源绑定，目录为 `./web/dist`，`/api/*`、`/client/*`、`/assets/*` 先运行 Worker；`CONTENT_SERVICE` 是 `ContentService` Durable Object，使用 SQLite 类迁移 `v1`。D1 迁移目录为 `./migrations`，定时触发为每分钟。具体环境的资源、部署配置和最终绑定应在授权部署时核实，不能仅凭表中仓库值推断线上状态。默认和 production 的入口缓存关闭；staging 的 default 入口缓存显式开启，见下文。
+顶层配置还声明 `ASSETS` 静态资源绑定，目录为 `./web/dist`，`/api/*`、`/client/*`、`/assets/*` 先运行 Worker；`CONTENT_SERVICE` 是 `ContentService` Durable Object，使用 SQLite 类迁移 `v1`。D1 迁移目录为 `./migrations`，定时触发为每分钟。具体环境的资源、部署配置和最终绑定应在授权部署时核实，不能仅凭表中仓库值推断线上状态。
 
 ## 变量、secret 与认证
 
@@ -36,14 +36,21 @@ OAuth flow 的有效期为 10 分钟，使用 state、PKCE，并设置浏览器�
 
 同一 Worker 导出 default、`DataService` 和 `CachedReads`，具名入口共享 Worker bindings，不构成平台权限隔离。`Env` 不暴露 DB/R2；数据实现使用 `DataEnv`，网关与 DO 经类型化 `ctx.exports` / `state.exports` 调用。`pnpm --filter @workshop/worker check:data-boundary` 检查生产导入和存储访问边界。
 
-顶层和 production 的 default、`CachedReads` 缓存关闭；staging 对二者启用。`DataService` 在各环境关闭缓存。default 公开命中不执行内部调用；未命中才访问内部缓存。内部可变公开投影保存生成时的绝对过期时间，外层只使用剩余期限；失败、部分成功和私有结果禁止公开缓存。代码响应头和配置不等于线上已经部署或命中。
+所有环境停用 Workers Cache，公开白名单读取和获准的不可变内容使用 Cache API，缓存按 PoP 独立，不是全球共享缓存。`VERSION_METADATA` 用于按部署版本隔离；绑定缺失时绕过 Cache API。内部可变公开投影保存生成时的绝对过期时间，外层只使用剩余期限，避免内外 TTL 叠加；失败、部分成功和私有结果禁止公开缓存。代码响应头和配置不等于线上已经部署或命中。
 
-完整请求流程、逐接口缓存层级和失效见 [API 缓存设计与路由清单](cache-design.md)。入口缓存查找早于入口代码，执行时的 URL 规范化不能改变 default 已发生的查找键。浏览器 HTTP 缓存可先于网络请求命中。
+TTL 以秒为单位集中配置，必须是十进制非负整数且不超过 31536000；未设置时使用下列默认值，设为 `0`、非法值或超限时禁用对应缓存并对外 `no-store`。TTL 变更时缓存键隔离。顶层、staging 和 production 可在各自的 `vars` 覆盖；Wrangler 环境变量不继承。
+
+| 变量 | 默认秒数 | 分类 |
+| --- | ---: | --- |
+| `CACHE_TTL_PUBLIC_SECONDS` | 60 | 项目列表、详情、batch、entries，首页、发现、推荐和公开图片 |
+| `CACHE_TTL_REFERENCE_SECONDS` | 300 | 排行、site、reference sets |
+| `CACHE_TTL_IMMUTABLE_SECONDS` | 31536000 | 版本化 client/checker 对外 immutable |
+| `CACHE_TTL_INTERNAL_SECONDS` | 86400 | 授权后的预览及不可变对象内部缓存 |
+
+完整请求流程和逐接口策略见 [API 缓存设计与路由清单](cache-design.md)。浏览器 HTTP 缓存可先于网络请求命中；预览及受保护对象每次读取前仍须实时鉴权。
 
 ## 失效与撤回
 
-成功业务提交后，DataService 通过 `CachedReads.invalidatePublic` 在内部入口合并 purge；HTTP 网关在 default 入口清理对应前缀，定时排行榜和自动发布也分别处理两个入口。site 清 site、home 和 banner；参考集与推荐管理写清各自投影；审核、项目显示编辑、可见性、删除和 gallery 指定写清项目、home、推荐及公开图片前缀。purge 失败记录错误，不回滚已成功的写入，也不是同步提交屏障。精确映射见 [`public-invalidation.ts`](../../apps/worker/src/http/public-invalidation.ts)、[`service.ts`](../../apps/worker/src/data/service.ts) 和 [`scheduler.ts`](../../apps/worker/src/scheduler.ts)。
+不使用全球主动 purge，也不恢复 epoch。写入或撤回后，不同 PoP 的旧公开条目可能保留至各自到期；在途请求可能在变更后填入旧数据，浏览器缓存或已保存字节也无法由服务端收回。因此分类 TTL 不是全球撤回时限。固定版本 immutable 资源还有更长的客户端留存风险。客户端发布脚本另有可选的 zone tag purge，其操作限制见[部署安全手册](../operations/deployment-safety.md#client-artifact-publishing)，不应当作本方案的全球失效保证。
 
-普通公开表示的 300 秒是响应新鲜度预算，不保证撤回后恰好 300 秒全球消失：浏览器已缓存或保存的内容无法由服务端收回，purge 可能失败或受并发旧请求填充影响。源端在重新执行时检查当前公开资格，旧页面中的图片链接也可能因资格变化而失效。固定版本 immutable 资源有更长的客户端留存风险，不能假定 purge 能撤销已保存字节。客户端发布脚本另有可选的 zone tag purge；其跳过条件、非原子发布顺序和操作限制见[部署安全手册](../operations/deployment-safety.md#client-artifact-publishing)。
-
-本参考依据仓库配置和源码，不证明远端绑定、secret、缓存命中率、跨地区 purge 或撤回时限；需要经授权的 hosted 请求、响应头与实际写入/撤回场景验证，不能用本地静态阅读替代。不要为验证使用未经授权的生产操作或个人 Cloudflare token。
+本参考描述仓库变更，不证明远端已部署、绑定、缓存命中率或撤回时限；上线仍需用户明确授权，hosted 行为尚未验证。需要获授权后验证目标环境的请求、响应头和实际写入/撤回场景；不要使用未经授权的生产操作或个人 Cloudflare token。
