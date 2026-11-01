@@ -4,6 +4,8 @@
 状态口径：`[x]` = 当前代码有实现且已有可运行证据；`[ ]` = 未完成（即使已有部分代码也不勾）。  
 上线门槛：**所有 `[ ]` 关闭**，并且生产切换由人工审批。勾选不代表可以上线；本文件全部勾选才是。
 
+缓存专项的旧勾选与 D-22／D-24／D-28 记录仅为历史，已由 [D-49](decisions.md#d-49-分类-ttl-cache-api) 取代；当前配置见 [运行配置](../../reference/runtime-configuration.md)。hosted 验证和上线授权仍未完成。
+
 ## 本轮工作包（2026-10-26）
 
 依据 [D-40～D-47](decisions.md#d-40-完整替代旧版与完整数据迁移)。以下为新目标，旧章节的历史勾选不能证明这些工作已完成；优先完成共同数据／审核模型，再并行推进互不依赖的界面与客户端，实际迁移最后进行。本轮文档记录不授权代码发布或远端迁移。
@@ -137,7 +139,7 @@
 - [x] 旧客户端兼容提示：`/test-dist/CreativeWorkshop/index.js` 返回迁移提示并加载 stable client（旧 API 映射未做）。
 - [x] `test-dist` shim 由新 Worker 服务（D-33 窗口到期后删除）。
 - [x] D-08：移除配套脚本展示/依赖健康检查（config + bridge + service）。
-- [x] 固定导入 URL、Workers Cache、Cache-Tag/purge（D-22）。
+- [x] 固定导入 URL 和版本化客户端对象；缓存策略见 D-49。
 - [ ] 真实 SillyTavern 安装/更新/修复旅程。
 - [~] 安装状态：本地世界书为权威，订阅/下载/安装分离（D-35）；已显示未安装/已安装/可更新，本地修改与扫描状态待客户端扩展。
 
@@ -167,7 +169,7 @@
 
 - [x] 第一阶段动态 API `private, no-store`；文件/审核文件 no-store。
 - [x] 静态 hashed 资产 immutable（Worker `/assets/*` 返回 `max-age=31536000, immutable`）。
-- [ ] D-24/D-28 Workers Cache 专项、Cache-Tag/purge、`Cf-Cache-Status` 测量（已实现公共读 Cache API + `cache_epoch` 触发器失效；尚缺 `Cf-Cache-Status`/tag purge 测量）。
+- [ ] D-49 Cache API hosted 命中、隔离与写入／撤回场景验证；目标环境操作和上线须另经用户授权。
 - [x] cron：榜单、7d/30d、清理、过期 session、自动审核。
 - [x] 可观测性采样率；错误不采样（`shouldSampleRequest` + 单测）。
 - [ ] 定期备份与校验（J6；已加导出校验工具与单测，缺 Cloudflare 定期备份调度）。

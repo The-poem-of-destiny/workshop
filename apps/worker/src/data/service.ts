@@ -1,5 +1,4 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { PROJECT_PROJECTIONS } from "../http/public-invalidation";
 import { authorAdminFilesFetch } from "./author-admin-files";
 import * as authorAdmin from "./author-admin-operations";
 import type { RunTarget } from "./content-operations";
@@ -16,17 +15,6 @@ import { buildScheduledRankings, cleanupScheduledData, findDueSubmissions } from
 type OperationArgs<T extends unknown[]> = T extends [unknown, ...infer Args] ? Args : never;
 
 export class DataService extends WorkerEntrypoint<DataEnv> {
-  private invalidatePublic(paths: string[]): void {
-    this.ctx.waitUntil(
-      this.ctx.exports
-        .CachedReads({ props: { kind: "public" } })
-        .invalidatePublic(paths)
-        .catch((error) => {
-          console.error("Internal public cache invalidation failed", error);
-        }),
-    );
-  }
-
   override async fetch(request: Request): Promise<Response> {
     const { pathname } = new URL(request.url);
     if (pathname.startsWith("/client/")) return distributionClientAsset(request, this.env);
@@ -34,15 +22,10 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
       return distributionImage(request, this.env, this.ctx);
     }
     if (pathname === "/api/v1/site/banner" && request.method === "POST") {
-      const response = await distributionBannerUpload(request, this.env);
-      if (response.ok) this.invalidatePublic(["/api/v1/site", "/api/v1/home", "/api/v1/public-assets/banners/"]);
-      return response;
+      return distributionBannerUpload(request, this.env);
     }
     if (/^\/api\/v1\/projects\/[^/]+\/(?:revisions\/[^/]+\/files\/[^/]+|gallery\/[^/]+)$/.test(pathname)) {
-      const response = await authorAdminFilesFetch(request, this.env);
-      if (response.ok && request.method === "PUT" && pathname.includes("/gallery/"))
-        this.invalidatePublic(PROJECT_PROJECTIONS);
-      return response;
+      return authorAdminFilesFetch(request, this.env);
     }
     if (pathname.startsWith("/api/v1/admin/submissions/")) {
       return authorAdmin.authorAdminFetch(request, this.env, this.ctx);
@@ -75,7 +58,6 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
 
   async distributionUpdateSite(...args: OperationArgs<Parameters<typeof distribution.distributionUpdateSite>>) {
     const result = await distribution.distributionUpdateSite(this.env, ...args);
-    if (result.kind === "ok") this.invalidatePublic(["/api/v1/site", "/api/v1/home", "/api/v1/public-assets/banners/"]);
     return result;
   }
 
@@ -145,7 +127,6 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
 
   async authorAdminReview(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminReview>>) {
     const result = await authorAdmin.authorAdminReview(this.env, ...args);
-    if (result.kind === "ok" && result.data.kind === "ok") this.invalidatePublic(PROJECT_PROJECTIONS);
     return result;
   }
 
@@ -153,8 +134,6 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     ...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminUpdateRecommendation>>
   ) {
     const result = await authorAdmin.authorAdminUpdateRecommendation(this.env, ...args);
-    if (result.kind === "ok" && result.data.kind === "ok")
-      this.invalidatePublic(["/api/v1/recommendations", "/api/v1/home"]);
     return result;
   }
 
@@ -162,8 +141,6 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     ...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminDeleteRecommendation>>
   ) {
     const result = await authorAdmin.authorAdminDeleteRecommendation(this.env, ...args);
-    if (result.kind === "ok" && result.data.kind === "ok")
-      this.invalidatePublic(["/api/v1/recommendations", "/api/v1/home"]);
     return result;
   }
 
@@ -171,7 +148,6 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     ...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminCreateReferenceSet>>
   ) {
     const result = await authorAdmin.authorAdminCreateReferenceSet(this.env, ...args);
-    if (result.kind === "ok" && result.data.kind === "ok") this.invalidatePublic(["/api/v1/reference-sets"]);
     return result;
   }
 
@@ -179,7 +155,6 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     ...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminCreateReferenceVersion>>
   ) {
     const result = await authorAdmin.authorAdminCreateReferenceVersion(this.env, ...args);
-    if (result.kind === "ok" && result.data.kind === "ok") this.invalidatePublic(["/api/v1/reference-sets"]);
     return result;
   }
 
@@ -187,7 +162,6 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     ...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminUpdateReferenceSet>>
   ) {
     const result = await authorAdmin.authorAdminUpdateReferenceSet(this.env, ...args);
-    if (result.kind === "ok" && result.data.kind === "ok") this.invalidatePublic(["/api/v1/reference-sets"]);
     return result;
   }
 
@@ -213,7 +187,6 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
 
   async authorAdminDeleteGallery(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminDeleteGallery>>) {
     const result = await authorAdmin.authorAdminDeleteGallery(this.env, ...args);
-    if (result.kind === "ok") this.invalidatePublic(PROJECT_PROJECTIONS);
     return result;
   }
 
@@ -251,7 +224,6 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
 
   async authorAdminDeleteProject(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminDeleteProject>>) {
     const result = await authorAdmin.authorAdminDeleteProject(this.env, ...args);
-    if (result.kind === "ok") this.invalidatePublic(PROJECT_PROJECTIONS);
     return result;
   }
 
@@ -259,13 +231,11 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     ...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminUpdateVisibility>>
   ) {
     const result = await authorAdmin.authorAdminUpdateVisibility(this.env, ...args);
-    if (result.kind === "ok") this.invalidatePublic(PROJECT_PROJECTIONS);
     return result;
   }
 
   async authorAdminPatchProject(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminPatchProject>>) {
     const result = await authorAdmin.authorAdminPatchProject(this.env, ...args);
-    if (result.kind === "ok") this.invalidatePublic(PROJECT_PROJECTIONS);
     return result;
   }
 
@@ -322,7 +292,6 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
 
   async contentAutoPublish(target: RunTarget, report: string, reportHash: string, checkedAt: string) {
     const published = await content.contentAutoPublish(this.env, target, report, reportHash, checkedAt);
-    if (published) this.invalidatePublic(PROJECT_PROJECTIONS);
     return published;
   }
 
@@ -336,7 +305,6 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
 
   async buildScheduledRankings(scheduledTime: number): Promise<void> {
     await buildScheduledRankings(this.env.DB, scheduledTime);
-    this.invalidatePublic(["/api/v1/projects/rankings", "/api/v1/projects/discovery", "/api/v1/home"]);
   }
 
   async cleanupScheduledData(dryRun: boolean, scheduledTime: number) {

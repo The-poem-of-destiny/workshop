@@ -4,3 +4,7 @@ declare namespace Cloudflare {
     durableNamespaces: "ContentService";
   }
 }
+
+interface CacheStorage {
+  readonly default: Cache;
+}

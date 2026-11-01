@@ -40,7 +40,7 @@ workshop/
 - 审核：独立任务层、云检查与人工审核、发布指针切换、成员角色、审计；
 - 互动：点赞、订阅、评分、按用户/项目/日幂等的下载计数；评分与留言仅本人可通过个人状态接口读取。重新打开详情回填留言；评分接口省略 `comment` 保留已有留言，空字符串清空；
 - 客户端：版本化分发、按安装位置扫描多实例，安装／更新／卸载先预览差异再确认；登记配套脚本的精确版本与下载地址，不代管脚本数据；
-- 缓存：匿名公开投影可使用 default 与内部 `CachedReads` 双层 Workers Cache；私有资格与计数始终实时，不可变文件字节可在内部复用。环境配置、失效与撤回限制见[运行配置与缓存](docs/reference/runtime-configuration.md)。
+- 缓存：匿名公开投影按分类 TTL 使用 Cache API；私有资格与计数始终实时，获准后的不可变文件字节可在内部复用。环境配置、陈旧与撤回限制见[运行配置与缓存](docs/reference/runtime-configuration.md)。
 
 接口以 `/api/v1` 为前缀，调用方式见 [Worker API 参考](docs/reference/worker-api.md)。共享契约在 `packages/contracts`，领域规则在 `packages/domain`，checker 与内容审计在 `packages/content`。
 

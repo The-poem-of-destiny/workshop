@@ -11,4 +11,9 @@ export interface Env {
   CLEANUP_DRY_RUN?: string;
   SESSION_HASH_SECRET?: string;
   LOG_SAMPLE_RATE?: string;
+  VERSION_METADATA?: { id: string };
+  CACHE_TTL_PUBLIC_SECONDS?: string;
+  CACHE_TTL_REFERENCE_SECONDS?: string;
+  CACHE_TTL_IMMUTABLE_SECONDS?: string;
+  CACHE_TTL_INTERNAL_SECONDS?: string;
 }

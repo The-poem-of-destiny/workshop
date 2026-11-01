@@ -5,6 +5,8 @@
 
 2026-10-26 决策复审：**D-40～D-47 为最新确认，冲突时优先于下方旧条款。** 它们是目标与验收约束，不代表已经实现；下一步工作见 [checklist.md 的本轮工作包](checklist.md#本轮工作包2026-10-26)。未被明确改变的条款继续有效。
 
+缓存相关的旧条款（D-17、D-22、D-24、D-25、D-27、D-28、D-36 至 D-38、D-48）与 [D-49](#d-49-分类-ttl-cache-api) 冲突之处已被 D-49 取代；下方保留历史决策，不代表当前机制。
+
 ---
 
 ## 已生效
@@ -436,6 +438,12 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
 - 取代 D-37／D-38 中 epoch 网关、30 秒及外部 no-store 的公开展示策略：staging 使用 default entrypoint Workers Cache，production 保持关闭。公开路径只能返回匿名投影；私人数据和操作仍逐次授权、no-store。
 - 公开成功响应 TTL 300 秒，禁止 stale-if-error；公开变更尽力 purge，不作为同步屏障。隐藏或删除后已缓存的公开展示内容可在 TTL 内继续可见；即时撤回内容不得使用此策略。迁移 0025 移除旧写触发器但保留 epoch 行，保障旧版本在迁移后仍可读取；旧版本回滚时代际不再随写入更新。
 - 本地验证不能证明 hosted HIT 或全球失效；production 开启需另行授权及运行证据。详见 [api-design.md](api-design.md#6-缓存设计公开投影与实时权限分离)。
+
+### D-49 分类 TTL Cache API
+
+- 停用所有环境的 Workers Cache；使用按 PoP 独立的 Cache API，不恢复 epoch，不进行全球主动 purge。公开路径保留匿名投影白名单，私有响应 no-store，授权和计数实时处理。
+- 默认 TTL：项目、首页、发现、推荐和公开图片 60 秒；排行、site、reference sets 300 秒；版本化 client/checker 对外一年 immutable；实时鉴权后的预览和不可变对象内部 86400 秒。分类可配置，0 或非法值禁缓存并对外 no-store；同一生成绝对到期时间控制内外剩余期限。
+- 各 PoP 和浏览器可保留旧数据，在途请求可在写后填入旧值；TTL 不保证全球撤回时限，已交付内容无法收回。上线仍需明确授权，hosted 命中与行为未验证。详细配置及边界见 [缓存设计](../../reference/cache-design.md) 和 [运行配置](../../reference/runtime-configuration.md)。
 
 ---
 

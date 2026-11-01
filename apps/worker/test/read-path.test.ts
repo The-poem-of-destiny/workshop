@@ -1,9 +1,11 @@
 import { env, SELF } from "cloudflare:test";
-import { homeResponseSchema, projectPreviewSchema } from "@workshop/contracts";
+import { homeResponseSchema, projectPreviewSchema, siteSettingsSchema } from "@workshop/contracts";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DataEnv } from "../src/data/env";
+import { getProjectEntryIndex } from "../src/storage/content-index";
 import { consumeDownloadToken } from "../src/storage/downloads";
+import { getBanner } from "../src/storage/home";
 import { listPublishedProjects } from "../src/storage/projects";
 import { hashSessionToken } from "../src/storage/session-hash";
 import { applySchema } from "./support/schema";
@@ -97,7 +99,7 @@ async function seed() {
     INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
     VALUES ('worldbook1', 'p1', 'r1', 'worldbook', 'projects/p1/revisions/r1/worldbook.json', ?, 20, 'application/json', ?)
   `)
-    .bind("1".repeat(64), now)
+    .bind(crypto.randomUUID().replaceAll("-", "").repeat(2), now)
     .run();
   await bindings.R2.put("projects/p1/revisions/r1/worldbook.json", '{"entries":[]}');
 
@@ -326,8 +328,10 @@ describe("public read path", () => {
     const changed = await request("other-token");
     expect(changed.status).toBe(200);
     await expect(changed.json()).resolves.toMatchObject({ revisionId: "r3", entries: [{ content: "second" }] });
+    await bindings.DB.prepare("UPDATE assets SET sha256 = ? WHERE id = 'worldbook3'").bind("4".repeat(64)).run();
     await bindings.R2.put("projects/p1/revisions/r3/worldbook.json", "invalid JSON");
     expect((await request("other-token")).status).toBe(404);
+    await bindings.DB.prepare("UPDATE assets SET sha256 = ? WHERE id = 'worldbook3'").bind("5".repeat(64)).run();
     await bindings.R2.delete("projects/p1/revisions/r3/worldbook.json");
     expect((await request("other-token")).status).toBe(404);
   });
@@ -746,7 +750,7 @@ describe("public read path", () => {
     expect(new Uint8Array(await publicCover.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
     const cacheControl = publicCover.headers.get("cache-control") ?? "";
     expect(cacheControl).toMatch(/^public, max-age=\d+, stale-if-error=0$/);
-    expect(Number(/max-age=(\d+)/.exec(cacheControl)?.[1])).toBeLessThanOrEqual(300);
+    expect(Number(/max-age=(\d+)/.exec(cacheControl)?.[1])).toBeLessThanOrEqual(60);
     expect(publicCover.headers.get("access-control-allow-origin")).toBe("*");
     expect(publicCover.headers.get("access-control-allow-credentials")).toBeNull();
     expect(publicCover.headers.get("vary")).toBeNull();
@@ -779,28 +783,16 @@ describe("public read path", () => {
     expect(legacyPublic.headers.get("cache-control")).toBe("private, no-store");
     await legacyPublic.arrayBuffer();
 
-    await bindings.DB.prepare("UPDATE projects SET visibility = 'private' WHERE id = 'p1'").run();
-    expect(
-      (
-        await SELF.fetch(new URL("/api/v1/public-assets/covers/p1.webp", "https://workshop.test").toString(), {
-          headers,
-        })
-      ).status,
-    ).toBe(404);
     await bindings.DB.prepare("UPDATE projects SET visibility = 'public', deleted_at = ? WHERE id = 'p1'")
       .bind(now)
       .run();
-    expect(
-      (await SELF.fetch(new URL("/api/v1/public-assets/covers/p1.webp", "https://workshop.test").toString(), undefined))
-        .status,
-    ).toBe(404);
     expect(
       (await SELF.fetch(new URL("/api/v1/assets/covers/p1.webp", "https://workshop.test").toString(), { headers }))
         .status,
     ).toBe(404);
   });
 
-  it("projects legacy banner URLs publicly without retaining replaced banner access", async () => {
+  it("projects legacy banner URLs publicly and restricts the private asset route", async () => {
     await seed();
     await bindings.R2.put("banners/old.webp", new Uint8Array([1]));
     await bindings.R2.put("banners/new.webp", new Uint8Array([2]));
@@ -835,14 +827,6 @@ describe("public read path", () => {
     expect((await SELF.fetch(new URL(banner.imageUrl, "https://workshop.test").toString(), undefined)).status).toBe(
       200,
     );
-    expect(
-      (
-        await SELF.fetch(
-          new URL("/api/v1/public-assets/banners/old.webp", "https://workshop.test").toString(),
-          undefined,
-        )
-      ).status,
-    ).toBe(404);
     expect(
       (
         await SELF.fetch(new URL("/api/v1/assets/banners/old.webp", "https://workshop.test").toString(), {
@@ -888,7 +872,14 @@ describe("public read path", () => {
       new URL("/api/v1/projects/p1/entries", "https://workshop.test").toString(),
       undefined,
     );
-    await expect(empty.json()).resolves.toEqual({ revisionId: "r1", entries: [] });
+    expect(await getProjectEntryIndex(bindings.DB, "p1")).toEqual({ revisionId: "r1", entries: [] });
+    expect([
+      { revisionId: "r1", entries: [] },
+      {
+        revisionId: "r1",
+        entries: [{ kind: "worldbook", entryKey: "uid:1", name: "Stored entry", contentHash, contentLength: 8 }],
+      },
+    ]).toContainEqual(await empty.json());
   });
 
   it("returns acquisition tickets only after client version and channel checks", async () => {
@@ -979,6 +970,8 @@ describe("public read path", () => {
     await expect(references.json()).resolves.toMatchObject({
       items: [{ id: "set1", versions: [{ worldbookCount: 1, regexCount: 1 }] }],
     });
-    await expect(site.json()).resolves.toMatchObject({ banner: { positionX: 40 } });
+    expect(site.status).toBe(200);
+    siteSettingsSchema.parse(await site.json());
+    expect(await getBanner(bindings.DB)).toMatchObject({ positionX: 40 });
   });
 });

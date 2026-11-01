@@ -193,10 +193,9 @@ async function main() {
       assert(first.response.status === 200 && Array.isArray(JSON.parse(first.body).items), "list shape");
       const second = await api("/api/v1/projects");
       assert(second.response.status === 200, `list status: ${second.response.status}`);
-      assert(
-        second.response.headers.get("cache-control") === "public, max-age=300, stale-if-error=0",
-        "public list cache policy",
-      );
+      const cacheControl = second.response.headers.get("cache-control") ?? "";
+      const maxAge = /^public, max-age=(\d+), stale-if-error=0$/.exec(cacheControl);
+      assert(maxAge && Number(maxAge[1]) > 0 && Number(maxAge[1]) <= 60, `public list cache policy: ${cacheControl}`);
     });
 
     let project;
@@ -414,7 +413,7 @@ async function main() {
       );
       assert(frozen.response.status === 201, `metadata submit ${frozen.response.status}: ${frozen.body}`);
       let updated;
-      for (let attempt = 0; attempt < 40; attempt += 1) {
+      for (let attempt = 0; attempt < 300; attempt += 1) {
         updated = await api(`/api/v1/projects/${project.project.id}`);
         if (updated.response.status === 200 && JSON.parse(updated.body).description === "unified snapshot update")
           break;
@@ -467,8 +466,16 @@ async function main() {
       assert(memberFile.response.status === 200 && memberFile.body.includes("hello"), "member ticket download");
       const memberReplay = await api(memberUrl, {}, memberToken);
       assert(memberReplay.response.status === 404, "member ticket replay");
-      const counted = await api(`/api/v1/projects/${project.project.id}`);
-      assert(JSON.parse(counted.body).counts.downloads === 1, "member download counted exactly once");
+      let counted;
+      for (let attempt = 0; attempt < 300; attempt += 1) {
+        counted = await api(`/api/v1/projects/${project.project.id}`);
+        if (counted.response.status === 200 && JSON.parse(counted.body).counts.downloads === 1) break;
+        await sleep(250);
+      }
+      assert(
+        counted?.response.status === 200 && JSON.parse(counted.body).counts.downloads === 1,
+        "member download counted exactly once",
+      );
     });
 
     await check("author subscribes to a public project", async () => {

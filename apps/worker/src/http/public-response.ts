@@ -1,3 +1,6 @@
+import { publicCacheClass } from "./cache-policy";
+import { canonicalPublicRequest } from "./public-cache";
+
 export function publicResponse(response: Response, request: Request): Response {
   const headers = new Headers(response.headers);
   const expires = headers.get("x-workshop-generated-expires");
@@ -10,14 +13,14 @@ export function publicResponse(response: Response, request: Request): Response {
   headers.set("date", new Date().toUTCString());
   headers.set("access-control-allow-origin", "*");
   headers.set("x-content-type-options", "nosniff");
-  const cacheable = response.ok && !headers.has("set-cookie") && !/private|no-store/i.test(policy);
+  const cacheable = response.status === 200 && !headers.has("set-cookie") && !/private|no-store/i.test(policy);
+  headers.delete("set-cookie");
   const expiry = expires !== null && /^\d+$/.test(expires) ? Number(expires) : NaN;
   const now = Date.now();
-  if (cacheable && /immutable/i.test(policy)) {
-    headers.set("cache-control", policy);
-  } else if (cacheable && Number.isSafeInteger(expiry) && expiry <= now + 300_000) {
+  if (cacheable && Number.isSafeInteger(expiry) && expiry <= now + 31536000_000) {
     const seconds = Math.floor((expiry - now) / 1000);
-    headers.set("cache-control", seconds > 0 ? `public, max-age=${seconds}, stale-if-error=0` : "private, no-store");
+    const suffix = /immutable/i.test(policy) ? "immutable" : "stale-if-error=0";
+    headers.set("cache-control", seconds > 0 ? `public, max-age=${seconds}, ${suffix}` : "private, no-store");
   } else {
     headers.set("cache-control", "private, no-store");
   }
@@ -31,7 +34,10 @@ export function publicResponse(response: Response, request: Request): Response {
         const candidate = value.trim();
         return candidate === "*" || candidate.replace(/^W\//, "") === etag.replace(/^W\//, "");
       });
-  if (response.ok && matches && /immutable/i.test(policy)) {
+  const canonical = canonicalPublicRequest(request);
+  const versioned =
+    canonical.kind === "public" && publicCacheClass(new URL(canonical.request.url).pathname) === "immutable";
+  if (response.status === 200 && matches && versioned) {
     void response.body?.cancel();
     headers.delete("content-length");
     return new Response(null, { status: 304, headers });
