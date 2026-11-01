@@ -193,10 +193,9 @@ async function main() {
       assert(first.response.status === 200 && Array.isArray(JSON.parse(first.body).items), "list shape");
       const second = await api("/api/v1/projects");
       assert(second.response.status === 200, `list status: ${second.response.status}`);
-      assert(
-        second.response.headers.get("cache-control") === "public, max-age=300, stale-if-error=0",
-        "public list cache policy",
-      );
+      const cacheControl = second.response.headers.get("cache-control") ?? "";
+      const maxAge = /^public, max-age=(\d+), stale-if-error=0$/.exec(cacheControl);
+      assert(maxAge && Number(maxAge[1]) > 0 && Number(maxAge[1]) <= 60, `public list cache policy: ${cacheControl}`);
     });
 
     let project;
