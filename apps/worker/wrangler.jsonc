@@ -3,25 +3,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-10-20",
   "workers_dev": true,
-  "cache": {
-    "enabled": false
-  },
-  "exports": {
-    "default": {
-      "type": "worker",
-      "cache": {
-        "enabled": false
-      }
-    },
-    "CachedReads": {
-      "type": "worker",
-      "cache": { "enabled": false }
-    },
-    "DataService": {
-      "type": "worker",
-      "cache": { "enabled": false }
-    }
-  },
+  "version_metadata": { "binding": "VERSION_METADATA" },
   "observability": {
     "enabled": true
   },
@@ -102,25 +84,7 @@
           "bucket_name": "workshop-client-staging"
         }
       ],
-      "cache": {
-        "enabled": false
-      },
-      "exports": {
-        "default": {
-          "type": "worker",
-          "cache": {
-            "enabled": true
-          }
-        },
-        "CachedReads": {
-          "type": "worker",
-          "cache": { "enabled": true }
-        },
-        "DataService": {
-          "type": "worker",
-          "cache": { "enabled": false }
-        }
-      }
+      "version_metadata": { "binding": "VERSION_METADATA" }
     },
     "production": {
       "name": "workshop",
@@ -153,14 +117,7 @@
           "bucket_name": "workshop-client-prod"
         }
       ],
-      "cache": {
-        "enabled": false
-      },
-      "exports": {
-        "default": { "type": "worker", "cache": { "enabled": false } },
-        "CachedReads": { "type": "worker", "cache": { "enabled": false } },
-        "DataService": { "type": "worker", "cache": { "enabled": false } }
-      }
+      "version_metadata": { "binding": "VERSION_METADATA" }
     }
   }
 }

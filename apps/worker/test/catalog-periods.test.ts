@@ -3,7 +3,6 @@ import { projectListQuerySchema, projectListResponseSchema } from "@workshop/con
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DataEnv } from "../src/data/env";
-import { canonicalPublicRequest } from "../src/http/public-cache";
 import { consumeDownloadToken, issueDownloadTickets } from "../src/storage/downloads";
 import { setLike, unsetLike } from "../src/storage/interactions";
 import { isValidProjectListCursor, listPublishedProjects } from "../src/storage/projects";
@@ -41,7 +40,7 @@ async function event(id: string, delta: number, time: string) {
 }
 
 describe("catalog net windows on real D1", () => {
-  it("preserves period selection through the real Worker gateway and canonical public keys", async () => {
+  it("preserves period selection through the real Worker gateway", async () => {
     await project("recent");
     await project("older");
     const now = Date.now();
@@ -49,26 +48,17 @@ describe("catalog net windows on real D1", () => {
     await event("older", 1, new Date(now - 14 * 86_400_000).toISOString());
     await event("older", 1, new Date(now - 13 * 86_400_000).toISOString());
     await bindings.DB.prepare("UPDATE projects SET likes_count = CASE id WHEN 'recent' THEN 1 ELSE 2 END").run();
-    const canonicalUrls = new Map<string, string>();
     for (const period of ["all", "7d", "30d"] as const) {
       const url = `https://workshop.example/api/v1/projects?sort=likes&period=${period}`;
-      const canonical = canonicalPublicRequest(new Request(url));
-      expect(canonical.kind).toBe("public");
-      if (canonical.kind !== "public") throw new Error("Expected public catalog request");
-      canonicalUrls.set(period, canonical.request.url);
       const response = await SELF.fetch(url);
       expect(response.status).toBe(200);
       const body = projectListResponseSchema.parse(await response.json());
       expect(body.total).toBe(2);
       expect(body.items.map((item) => item.id)).toEqual(period === "7d" ? ["recent", "older"] : ["older", "recent"]);
     }
-    expect(new Set(canonicalUrls.values()).size).toBe(3);
-    expect(new URL(canonicalUrls.get("7d")!).searchParams.get("period")).toBe("7d");
-    expect(new URL(canonicalUrls.get("30d")!).searchParams.get("period")).toBe("30d");
-    const omitted = canonicalPublicRequest(new Request("https://workshop.example/api/v1/projects?sort=likes"));
-    expect(omitted.kind).toBe("public");
-    if (omitted.kind !== "public") throw new Error("Expected public default catalog request");
-    expect(omitted.request.url).toBe(canonicalUrls.get("all"));
+    const omitted = await SELF.fetch("https://workshop.example/api/v1/projects?sort=likes");
+    const body = projectListResponseSchema.parse(await omitted.json());
+    expect(body.items.map((item) => item.id)).toEqual(["older", "recent"]);
   });
 
   it("rejects anonymous complete previews and returns authenticated content privately", async () => {

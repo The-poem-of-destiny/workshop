@@ -2,7 +2,6 @@ import { app } from "./app";
 import { fetchPublic } from "./data-client";
 import type { Env } from "./env";
 import { canonicalPublicRequest } from "./http/public-cache";
-import { publicWritePaths, purgePublicPaths } from "./http/public-invalidation";
 import { publicResponse } from "./http/public-response";
 import { runScheduled } from "./scheduler";
 
@@ -23,9 +22,7 @@ export default {
       );
     }
     if (publicRequest.kind === "public") {
-      // No identity-bearing request ever reaches a public projection. The
-      // entrypoint cache may answer before this code executes, so these URLs
-      // must never fall back to private data.
+      // Public projections receive canonical requests without identity headers.
       try {
         return publicResponse(await fetchPublic(ctx, publicRequest.request), request);
       } catch (error) {
@@ -36,10 +33,7 @@ export default {
         );
       }
     }
-    const response = await app.fetch(request, env, ctx);
-    const paths = publicWritePaths(request);
-    if (response.ok && paths.length) ctx.waitUntil(purgePublicPaths(paths));
-    return response;
+    return app.fetch(request, env, ctx);
   },
   scheduled(event, env, ctx) {
     ctx.waitUntil(runScheduled(env, ctx.exports, event.scheduledTime));
