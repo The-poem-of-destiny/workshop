@@ -61,7 +61,10 @@ Report the commands actually run, their result, and the acceptance item they cov
 - `docs/` describes current behavior, contracts, architecture, tutorials and lookup information.
 - `.agents/notes/` holds durable proposals, decisions, rationale, alternatives, consequences and verification requirements.
 - `.agents/skills/` holds reusable agent procedures. Keep each skill in its own directory with a `SKILL.md`.
-- Current progress, task status, sessions, logs, caches and generated output belong to runtime storage or the relevant task record, not to `docs/`.
+- Task-local progress, execution journals, handoffs, temporary analyses and task evidence belong to the Git-ignored `.local/tasks/<task-name>/`, not to `docs/` or `.agents/notes/`. Create a task directory only when it has content.
+- Shared acceptance gates and user-action requirements remain in the designated `docs/plans/`; keep only necessary current facts there, not process logs or private evidence.
+- Keep raw database/object backups and private migration datasets in the Git-ignored `data_backup/`; link to them from the task record instead of duplicating them in documentation. Do not copy credentials into task records.
+- Restrict private task/backup directories to mode 0700 and files to 0600. Git ignore prevents accidental inclusion, not disclosure or data loss; local evidence is not an independent backup. Preserve the distinction between historical verification and current live state.
 
 Give every durable fact one authoritative home and link to it elsewhere. Do not copy the same rule, schema or contract into multiple layers.
 
