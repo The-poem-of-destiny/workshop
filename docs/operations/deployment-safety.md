@@ -12,6 +12,8 @@ This runbook covers staging and production releases, D1 migration safety, backup
 | Docs/agent/CI-only change | CI runs, staging build/deploy is skipped |
 | Backup verification | Manual `verify-production-backup` workflow, read-only |
 
+Automatic staging deployment never applies D1 migrations. A comparison containing `apps/worker/migrations/` pauses build/deployment with an explicit notice, including deletions and renames. A schema-changing merge therefore does not authorize or complete a remote cutover. Prepare and verify the separately authorized database/report migration, target binding and compatible application before resuming deployment through an approved release procedure; do not bypass the guard merely to make CI green.
+
 ## Dependency security updates
 
 Dependabot ordinary version updates remain weekly and grouped; security updates are enabled separately. The `dependency-security-automerge` workflow runs trusted `main` policy only, never checks out or executes PR code, and uses no personal token or new secret.
