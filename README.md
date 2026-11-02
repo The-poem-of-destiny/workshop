@@ -93,7 +93,7 @@ pnpm exec wrangler d1 migrations apply workshop-staging --local --config wrangle
 
 客户端构建与发布脚本在 `apps/tavern-client/package.json`；checker 构建与发布脚本在 `packages/content/package.json`。
 
-数据库结构以完整编号 migration 链为准，不以旧导出数据要求保留无用字段。当前公开样本导入工具只转换已选公开发布内容与必要 member 作者，重建 manifest 和完整条目索引；它不等于 D-40 的完整业务数据迁移。草稿、审核历史、互动关系等完整迁移与正式切换仍需另行完成及授权，见 [`tools/migrate/README.md`](tools/migrate/README.md) 和 [迁移目标](docs/plans/refactor-2026-10/decisions.md#d-40-完整替代旧版与完整数据迁移)。
+数据库结构以完整编号 migration 链为准，不以旧导出数据要求保留无用字段。迁移工具区分公开样本导入与当前 published／working 快照迁移；后者保留可映射业务数据，但不重构旧提交、审核、检查历史，也不迁移旧权限或登录凭据。工具入口见 [`tools/migrate/README.md`](tools/migrate/README.md)，范围与安全操作见[迁移手册](docs/operations/legacy-data-migration.md)。正式切换仍需另行授权，不能把当前快照验收等同于 [D-40 完整迁移目标](docs/plans/refactor-2026-10/decisions.md#d-40-完整替代旧版与完整数据迁移)。
 
 `0021_remove_obsolete_state.sql` 会删除旧镜像字段、撤下未完成索引的历史发布并清理无用资产关联（保留 revision 和 R2 原文件）。远程执行前必须备份、确认影响与获得授权；本地通过不代表已经应用到 staging／production。
 
