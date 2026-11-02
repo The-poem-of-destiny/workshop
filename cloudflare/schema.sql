@@ -243,6 +243,10 @@ CREATE TABLE IF NOT EXISTS character_reference_items (
 
 CREATE INDEX IF NOT EXISTS idx_character_reference_items_version_kind
     ON character_reference_items(reference_version_id, kind);
+-- Kept out of any covering variant: leading (reference_version_id, id) is what
+-- turns the original-conflict picker into one seek per requested id.
+CREATE INDEX IF NOT EXISTS idx_character_reference_items_version_item
+    ON character_reference_items(reference_version_id, id);
 CREATE INDEX IF NOT EXISTS idx_character_reference_items_exact
     ON character_reference_items(kind, exact_hash);
 CREATE INDEX IF NOT EXISTS idx_character_reference_items_content
@@ -292,6 +296,10 @@ CREATE TABLE IF NOT EXISTS project_daily_rankings (
     PRIMARY KEY (ranking_day, project_id),
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
+
+-- Cascade delete lookup: DELETE FROM projects scans this table without it.
+CREATE INDEX IF NOT EXISTS idx_project_daily_rankings_project
+    ON project_daily_rankings(project_id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_project_daily_rankings_discover
     ON project_daily_rankings(ranking_day, discover_rank);
@@ -368,6 +376,10 @@ CREATE TABLE IF NOT EXISTS project_metric_daily (
     PRIMARY KEY (day_key, project_id),
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
+
+-- Cascade delete lookup: this table dominates DELETE FROM projects cost.
+CREATE INDEX IF NOT EXISTS idx_project_metric_daily_project
+    ON project_metric_daily(project_id);
 
 CREATE TABLE IF NOT EXISTS project_period_tracking_meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),
