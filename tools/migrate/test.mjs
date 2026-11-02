@@ -131,10 +131,12 @@ try {
     [["author", "member"]],
     "authors retain identity without legacy privilege",
   );
-  assert.equal(first.tables.project_revisions[0].worldbook_count, 1);
-  assert.equal(first.tables.project_revisions[0].regex_count, 1);
+  assert.equal(first.tables.project_versions[0].worldbook_count, 1);
+  assert.equal(first.tables.project_versions[0].regex_count, 1);
   assert.deepEqual(
-    first.tables.revision_entry_index.map((entry) => [entry.kind, entry.entry_key, entry.content_length]).sort(),
+    JSON.parse(first.tables.project_versions[0].entry_index)
+      .entries.map((entry) => [entry.kind, entry.entryKey, entry.contentLength])
+      .sort(),
     [
       ["regex", "id:regex-1", 2],
       ["worldbook", "object:first", 1],
@@ -187,7 +189,9 @@ try {
   alteredHash.tables.assets[0].sha256 = "0".repeat(64);
   assert.equal(verify(alteredHash).ok, false, "asset SHA changes are rejected");
   const alteredIndex = structuredClone(first);
-  alteredIndex.tables.revision_entry_index.pop();
+  const incompleteIndex = JSON.parse(alteredIndex.tables.project_versions[0].entry_index);
+  incompleteIndex.entries.pop();
+  alteredIndex.tables.project_versions[0].entry_index = JSON.stringify(incompleteIndex);
   assert.equal(verify(alteredIndex).ok, false, "incomplete persisted entry indexes are rejected");
 
   const packageDir = path.join(dir, "package");
@@ -238,12 +242,12 @@ for table, rows in target['tables'].items():
     definitions = [json.dumps(key) + (' PRIMARY KEY' if key == 'id' else '') for key in columns]
     db.execute('CREATE TABLE ' + json.dumps(table) + ' (' + ','.join(definitions) + ')')
 db.execute("INSERT INTO users (id, username, role) VALUES ('author', 'existing identity', 'owner')")
-db.execute("INSERT INTO projects (id, title) VALUES ('old-project', 'Do not change')")
+db.execute("INSERT INTO projects (id, visibility) VALUES ('old-project', 'private')")
 db.executescript(open(sys.argv[1]).read())
 assert db.execute("SELECT username, role FROM users WHERE id='author'").fetchone() == ('existing identity', 'owner')
-assert db.execute("SELECT title FROM projects WHERE id='old-project'").fetchone() == ('Do not change',)
-assert db.execute("SELECT title FROM projects WHERE id='public'").fetchone() == ('Published',)
-assert db.execute('SELECT count(*) FROM project_revisions').fetchone()[0] == 1
+assert db.execute("SELECT visibility FROM projects WHERE id='old-project'").fetchone() == ('private',)
+assert db.execute("SELECT title FROM project_versions WHERE project_id='public'").fetchone() == ('Published',)
+assert db.execute('SELECT count(*) FROM project_versions').fetchone()[0] == 1
 assert db.execute('SELECT count(*) FROM assets').fetchone()[0] == 3
 `,
       sealed.sqlPath,

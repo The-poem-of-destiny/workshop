@@ -79,21 +79,22 @@ def stable(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def revision_id(source_id):
+def version_id(source_id):
     return "legacy-revision-" + hashlib.sha256(stable([source_id]).encode()).hexdigest()
 
 
 def source_metadata(row):
     return (row.get("name"), row.get("description"), None, row.get("project_type"),
             row.get("extension_type"), row.get("version_label") or row.get("version"),
-            row.get("precautions"), row.get("cover_position_x"), row.get("cover_position_y"),
+            stable({"schemaVersion": 1, "dependencies": [], "conflicts": [], "notes": row["precautions"]}) if row.get("precautions") is not None else None,
+            row.get("cover_position_x"), row.get("cover_position_y"),
             row.get("cover_zoom"))
 
 
 def candidate_metadata(row):
     return tuple(row.get(field) for field in (
         "title", "description", "author_note", "project_type", "extension_type", "version_label",
-        "precautions", "cover_position_x", "cover_position_y", "cover_zoom"))
+        "requirements", "cover_position_x", "cover_position_y", "cover_zoom"))
 
 
 def source_tags(row):
@@ -156,7 +157,7 @@ def source_reconcile(data, dump, manifest_path):
 
     report = {"format": "workshop-full-source-reconciliation-v1", "ok": False,
               "checks": {}, "failures": [],
-              "scope": "identities, projects, relationships, references, audit records, recommendations, content indexes and approved exclusions"}
+              "scope": "identities, projects, relationships, audit records, recommendations, content indexes and approved exclusions (including removed reference baselines)"}
     failures = report["failures"]
 
     def compare(label, expected, actual):
@@ -169,10 +170,10 @@ def source_reconcile(data, dump, manifest_path):
             failures.append({"kind": "source_difference", "check": label})
 
     tables = data["tables"]
-    required_targets = {"users", "projects", "project_revisions", "project_likes",
+    required_targets = {"users", "projects", "project_versions", "project_likes",
                         "project_subscriptions", "project_ratings", "project_metrics_daily",
-                        "reference_sets", "reference_versions", "reference_items", "site_settings",
-                        "audit_events", "recommendations", "assets", "revision_entry_index"}
+                        "site_settings",
+                        "audit_events", "recommendations", "assets"}
     for name in sorted(set(tables) - required_targets):
         failures.append({"kind": "unexpected_target_table", "table": name})
     for name in sorted(required_targets):
@@ -212,16 +213,14 @@ def source_reconcile(data, dump, manifest_path):
         if visibility == "private":
             private_roots.add(root)
         projection = pub if pub is not None else projects[draft]
-        expected_projects.append((root, str(base["author_id"]), revision_id(draft),
-                                  revision_id(published) if published else None, visibility,
-                                  *source_metadata(projection), source_tags(projection),
-                                  pub.get("discord_thread_url") if pub else None,
+        expected_projects.append((root, str(base["author_id"]), version_id(draft),
+                                  version_id(published) if published else None, visibility,
                                   (pub.get("latest_approved_at") or pub.get("reviewed_at")) if pub else None,
                                   base.get("downloads_count") or 0, base.get("likes_count") or 0,
                                   subscriptions[root], base.get("created_at"), base.get("updated_at"), None))
         for pid in {draft, published} - {None}:
             current_ids.add(pid)
-            expected_revisions.append((revision_id(pid), root, str(projects[pid]["author_id"]),
+            expected_revisions.append((version_id(pid), root, str(projects[pid]["author_id"]),
                                        *source_metadata(projects[pid]), source_tags(projects[pid]),
                                        projects[pid].get("discord_thread_url")))
     compare("users", ((str(row["id"]), row.get("username"), row.get("global_name"),
@@ -230,15 +229,14 @@ def source_reconcile(data, dump, manifest_path):
             ((str(row["id"]), row.get("username"), row.get("global_name"), row.get("avatar"),
               row.get("role"), row.get("created_at"), row.get("updated_at")) for row in tables.get("users", [])))
     compare("projects", expected_projects,
-            ((str(row["id"]), str(row["author_id"]), row.get("working_revision_id"),
-              row.get("published_revision_id"), row.get("visibility"), *candidate_metadata(row),
-              row.get("search_tags"), row.get("published_discord_thread_url"),
+            ((str(row["id"]), str(row["author_id"]), row.get("working_version_id"),
+              row.get("published_version_id"), row.get("visibility"),
               row.get("published_at"), row.get("downloads_count"),
               row.get("likes_count"), row.get("subscriptions_count"), row.get("created_at"),
               row.get("updated_at"), row.get("deleted_at")) for row in tables.get("projects", [])))
     compare("current_revisions", expected_revisions,
             ((row["id"], str(row["project_id"]), str(row["created_by"]), *candidate_metadata(row),
-              row.get("tags"), row.get("discord_thread_url")) for row in tables.get("project_revisions", [])))
+              row.get("tags"), row.get("discord_thread_url")) for row in tables.get("project_versions", [])))
 
     for source_name, target_name, fields in (
         ("project_likes", "project_likes", ("user_id", "created_at")),
@@ -253,9 +251,6 @@ def source_reconcile(data, dump, manifest_path):
         compare(target_name, expected, actual)
 
     for source_name, target_name, rename in (
-        ("character_references", "reference_sets", {}),
-        ("character_reference_versions", "reference_versions", {"character_reference_id": "reference_set_id"}),
-        ("character_reference_items", "reference_items", {}),
         ("site_settings", "site_settings", {}),
     ):
         compare(target_name,
@@ -268,8 +263,15 @@ def source_reconcile(data, dump, manifest_path):
     accepted_roots = set(bases) - excluded_roots
     audit_events = []
     missing_actors = {"admin_action_logs": [], "project_metadata_audit_logs": []}
+    removed_audits = []
     for name in missing_actors:
         for row in source[name]:
+            if name == "admin_action_logs" and row.get("action") in ("project_approved", "project_rejected", "public_project_counts_recounted"):
+                removed_audits.append(stable(row))
+                continue
+            if name == "admin_action_logs" and row.get("action") not in {"admin_added", "admin_removed", "character_reference_created", "character_reference_version_created", "editor_pick_removed", "editor_pick_saved", "compatibility_updated"}:
+                failures.append({"kind": "unsupported_closed_audit_action"})
+                continue
             if (not all(row.get(field) for field in ("id", "action", "actor_id", "created_at"))
                     or (name == "admin_action_logs" and not row.get("target_type"))
                     or (name == "project_metadata_audit_logs" and not row.get("project_id"))):
@@ -285,16 +287,18 @@ def source_reconcile(data, dump, manifest_path):
                 root = roots.get(str(target_id))
                 if root in accepted_roots:
                     target_id = root
-            detail = {"legacyTable": name, "legacyId": row["id"], "legacyActorId": row["actor_id"],
+            detail = {"sourceTable": name, "legacyActorId": str(row["actor_id"]),
                       "legacyActorName": row.get("actor_name"),
-                      "legacyTargetId": row.get("target_id") if name == "admin_action_logs" else row.get("project_id")}
-            if name == "admin_action_logs":
-                detail["legacyDetail"] = row.get("detail")
+                      "legacyTargetId": str(row.get("target_id") if name == "admin_action_logs" else row.get("project_id")) if (row.get("target_id") if name == "admin_action_logs" else row.get("project_id")) is not None else None}
+            metadata = name == "project_metadata_audit_logs" or row.get("action") == "compatibility_updated"
+            if metadata:
+                payload = json.loads(row["detail"]) if name == "admin_action_logs" and row.get("detail") else row
+                detail.update(beforeValue=payload.get("beforeValue", payload.get("before_value")), afterValue=payload.get("afterValue", payload.get("after_value")))
             else:
-                detail.update(beforeValue=row.get("before_value"), afterValue=row.get("after_value"))
+                detail["legacyDetail"] = row.get("detail")
             audit_events.append(stable({
                 "id": "legacy-audit-" + hashlib.sha256(stable([name, row["id"]]).encode()).hexdigest(),
-                "action": "legacy." + str(row["action"]), "target_type": target_type,
+                "action": "project.patch" if metadata else "legacy." + str(row["action"]), "target_type": target_type,
                 "target_id": target_id, "actor_id": actor, "detail": stable(detail),
                 "created_at": row["created_at"],
             }))
@@ -305,6 +309,7 @@ def source_reconcile(data, dump, manifest_path):
     authorized.update(str(row["id"]) for row in source["users"] if row.get("is_admin") == 1)
     recommendations = []
     recommendation_keys = Counter()
+    unattributed_recommendations = []
     for row in source["devteam_recommendations"]:
         project = row.get("project_id")
         root = roots.get(str(project)) if project is not None else None
@@ -319,11 +324,19 @@ def source_reconcile(data, dump, manifest_path):
                 or not row.get("created_at") or not row.get("updated_at")):
             failures.append({"kind": "invalid_source_recommendation"})
             continue
+        base = bases[root]
+        published_source = str(base.get("published_project_id") or root)
+        published = projects.get(published_source)
+        published_at = (published.get("latest_approved_at") or published.get("reviewed_at")) if published else None
+        if (published is None or not published_at or not published.get("created_at")
+                or published_at > row["created_at"] or published["created_at"] > row["created_at"]):
+            unattributed_recommendations.append(stable(row))
+            continue
         recommendation_keys[(curator, root)] += 1
         recommendations.append(stable({
             "id": "legacy-recommendation-" + hashlib.sha256(stable([curator, root]).encode()).hexdigest(),
-            "curator_id": curator, "project_id": root, "comment": row["comment_text"],
-            "reaction": row["reaction_label"], "created_at": row["created_at"], "updated_at": row["updated_at"],
+            "curator_id": curator, "project_id": root, "project_version_id": version_id(published_source), "comment": row["comment_text"],
+            "created_at": row["created_at"], "updated_at": row["updated_at"],
         }))
     if any(count != 1 for count in recommendation_keys.values()):
         failures.append({"kind": "duplicate_source_recommendation"})
@@ -339,6 +352,7 @@ def source_reconcile(data, dump, manifest_path):
         ("daily_random_draw_state", "daily draw excluded from migration"),
         ("r2", "zero-byte worldbook omitted"),
         ("devteam_recommendations", "recommendation belongs to excluded project"),
+        ("devteam_recommendations", "recommendation current version attribution unavailable; source backup retained"),
         ("users", "legacy privileges not migrated"),
         ("admins", "legacy privileges not migrated"),
         ("super_admins", "legacy privileges not migrated"),
@@ -349,7 +363,11 @@ def source_reconcile(data, dump, manifest_path):
         ("projects", "legacy metadata has no snapshot mapping"),
         ("discovery_feature_history", "legacy daily feature history excluded from snapshot"),
         ("admin_action_logs", "missing audit actor retained in detail"),
+        ("admin_action_logs", "obsolete review/count audit excluded; source backup retained"),
         ("project_metadata_audit_logs", "missing audit actor retained in detail"),
+        ("character_references", "reference baseline feature removed (R-18); source backup retained"),
+        ("character_reference_versions", "reference baseline feature removed (R-18); source backup retained"),
+        ("character_reference_items", "reference baseline feature removed (R-18); source backup retained"),
     } | {(name, reason) for name in
          ("project_likes", "project_subscribes", "project_ratings", "project_metric_daily")
          for reason in ("relation belongs to excluded project", "relation belongs to omitted historical revision")}
@@ -369,6 +387,7 @@ def source_reconcile(data, dump, manifest_path):
     def omitted(table, reason):
         return (stable(item.get("source")) for item in omissions
                 if isinstance(item, dict) and item.get("table") == table and item.get("reason") == reason)
+    compare("removed_review_count_audits", removed_audits, omitted("admin_action_logs", "obsolete review/count audit excluded; source backup retained"))
     compare("excluded_projects", (stable(projects[pid]) for pid in excluded),
             omitted("projects", "excluded project with known missing draft"))
     compare("historical_revisions", (stable(row) for pid, row in projects.items()
@@ -376,6 +395,9 @@ def source_reconcile(data, dump, manifest_path):
             omitted("projects", "historical revision outside current snapshot"))
     compare("daily_draw_exclusions", (stable(row) for row in source["daily_random_draw_state"]),
             omitted("daily_random_draw_state", "daily draw excluded from migration"))
+    for name in ("character_references", "character_reference_versions", "character_reference_items"):
+        compare(name + "_exclusions", (stable(row) for row in source[name]),
+                omitted(name, "reference baseline feature removed (R-18); source backup retained"))
     compare("discovery_feature_history_exclusions",
             (stable(row) for row in source["discovery_feature_history"]),
             omitted("discovery_feature_history", "legacy daily feature history excluded from snapshot"))
@@ -397,6 +419,8 @@ def source_reconcile(data, dump, manifest_path):
     compare("recommendation_exclusions", (stable(row) for row in source["devteam_recommendations"]
                                            if roots.get(str(row["project_id"])) in excluded_roots),
             omitted("devteam_recommendations", "recommendation belongs to excluded project"))
+    compare("unattributed_recommendation_exclusions", unattributed_recommendations,
+            omitted("devteam_recommendations", "recommendation current version attribution unavailable; source backup retained"))
 
     manifest_objects = {}
     for bucket, info in manifest.get("buckets", {}).items():
@@ -478,7 +502,7 @@ def source_reconcile(data, dump, manifest_path):
     incomplete = set()
     for asset in source_assets:
         pid, kind = asset["source_id"], asset["kind"]
-        rid = revision_id(pid)
+        rid = version_id(pid)
         validation = validations[asset["id"]]
         error = validation.get("error")
         if error and validation.get("stage") != "content":
@@ -530,30 +554,35 @@ def source_reconcile(data, dump, manifest_path):
     content_ids = {asset["source_id"] for asset in retained_assets if asset["kind"] in ("worldbook", "regex")}
     compare("no_content_omissions",
             (stable({"id": projects[pid]["id"]}) for pid in current_ids
-             if pid not in empty_worldbook_ids and pid not in content_ids and revision_id(pid) not in incomplete),
+             if pid not in empty_worldbook_ids and pid not in content_ids and version_id(pid) not in incomplete),
             omitted("projects", "source revision has no content asset"))
     expected_entries = [entry for entry in extracted_entries if entry[0] not in incomplete]
-    compare("revision_entry_index", expected_entries,
-            ((row.get("revision_id"), row.get("kind"), row.get("entry_key"), row.get("name"),
-              row.get("content_hash"), row.get("content_length")) for row in tables["revision_entry_index"]))
+    actual_entries = []
+    for row in tables["project_versions"]:
+        document = json.loads(row["entry_index"]) if row.get("entry_index") is not None else None
+        if document is not None:
+            if document.get("schemaVersion") != 1 or set(document) != {"schemaVersion", "entries"}:
+                failures.append({"kind": "invalid_version_index_document"})
+            actual_entries.extend((row["id"], e["kind"], e["entryKey"], e["name"], e["contentHash"], e["contentLength"]) for e in document["entries"])
+    compare("version_entry_index", expected_entries, actual_entries)
     index_counts = Counter((entry[0], entry[1]) for entry in expected_entries)
     assets_by_revision = {}
     for asset in retained_assets:
-        assets_by_revision.setdefault(revision_id(asset["source_id"]), []).append(asset)
+        assets_by_revision.setdefault(version_id(asset["source_id"]), []).append(asset)
     expected_readiness = []
     for pid in current_ids:
-        rid = revision_id(pid)
+        rid = version_id(pid)
         hashes = "\n".join(asset["kind"] + ":" + asset["sha256"] for asset in
                            sorted(assets_by_revision.get(rid, []), key=lambda asset: (asset["kind"], asset["target"])))
         expected_readiness.append((rid, int(rid not in incomplete),
                                    index_counts[(rid, "worldbook")], index_counts[(rid, "regex")],
                                    hashlib.sha256(hashes.encode()).hexdigest() if rid not in incomplete else None))
     compare("revision_content_readiness", expected_readiness,
-            ((row.get("id"), row.get("entry_index_ready"), row.get("worldbook_count"),
-              row.get("regex_count"), row.get("manifest_hash")) for row in tables["project_revisions"]))
+            ((row.get("id"), int(row.get("entry_index") is not None), row.get("worldbook_count"),
+              row.get("regex_count"), row.get("manifest_hash")) for row in tables["project_versions"]))
     report["incomplete_content_revisions"] = len(incomplete)
     compare("assets", expected_assets,
-            ((str(row["project_id"]), row.get("revision_id"), row.get("kind"), row.get("r2_key"),
+            ((str(row["project_id"]), row.get("version_id"), row.get("kind"), row.get("r2_key"),
               row.get("sha256"), row.get("bytes")) for row in tables.get("assets", [])))
     objects = data.get("objects", [])
     compare("objects", expected_objects,
@@ -651,11 +680,11 @@ def reconcile(data, snapshot):
         fk_count = sum(1 for _ in db.execute("PRAGMA foreign_key_check"))
         if fk_count:
             failures.append({"kind": "foreign_key_violations", "count": fk_count})
-        if {"projects", "project_revisions"} <= schema:
-            for column in ("working_revision_id", "published_revision_id"):
+        if {"projects", "project_versions"} <= schema:
+            for column in ("working_version_id", "published_version_id"):
                 count = db.execute(
                     "SELECT count(*) FROM projects p WHERE p." + quote(column) +
-                    " IS NOT NULL AND NOT EXISTS (SELECT 1 FROM project_revisions r WHERE r.id = p." +
+                    " IS NOT NULL AND NOT EXISTS (SELECT 1 FROM project_versions r WHERE r.id = p." +
                     quote(column) + " AND r.project_id = p.id)").fetchone()[0]
                 if count:
                     failures.append({"kind": "invalid_project_revision_pointer", "column": column, "count": count})
@@ -663,7 +692,7 @@ def reconcile(data, snapshot):
             count = db.execute(
                 "SELECT count(*) FROM projects p WHERE p.published_cover_asset_id IS NOT NULL "
                 "AND NOT EXISTS (SELECT 1 FROM assets a WHERE a.id = p.published_cover_asset_id "
-                "AND a.project_id = p.id AND a.revision_id IS NULL AND a.kind = 'cover')").fetchone()[0]
+                "AND a.project_id = p.id AND a.version_id IS NULL AND a.kind = 'cover')").fetchone()[0]
             if count:
                 failures.append({"kind": "invalid_project_cover_pointer", "count": count})
         report["ok"] = not failures and not data["diagnostics"]

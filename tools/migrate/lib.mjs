@@ -48,25 +48,34 @@ export function transform(source) {
   for (const sourceProject of selected) {
     const built = projectRows(sourceProject, userById, tables.projects, skipped);
     if (!built) continue;
-    const { project, revision, author } = built;
+    const { project, version, author } = built;
     const { id, author_id: authorId } = project;
-    const builtAssets = assetRows(project, revision, assetsByProject.get(id) ?? [], skipped);
+    const builtAssets = assetRows(project, version, assetsByProject.get(id) ?? [], skipped);
     if (!builtAssets.ok) {
       skipped.push({ project_id: id, reason: builtAssets.reason });
       continue;
     }
     const assets = builtAssets.values;
-    const indexes = assets.flatMap((asset) => asset.entries.map((entry) => ({ revision_id: revision.id, ...entry })));
-    revision.worldbook_count = indexes.filter((entry) => entry.kind === "worldbook").length;
-    revision.regex_count = indexes.filter((entry) => entry.kind === "regex").length;
-    revision.manifest_hash = manifestHash(assets);
+    const indexes = assets.flatMap((asset) => asset.entries.map((entry) => ({ version_id: version.id, ...entry })));
+    version.worldbook_count = indexes.filter((entry) => entry.kind === "worldbook").length;
+    version.regex_count = indexes.filter((entry) => entry.kind === "regex").length;
+    version.manifest_hash = manifestHash(assets);
+    version.entry_index = JSON.stringify({
+      schemaVersion: 1,
+      entries: indexes.map((entry) => ({
+        kind: entry.kind,
+        entryKey: entry.entry_key,
+        name: entry.name,
+        contentHash: entry.content_hash,
+        contentLength: entry.content_length,
+      })),
+    });
     tables.projects.push(project);
-    tables.project_revisions.push(revision);
+    tables.project_versions.push(version);
     for (const { entries, source_key, ...asset } of assets) {
       tables.assets.push(asset);
       assetSources[asset.id] = source_key;
     }
-    tables.revision_entry_index.push(...indexes);
     if (!tables.users.some((user) => user.id === authorId)) {
       tables.users.push(memberRow(author));
     }
@@ -138,13 +147,11 @@ export function insertSql(table, rows, { columns, onConflict = "" } = {}) {
 /** Deterministic additive SQL for a verified migration target. */
 export function migrationSql(target) {
   const tables = target?.tables ?? {};
-  const order = ["users", "projects", "project_revisions", "assets", "revision_entry_index"];
-  const covered = ["projects", "assets", "revision_entry_index"].map(
-    (name) => `${name}=${(tables[name] ?? []).length}`,
-  );
+  const order = ["users", "projects", "project_versions", "assets"];
+  const covered = ["projects", "assets", "project_versions"].map((name) => `${name}=${(tables[name] ?? []).length}`);
   const header = [
     "-- Additive workshop staging import. Public users, published projects, current",
-    "-- revisions, retained assets, and complete entry indexes only.",
+    "-- versions, retained assets, and complete entry indexes only.",
     "-- No UPDATE, DELETE, REPLACE, or schema change; conflicts are left untouched.",
     `-- Target: ${covered.join(" ")}`,
     "PRAGMA foreign_keys = ON;",

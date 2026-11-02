@@ -56,6 +56,37 @@ def order_tables(db, names):
     return ordered
 
 
+# The stored row/value limit is independent of the 64 KB SQL statement limit.
+# Account for UTF-8 payload and worst-case SQLite record headers, and also the
+# actual JSON representation so escaping/serialization cannot hide large input.
+MAX_STORED_ROW_BYTES = 2_000_000
+
+
+def stored_row_size(row):
+    values = list(dict(row).values())
+    payload = sum(len(value.encode("utf-8")) if isinstance(value, str)
+                  else len(value) if isinstance(value, bytes)
+                  else 0 if value is None else 8 for value in values)
+    record_bound = payload + 9 * (len(values) + 1)
+    serialized = json.dumps(dict(row), ensure_ascii=False, separators=(",", ":"),
+                            default=lambda value: value.hex() if isinstance(value, bytes) else str(value))
+    return max(record_bound, len(serialized.encode("utf-8")))
+
+
+def stored_size_failures(db):
+    failures = []
+    # Include stored defaults and generated values, not only input fields.
+    names = [row[0] for row in db.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")]
+    for name in names:
+        cursor = db.execute("SELECT * FROM " + quote(name))
+        keys = [column[0] for column in cursor.description]
+        count = sum(stored_row_size(dict(zip(keys, row))) > MAX_STORED_ROW_BYTES for row in cursor)
+        if count:
+            failures.append({"kind": "stored_row_too_large", "table": name, "count": count,
+                             "limit_bytes": MAX_STORED_ROW_BYTES})
+    return failures
+
 def validate(preparation, directory):
     report = {"format": "workshop-full-migration-validation-v1", "ok": False,
               "migration_count": 0, "diagnostics_count": 0, "tables": {}, "failures": []}
@@ -121,6 +152,9 @@ def validate(preparation, directory):
                 if any(not isinstance(key, str) or key not in columns for key in row):
                     fail("unknown_columns", table=name, row=index)
                     continue
+                if stored_row_size(row) > MAX_STORED_ROW_BYTES:
+                    fail("stored_row_too_large", table=name, row=index, limit_bytes=MAX_STORED_ROW_BYTES)
+                    continue
                 keys = list(row)
                 sql = ("INSERT INTO " + quote(name) + " (" + ", ".join(map(quote, keys)) + ") VALUES (" +
                        ", ".join("?" for _ in keys) + ")") if keys else "INSERT INTO " + quote(name) + " DEFAULT VALUES"
@@ -154,12 +188,12 @@ def validate(preparation, directory):
         for table, _rowid, _parent, _fkid in db.execute("PRAGMA foreign_key_check"):
             fail("foreign_key_violation", table=table if table in schema else "unknown")
         # These project pointers are intentionally not declared as SQL FKs.
-        if {"projects", "project_revisions"} <= schema:
-            for column in ("working_revision_id", "published_revision_id"):
+        if {"projects", "project_versions"} <= schema:
+            for column in ("working_version_id", "published_version_id"):
                 project_columns = {row[1] for row in db.execute("PRAGMA table_info(projects)")}
                 if column in project_columns:
                     count = db.execute("SELECT count(*) FROM projects p WHERE p." + quote(column) +
-                        " IS NOT NULL AND NOT EXISTS (SELECT 1 FROM project_revisions r WHERE r.id = p." +
+                        " IS NOT NULL AND NOT EXISTS (SELECT 1 FROM project_versions r WHERE r.id = p." +
                         quote(column) + " AND r.project_id = p.id)").fetchone()[0]
                     if count:
                         fail("invalid_project_revision_pointer", column=column, count=count)
@@ -169,10 +203,11 @@ def validate(preparation, directory):
                 count = db.execute(
                     "SELECT count(*) FROM projects p WHERE p.published_cover_asset_id IS NOT NULL "
                     "AND NOT EXISTS (SELECT 1 FROM assets a WHERE a.id = p.published_cover_asset_id "
-                    "AND a.project_id = p.id AND a.revision_id IS NULL AND a.kind = 'cover')"
+                    "AND a.project_id = p.id AND a.version_id IS NULL AND a.kind = 'cover')"
                 ).fetchone()[0]
                 if count:
                     fail("invalid_project_cover_pointer", count=count)
+        failures.extend(stored_size_failures(db))
         db.rollback()
     except sqlite3.Error as exc:
         fail("validation_failed", error=error_code(exc))

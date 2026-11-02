@@ -11,7 +11,7 @@ never contacts Cloudflare, uploads, or modifies either input. It produces:
   tables: candidate target rows, NOT an executable or verified migration;
   objects: {sourceBucket,sourceKey,targetKey,sha256,bytes} transfer plan;
   diagnostics: unresolved, record-level business-data issues.
-  revision_provenance: source row identity and snapshot metadata;
+  version_provenance: source row identity and snapshot metadata;
   omissions: source records or fields deliberately excluded from the snapshot.
 
 A nonempty diagnostics list blocks loading. Even an empty list does not prove
@@ -48,12 +48,12 @@ DERIVED = {
     "devteam_curators",
 }
 EPHEMERAL = {"download_daily_usage", "project_like_daily_usage", "repair_resolve_daily_usage"}
-EXCLUDED = {"daily_random_draw_state", "admins", "super_admins"}
+EXCLUDED = {"daily_random_draw_state", "admins", "super_admins", "character_references",
+            "character_reference_versions", "character_reference_items"}
 MISSING_DRAFTS = {"6497309b-990f-486c-ae32-06b675226e6e", "726d5157-9716-4863-9175-732bf8469dcf"}
 MAPPED = {
     "users", "projects", "project_likes", "project_subscribes", "project_ratings",
-    "project_metric_daily", "character_references", "character_reference_versions",
-    "character_reference_items", "site_settings", "devteam_recommendations",
+    "project_metric_daily", "site_settings", "devteam_recommendations",
     "admin_action_logs", "project_metadata_audit_logs", "discovery_feature_history",
 }
 REQUIRED = MAPPED | {"admins", "super_admins", "admin_action_logs", "project_metadata_audit_logs"}
@@ -152,10 +152,9 @@ def main():
               for name in names}
     db.close()
     tables = defaultdict(list)
-    for name in ("users", "projects", "project_revisions", "project_likes", "project_subscriptions",
-                 "project_ratings", "project_metrics_daily", "reference_sets", "reference_versions",
-                 "reference_items", "audit_events", "recommendations", "assets",
-                 "revision_entry_index", "site_settings"):
+    for name in ("users", "projects", "project_versions", "project_likes", "project_subscriptions",
+                 "project_ratings", "project_metrics_daily", "audit_events", "recommendations", "assets",
+                 "version_entry_index", "site_settings"):
         tables[name] = []
     issues = []
 
@@ -179,6 +178,7 @@ def main():
         if category == "excluded":
             for row in source[name]:
                 omit(name, row, "daily draw excluded from migration" if name == "daily_random_draw_state"
+                     else "reference baseline feature removed (R-18); source backup retained" if name.startswith("character_reference")
                      else "legacy privileges not migrated")
         if category == "unmapped":
             for row in source[name]:
@@ -248,7 +248,7 @@ def main():
 
     revision_by_source = {}
     accepted_roots = set()
-    revision_provenance = []
+    version_provenance = []
     for root, versions in sorted(groups.items()):
         if root in excluded_roots:
             continue
@@ -267,7 +267,7 @@ def main():
         ordered = sorted((v for v in versions if str(v["id"]) in selected_ids),
                          key=lambda v: (str(v["id"]) != root, str(v["id"])))
         if any(str(v["author_id"]) != str(base["author_id"]) for v in ordered):
-            issue("projects", base, "project revisions have different authors")
+            issue("projects", base, "project versions have different authors")
             continue
         for v in versions:
             if str(v["id"]) not in selected_ids:
@@ -289,31 +289,31 @@ def main():
         def common(v):
             return {"title": v["name"], "description": v.get("description"), "author_note": None,
                     "project_type": v.get("project_type"), "extension_type": v.get("extension_type"),
-                    "version_label": v.get("version_label") or v.get("version"), "precautions": v.get("precautions"),
+                    "version_label": v.get("version_label") or v.get("version"),
+                    "requirements": stable({"schemaVersion": 1, "dependencies": [], "conflicts": [], "notes": v["precautions"]}) if v.get("precautions") is not None else None,
                     "cover_position_x": v.get("cover_position_x"), "cover_position_y": v.get("cover_position_y"),
                     "cover_zoom": v.get("cover_zoom")}
-        tables["projects"].append({"id": root, "author_id": str(base["author_id"]), **common(projection),
-            "search_tags": mapped_tags[str(projection["id"])][0], "visibility": "public" if visible else "private",
-            "working_revision_id": revision_by_source[str(draft_id)],
-            "published_revision_id": revision_by_source[str(published_id)] if pub else None,
+        tables["projects"].append({"id": root, "author_id": str(base["author_id"]),
+            "visibility": "public" if visible else "private",
+            "working_version_id": revision_by_source[str(draft_id)],
+            "published_version_id": revision_by_source[str(published_id)] if pub else None,
             "published_at": published_at, "downloads_count": base.get("downloads_count") or 0,
-            "published_discord_thread_url": pub.get("discord_thread_url") if pub else None,
             "likes_count": base.get("likes_count") or 0, "subscriptions_count": 0,
             "created_at": base["created_at"], "updated_at": base["updated_at"]})
         for number, v in enumerate(ordered, 1):
             vid = str(v["id"])
             rid = revision_by_source[vid]
-            tables["project_revisions"].append({"id": rid, "project_id": root, "revision_no": number,
+            tables["project_versions"].append({"id": rid, "project_id": root, "version_no": number,
                 **common(v), "tags": mapped_tags[vid][0], "discord_thread_url": v.get("discord_thread_url"),
                 "created_by": str(v["author_id"]), "created_at": v.get("created_at"), "entry_index_ready": 0})
-            revision_provenance.append({"revision_id": rid, "source_project_id": vid,
+            version_provenance.append({"version_id": rid, "source_project_id": vid,
                 "source_root_project_id": root, "source_created_at": v.get("created_at"),
                 "source_updated_at": v.get("updated_at"), "source_reviewed_at": v.get("reviewed_at"),
                 "source_latest_approved_at": v.get("latest_approved_at"),
                 "source_status": v.get("status"), "source_accepted_code_check": v.get("accepted_code_check"),
                 "source_published_project_id": v.get("published_project_id"),
                 "source_draft_project_id": v.get("draft_project_id"),
-                "revision_no_is_synthetic": True, "snapshot_creation_time_known": False})
+                "version_no_is_synthetic": True, "snapshot_creation_time_known": False})
             revision_sources[rid] = v
             history_fields = ("reviewed_at", "reviewer_id", "reject_reason", "accepted_code_check")
             if any(v.get(field) for field in history_fields) or v.get("status") not in ("approved", None):
@@ -355,7 +355,7 @@ def main():
                     revision_incomplete.add(rid)
                     continue
                 tables["assets"].append({"id": identifier("legacy-asset", rid, kind), "project_id": root,
-                    "revision_id": rid, "kind": kind, "r2_key": target, "sha256": sha, "bytes": obj["size"],
+                    "version_id": rid, "kind": kind, "r2_key": target, "sha256": sha, "bytes": obj["size"],
                     "mime": (obj.get("http_metadata") or {}).get("contentType") or
                             ("application/json" if kind != "cover" else "application/octet-stream"),
                     "created_at": v.get("created_at")})
@@ -374,10 +374,10 @@ def main():
         validations = {item["id"]: item for item in json.loads(completed.stdout)}
         if set(validations) != {item["id"] for item in content_requests}:
             raise ValueError("content validation did not return exactly one result per asset")
-        valid_regex = {(asset["revision_id"], asset["sha256"], asset["bytes"])
+        valid_regex = {(asset["version_id"], asset["sha256"], asset["bytes"])
                        for asset in tables["assets"] if asset["kind"] == "regex"
                        and asset["id"] in validations and not validations[asset["id"]].get("error")}
-        valid_content = {asset["revision_id"] for asset in tables["assets"]
+        valid_content = {asset["version_id"] for asset in tables["assets"]
                          if asset["kind"] in ("worldbook", "regex") and asset["id"] in validations
                          and not validations[asset["id"]].get("error")}
         private_projects = {project["id"] for project in tables["projects"] if project["visibility"] == "private"}
@@ -387,43 +387,43 @@ def main():
             if validation is None or validation.get("error"):
                 if (validation and asset["kind"] == "worldbook"
                         and validation.get("error") == "检测到正则 JSON，请上传到正则文件"
-                        and (asset["revision_id"], asset["sha256"], asset["bytes"]) in valid_regex):
-                    omit("projects", {"id": revision_sources[asset["revision_id"]]["id"],
+                        and (asset["version_id"], asset["sha256"], asset["bytes"]) in valid_regex):
+                    omit("projects", {"id": revision_sources[asset["version_id"]]["id"],
                                       "sha256": asset["sha256"]},
                          "worldbook duplicates validated regex asset")
                     continue
                 if validation and validation.get("stage") == "content" and asset["kind"] in ("worldbook", "regex"):
-                    asset_source = {"id": revision_sources[asset["revision_id"]]["id"],
+                    asset_source = {"id": revision_sources[asset["version_id"]]["id"],
                                     "kind": asset["kind"], "sha256": asset["sha256"]}
                     if validation["error"] == "duplicate entry keys":
                         kept_assets.append(asset)
-                        revision_incomplete.add(asset["revision_id"])
+                        revision_incomplete.add(asset["version_id"])
                         omit("projects", asset_source, "content index unavailable: duplicate entry keys")
                         continue
-                    if asset["revision_id"] in valid_content:
+                    if asset["version_id"] in valid_content:
                         omit("projects", asset_source, "invalid content asset omitted: " + validation["error"])
                         continue
                     if asset["project_id"] in private_projects:
-                        revision_incomplete.add(asset["revision_id"])
+                        revision_incomplete.add(asset["version_id"])
                         omit("projects", asset_source, "invalid content asset omitted: " + validation["error"])
                         continue
-                issue("projects", revision_sources[asset["revision_id"]],
+                issue("projects", revision_sources[asset["version_id"]],
                       "asset validation failed: " + (validation.get("error", "not validated") if validation else "not validated"))
-                revision_incomplete.add(asset["revision_id"])
+                revision_incomplete.add(asset["version_id"])
                 continue
             kept_assets.append(asset)
             for entry in validation["entries"]:
-                tables["revision_entry_index"].append({"revision_id": asset["revision_id"], **entry})
+                tables["version_entry_index"].append({"version_id": asset["version_id"], **entry})
         tables["assets"] = kept_assets
         retained_targets = {asset["r2_key"] for asset in kept_assets}
         objects = [obj for obj in objects if obj["targetKey"] in retained_targets]
-        tables["revision_entry_index"] = [entry for entry in tables["revision_entry_index"]
-                                           if entry["revision_id"] not in revision_incomplete]
+        tables["version_entry_index"] = [entry for entry in tables["version_entry_index"]
+                                           if entry["version_id"] not in revision_incomplete]
         assets_by_revision = defaultdict(list)
         for asset in kept_assets:
-            assets_by_revision[asset["revision_id"]].append(asset)
-        index_counts = Counter((entry["revision_id"], entry["kind"]) for entry in tables["revision_entry_index"])
-        for revision in tables["project_revisions"]:
+            assets_by_revision[asset["version_id"]].append(asset)
+        index_counts = Counter((entry["version_id"], entry["kind"]) for entry in tables["version_entry_index"])
+        for revision in tables["project_versions"]:
             rid = revision["id"]
             assets = assets_by_revision[rid]
             content = [asset for asset in assets if asset["kind"] in ("worldbook", "regex")]
@@ -437,7 +437,7 @@ def main():
                                    sorted(assets, key=lambda asset: (asset["kind"], asset["r2_key"])))
                 revision["manifest_hash"] = hashlib.sha256(hashes.encode()).hexdigest()
     else:
-        for revision in tables["project_revisions"]:
+        for revision in tables["project_versions"]:
             if revision["id"] not in empty_worldbooks and revision["id"] not in revision_incomplete:
                 omit("projects", {"id": revision_sources[revision["id"]]["id"]}, "source revision has no content asset")
             if revision["id"] not in revision_incomplete:
@@ -475,9 +475,6 @@ def main():
         if row["likes_count"] != likes[row["id"]]:
             issue("projects", projects[row["id"]], "legacy likes count differs from mapped active likes")
     for name, target, rename in (
-        ("character_references", "reference_sets", {}),
-        ("character_reference_versions", "reference_versions", {"character_reference_id": "reference_set_id"}),
-        ("character_reference_items", "reference_items", {}),
         ("site_settings", "site_settings", {}),
     ):
         for row in source[name]:
@@ -487,9 +484,16 @@ def main():
                     issue(name, row, "referenced user is missing: " + field)
             tables[target].append(mapped)
     transform_history(source, tables, issue, omit, roots, accepted_roots, excluded_roots, users, identifier)
+    indexes = defaultdict(list)
+    for entry in tables.pop("version_entry_index"):
+        indexes[entry["version_id"]].append({"kind": entry["kind"], "entryKey": entry["entry_key"],
+            "name": entry["name"], "contentHash": entry["content_hash"], "contentLength": entry["content_length"]})
+    for version in tables["project_versions"]:
+        ready = version.pop("entry_index_ready")
+        version["entry_index"] = stable({"schemaVersion": 1, "entries": sorted(indexes[version["id"]], key=lambda e: (e["kind"], e["entryKey"]))}) if ready else None
     result = {"format": "workshop-full-migration-preparation-v1", "inventory": inventory,
               "tables": {name: sorted(rows, key=stable) for name, rows in sorted(tables.items())},
-              "revision_provenance": sorted(revision_provenance, key=lambda row: row["revision_id"]),
+              "version_provenance": sorted(version_provenance, key=lambda row: row["version_id"]),
               "objects": sorted(objects, key=lambda row: (row["targetKey"], row["sourceBucket"], row["sourceKey"])),
               "omissions": sorted(omissions, key=stable),
               "diagnostics": sorted(issues, key=stable)}
