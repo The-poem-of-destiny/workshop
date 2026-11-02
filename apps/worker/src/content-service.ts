@@ -8,6 +8,7 @@ import {
 import { analyzeFiles, REVIEW_CHECKER_REVISION, routeGate } from "./content-checker";
 import type { Env } from "./env";
 import { validateContentStream } from "./streaming-content";
+import { maintenanceUnavailable, withWriteBarrier } from "./write-barrier";
 
 interface RunTarget {
   id: string;
@@ -92,7 +93,7 @@ async function baselineConflict(
 export class ContentService implements DurableObject {
   constructor(
     private readonly state: DurableObjectState,
-    _env: Env,
+    private readonly env: Env,
   ) {}
 
   async fetch(request: Request): Promise<Response> {
@@ -124,7 +125,13 @@ export class ContentService implements DurableObject {
       return this.validateRevision(validateRevision, validateProjectId);
     }
     if (!submissionId) return Response.json({ error: "bad_request" }, { status: 400 });
-    return this.runSubmission(submissionId);
+    try {
+      const result = await withWriteBarrier(this.env, "content", () => this.runSubmission(submissionId));
+      return result.admitted ? result.value : maintenanceUnavailable();
+    } catch (error) {
+      console.error("Maintenance barrier content work failed", error);
+      return maintenanceUnavailable();
+    }
   }
 
   private async runSubmission(submissionId: string): Promise<Response> {
