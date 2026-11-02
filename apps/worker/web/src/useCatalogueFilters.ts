@@ -24,7 +24,7 @@ export function useCatalogueFilters() {
   const [author, setAuthor] = useState<{ id: string; name: string } | null>(null);
   const [tag, setTag] = useState("");
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<(typeof SORTS)[number][0]>("updated");
+  const [sort, setSort] = useState<(typeof SORTS)[number][0]>("published");
   function clearFilters(): void {
     setSearch("");
     setProjectType("");

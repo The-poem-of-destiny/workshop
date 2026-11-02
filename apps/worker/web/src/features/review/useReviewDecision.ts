@@ -50,11 +50,10 @@ export function useReviewDecision({
 }: ReviewDecisionOptions) {
   const report = useMemo(() => {
     if (!detail) return null;
-    return parseCheckReport(detail.submission.checkReport) ?? parseCheckReport(detail.checkRuns[0]?.report);
+    return parseCheckReport(detail.submission.checkReport);
   }, [detail]);
 
-  const latestRun = detail?.checkRuns[0] ?? null;
-  const routeGate = latestRun?.routeGate ?? report?.routeGate ?? null;
+  const routeGate = report?.routeGate ?? null;
   const checkFailed = detail?.submission.checkStatus === "failed";
   const checking = detail
     ? detail.submission.checkStatus === "queued" || detail.submission.checkStatus === "running"
@@ -97,8 +96,8 @@ export function useReviewDecision({
       await api.adminReview(currentId, {
         decision: currentDecision,
         reason: trimmedReason || undefined,
-        revisionId: detail.revision.id,
-        manifestHash: detail.revision.manifestHash ?? undefined,
+        versionId: detail.version.id,
+        manifestHash: detail.version.manifestHash ?? undefined,
         reportHash: detail.submission.checkReportHash ?? undefined,
       });
       if (sessionGeneration !== getSessionGeneration()) return;
@@ -152,7 +151,6 @@ export function useReviewDecision({
     recheck,
     routeGate,
     report,
-    latestRun,
     openDecision,
     manualApproval,
     confirmDisabled,

@@ -32,7 +32,7 @@ type InstalledRowProps = {
 function InstalledRow({ item, mutating, onRetry, onOpen, onUpdate, onUninstall, onMigrate }: InstalledRowProps) {
   const instance = item.instance;
   const removed = !item.failed && item.project === null;
-  const update = Boolean(item.project?.publishedRevisionId && item.project.publishedRevisionId !== instance.version);
+  const update = Boolean(item.project?.publishedVersionId && item.project.publishedVersionId !== instance.version);
   return (
     <li className="installed-item">
       <div className="installed-main">
@@ -47,9 +47,9 @@ function InstalledRow({ item, mutating, onRetry, onOpen, onUpdate, onUninstall, 
           <span>
             安装版本：<code>{instance.version}</code>
           </span>
-          {item.project?.publishedRevisionId ? (
+          {item.project?.publishedVersionId ? (
             <span>
-              发布版本：<code>{item.project.publishedRevisionId}</code>
+              发布版本：<code>{item.project.publishedVersionId}</code>
             </span>
           ) : null}
         </p>

@@ -8,6 +8,7 @@ import type {
   AdminProjectList,
   AdminSubmissionDetail,
   AdminSubmissionListResponse,
+  AuditAction,
   AuthFlowResponse,
   AuthorProject,
   AuthorProjectListResponse,
@@ -29,9 +30,6 @@ import type {
   ProjectPreviewKind,
   ProjectSummary,
   Recommendation,
-  ReferenceItem,
-  ReferenceSet,
-  ReferenceVersion,
   SiteSettings,
   SubmissionDiff,
   SubmitResponse,
@@ -48,6 +46,7 @@ export type {
   AdminProjectList,
   AdminSubmissionDetail,
   AdminSubmissionListResponse,
+  AuditAction,
   AuthorProject,
   AuthorProjectListResponse,
   AuthorSubmission,
@@ -66,9 +65,6 @@ export type {
   ProjectPreviewKind,
   ProjectSummary,
   Recommendation,
-  ReferenceItem,
-  ReferenceSet,
-  ReferenceVersion,
   SiteSettings,
   SubmissionDiff,
 };
@@ -216,8 +212,8 @@ export const api = {
     const query = new URLSearchParams();
     if (params.limit !== undefined && params.limit !== 25) query.set("limit", String(params.limit));
     if (params.search?.trim()) query.set("search", params.search.trim());
-    if (params.sort && params.sort !== "updated") query.set("sort", params.sort);
-    if (params.period && params.period !== "all" && (params.sort === "likes" || params.sort === "downloads")) {
+    if (params.sort && params.sort !== "published") query.set("sort", params.sort);
+    if (params.period && params.period !== "30d" && (params.sort === "likes" || params.sort === "downloads")) {
       query.set("period", params.period);
     }
     if (params.cursor) query.set("cursor", params.cursor);
@@ -263,51 +259,48 @@ export const api = {
       body: JSON.stringify(body),
     }),
   patchProject: (id: string, rowVersion: number, body: Record<string, unknown>) =>
-    requestJson<{ rowVersion: number; revisionId: string }>("/api/v1/projects/" + encodeURIComponent(id), {
+    requestJson<{ rowVersion: number; versionId: string }>("/api/v1/projects/" + encodeURIComponent(id), {
       method: "PATCH",
       headers: { "content-type": "application/json", "if-match": String(rowVersion) },
       body: JSON.stringify(body),
     }),
-  createRevision: (id: string, rowVersion: number, body: Record<string, unknown>) =>
-    requestJson<{ rowVersion: number; revisionId: string }>(
-      "/api/v1/projects/" + encodeURIComponent(id) + "/revisions",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json", "if-match": String(rowVersion) },
-        body: JSON.stringify(body),
-      },
-    ),
+  createVersion: (id: string, rowVersion: number, body: Record<string, unknown>) =>
+    requestJson<{ rowVersion: number; versionId: string }>("/api/v1/projects/" + encodeURIComponent(id) + "/versions", {
+      method: "POST",
+      headers: { "content-type": "application/json", "if-match": String(rowVersion) },
+      body: JSON.stringify(body),
+    }),
   deleteProject: (id: string, rowVersion: number) =>
     requestJson<void>("/api/v1/projects/" + encodeURIComponent(id), {
       method: "DELETE",
       headers: { "if-match": String(rowVersion) },
     }),
-  authorAsset: (id: string, revisionId: string, kind: "worldbook" | "regex") =>
+  authorAsset: (id: string, versionId: string, kind: "worldbook" | "regex") =>
     requestJson<unknown>(
-      `/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/files/${kind}`,
+      `/api/v1/projects/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/files/${kind}`,
     ),
   deleteProjectEntry: (
     id: string,
-    revisionId: string,
+    versionId: string,
     rowVersion: number,
     kind: "worldbook" | "regex",
     entryKey: string,
   ) =>
-    requestJson<{ rowVersion: number; revisionId: string; entryCount: number }>(
-      `/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/entries/${kind}/${encodeURIComponent(entryKey)}`,
+    requestJson<{ rowVersion: number; versionId: string; entryCount: number }>(
+      `/api/v1/projects/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/entries/${kind}/${encodeURIComponent(entryKey)}`,
       { method: "DELETE", headers: { "if-match": String(rowVersion) } },
     ),
-  authorCover: async (id: string, revisionId: string): Promise<Blob> => {
+  authorCover: async (id: string, versionId: string): Promise<Blob> => {
     const response = await fetch(
-      `/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/files/cover`,
+      `/api/v1/projects/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/files/cover`,
       { headers: authHeaders() },
     );
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
     return response.blob();
   },
-  uploadFile: (id: string, revisionId: string, rowVersion: number, kind: "worldbook" | "regex" | "cover", file: File) =>
+  uploadFile: (id: string, versionId: string, rowVersion: number, kind: "worldbook" | "regex" | "cover", file: File) =>
     requestJson<UploadResponse>(
-      `/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/files/${kind}`,
+      `/api/v1/projects/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/files/${kind}`,
       {
         method: "PUT",
         headers: { "content-type": file.type || "application/octet-stream", "if-match": String(rowVersion) },
@@ -319,14 +312,42 @@ export const api = {
       `/api/v1/projects/${encodeURIComponent(id)}/submissions/${encodeURIComponent(submissionId)}/withdraw`,
       { method: "POST", headers: { "if-match": String(rowVersion) } },
     ),
+  reportProjectChange: async (projectId: string, versionId: string) => {
+    type Evidence = {
+      versionId: string;
+      manifestHash: string;
+      index: { entries: Array<{ kind: string; entryKey: string; contentHash: string }> };
+    };
+    const { current, previous } = await requestJson<{ current: Evidence; previous: Evidence }>(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}/change-evidence`,
+    );
+    const before = new Map(previous.index.entries.map((e) => [`${e.kind}:${e.entryKey}`, e.contentHash]));
+    const after = new Map(current.index.entries.map((e) => [`${e.kind}:${e.entryKey}`, e.contentHash]));
+    const keys = new Set([...before.keys(), ...after.keys()]);
+    const changedEntries = [...keys].filter((key) => before.get(key) !== after.get(key)).length;
+    if (!changedEntries) return;
+    await requestJson("/api/v1/recommendations/changes", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId,
+        projectVersionId: versionId,
+        previousVersionId: previous.versionId,
+        previousManifestHash: previous.manifestHash,
+        currentManifestHash: current.manifestHash,
+        changedEntries,
+        totalEntries: keys.size,
+      }),
+    });
+  },
   submitProject: (
     id: string,
-    revisionId: string,
+    versionId: string,
     rowVersion: number,
-    body: { gate?: string; checkerRevision?: string; warningCount?: number; acknowledged?: boolean },
+    body: { gate?: "pass" | "warn" | "block"; checkerVersion?: string },
   ) =>
     requestJson<SubmitResponse>(
-      `/api/v1/projects/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}/submit`,
+      `/api/v1/projects/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/submit`,
       {
         method: "POST",
         headers: { "content-type": "application/json", "if-match": String(rowVersion) },
@@ -356,7 +377,7 @@ export const api = {
     body: {
       decision: "approve" | "reject";
       reason?: string;
-      revisionId?: string;
+      versionId?: string;
       manifestHash?: string;
       reportHash?: string;
     },
@@ -390,7 +411,7 @@ export const api = {
     const params = new URLSearchParams(location.search);
     const version = params.get("clientVersion");
     const channel = params.get("clientChannel");
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { "Idempotency-Key": crypto.randomUUID() };
     if (version) headers["x-client-version"] = version;
     if (channel === "stable" || channel === "staging") headers["x-client-channel"] = channel;
     return requestJson<AcquisitionPayload>(`/api/v1/projects/${encodeURIComponent(projectId)}/acquisitions`, {
@@ -398,17 +419,17 @@ export const api = {
       headers,
     });
   },
-  downloadTicketText: async (url: string) => {
+  downloadText: async (url: string) => {
     const response = await fetch(url, { headers: authHeaders() });
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
     return response.text();
   },
-  downloadTickets: (projectId: string) =>
-    requestJson<{ revisionId: string; files: { kind: string; url: string; expiresAt: string }[] }>(
+  downloads: (projectId: string) =>
+    requestJson<{ versionId: string; files: { kind: string; url: string }[] }>(
       `/api/v1/projects/${encodeURIComponent(projectId)}/downloads`,
-      { method: "POST" },
+      { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } },
     ),
-  downloadTicket: async (url: string) => {
+  downloadFile: async (url: string) => {
     const response = await fetch(url, { headers: authHeaders() });
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
     return response.blob();
@@ -438,41 +459,45 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     }),
-  auditEvents: (params: { action?: string; cursor?: string } = {}) => {
+  auditEvents: (params: { action?: AuditAction; cursor?: string } = {}) => {
     const query = new URLSearchParams({ limit: "20" });
     if (params.action) query.set("action", params.action);
     if (params.cursor) query.set("cursor", params.cursor);
     return requestJson<AdminAuditList>(`/api/v1/admin/audit-events?${query}`);
   },
-  updateRecommendation: (projectId: string, body: { comment?: string; reaction?: string }) =>
-    requestJson<{ id: string; comment: string; reaction: string }>(
+  recommendationSignals: (body: { runId: string; visible: string[]; clicked: string[] }) =>
+    requestJson<{ kind: "ok" }>("/api/v1/recommendations/signals", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  projectChangeSignal: (body: {
+    projectId: string;
+    projectVersionId: string;
+    previousVersionId: string;
+    previousManifestHash: string;
+    currentManifestHash: string;
+    changedEntries: number;
+    totalEntries: number;
+  }) =>
+    requestJson<{ kind: "ok" }>("/api/v1/recommendations/changes", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  playerRecommendation: (projectId: string, body: { projectVersionId: string; comment?: string }, remove: boolean) =>
+    requestJson<{ kind: "ok" }>(`/api/v1/recommendations/${encodeURIComponent(projectId)}`, {
+      method: remove ? "DELETE" : "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  updateRecommendation: (projectId: string, body: { comment?: string; projectVersionId: string }) =>
+    requestJson<{ id: string; comment: string; projectVersionId: string }>(
       `/api/v1/admin/recommendations/${encodeURIComponent(projectId)}`,
       { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
     ),
   deleteRecommendation: (projectId: string) =>
     requestJson<void>(`/api/v1/admin/recommendations/${encodeURIComponent(projectId)}`, { method: "DELETE" }),
-  referenceSets: () => requestJson<{ items: ReferenceSet[] }>("/api/v1/reference-sets", {}, true),
-  createReferenceSet: (body: { name: string; versionLabel: string; description?: string | null }) =>
-    requestJson<{ id: string; versionId: string }>("/api/v1/admin/reference-sets", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }),
-  createReferenceVersion: (id: string, body: { versionLabel: string; items?: unknown[] }) =>
-    requestJson<{ id: string; ordinal: number }>(`/api/v1/admin/reference-sets/${encodeURIComponent(id)}/versions`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }),
-  updateReferenceSet: (
-    id: string,
-    body: { name?: string; description?: string | null; versionLabel?: string; items?: unknown[] },
-  ) =>
-    requestJson<{ ok: boolean }>(`/api/v1/admin/reference-sets/${encodeURIComponent(id)}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }),
   logout: async () => {
     const generation = getSessionGeneration();
     await requestJson<void>("/api/v1/sessions/current", { method: "DELETE" });

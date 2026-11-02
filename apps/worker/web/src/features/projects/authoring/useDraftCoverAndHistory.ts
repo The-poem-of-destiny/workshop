@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { type AuthorSubmission, api } from "../../../api";
 
-export function useDraftCoverAndHistory(projectId: string, workingRevisionId: string | null) {
+export function useDraftCoverAndHistory(projectId: string, workingVersionId: string | null) {
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [coverNonce, setCoverNonce] = useState(0);
   const [submissions, setSubmissions] = useState<AuthorSubmission[]>([]);
@@ -15,12 +15,12 @@ export function useDraftCoverAndHistory(projectId: string, workingRevisionId: st
     const request = { generation: coverNonce };
     coverRequest.current = request;
     let objectUrl: string | null = null;
-    if (!workingRevisionId) {
+    if (!workingVersionId) {
       setCoverUrl(null);
       return;
     }
     api
-      .authorCover(projectId, workingRevisionId)
+      .authorCover(projectId, workingVersionId)
       .then((blob) => {
         if (!active || coverRequest.current !== request) return;
         objectUrl = URL.createObjectURL(blob);
@@ -33,7 +33,7 @@ export function useDraftCoverAndHistory(projectId: string, workingRevisionId: st
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [projectId, workingRevisionId, coverNonce]);
+  }, [projectId, workingVersionId, coverNonce]);
 
   useEffect(() => {
     let active = true;
