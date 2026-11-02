@@ -681,12 +681,12 @@ async function main() {
           const sortRequest = (value) =>
             page.waitForResponse((response) => {
               const url = new URL(response.url());
-              return url.pathname === "/api/v1/projects" && (url.searchParams.get("sort") ?? "updated") === value;
+              return url.pathname === "/api/v1/projects" && (url.searchParams.get("sort") ?? "published") === value;
             });
           const sortButton = (label) => page.locator(".sorts").getByRole("button", { name: label, exact: true });
           for (const [sort, label, metric] of [
-            ["published", "发布时间", (item) => Date.parse(item.publishedAt)],
             ["updated", "最近更新", (item) => Date.parse(item.updatedAt)],
+            ["published", "发布时间", (item) => Date.parse(item.publishedAt)],
             ["downloads", "下载", (item) => item.counts.downloads],
             ["likes", "点赞", (item) => item.counts.likes],
           ]) {
