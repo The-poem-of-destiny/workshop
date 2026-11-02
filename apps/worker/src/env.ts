@@ -1,5 +1,9 @@
+import type { WriteBarrier } from "./write-barrier";
+
 export interface Env {
   CONTENT_SERVICE: WorkerBindings["CONTENT_SERVICE"];
+  WRITE_BARRIER: DurableObjectNamespace<WriteBarrier>;
+  MAINTENANCE_TOKEN?: string;
   ASSETS?: WorkerBindings["ASSETS"];
   APP_VERSION?: string;
   ALLOWED_ORIGINS?: string;

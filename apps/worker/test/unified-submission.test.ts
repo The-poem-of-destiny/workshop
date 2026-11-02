@@ -183,17 +183,12 @@ async function published(): Promise<Draft> {
   const draft = await create();
   await upload(draft, "worldbook", worldbook);
   await upload(draft, "cover", png);
-  const submission = await submit(draft, "pass");
+  const submission = await submitQueued(draft);
   await run(submission.submissionId);
-  await vi.waitFor(
-    async () => {
-      expect((await detail(submission.submissionId)).submission).toMatchObject({
-        status: "approved",
-        checkStatus: "done",
-      });
-    },
-    { timeout: 5_000 },
-  );
+  expect((await detail(submission.submissionId)).submission).toMatchObject({
+    status: "approved",
+    checkStatus: "done",
+  });
   await refresh(draft);
   const response = await author(`/${draft.id}/visibility`, json("PATCH", { visibility: "public" }, draft.rowVersion));
   expect(response.status).toBe(200);

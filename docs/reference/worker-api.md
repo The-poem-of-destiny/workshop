@@ -1,15 +1,26 @@
 # Worker HTTP API 参考
 
-本文描述 `apps/worker/src/app.ts` 挂载的外部 HTTP 路由，不包含 ContentService 等 Durable Object 的内部接口。部署、绑定和允许的来源见[运行时配置](runtime-configuration.md)；宿主集成见[宿主协议](host-protocol.md)。请求和响应的复杂字段、枚举与限制以 [`packages/contracts/src`](../../packages/contracts/src/) 中的 Zod schema 为准；各路由的实际解析及状态以 [`apps/worker/src/http/routes`](../../apps/worker/src/http/routes/) 为准。表中省略的成功状态为 200；`id`、`revisionId`、`submissionId`、`projectId` 等为路径参数。
+本文描述 Worker 的外部 HTTP 入口，包括 `apps/worker/src/app.ts` 挂载的路由与入口层维护控制，不包含 ContentService 等 Durable Object 的内部接口。部署、绑定和允许的来源见[运行时配置](runtime-configuration.md)；宿主集成见[宿主协议](host-protocol.md)。请求和响应的复杂字段、枚举与限制以 [`packages/contracts/src`](../../packages/contracts/src/) 中的 Zod schema 为准；业务路由解析以 [`apps/worker/src/http/routes`](../../apps/worker/src/http/routes/) 为准，维护控制以 [`write-barrier.ts`](../../apps/worker/src/write-barrier.ts) 为准。表中省略的成功状态为 200；`id`、`revisionId`、`submissionId`、`projectId` 等为路径参数。
 
 ## 通用约定
 
-- 登录接口以外，受保护请求使用 `Authorization: Bearer <session token>`。角色为 `member`、`reviewer`、`owner`；reviewer 接口也允许 owner。作者操作要求项目作者或 owner，权限不足的项目通常表现为 404，而非披露其存在。
+- 登录和维护接口以外，受保护请求使用 `Authorization: Bearer <session token>`。角色为 `member`、`reviewer`、`owner`；reviewer 接口也允许 owner。作者操作要求项目作者或 owner，权限不足的项目通常表现为 404，而非披露其存在。
 - API JSON 错误格式为 `{ "error": { "code": "...", "message": "...", "details": ... } }`，`details` 可省略。状态映射见 [errors.ts](../../packages/contracts/src/errors.ts)：400 `bad_request`、401 `unauthorized`、403 `forbidden`、404 `not_found`、409 `conflict`、412 `precondition_failed`、413 `payload_too_large`、415 `unsupported_media_type`、426 `upgrade_required`、429 `rate_limited`、500 `internal`。校验错误可能带 Zod details；未捕获异常返回 500。callback 返回 HTML 而不是此 JSON 格式。
 - 非公开缓存路径默认 `Cache-Control: private, no-store`；入口白名单中的匿名公开响应和静态资源具有不同缓存语义，详见[运行时配置](runtime-configuration.md#公开缓存和私有绕过)。API 的 OPTIONS 仅对 `ALLOWED_ORIGINS` 中精确匹配的 Origin 返回 204，否则 403；允许的方法为 GET、POST、PUT、PATCH、DELETE、OPTIONS，允许的请求头为 `authorization,content-type,if-match,x-client-version,x-client-channel`。普通 API 响应对允许的 Origin 设置 CORS；不应假设预检支持其他头。
 - 项目列表使用不透明 `cursor` 和 `nextCursor`；下一页保留原有排序与筛选条件，传入返回的 cursor。`total` 为完整筛选集数量，不是本页数量。管理列表也返回 `nextCursor`；其参数和响应分别见 [admin.ts](../../packages/contracts/src/admin.ts) 与 [admin-dto.ts](../../packages/contracts/src/admin-dto.ts)。无更多结果时 cursor 为 null。
 
 应用运行时的 D1/R2 I/O 经同一 Worker 的 `DataService` 和 `CachedReads` 具名入口；公开读取使用内部 fetch，实时业务使用 RPC，文件通过内部 fetch 流式传输。ContentService 保留 Durable Object 内的检查计算，并通过 `state.exports` 请求数据。入口及客户端类型与静态检查约束代码边界，不是 Cloudflare 绑定权限隔离；发布、备份和迁移工具保留受控运维通道。
+
+## 维护控制
+
+`/api/v1/maintenance` 在入口层处理，只接受独立 `MAINTENANCE_TOKEN` 的 Bearer 凭据，不接受普通用户会话。它不经过业务路由的 CORS 处理；缺失或错误凭据返回无 JSON body 的 401。
+
+| 方法和路径 | 输入与结果 |
+| --- | --- |
+| GET `/api/v1/maintenance` | 返回 `closed`、`drained`、`outstanding`（最多 100 张工作票据）与 `outstandingTruncated`；成功响应为 `no-store`。 |
+| POST `/api/v1/maintenance` | JSON `{"action":"close"}` 或 `{"action":"open"}`；返回同样状态。无效 JSON／action 为 400；还有票据时 open 返回 409 `{"error":"not_drained"}`；其他方法为 405。 |
+
+关闭准入不等于已排空；只有 `closed`、`drained` 均为 true 且无截断时才证明协调器已知工作排空。关闭或无法确认准入时，普通请求（包括 health、资源和缓存命中）返回 503 `{"error":{"code":"maintenance","message":"Service temporarily unavailable"}}`，带 `Cache-Control: private, no-store` 和 `Retry-After: 30`。运维步骤、失联票据和外部写入者限制见[维护屏障操作规范](../operations/deployment-safety.md#maintenance-barrier)。
 
 ## 登录和会话
 
