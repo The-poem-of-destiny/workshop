@@ -44,12 +44,12 @@ export const findingDiffSchema = z.object({
 });
 
 export const submissionDiffSchema = z.object({
-  revisionId: z.string(),
-  previousRevisionId: z.string().nullable(),
-  revisionNo: z.number().int(),
-  previousRevisionNo: z.number().int().nullable(),
+  versionId: z.string(),
+  previousVersionId: z.string().nullable(),
+  versionNo: z.number().int(),
+  previousVersionNo: z.number().int().nullable(),
   findingBaseline: z.object({
-    revisionId: z.string().nullable(),
+    versionId: z.string().nullable(),
     submissionId: z.string().nullable(),
     available: z.boolean(),
   }),
@@ -76,22 +76,20 @@ export const adminSubmissionDetailSchema = z.object({
   submission: z.object({
     id: z.string(),
     projectId: z.string(),
-    revisionId: z.string(),
+    versionId: z.string(),
     status: z.string(),
     submittedBy: z.string(),
     submittedAt: z.string(),
     resolvedAt: z.string().nullable(),
     clientGate: z.string().nullable(),
-    clientCheckerRevision: z.string().nullable(),
-    clientWarningCount: z.number().int().nullable(),
-    clientAcknowledgedAt: z.string().nullable(),
+    clientCheckerVersion: z.string().nullable(),
     checkStatus: z.string(),
     checkAttempts: z.number().int(),
     checkError: z.string().nullable(),
     checkReport: jsonValueSchema,
     checkReportHash: z.string().nullable(),
     checkedAt: z.string().nullable(),
-    reviewCheckerRevision: z.string().nullable(),
+    checkerVersion: z.string().nullable(),
     autoPublishedAt: z.string().nullable(),
   }),
   project: z.object({
@@ -101,9 +99,9 @@ export const adminSubmissionDetailSchema = z.object({
     visibility: z.string(),
     author: z.object({ id: z.string(), name: z.string() }),
   }),
-  revision: z.object({
+  version: z.object({
     id: z.string(),
-    revisionNo: z.number().int(),
+    versionNo: z.number().int(),
     title: z.string(),
     description: z.string().nullable(),
     authorNote: z.string().nullable(),
@@ -121,17 +119,6 @@ export const adminSubmissionDetailSchema = z.object({
       bytes: z.number().int().nonnegative(),
       mime: z.string(),
       r2Key: z.string(),
-    }),
-  ),
-  checkRuns: z.array(
-    z.object({
-      id: z.string(),
-      reviewCheckerRevision: z.string(),
-      routeGate: z.string(),
-      report: jsonValueSchema,
-      reportHash: z.string(),
-      durationMs: z.number(),
-      createdAt: z.string(),
     }),
   ),
   review: z
@@ -175,7 +162,7 @@ export const adminProjectSchema = z.object({
   projectType: z.string().nullable(),
   visibility: z.enum(["public", "private"]),
   author: z.object({ id: z.string(), name: z.string() }),
-  publishedRevisionId: z.string().nullable(),
+  publishedVersionId: z.string().nullable(),
   deletedAt: z.string().nullable(),
   updatedAt: z.string(),
 });
@@ -187,25 +174,6 @@ export const adminProjectListSchema = z.object({
 
 export type AdminProject = z.infer<typeof adminProjectSchema>;
 export type AdminProjectList = z.infer<typeof adminProjectListSchema>;
-
-export const adminAuditEventSchema = z.object({
-  id: z.string(),
-  action: z.string(),
-  targetType: z.string(),
-  targetId: z.string().nullable(),
-  actorId: z.string().nullable(),
-  actorName: z.string().nullable(),
-  detail: jsonValueSchema,
-  createdAt: z.string(),
-});
-
-export const adminAuditListSchema = z.object({
-  items: z.array(adminAuditEventSchema),
-  nextCursor: z.string().nullable(),
-});
-
-export type AdminAuditEvent = z.infer<typeof adminAuditEventSchema>;
-export type AdminAuditList = z.infer<typeof adminAuditListSchema>;
 
 export const siteSettingsSchema = z.object({
   banner: z

@@ -13,6 +13,13 @@ def transform_history(source, tables, issue, omit, roots, accepted_roots, exclud
     """Append supported records and report unresolved and omitted records."""
     for table in ("admin_action_logs", "project_metadata_audit_logs"):
         for row in source.get(table, []):
+            if table == "admin_action_logs" and row.get("action") in ("project_approved", "project_rejected", "public_project_counts_recounted"):
+                omit(table, row, "obsolete review/count audit excluded; source backup retained")
+                continue
+            allowed = {"admin_added", "admin_removed", "character_reference_created", "character_reference_version_created", "editor_pick_removed", "editor_pick_saved", "compatibility_updated"}
+            if table == "admin_action_logs" and row.get("action") not in allowed:
+                issue(table, row, "unsupported closed audit action")
+                continue
             if not all(row.get(field) for field in ("id", "action", "actor_id", "created_at")):
                 issue(table, row, "audit record lacks required identity, action, actor, or timestamp")
                 continue
@@ -32,17 +39,19 @@ def transform_history(source, tables, issue, omit, roots, accepted_roots, exclud
                 root = roots.get(str(target_id))
                 if root in accepted_roots:
                     target_id = root
-            detail = {"legacyTable": table, "legacyId": row["id"],
-                      "legacyActorId": row["actor_id"], "legacyActorName": row.get("actor_name"),
-                      "legacyTargetId": row.get("target_id") if table == "admin_action_logs" else row.get("project_id")}
-            if table == "admin_action_logs":
-                detail["legacyDetail"] = row.get("detail")
+            detail = {"sourceTable": table, "legacyActorId": str(row["actor_id"]),
+                      "legacyActorName": row.get("actor_name"),
+                      "legacyTargetId": str(row.get("target_id") if table == "admin_action_logs" else row.get("project_id")) if (row.get("target_id") if table == "admin_action_logs" else row.get("project_id")) is not None else None}
+            metadata = table == "project_metadata_audit_logs" or row.get("action") == "compatibility_updated"
+            if metadata:
+                payload = json.loads(row["detail"]) if table == "admin_action_logs" and row.get("detail") else row
+                detail["beforeValue"] = payload.get("beforeValue", payload.get("before_value"))
+                detail["afterValue"] = payload.get("afterValue", payload.get("after_value"))
             else:
-                detail["beforeValue"] = row.get("before_value")
-                detail["afterValue"] = row.get("after_value")
+                detail["legacyDetail"] = row.get("detail")
             tables["audit_events"].append({
                 "id": identifier("legacy-audit", table, row["id"]),
-                "action": "legacy." + str(row["action"]),
+                "action": "project.patch" if metadata else "legacy." + str(row["action"]),
                 "target_type": target_type, "target_id": target_id, "actor_id": actor,
                 "detail": json.dumps(detail, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
                 "created_at": row["created_at"],
@@ -79,10 +88,17 @@ def transform_history(source, tables, issue, omit, roots, accepted_roots, exclud
                 issue("devteam_recommendations", row, "multiple legacy recommendations collapse to the same curator and project")
             continue
         row = rows[0]
+        target = next(project for project in tables["projects"] if project["id"] == root)
+        published_id = target.get("published_version_id")
+        version = next((item for item in tables["project_versions"] if item["id"] == published_id), None)
+        if (version is None or not target.get("published_at") or not version.get("created_at")
+                or target["published_at"] > row["created_at"] or version["created_at"] > row["created_at"]):
+            omit("devteam_recommendations", row, "recommendation current version attribution unavailable; source backup retained")
+            continue
         tables["recommendations"].append({
             "id": identifier("legacy-recommendation", curator, root),
-            "curator_id": curator, "project_id": root, "comment": row["comment_text"],
-            "reaction": row["reaction_label"], "created_at": row["created_at"], "updated_at": row["updated_at"],
+            "curator_id": curator, "project_id": root, "project_version_id": published_id, "comment": row["comment_text"],
+            "created_at": row["created_at"], "updated_at": row["updated_at"],
         })
 
     for row in source.get("discovery_feature_history", []):

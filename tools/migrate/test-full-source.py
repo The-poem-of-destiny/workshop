@@ -27,8 +27,8 @@ class SourceReconciliationTest(unittest.TestCase):
         db.executescript("""
             CREATE TABLE users (id TEXT, username TEXT, global_name TEXT, avatar TEXT, is_admin INTEGER, created_at TEXT, updated_at TEXT);
             INSERT INTO users VALUES ('u1', 'synthetic', NULL, NULL, 1, 't1', 't2');
-            CREATE TABLE projects (id TEXT, author_id TEXT, name TEXT, description TEXT, status TEXT, is_published INTEGER, visibility INTEGER, created_at TEXT, updated_at TEXT);
-            INSERT INTO projects VALUES ('p1', 'u1', 'Example', 'Description', 'approved', 1, 1, 't1', 't2');
+            CREATE TABLE projects (id TEXT, author_id TEXT, name TEXT, description TEXT, status TEXT, is_published INTEGER, visibility INTEGER, created_at TEXT, updated_at TEXT, reviewed_at TEXT);
+            INSERT INTO projects VALUES ('p1', 'u1', 'Example', 'Description', 'approved', 1, 1, 't1', 't2', 't1');
             CREATE TABLE project_likes (project_id TEXT);
             CREATE TABLE project_subscribes (project_id TEXT);
             CREATE TABLE project_ratings (project_id TEXT);
@@ -48,27 +48,28 @@ class SourceReconciliationTest(unittest.TestCase):
             INSERT INTO character_reference_items VALUES ('i1', 'Item');
             CREATE TABLE site_settings (id TEXT);
             CREATE TABLE admin_action_logs (id TEXT, action TEXT, actor_id TEXT, actor_name TEXT, target_type TEXT, target_id TEXT, detail TEXT, created_at TEXT);
-            INSERT INTO admin_action_logs VALUES ('a1', 'edit', 'u1', 'synthetic', 'project', 'p1', 'details', 't1');
+            INSERT INTO admin_action_logs VALUES ('a1', 'admin_added', 'u1', 'synthetic', 'project', 'p1', 'details', 't1');
             CREATE TABLE project_metadata_audit_logs (id TEXT);
             CREATE TABLE discovery_feature_history (id TEXT);
         """)
         self.dump = "\n".join(db.iterdump()) + "\n"
         self.tables = {name: [] for name in (
-            "users", "projects", "project_revisions", "project_likes", "project_subscriptions",
-            "project_ratings", "project_metrics_daily", "reference_sets", "reference_versions",
-            "reference_items", "site_settings", "audit_events", "recommendations", "assets",
-            "revision_entry_index")}
+            "users", "projects", "project_versions", "project_likes", "project_subscriptions",
+            "project_ratings", "project_metrics_daily", "site_settings", "audit_events", "recommendations", "assets")}
         self.tables["users"] = [{"id": "u1", "username": "synthetic", "global_name": None, "avatar": None, "role": "member", "created_at": "t1", "updated_at": "t2"}]
-        self.tables["projects"] = [{"id": "p1", "author_id": "u1", "working_revision_id": REVISION, "published_revision_id": REVISION, "visibility": "public", "title": "Example", "description": "Description", "search_tags": "[]", "published_at": None, "downloads_count": 0, "likes_count": 0, "subscriptions_count": 0, "created_at": "t1", "updated_at": "t2"}]
-        self.tables["project_revisions"] = [{"id": REVISION, "project_id": "p1", "created_by": "u1", "title": "Example", "description": "Description", "tags": "[]", "entry_index_ready": 1, "worldbook_count": 0, "regex_count": 0, "manifest_hash": hashlib.sha256(b"").hexdigest()}]
-        self.tables["reference_sets"] = [{"id": "r1", "name": "Reference"}]
-        self.tables["reference_versions"] = [{"id": "v1", "reference_set_id": "r1"}]
-        self.tables["reference_items"] = [{"id": "i1", "name": "Item"}]
-        self.tables["audit_events"] = [{"id": AUDIT_ID, "action": "legacy.edit", "target_type": "project", "target_id": "p1", "actor_id": "u1", "detail": '{"legacyActorId":"u1","legacyActorName":"synthetic","legacyDetail":"details","legacyId":"a1","legacyTable":"admin_action_logs","legacyTargetId":"p1"}', "created_at": "t1"}]
-        self.tables["recommendations"] = [{"id": RECOMMENDATION_ID, "curator_id": "u1", "project_id": "p1", "comment": "recommended", "reaction": "good", "created_at": "t1", "updated_at": "t2"}]
+        self.tables["projects"] = [{"id": "p1", "author_id": "u1", "working_version_id": REVISION, "published_version_id": REVISION, "visibility": "public", "published_at": "t1", "downloads_count": 0, "likes_count": 0, "subscriptions_count": 0, "created_at": "t1", "updated_at": "t2"}]
+        self.tables["project_versions"] = [{"id": REVISION, "project_id": "p1", "created_by": "u1", "title": "Example", "description": "Description", "tags": "[]", "entry_index": '{"schemaVersion":1,"entries":[]}', "worldbook_count": 0, "regex_count": 0, "manifest_hash": hashlib.sha256(b"").hexdigest()}]
+        self.tables["audit_events"] = [{"id": AUDIT_ID, "action": "legacy.admin_added", "target_type": "project", "target_id": "p1", "actor_id": "u1", "detail": '{"legacyActorId":"u1","legacyActorName":"synthetic","legacyDetail":"details","legacyTargetId":"p1","sourceTable":"admin_action_logs"}', "created_at": "t1"}]
+        self.tables["recommendations"] = [{"id": RECOMMENDATION_ID, "curator_id": "u1", "project_id": "p1", "project_version_id": REVISION, "comment": "recommended", "created_at": "t1", "updated_at": "t2"}]
         self.data = {"format": "workshop-full-migration-preparation-v1", "tables": self.tables,
                      "diagnostics": [], "omissions": [{"table": "projects", "source": {"id": "p1"},
                      "reason": "source revision has no content asset"}], "objects": []}
+        self.data["omissions"].extend({"table": table, "source": row,
+            "reason": "reference baseline feature removed (R-18); source backup retained"}
+            for table, row in (
+                ("character_references", {"id": "r1", "name": "Reference"}),
+                ("character_reference_versions", {"id": "v1", "character_reference_id": "r1"}),
+                ("character_reference_items", {"id": "i1", "name": "Item"})))
 
     def run_source(self, data=None, dump=None):
         dump = self.dump if dump is None else dump
@@ -102,7 +103,6 @@ class SourceReconciliationTest(unittest.TestCase):
                 ALTER TABLE projects ADD COLUMN root_project_id TEXT;
                 ALTER TABLE projects ADD COLUMN published_project_id TEXT;
                 ALTER TABLE projects ADD COLUMN draft_project_id TEXT;
-                ALTER TABLE projects ADD COLUMN reviewed_at TEXT;
                 ALTER TABLE projects ADD COLUMN project_type TEXT;
                 ALTER TABLE projects ADD COLUMN extension_type TEXT;
                 ALTER TABLE projects ADD COLUMN version_label TEXT;
@@ -157,12 +157,12 @@ class SourceReconciliationTest(unittest.TestCase):
         return data
 
     def assert_working_revision(self, data, project):
-        working = next(row for row in data["tables"]["project_revisions"]
-                       if row["id"] == project["working_revision_id"])
+        working = next(row for row in data["tables"]["project_versions"]
+                       if row["id"] == project["working_version_id"])
         expected = {
             "title": "Working title", "description": "Working description", "author_note": None,
             "project_type": "extension", "extension_type": "working-extension",
-            "version_label": "working-2", "precautions": "Working precautions",
+            "version_label": "working-2", "requirements": json.dumps({"schemaVersion":1,"dependencies":[],"conflicts":[],"notes":"Working precautions"},sort_keys=True,separators=(",",":")),
             "cover_position_x": 0.7, "cover_position_y": 0.8, "cover_zoom": 2.1,
             "tags": '["working","shared","working-custom","working-facet"]',
             "discord_thread_url": "https://discord.com/channels/100/300",
@@ -176,24 +176,16 @@ class SourceReconciliationTest(unittest.TestCase):
                 dump = self.snapshot_dump(visible=visible)
                 data = self.run_transform(dump)
                 project, = data["tables"]["projects"]
-                expected = {
-                    "title": "Released title", "description": "Released description", "author_note": None,
-                    "project_type": "worldbook", "extension_type": "released-extension",
-                    "version_label": "release-1", "precautions": "Released precautions",
-                    "cover_position_x": 0.2, "cover_position_y": 0.3, "cover_zoom": 1.2,
-                    "search_tags": '["released","shared","released-custom","released-facet"]',
-                    "published_discord_thread_url": "https://discord.com/channels/100/200",
-                    "visibility": "public" if visible else "private",
-                }
-                self.assertEqual({field: project[field] for field in expected}, expected)
-                self.assertNotEqual(project["working_revision_id"], project["published_revision_id"])
+                self.assertEqual(project["visibility"], "public" if visible else "private")
+                self.assertNotEqual(project["working_version_id"], project["published_version_id"])
                 working = self.assert_working_revision(data, project)
-                published = next(row for row in data["tables"]["project_revisions"]
-                                 if row["id"] == project["published_revision_id"])
+                published = next(row for row in data["tables"]["project_versions"]
+                                 if row["id"] == project["published_version_id"])
                 self.assertEqual(published["title"], "Released title")
-                self.assertEqual(published["tags"], expected["search_tags"])
-                self.assertEqual(published["discord_thread_url"], expected["published_discord_thread_url"])
-                self.assertEqual(len(data["tables"]["project_revisions"]), 2)
+                self.assertEqual(published["tags"], '["released","shared","released-custom","released-facet"]')
+                self.assertEqual(published["discord_thread_url"], "https://discord.com/channels/100/200")
+                self.assertEqual(json.loads(published["requirements"])["notes"], "Released precautions")
+                self.assertEqual(len(data["tables"]["project_versions"]), 2)
                 self.assertNotEqual(working["id"], published["id"])
                 result, report = self.run_source(data, dump)
                 self.assertEqual(result.returncode, 0, (result.stderr, report))
@@ -203,15 +195,9 @@ class SourceReconciliationTest(unittest.TestCase):
         data = self.run_transform(dump)
         project, = data["tables"]["projects"]
         working = self.assert_working_revision(data, project)
-        fields = ("title", "description", "author_note", "project_type", "extension_type",
-                  "version_label", "precautions", "cover_position_x", "cover_position_y", "cover_zoom")
-        self.assertEqual({field: project[field] for field in fields},
-                         {field: working[field] for field in fields})
-        self.assertEqual(project["search_tags"], '["working","shared","working-custom","working-facet"]')
         self.assertEqual(project["visibility"], "private")
-        self.assertIsNone(project["published_revision_id"])
-        self.assertIsNone(project["published_discord_thread_url"])
-        self.assertEqual(len(data["tables"]["project_revisions"]), 1)
+        self.assertIsNone(project["published_version_id"])
+        self.assertEqual(len(data["tables"]["project_versions"]), 1)
         result, report = self.run_source(data, dump)
         self.assertEqual(result.returncode, 0, (result.stderr, report))
 
@@ -219,9 +205,7 @@ class SourceReconciliationTest(unittest.TestCase):
         result, report = self.run_source()
         self.assertEqual(result.returncode, 0, (result.stderr, report))
         self.assertTrue(report["ok"])
-        for table, field in (("audit_events", "action"), ("reference_sets", "name"),
-                             ("reference_versions", "reference_set_id"), ("reference_items", "name"),
-                             ("recommendations", "comment")):
+        for table, field in (("audit_events", "action"), ("recommendations", "comment")):
             for mutation in ("missing", "altered"):
                 with self.subTest(table=table, mutation=mutation):
                     data = copy.deepcopy(self.data)

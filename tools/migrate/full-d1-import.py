@@ -246,7 +246,7 @@ class Client:
         result = self.api()
         database = self.journal.state["database_id"]
         try:
-            validate_identity(database, result)
+            validate_identity(database, result, self.journal.state.get("candidate_name"))
         except ImportFailure:
             self.journal.record("target-rejected", phase="target_rejected")
             raise
@@ -321,14 +321,14 @@ def poll(client, once=False, interval=2.0):
     return journal.summary()
 
 
-def execute(database_id, file, artifacts):
+def execute(database_id, file, artifacts, candidate_name=None):
     """Start a new import exactly once and poll; failures retain private evidence."""
     account, token = credentials()
     journal = Journal(artifacts, token, create=True)
     try:
         client = Client(journal, account, database_id, token)
         journal.record("prepared", version=1, account_id=account, database_id=database_id, phase="prepared",
-                       file=seal_file(file, journal.directory))
+                       candidate_name=candidate_name, file=seal_file(file, journal.directory))
         client.validate_target()
         result = client.api({"action": "init", "etag": journal.state["file"]["md5"]})
         if "upload_url" in result:
@@ -363,14 +363,21 @@ def saved_status(artifacts, resume=False):
         journal.close()
 
 
-def validate_identity(database_id, result):
-    if (not isinstance(result, dict) or result.get("uuid") != database_id
-            or not (database_id == STAGING_DATABASE or result.get("name") == PROBE_NAME)):
-        raise ImportFailure("database is not the fixed staging database or the exact dedicated rehearsal database")
+def validate_identity(database_id, result, candidate_name=None):
+    if candidate_name is not None:
+        allowed = (isinstance(candidate_name, str)
+                   and re.fullmatch(r"workshop-staging-migrate-[0-9a-f]{12}", candidate_name)
+                   and isinstance(result, dict) and result.get("name") == candidate_name
+                   and database_id != STAGING_DATABASE)
+    else:
+        allowed = (isinstance(result, dict)
+                   and (database_id == STAGING_DATABASE or result.get("name") == PROBE_NAME))
+    if not allowed or not isinstance(result, dict) or result.get("uuid") != database_id:
+        raise ImportFailure("database is not the exact authorized staging, rehearsal or plan-bound candidate target")
 
 
-def validate_target(database_id):
-    """Read-only live identity check for callers performing separate probe queries."""
+def validate_target(database_id, candidate_name=None):
+    """Read-only live identity check for the exact authorized target."""
     account, token = credentials()
     if not re.fullmatch(r"[0-9a-fA-F]{32}", account) or str(uuid.UUID(database_id)) != database_id:
         raise ValueError("invalid Cloudflare account or D1 database ID")
@@ -384,7 +391,7 @@ def validate_target(database_id):
     result = payload.get("result") if isinstance(payload, dict) else None
     if not isinstance(payload, dict) or payload.get("success") is not True:
         raise ImportFailure("D1 target identity response was rejected")
-    validate_identity(database_id, result)
+    validate_identity(database_id, result, candidate_name)
     return {"uuid": result["uuid"], "name": result.get("name")}
 
 
@@ -393,6 +400,7 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     start = commands.add_parser("execute", help="start once using a new private artifacts directory")
     start.add_argument("--database-id", required=True)
+    start.add_argument("--candidate-name", required=True)
     start.add_argument("--file", type=Path, required=True)
     start.add_argument("--artifacts", type=Path, required=True)
     for name in ("status", "resume"):
@@ -401,8 +409,8 @@ def main():
     args = parser.parse_args()
     os.umask(0o077)
     try:
-        result = (execute(args.database_id, args.file, args.artifacts) if args.command == "execute"
-                  else saved_status(args.artifacts, resume=args.command == "resume"))
+        result = (execute(args.database_id, args.file, args.artifacts, candidate_name=args.candidate_name)
+                  if args.command == "execute" else saved_status(args.artifacts, resume=args.command == "resume"))
         print(json.dumps(result, ensure_ascii=True, indent=2))
         return 1 if result["outcome"] == "error" else 0
     except KeyboardInterrupt:

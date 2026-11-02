@@ -57,8 +57,8 @@ function validateRead(url: URL, props: ReadProps): Response | null {
       !target ||
       typeof target.projectId !== "string" ||
       !target.projectId ||
-      typeof target.revisionId !== "string" ||
-      !target.revisionId ||
+      typeof target.versionId !== "string" ||
+      !target.versionId ||
       typeof target.r2Key !== "string" ||
       !target.r2Key ||
       typeof target.sha256 !== "string" ||
@@ -67,7 +67,7 @@ function validateRead(url: URL, props: ReadProps): Response | null {
       target.entryCount < 0 ||
       (target.kind !== "worldbook" && target.kind !== "regex") ||
       path !==
-        `/preview/v1/${encodeURIComponent(target.projectId)}/${encodeURIComponent(target.revisionId)}/${target.kind}/${target.sha256}`
+        `/preview/v1/${encodeURIComponent(target.projectId)}/${encodeURIComponent(target.versionId)}/${target.kind}/${target.sha256}`
     ) {
       return noStore(400, "Invalid read properties");
     }

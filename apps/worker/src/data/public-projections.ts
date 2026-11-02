@@ -28,13 +28,8 @@ async function projectBatch(url: URL, env: DataEnv): Promise<Response> {
 }
 
 async function projectionDetail(path: string, env: DataEnv): Promise<Response> {
-  const reference = /^\/api\/v1\/reference-sets\/([^/]+)$/.exec(path);
   const project = /^\/api\/v1\/projects\/([^/]+)(\/entries)?$/.exec(path);
   try {
-    if (reference) {
-      const data = await distribution.distributionReference(env, decodeURIComponent(reference[1]!));
-      return data ? Response.json(data) : error(404, "not_found", "Reference set not found");
-    }
     if (project) {
       const id = decodeURIComponent(project[1]!);
       const data = project[2] ? await projects.projectEntries(env, id) : await projects.projectDetail(env, id);
@@ -69,7 +64,6 @@ export async function publicProjection(request: Request, env: DataEnv): Promise<
   }
   if (path === "/api/v1/site") return Response.json(await distribution.distributionSite(env));
   if (path === "/api/v1/recommendations") return Response.json(await distribution.distributionRecommendations(env));
-  if (path === "/api/v1/reference-sets") return Response.json(await distribution.distributionReferences(env));
   if (path === "/api/v1/projects/discovery") return Response.json(await projects.projectDiscovery(env));
   if (path === "/api/v1/projects/rankings") {
     const kind = url.searchParams.get("kind") ?? "7d";

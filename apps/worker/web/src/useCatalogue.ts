@@ -12,7 +12,7 @@ export function useCatalogue({
   home: HomeLoadState;
 }) {
   const [listRetry, setListRetry] = useState(0);
-  const [period, setPeriod] = useState<"all" | "7d" | "30d" | "90d">("all");
+  const [period, setPeriod] = useState<"all" | "7d" | "30d" | "90d">("30d");
   const filters = useCatalogueFilters();
   const { search, sort, projectType, author, tag } = filters;
   const effectivePeriod = sort === "downloads" || sort === "likes" ? period : "all";
@@ -36,7 +36,7 @@ export function useCatalogue({
   const pageCursor = pageCursors[pageIndex];
   const defaultQuery =
     !search.trim() &&
-    sort === "updated" &&
+    sort === "published" &&
     effectivePeriod === "all" &&
     !projectType &&
     !author &&

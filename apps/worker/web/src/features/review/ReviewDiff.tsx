@@ -58,11 +58,11 @@ export function ReviewDiff({ diff }: { diff: ReturnType<typeof useReviewQueue>["
       {diff ? (
         <>
           <p className="review-baseline">
-            内容基线：{diff.previousRevisionId ?? "无（首次提交）"} → {diff.revisionId}
+            内容基线：{diff.previousVersionId ?? "无（首次提交）"} → {diff.versionId}
             <br />
             finding 基线：
             {diff.findingBaseline.available
-              ? `${diff.findingBaseline.revisionId} · 审核提交 ${diff.findingBaseline.submissionId}`
+              ? `${diff.findingBaseline.versionId} · 审核提交 ${diff.findingBaseline.submissionId}`
               : "无可用基线报告；以下新增仅表示本次报告包含，不表示新引入问题"}
           </p>
           <div className="review-finding-summary">

@@ -122,7 +122,7 @@ class Staging:
 
 
 def public(project):
-    return (project.get("visibility") == "public" and project.get("published_revision_id") is not None
+    return (project.get("visibility") == "public" and project.get("published_version_id") is not None
             and project.get("deleted_at") is None)
 
 
@@ -130,28 +130,26 @@ def segment(value):
     return quote(str(value), safe="")
 
 
-def entries_for(preparation, revision_id):
-    rows = preparation["tables"]["revision_entry_index"]
-    return [{"kind": row["kind"], "entryKey": row["entry_key"], "name": row["name"],
-             "contentHash": row["content_hash"], "contentLength": row["content_length"]}
-            for row in sorted((row for row in rows if row["revision_id"] == revision_id),
-                              key=lambda row: (row["kind"], row["entry_key"]))]
+def entries_for(preparation, version_id):
+    version = next(row for row in preparation["tables"]["project_versions"] if row["id"] == version_id)
+    document = json.loads(version["entry_index"]) if version["entry_index"] is not None else None
+    return sorted(document["entries"], key=lambda row: (row["kind"], row["entryKey"])) if document else []
 
 
-def check_summary(item, projects, revisions):
+def check_summary(item, projects, versions):
     require(isinstance(item, dict) and item.get("id") in projects, "unexpected_public_project")
     project = projects[item["id"]]
-    revision = revisions[project["published_revision_id"]]
-    require(item.get("visibility") == "public" and item.get("title") == project["title"]
-            and item.get("publishedRevisionId") == revision["id"]
-            and item.get("entries") == {"worldbook": revision["worldbook_count"], "regex": revision["regex_count"]},
+    version = versions[project["published_version_id"]]
+    require(item.get("visibility") == "public" and item.get("title") == version["title"]
+            and item.get("publishedVersionId") == version["id"]
+            and item.get("entries") == {"worldbook": version["worldbook_count"], "regex": version["regex_count"]},
             "public_project_snapshot_mismatch")
 
 
-def check_items(payload, projects, revisions):
+def check_items(payload, projects, versions):
     require(isinstance(payload.get("items"), list), "missing_public_items")
     for item in payload["items"]:
-        check_summary(item, projects, revisions)
+        check_summary(item, projects, versions)
 
 
 def smoke(client, preparation, samples):
@@ -160,7 +158,7 @@ def smoke(client, preparation, samples):
     tables = preparation["tables"]
     projects = {row["id"]: row for row in tables["projects"] if public(row)}
     private = sorted((row for row in tables["projects"] if not public(row)), key=lambda row: row["id"])
-    revisions = {row["id"]: row for row in tables["project_revisions"]}
+    versions = {row["id"]: row for row in tables["project_versions"]}
     objects = {row["targetKey"]: row for row in preparation["objects"]}
     require(projects and private, "missing_public_or_private_smoke_candidates")
     before = client.maintenance()
@@ -175,18 +173,18 @@ def smoke(client, preparation, samples):
     home = client.json("/api/v1/home")
     require(all(isinstance(home.get(key), dict) and home[key].get("ok") is True
                 for key in ("site", "discovery", "projects")), "home_section_failed")
-    check_items(home["projects"]["data"], projects, revisions)
+    check_items(home["projects"]["data"], projects, versions)
     require(home["projects"]["data"].get("total") == len(projects), "home_total_mismatch")
-    check_items(home["discovery"]["data"], projects, revisions)
+    check_items(home["discovery"]["data"], projects, versions)
     discovery = client.json("/api/v1/projects/discovery")
-    check_items(discovery, projects, revisions)
+    check_items(discovery, projects, versions)
     for kind in ("daily", "7d", "30d"):
         ranking = client.json("/api/v1/projects/rankings?" + urlencode({"kind": kind}))
         require(ranking.get("kind") == kind and isinstance(ranking.get("items"), list), "invalid_ranking_response")
         for row in ranking["items"]:
             require(isinstance(row, dict) and isinstance(row.get("rank"), int)
                     and isinstance(row.get("score"), (int, float)), "invalid_ranking_entry")
-            check_summary(row.get("project"), projects, revisions)
+            check_summary(row.get("project"), projects, versions)
 
     cursor = None
     cursors = set()
@@ -196,7 +194,7 @@ def smoke(client, preparation, samples):
         if cursor is not None:
             query["cursor"] = cursor
         page = client.json("/api/v1/projects?" + urlencode(query))
-        check_items(page, projects, revisions)
+        check_items(page, projects, versions)
         require(page.get("total") == len(projects), "catalog_total_mismatch")
         for item in page["items"]:
             require(item["id"] not in seen, "catalog_duplicate_project")
@@ -211,31 +209,31 @@ def smoke(client, preparation, samples):
 
     selected = sorted(projects.values(), key=lambda row: row["id"])[:samples]
     indexed = [row for row in sorted(projects.values(), key=lambda row: row["id"])
-               if revisions[row["published_revision_id"]].get("entry_index_ready") == 1
-               and entries_for(preparation, row["published_revision_id"])]
+               if versions[row["published_version_id"]].get("entry_index") is not None
+               and entries_for(preparation, row["published_version_id"])]
     require(indexed, "missing_indexed_smoke_candidate")
     selected = {row["id"]: row for row in selected + indexed[:samples]}
     for project in selected.values():
         path = "/api/v1/projects/" + segment(project["id"])
-        check_summary(client.json(path), projects, revisions)
-        revision = revisions[project["published_revision_id"]]
-        if revision.get("entry_index_ready") == 1:
+        check_summary(client.json(path), projects, versions)
+        version = versions[project["published_version_id"]]
+        if version.get("entry_index") is not None:
             payload = client.json(path + "/entries")
-            require(payload.get("revisionId") == revision["id"]
-                    and payload.get("entries") == entries_for(preparation, revision["id"]), "entry_index_mismatch")
+            require(payload.get("versionId") == version["id"]
+                    and payload.get("entries") == entries_for(preparation, version["id"]), "entry_index_mismatch")
         else:
             client.json(path + "/entries", expected=404, code="not_found")
 
     incomplete = [row for row in projects.values()
-                  if revisions[row["published_revision_id"]].get("entry_index_ready") != 1]
+                  if versions[row["published_version_id"]].get("entry_index") is None]
     for project in incomplete:
         path = "/api/v1/projects/" + segment(project["id"])
-        check_summary(client.json(path), projects, revisions)
+        check_summary(client.json(path), projects, versions)
         client.json(path + "/entries", expected=404, code="not_found")
 
     # Exercise both FTS paths with an actual word, not title decoration or operators.
     searchable = [(row, word) for row in indexed
-                  for word in re.findall(r"[^\W_]+", row["title"]) if len(word) >= 3]
+                  for word in re.findall(r"[^\W_]+", versions[row["published_version_id"]]["title"]) if len(word) >= 3]
     require(searchable, "missing_searchable_smoke_candidate")
     candidate, word = searchable[0]
     for size in (1, 3):
@@ -244,7 +242,7 @@ def smoke(client, preparation, samples):
         search_cursors = set()
         while True:
             found = client.json("/api/v1/projects?" + urlencode(query))
-            check_items(found, projects, revisions)
+            check_items(found, projects, versions)
             require(isinstance(found.get("total"), int), "invalid_search_total")
             for item in found["items"]:
                 require(item["id"] not in search_seen, "duplicate_search_project")
@@ -258,26 +256,24 @@ def smoke(client, preparation, samples):
             query["cursor"] = cursor
         require(candidate["id"] in search_seen and len(search_seen) == found["total"], "search_index_missing_project")
 
-    references = client.json("/api/v1/reference-sets")
-    require(isinstance(references.get("items"), list)
-            and {row.get("id") for row in references["items"]} == {row["id"] for row in tables["reference_sets"]},
-            "reference_set_mismatch")
     recommendations = client.json("/api/v1/recommendations")
     require(isinstance(recommendations.get("items"), list), "missing_recommendations")
-    expected_recommendations = {row["id"] for row in tables["recommendations"] if row["project_id"] in projects}
-    require(len(expected_recommendations) <= 20, "recommendation_sample_limit_exceeded")
+    eligible_recommendations = [row for row in tables["recommendations"] if row["project_id"] in projects
+        and row["project_version_id"] == projects[row["project_id"]]["published_version_id"]]
+    eligible_recommendations.sort(key=lambda row: row["updated_at"], reverse=True)
+    expected_recommendations = {row["id"] for row in eligible_recommendations[:20]}
     require({row.get("id") for row in recommendations["items"]} == expected_recommendations,
             "recommendations_mismatch")
     for row in recommendations["items"]:
-        check_summary(row.get("project"), projects, revisions)
+        check_summary(row.get("project"), projects, versions)
 
     covers = []
     for asset in tables["assets"]:
         project = projects.get(asset["project_id"])
         if (project and asset["kind"] == "cover"
                 and ((project.get("published_cover_asset_id") is None
-                      and asset.get("revision_id") == project["published_revision_id"])
-                     or (asset["id"] == project.get("published_cover_asset_id") and asset.get("revision_id") is None))):
+                      and asset.get("version_id") == project["published_version_id"])
+                     or (asset["id"] == project.get("published_cover_asset_id") and asset.get("version_id") is None))):
             covers.append(asset)
     covers.sort(key=lambda row: row["r2_key"])
     public_cover_keys = {row["r2_key"] for row in covers}

@@ -13,7 +13,7 @@ function statusOf(item: AuthorProject): ProjectStatus {
   const submission = item.latestSubmission;
   if (submission && (submission.status === "pending" || submission.status === "checking")) return "review";
   if (submission?.status === "rejected") return "rejected";
-  if (item.project.visibility === "public" && item.project.publishedRevisionId) return "public";
+  if (item.project.visibility === "public" && item.project.publishedVersionId) return "public";
   return "draft";
 }
 
@@ -84,11 +84,11 @@ export function MyProjects({
     setSelectedId(null);
   }
 
-  async function createRevision(entry: AuthorProject): Promise<void> {
+  async function createVersion(entry: AuthorProject): Promise<void> {
     if (dirty && !window.confirm("有尚未保存的资料或未上传的文件，确定放弃并新建版本？")) return;
     setBusy(true);
     try {
-      const result = await api.createRevision(
+      const result = await api.createVersion(
         entry.project.id,
         entry.rowVersion,
         metadataPayload(projectForm(entry.project, entry)),
@@ -222,7 +222,7 @@ export function MyProjects({
               </button>
             </header>
             <div className="task-workspace-body">
-              <ProjectStatusBanner entry={selected} busy={busy} onNewRevision={() => void createRevision(selected)} />
+              <ProjectStatusBanner entry={selected} busy={busy} onNewVersion={() => void createVersion(selected)} />
               <ProjectEditor
                 entry={selected}
                 onRefresh={refresh}

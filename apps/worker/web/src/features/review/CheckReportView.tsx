@@ -250,7 +250,7 @@ export function CheckReportSection({
   routeGate,
   checkError,
   checkedAt,
-  checkerRevision,
+  checkerVersion,
 }: {
   submissionId: string;
   report: CheckReport | null;
@@ -259,7 +259,7 @@ export function CheckReportSection({
   routeGate: string | null;
   checkError: string | null;
   checkedAt: string | null;
-  checkerRevision: string | null;
+  checkerVersion: string | null;
 }) {
   const [source, setSource] = useState<OpenSource | null>(null);
   const severity = countSeverities(report?.findings ?? []);
@@ -274,7 +274,7 @@ export function CheckReportSection({
         <div>
           <h3>检查报告</h3>
           <p>
-            {checkerRevision ? `checker ${checkerRevision}` : "暂无 checker 运行记录"}
+            {checkerVersion ? `checker ${checkerVersion}` : "暂无 checker 运行记录"}
             {checkedAt ? ` · ${checkedAt}` : ""}
           </p>
         </div>

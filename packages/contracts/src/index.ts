@@ -1,5 +1,6 @@
 export * from "./admin.js";
 export * from "./admin-dto.js";
+export * from "./audit.js";
 export * from "./authoring.js";
 export * from "./companion.js";
 export * from "./errors.js";
@@ -7,7 +8,8 @@ export * from "./health.js";
 export * from "./identity.js";
 export * from "./install.js";
 export * from "./projects.js";
+export * from "./recommendation-runs.js";
 export * from "./recommendations.js";
-export * from "./references.js";
 export * from "./release.js";
+export * from "./requirements.js";
 export * from "./site.js";

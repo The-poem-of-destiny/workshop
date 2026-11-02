@@ -1,10 +1,10 @@
-import type { Session, SubmitProject } from "@workshop/contracts";
+import { projectEntryIndexDocumentSchema, type Session, type SubmitProject } from "@workshop/contracts";
 import { type ProjectEntryKind, validateProjectContentPolicy } from "@workshop/domain";
-import { REVIEW_CHECKER_REVISION } from "../content-checker.js";
+import { REVIEW_CHECKER_VERSION } from "../content-checker.js";
 import type { PrevalidatedContent } from "../data/contracts.js";
-import { getWorkingRevision, parseTags, type WorkingRevisionRow } from "./authoring-model.js";
+import { getWorkingVersion, parseTags, type WorkingVersionRow } from "./authoring-model.js";
 
-export type SubmitRevisionResult =
+export type SubmitVersionResult =
   | {
       ok: true;
       submissionId: string;
@@ -14,37 +14,37 @@ export type SubmitRevisionResult =
     }
   | { ok: false; code: "not_found" | "invalid_content" | "conflict"; message: string };
 
-interface RevisionAssetRow {
+interface VersionAssetRow {
   kind: string;
   r2_key: string;
   sha256: string;
 }
 
-function assetSnapshotCondition(revisionId: string, assets: readonly RevisionAssetRow[]) {
+function assetSnapshotCondition(versionId: string, assets: readonly VersionAssetRow[]) {
   if (assets.length === 0) {
     return {
-      sql: "(SELECT COUNT(*) FROM assets WHERE revision_id = ?) = 0",
-      bindings: [revisionId],
+      sql: "(SELECT COUNT(*) FROM assets WHERE version_id = ?) = 0",
+      bindings: [versionId],
     };
   }
   return {
-    sql: `(SELECT COUNT(*) FROM assets WHERE revision_id = ?) = ?
+    sql: `(SELECT COUNT(*) FROM assets WHERE version_id = ?) = ?
       AND NOT EXISTS (
         SELECT 1 FROM assets
-        WHERE revision_id = ? AND NOT (${assets.map(() => "(kind = ? AND r2_key = ? AND sha256 = ?)").join(" OR ")})
+        WHERE version_id = ? AND NOT (${assets.map(() => "(kind = ? AND r2_key = ? AND sha256 = ?)").join(" OR ")})
       )`,
     bindings: [
-      revisionId,
+      versionId,
       assets.length,
-      revisionId,
+      versionId,
       ...assets.flatMap((asset) => [asset.kind, asset.r2_key, asset.sha256]),
     ],
   };
 }
 
 function validateSubmissionContent(
-  current: WorkingRevisionRow,
-  assets: readonly RevisionAssetRow[],
+  current: WorkingVersionRow,
+  assets: readonly VersionAssetRow[],
   prevalidated: PrevalidatedContent,
 ) {
   const presence: Record<ProjectEntryKind, boolean> = { worldbook: false, regex: false };
@@ -59,14 +59,11 @@ function validateSubmissionContent(
     presence[kind] = prevalidated.presence[kind];
     counts[kind] = prevalidated.counts[kind];
   }
-  if (!validationError && prevalidated.conflict) {
-    validationError = `世界书条目与官方基线「${prevalidated.conflict}」完全相同，请基于基线修改后再提交`;
-  }
   if (!validationError) {
     const policy = validateProjectContentPolicy(
       {
-        projectType: current.revision_project_type ?? current.project_type,
-        tags: parseTags(current.revision_tags || current.search_tags),
+        projectType: current.version_project_type ?? current.project_type,
+        tags: parseTags(current.version_tags || current.search_tags),
       },
       presence,
     );
@@ -83,35 +80,39 @@ function validateSubmissionContent(
   return { counts, validationError };
 }
 
-export async function submitRevision(
+export async function submitVersion(
   db: D1Database,
   session: Session,
   projectId: string,
-  revisionId: string,
+  versionId: string,
   expectedVersion: number,
-  basePublishedRevisionId: string | null,
+  basePublishedVersionId: string | null,
   input: SubmitProject,
   prevalidated: PrevalidatedContent,
-): Promise<SubmitRevisionResult> {
-  const current = await getWorkingRevision(db, projectId, session);
-  if (!current || current.working_revision_id !== revisionId) {
+): Promise<SubmitVersionResult> {
+  const current = await getWorkingVersion(db, projectId, session);
+  if (!current || current.working_version_id !== versionId) {
     return { ok: false, code: "not_found", message: "Working revision not found" };
   }
   if (
     current.row_version !== expectedVersion ||
-    current.published_revision_id !== basePublishedRevisionId ||
-    current.working_revision_frozen
+    current.published_version_id !== basePublishedVersionId ||
+    current.working_version_frozen
   ) {
     return { ok: false, code: "conflict", message: "Revision is no longer editable" };
   }
 
   const assets = await db
-    .prepare("SELECT kind, r2_key, sha256 FROM assets WHERE revision_id = ? ORDER BY kind")
-    .bind(revisionId)
-    .all<RevisionAssetRow>();
+    .prepare("SELECT kind, r2_key, sha256 FROM assets WHERE version_id = ? ORDER BY kind")
+    .bind(versionId)
+    .all<VersionAssetRow>();
   const { counts, validationError } = validateSubmissionContent(current, assets.results, prevalidated);
   if (validationError) return { ok: false, code: "invalid_content", message: validationError };
   const entries = prevalidated.entries;
+  const parsedIndex = projectEntryIndexDocumentSchema.safeParse({ schemaVersion: 1, entries });
+  if (!parsedIndex.success)
+    return { ok: false, code: "invalid_content", message: "Entry index is invalid or exceeds 512000 bytes" };
+  const index = JSON.stringify(parsedIndex.data);
 
   const manifest = assets.results.map((asset) => `${asset.kind}:${asset.sha256}`).join("\n");
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(manifest));
@@ -121,65 +122,47 @@ export async function submitRevision(
   const clientGate = input.gate ?? "missing";
   const checkStatus = clientGate === "pass" || clientGate === "warn" ? "queued" : "needs_human";
   const submissionStatus = checkStatus === "queued" ? "checking" : "pending";
-  const snapshot = assetSnapshotCondition(revisionId, assets.results);
+  const snapshot = assetSnapshotCondition(versionId, assets.results);
   const statements: D1PreparedStatement[] = [
     // This marker row is deliberately non-queueable. Every later mutation
     // depends on its unique ID, so a failed CAS cannot write side effects.
     db
       .prepare(`INSERT INTO submissions
-        (id, project_id, revision_id, status, submitted_by, submitted_at,
-         client_gate, client_checker_revision, client_warning_count, client_acknowledged_at, check_status,
-         review_checker_revision, base_published_revision_id)
-      SELECT ?, p.id, ?, 'superseded', ?, ?, ?, ?, ?, ?, ?, ?, ?
+        (id, project_id, version_id, status, submitted_by, submitted_at, base_published_version_id)
+      SELECT ?, p.id, ?, 'superseded', ?, ?, ?
       FROM projects p
-      JOIN project_revisions r ON r.id = ? AND r.project_id = p.id
-      WHERE p.id = ? AND p.deleted_at IS NULL AND p.working_revision_id = ? AND p.row_version = ?
-        AND p.published_revision_id IS ?
+      JOIN project_versions r ON r.id = ? AND r.project_id = p.id
+      WHERE p.id = ? AND p.deleted_at IS NULL AND p.working_version_id = ? AND p.row_version = ?
+        AND p.published_version_id IS ?
         AND (p.author_id = ? OR ? = 'owner')
-        AND NOT EXISTS (SELECT 1 FROM submissions WHERE revision_id = ?)
+        AND NOT EXISTS (SELECT 1 FROM submissions WHERE version_id = ?)
         AND ${snapshot.sql}`)
       .bind(
         submissionId,
-        revisionId,
+        versionId,
         session.userId,
         now,
-        clientGate,
-        input.checkerRevision ?? null,
-        input.warningCount,
-        input.acknowledged ? now : null,
-        checkStatus,
-        REVIEW_CHECKER_REVISION,
-        basePublishedRevisionId,
-        revisionId,
+        basePublishedVersionId,
+        versionId,
         projectId,
-        revisionId,
+        versionId,
         expectedVersion,
-        basePublishedRevisionId,
+        basePublishedVersionId,
         session.userId,
         session.role,
-        revisionId,
+        versionId,
         ...snapshot.bindings,
       ),
     db
-      .prepare(`UPDATE project_revisions
-        SET manifest_hash = ?, worldbook_count = ?, regex_count = ?, entry_index_ready = 1
-        WHERE id = ? AND EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = 'superseded')`)
-      .bind(manifestHash, counts.worldbook, counts.regex, revisionId, submissionId),
+      .prepare(`INSERT INTO automated_reviews(submission_id,status,client_gate,client_checker_version,checker_version)
+      SELECT id,?,?,?,? FROM submissions WHERE id = ? AND status = 'superseded'`)
+      .bind(checkStatus, clientGate, input.checkerVersion ?? null, REVIEW_CHECKER_VERSION, submissionId),
     db
-      .prepare(`DELETE FROM revision_entry_index
-        WHERE revision_id = ? AND EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = 'superseded')`)
-      .bind(revisionId, submissionId),
+      .prepare(`UPDATE project_versions
+        SET manifest_hash = ?, worldbook_count = ?, regex_count = ?, entry_index = ?
+        WHERE id = ? AND EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = 'superseded')`)
+      .bind(manifestHash, counts.worldbook, counts.regex, index, versionId, submissionId),
   ];
-  for (const entry of entries) {
-    statements.push(
-      db
-        .prepare(`INSERT INTO revision_entry_index
-          (revision_id, kind, entry_key, name, content_hash, content_length)
-        SELECT ?, ?, ?, ?, ?, ?
-        WHERE EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = 'superseded')`)
-        .bind(revisionId, entry.kind, entry.entryKey, entry.name, entry.contentHash, entry.contentLength, submissionId),
-    );
-  }
   statements.push(
     db
       .prepare(`UPDATE submissions SET status = 'superseded', resolved_at = ?
@@ -213,8 +196,7 @@ export async function withdrawSubmission(
   const results = await db.batch([
     db
       .prepare(`UPDATE submissions
-      SET status = 'superseded', resolved_at = ?, withdrawn_at = ?, withdrawn_by = ?,
-          check_lease_until = NULL, check_error = '作者已撤回提交'
+      SET status = 'superseded', resolved_at = ?, withdrawn_at = ?, withdrawn_by = ?
       WHERE id = ? AND project_id = ? AND status IN ('pending', 'checking')
         AND EXISTS (SELECT 1 FROM projects p WHERE p.id = submissions.project_id
           AND p.deleted_at IS NULL AND p.row_version = ?

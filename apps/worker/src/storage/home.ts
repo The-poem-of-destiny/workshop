@@ -6,13 +6,14 @@ import {
   siteSettingsSchema,
 } from "@workshop/contracts";
 import { getPublishedProjectsByIds, listPublishedProjects } from "./projects.js";
+import { readRecommendationRun } from "./rankings.js";
 
 interface RecommendationRow {
   id: string;
   curator_id: string;
   project_id: string;
   comment: string;
-  reaction: string;
+  project_version_id: string;
   curator_name: string;
   curator_avatar: string | null;
 }
@@ -61,10 +62,12 @@ export async function getSiteContent(db: D1Database): Promise<unknown> {
 export async function listRecommendations(db: D1Database): Promise<Recommendation[]> {
   const rows = await db
     .prepare(`
-    SELECT r.id, r.curator_id, r.project_id, r.comment, r.reaction,
+    SELECT r.id, r.curator_id, r.project_id, r.comment, r.project_version_id,
            COALESCE(u.global_name, u.username) AS curator_name, u.avatar AS curator_avatar
     FROM recommendations r
     JOIN users u ON u.id = r.curator_id
+    JOIN projects p ON p.id=r.project_id AND p.published_version_id=r.project_version_id
+      AND p.visibility='public' AND p.deleted_at IS NULL
     ORDER BY r.updated_at DESC
     LIMIT 20
   `)
@@ -76,7 +79,7 @@ export async function listRecommendations(db: D1Database): Promise<Recommendatio
   );
   return rows.results.flatMap((row) => {
     const project = projects.get(row.project_id);
-    if (!project) return [];
+    if (!project || project.publishedVersionId !== row.project_version_id) return [];
     return [
       {
         id: row.id,
@@ -88,7 +91,7 @@ export async function listRecommendations(db: D1Database): Promise<Recommendatio
             : null,
         },
         comment: row.comment,
-        reaction: row.reaction,
+        projectVersionId: row.project_version_id,
         project,
       },
     ];
@@ -96,26 +99,11 @@ export async function listRecommendations(db: D1Database): Promise<Recommendatio
 }
 
 export async function getDiscovery(db: D1Database) {
-  const bucket = await db
-    .prepare("SELECT MAX(bucket) AS bucket FROM discovery_exposures")
-    .first<{ bucket: string | null }>();
-  if (!bucket?.bucket) return { items: [] };
-  const rows = await db
-    .prepare(`
-    SELECT project_id FROM discovery_exposures WHERE bucket = ? ORDER BY rank LIMIT 12
-  `)
-    .bind(bucket.bucket)
-    .all<{ project_id: string }>();
-  const projects = await getPublishedProjectsByIds(
-    db,
-    rows.results.map((row) => row.project_id),
-  );
+  const run = await readRecommendationRun(db, "discovery");
   return {
-    bucket: bucket.bucket,
-    items: rows.results.flatMap((row) => {
-      const project = projects.get(row.project_id);
-      return project ? [project] : [];
-    }),
+    runId: run?.runId ?? null,
+    scheduledAt: run?.scheduledAt ?? null,
+    items: run?.items.map((item) => ({ ...item.project, recommendationComment: item.recommendationComment })) ?? [],
   };
 }
 

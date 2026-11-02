@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 export const SOURCE_TABLES = ["users", "projects", "assets"];
-export const TABLES = ["users", "projects", "project_revisions", "assets", "revision_entry_index"];
+export const TABLES = ["users", "projects", "project_versions", "assets"];
 export const SHA256 = /^[a-f0-9]{64}$/i;
 
 export const text = (value) => (typeof value === "string" ? value : value == null ? "" : String(value));

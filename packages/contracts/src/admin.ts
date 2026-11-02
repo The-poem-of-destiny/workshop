@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { auditActionSchema } from "./audit.js";
 import { roleSchema } from "./identity.js";
 
 export const adminSubmissionStatusSchema = z.enum(["pending", "checking", "approved", "rejected", "superseded"]);
@@ -24,7 +25,7 @@ export const adminReviewRequestSchema = z
   .object({
     decision: z.enum(["approve", "reject"]),
     reason: z.string().max(4000).optional(),
-    revisionId: z.string().max(80).optional(),
+    versionId: z.string().max(80).optional(),
     manifestHash: z.string().max(128).optional(),
     reportHash: z.string().max(128).optional(),
   })
@@ -89,7 +90,7 @@ export const adminSubmissionListResponseSchema = z.object({
       author: z.object({ id: z.string(), name: z.string() }),
       status: adminSubmissionStatusSchema,
       gate: z.string().nullable(),
-      checkerRevision: z.string().nullable(),
+      checkerVersion: z.string().nullable(),
       checkStatus: z.enum(["queued", "running", "done", "needs_human", "failed"]),
       submittedAt: z.string(),
     }),
@@ -103,7 +104,7 @@ export type AdminSubmissionListResponse = z.infer<typeof adminSubmissionListResp
 export const adminAuditEventListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   cursor: z.string().max(512).optional(),
-  action: z.string().max(200).optional(),
+  action: auditActionSchema.optional(),
 });
 export type AdminAuditEventListQuery = z.infer<typeof adminAuditEventListQuerySchema>;
 
@@ -125,41 +126,6 @@ export type AdminSiteUpdate = z.infer<typeof adminSiteUpdateSchema>;
 
 export const adminRecommendationUpdateSchema = z.object({
   comment: z.string().max(2000).optional(),
-  reaction: z.string().max(100).optional(),
+  projectVersionId: z.string().min(1),
 });
 export type AdminRecommendationUpdate = z.infer<typeof adminRecommendationUpdateSchema>;
-
-const adminReferenceItemSchema = z.object({
-  kind: z.enum(["worldbook", "regex"]),
-  displayName: z.string().min(1).max(500),
-  sourceKey: z.string().max(1000).nullable().optional(),
-  exactHash: z.string().optional(),
-  normalizedContentHash: z.string().optional(),
-  nameHash: z.string().optional(),
-  keysHash: z.string().nullable().optional(),
-  structureHash: z.string().optional(),
-});
-
-export const adminReferenceSetUpdateSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  description: z.string().max(4000).nullable().optional(),
-  versionLabel: z.string().min(1).max(200).optional(),
-  items: z.array(adminReferenceItemSchema).optional(),
-});
-export type AdminReferenceSetUpdate = z.infer<typeof adminReferenceSetUpdateSchema>;
-
-export const adminReferenceSetCreateSchema = z.object({
-  name: z.string().min(1).max(200),
-  description: z.string().max(4000).nullable().optional(),
-  versionLabel: z.string().min(1).max(200),
-  graceUntil: z.string().datetime().optional(),
-  items: z.array(adminReferenceItemSchema).default([]),
-});
-export type AdminReferenceSetCreate = z.infer<typeof adminReferenceSetCreateSchema>;
-
-export const adminReferenceVersionCreateSchema = z.object({
-  versionLabel: z.string().min(1).max(200),
-  graceUntil: z.string().datetime().optional(),
-  items: z.array(adminReferenceItemSchema).default([]),
-});
-export type AdminReferenceVersionCreate = z.infer<typeof adminReferenceVersionCreateSchema>;

@@ -46,25 +46,24 @@ class SourceIndexTest(unittest.TestCase):
             REGEX: b'[{"id":"r1","scriptName":"Replacement","replaceString":"B"}]',
         }
         tables = {name: [] for name in (
-            "users", "projects", "project_revisions", "project_likes", "project_subscriptions",
-            "project_ratings", "project_metrics_daily", "reference_sets", "reference_versions",
-            "reference_items", "site_settings", "audit_events", "recommendations", "assets", "revision_entry_index")}
+            "users", "projects", "project_versions", "project_likes", "project_subscriptions",
+            "project_ratings", "project_metrics_daily", "site_settings", "audit_events", "recommendations", "assets", "version_entry_index")}
         tables["users"] = [{"id": "u1", "username": "synthetic", "global_name": None, "avatar": None,
                             "role": "member", "created_at": "t1", "updated_at": "t2"}]
-        tables["projects"] = [{"id": "p1", "author_id": "u1", "working_revision_id": REVISION,
-                               "published_revision_id": REVISION, "visibility": "public", "title": "Example",
+        tables["projects"] = [{"id": "p1", "author_id": "u1", "working_version_id": REVISION,
+                               "published_version_id": REVISION, "visibility": "public", "title": "Example",
                                "description": "Description", "search_tags": "[]", "published_at": None,
                                "downloads_count": 0, "likes_count": 0, "subscriptions_count": 0,
                                "created_at": "t1", "updated_at": "t2"}]
-        tables["project_revisions"] = [{"id": REVISION, "project_id": "p1", "created_by": "u1",
+        tables["project_versions"] = [{"id": REVISION, "project_id": "p1", "created_by": "u1",
                                         "title": "Example", "description": "Description", "tags": "[]",
                                         "entry_index_ready": 1, "worldbook_count": 2, "regex_count": 1}]
-        tables["revision_entry_index"] = [
-            {"revision_id": REVISION, "kind": "worldbook", "entry_key": "uid:7", "name": "Named entry",
+        tables["version_entry_index"] = [
+            {"version_id": REVISION, "kind": "worldbook", "entry_key": "uid:7", "name": "Named entry",
              "content_hash": sha("A\U0001f600".encode()), "content_length": 2},
-            {"revision_id": REVISION, "kind": "worldbook", "entry_key": "index:1", "name": "Fallback entry",
+            {"version_id": REVISION, "kind": "worldbook", "entry_key": "index:1", "name": "Fallback entry",
              "content_hash": sha(b"second"), "content_length": 6},
-            {"revision_id": REVISION, "kind": "regex", "entry_key": "id:r1", "name": "Replacement",
+            {"version_id": REVISION, "kind": "regex", "entry_key": "id:r1", "name": "Replacement",
              "content_hash": sha(b"B"), "content_length": 1},
         ]
         self.data = {"format": "workshop-full-migration-preparation-v1", "tables": tables,
@@ -80,14 +79,14 @@ class SourceIndexTest(unittest.TestCase):
                 continue
             digest = sha(payload)
             target = "projects/imported/" + digest
-            assets.append({"project_id": "p1", "revision_id": REVISION, "kind": kind,
+            assets.append({"project_id": "p1", "version_id": REVISION, "kind": kind,
                            "r2_key": target, "sha256": digest, "bytes": len(payload)})
             objects.append({"sourceBucket": BUCKET, "sourceKey": key, "targetKey": target,
                             "sha256": digest, "bytes": len(payload)})
         self.data["tables"]["assets"] = assets
         self.data["objects"] = list({item["targetKey"]: item for item in objects}.values())
         hashes = "\n".join(asset["kind"] + ":" + asset["sha256"] for asset in sorted(assets, key=lambda item: item["kind"]))
-        self.data["tables"]["project_revisions"][0]["manifest_hash"] = sha(hashes.encode())
+        self.data["tables"]["project_versions"][0]["manifest_hash"] = sha(hashes.encode())
 
     def run_source(self, data=None, tampered=None):
         source = self.directory / "source.sql"
@@ -104,7 +103,15 @@ class SourceIndexTest(unittest.TestCase):
             "buckets": {BUCKET: {"objects": objects}},
         }), encoding="utf-8")
         preparation = self.directory / "preparation.json"
-        preparation.write_text(json.dumps(self.data if data is None else data), encoding="utf-8")
+        candidate = copy.deepcopy(self.data if data is None else data)
+        index_rows = candidate["tables"].pop("version_entry_index")
+        for version in candidate["tables"]["project_versions"]:
+            ready = version.pop("entry_index_ready")
+            version["entry_index"] = json.dumps({"schemaVersion": 1, "entries": [
+                {"kind": row["kind"], "entryKey": row["entry_key"], "name": row["name"],
+                 "contentHash": row["content_hash"], "contentLength": row["content_length"]}
+                for row in index_rows if row["version_id"] == version["id"]]}) if ready else None
+        preparation.write_text(json.dumps(candidate), encoding="utf-8")
         result = subprocess.run([sys.executable, str(LOADER), "source", str(preparation), str(source), str(manifest)],
                                 capture_output=True, text=True, check=False)
         self.assertTrue(result.stdout, result.stderr)
@@ -120,32 +127,32 @@ class SourceIndexTest(unittest.TestCase):
         result, report = self.run_source()
         self.assertEqual(result.returncode, 0, (result.stderr, report))
         self.assertTrue(report["ok"])
-        self.assertEqual(report["checks"]["revision_entry_index"],
+        self.assertEqual(report["checks"]["version_entry_index"],
                          {"expected": 3, "actual": 3, "missing": 0, "extra": 0})
 
     def test_missing_extra_or_corrupted_index_rows_are_rejected(self):
-        for mutation in ("missing", "extra", "kind", "entry_key", "name", "content_hash", "content_length", "revision_id"):
+        for mutation in ("missing", "extra", "kind", "entry_key", "name", "content_hash", "content_length", "version_id"):
             with self.subTest(mutation=mutation):
                 data = copy.deepcopy(self.data)
-                rows = data["tables"]["revision_entry_index"]
+                rows = data["tables"]["version_entry_index"]
                 if mutation == "missing":
                     rows.pop()
                 elif mutation == "extra":
                     rows.append(copy.deepcopy(rows[0]))
                 else:
                     rows[0][mutation] = 99 if mutation == "content_length" else "tampered"
-                self.assert_difference(data, "revision_entry_index")
+                self.assert_difference(data, "version_entry_index")
 
     def test_forged_readiness_counts_and_exclusions_cannot_hide_valid_entries(self):
         for mutation in ("readiness", "worldbook_count", "regex_count", "manifest_hash", "duplicate", "invalid", "no_content"):
             with self.subTest(mutation=mutation):
                 data = copy.deepcopy(self.data)
-                revision = data["tables"]["project_revisions"][0]
+                revision = data["tables"]["project_versions"][0]
                 if mutation in ("worldbook_count", "regex_count", "manifest_hash"):
                     revision[mutation] = "tampered" if mutation == "manifest_hash" else 0
                 else:
                     revision.update(entry_index_ready=0, worldbook_count=0, regex_count=0)
-                    data["tables"]["revision_entry_index"].clear()
+                    data["tables"]["version_entry_index"].clear()
                     if mutation in ("duplicate", "invalid"):
                         reason = ("content index unavailable: duplicate entry keys" if mutation == "duplicate"
                                   else "invalid content asset omitted: forged")
@@ -168,16 +175,16 @@ class SourceIndexTest(unittest.TestCase):
     def test_real_duplicate_keys_require_incomplete_revision_and_no_index(self):
         self.payloads[WORLDBOOK] = b'{"entries":[{"uid":7,"content":"a"},{"uid":7,"content":"b"}]}'
         self.sync_assets()
-        self.data["tables"]["project_revisions"][0].update(entry_index_ready=0, worldbook_count=0, regex_count=0)
-        self.data["tables"]["project_revisions"][0].pop("manifest_hash")
-        self.data["tables"]["revision_entry_index"].clear()
+        self.data["tables"]["project_versions"][0].update(entry_index_ready=0, worldbook_count=0, regex_count=0)
+        self.data["tables"]["project_versions"][0].pop("manifest_hash")
+        self.data["tables"]["version_entry_index"].clear()
         self.data["omissions"].append({"table": "projects", "reason": "content index unavailable: duplicate entry keys",
                                        "source": {"id": "p1", "kind": "worldbook", "sha256": sha(self.payloads[WORLDBOOK])}})
         result, report = self.run_source()
         self.assertEqual(result.returncode, 0, (result.stderr, report))
         self.assertEqual(report["incomplete_content_revisions"], 1)
         data = copy.deepcopy(self.data)
-        data["tables"]["project_revisions"][0]["entry_index_ready"] = 1
+        data["tables"]["project_versions"][0]["entry_index_ready"] = 1
         self.assert_difference(data, "revision_content_readiness")
 
     def test_verified_zero_byte_and_duplicate_worldbook_exclusions(self):
@@ -185,9 +192,9 @@ class SourceIndexTest(unittest.TestCase):
             with self.subTest(omission=omission):
                 self.payloads[WORLDBOOK] = b"" if omission == "zero-byte" else self.payloads[REGEX]
                 self.sync_assets(omitted_kinds={"worldbook"})
-                self.data["tables"]["project_revisions"][0]["worldbook_count"] = 0
-                self.data["tables"]["revision_entry_index"] = [
-                    row for row in self.data["tables"]["revision_entry_index"] if row["kind"] == "regex"]
+                self.data["tables"]["project_versions"][0]["worldbook_count"] = 0
+                self.data["tables"]["version_entry_index"] = [
+                    row for row in self.data["tables"]["version_entry_index"] if row["kind"] == "regex"]
                 if omission == "zero-byte":
                     excluded = {"table": "r2", "reason": "zero-byte worldbook omitted",
                                 "source": {"bucket": BUCKET, "key": WORLDBOOK}}
@@ -205,9 +212,9 @@ class SourceIndexTest(unittest.TestCase):
     def test_invalid_content_exclusion_requires_the_real_parser_failure(self):
         self.payloads[WORLDBOOK] = b"{"
         self.sync_assets(omitted_kinds={"worldbook"})
-        self.data["tables"]["project_revisions"][0]["worldbook_count"] = 0
-        self.data["tables"]["revision_entry_index"] = [
-            row for row in self.data["tables"]["revision_entry_index"] if row["kind"] == "regex"]
+        self.data["tables"]["project_versions"][0]["worldbook_count"] = 0
+        self.data["tables"]["version_entry_index"] = [
+            row for row in self.data["tables"]["version_entry_index"] if row["kind"] == "regex"]
         self.data["omissions"] = [{"table": "projects",
                                   "reason": "invalid content asset omitted: \u9879\u76ee JSON \u65e0\u6cd5\u89e3\u6790",
                                   "source": {"id": "p1", "kind": "worldbook", "sha256": sha(b"{")}}]
