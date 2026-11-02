@@ -29,6 +29,8 @@
 
 OAuth flow 的有效期为 10 分钟，使用 state、PKCE，并设置浏览器绑定 cookie；HTTPS 下 cookie 使用 Secure。device 和 embed 的状态查询、回调及兑换检查绑定；browser 模式的状态查询和回调不检查绑定 cookie，不应将该绑定保证推广到 browser。服务端保管 secret、授权码、会话令牌和 cookie，不应将其写入日志、文档或工单。Cloudflare 部署凭据与运行时 OAuth/session secret 是不同凭据；CI 使用专用凭据，不得复制个人 token。上述名称不证明远端 secret 存在或值正确。
 
+会话沿用 30 天滑动有效期，每 24 小时最多续期一次；每次解析从当前 users 读取角色并检查撤销／过期，续期以原 session_version 和未撤销／未过期条件做原子更新，不复活已撤销会话。下载打开对象后再次鉴权。Discord 公会资格在 OAuth 登录时验证；当前不保存 provider access token，因此没有后台持续刷新资格的能力，用户离开公会不会自动触发本地撤销。管理员角色调整和本地会话撤销即时影响后续鉴权；重新登录重新验证公会。这个边界不是持续资格保证。
+
 ## 配置校验边界
 
 仓库不是集中式启动配置校验器：来源、公会和角色按使用时解析；角色格式有上述检查，公会允许列表本身只是分割字符串。`PUBLIC_ORIGIN` 的缺省回退、空 client ID 的 pending 地址、无 session secret 的 SHA-256 回退都可能使配置缺陷不表现为启动失败。`GET /api/v1/health` 只报告 `DB`、`R2`、`ASSETS` 绑定是否存在及版本，不验证访问权限、OAuth 配置、secret、回调、角色或缓存命中。发布前应在获授权的目标环境分别确认资源绑定、回调登记、来源、公会和角色策略，以及真实登录和受保护操作；不要读取或打印 secret 值。部署检查及恢复限制见[部署安全手册](../operations/deployment-safety.md)。
@@ -44,7 +46,7 @@ TTL 以秒为单位集中配置，必须是十进制非负整数且不超过 315
 | 变量 | 默认秒数 | 分类 |
 | --- | ---: | --- |
 | `CACHE_TTL_PUBLIC_SECONDS` | 60 | 项目列表、详情、batch、entries，首页、发现、推荐和公开图片 |
-| `CACHE_TTL_REFERENCE_SECONDS` | 300 | 排行、site、reference sets |
+| `CACHE_TTL_REFERENCE_SECONDS` | 300 | 排行与 site（分类名不是已移除的 reference baseline 功能） |
 | `CACHE_TTL_IMMUTABLE_SECONDS` | 31536000 | 版本化 client/checker 对外 immutable |
 | `CACHE_TTL_INTERNAL_SECONDS` | 86400 | 授权后的预览及不可变对象内部缓存 |
 
@@ -55,3 +57,15 @@ TTL 以秒为单位集中配置，必须是十进制非负整数且不超过 315
 不使用全球主动 purge，也不恢复 epoch。写入或撤回后，不同 PoP 的旧公开条目可能保留至各自到期；在途请求可能在变更后填入旧数据，浏览器缓存或已保存字节也无法由服务端收回。因此分类 TTL 不是全球撤回时限。固定版本 immutable 资源还有更长的客户端留存风险。客户端发布脚本另有可选的 zone tag purge，其操作限制见[部署安全手册](../operations/deployment-safety.md#client-artifact-publishing)，不应当作本方案的全球失效保证。
 
 本参考描述仓库变更，不证明远端已部署、绑定、缓存命中率或撤回时限；上线仍需用户明确授权，hosted 行为尚未验证。需要获授权后验证目标环境的请求、响应头和实际写入/撤回场景；不要使用未经授权的生产操作或个人 Cloudflare token。
+
+## 推荐批次配置
+
+`RECOMMENDATION_POLICY` 是可选的严格 JSON 对象。字段：`temperature`（0.1–4，默认 0.7）、`authorCap`（1–24，默认 2）、`discoveryLimit`（1–24，默认 12）、`rankingLimit`（1–200，默认 24）和 `budget`（必须完整提供 verified/hot/new/underexposed 四个非负有限预算，总和大于零；默认 0.30/0.25/0.20/0.25）。无效配置使批次失败，不静默回退。现有成功运行仍可读取；这些默认值不是实际分布验证后的最优值。
+
+每轮 `recommendation_runs.result` 保存 `scoringVersion`、主池、分项贡献和适用版本评语来源；运行列保存 UTC 半开来源／展示窗口。曝光上报仅为登录客户端的可见项目集合，按运行加盐哈希抽样 1/16，每个抽样身份每轮最多四次合并写入，点击必须属于可见集合。它不是可靠身份、完成下载或 CTR 证明；缺失曝光保持未知。内容变更由客户端比较确切版本目录，服务端核对 hash、条目差异数量、作者与当前工作版本，最多每日一次，小幅奖励上限 0.03；不奖励纯 metadata 更新。
+
+## 存量审核报告迁移
+
+对已有 submission 的数据库应用 `0031_unified_reviews.sql` 前，先使用 `node tools/migrate/export-review-reports.mjs <legacy.sqlite> <export-directory>` 导出精确 UTF-8 报告及 SHA-256 清单，再使用 `node tools/migrate/transfer-review-reports.mjs check <export-directory>` 离线核验。只有另获远端写入授权后，才可运行 `transfer-review-reports.mjs upload <export-directory> <receipt.sql>`；它使用专用 `STAGING_IMPORT_R2_ACCESS_KEY_ID`／`STAGING_IMPORT_R2_SECRET_ACCESS_KEY` 和 `CLOUDFLARE_ACCOUNT_ID`，目标固定为 staging bucket，不读取个人 API token。
+
+上传使用条件写入，读取目标实际字节核验后才生成 receipt SQL。将 receipt 应用于对应存量数据库后才能执行 0031；任一当前报告或历史检查报告缺少匹配 receipt，迁移以 CHECK 约束失败，禁止丢弃源报告列。receipt 不代替部署权限、备份或操作者对目标数据库的核对。空数据库无需报告 receipt；完整旧站备份重建流程不虚构原本不存在的新审核报告。

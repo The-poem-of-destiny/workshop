@@ -71,12 +71,12 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 | GET `/projects/:id/draft` | 获取作者草稿及 rowVersion |
 | PATCH、DELETE `/projects/:id` | 更新元数据、软删除项目 |
 | PATCH `/projects/:id/visibility` | 修改可见性 |
-| POST `/projects/:id/revisions` | 创建修订 |
+| POST `/projects/:id/versions` | 创建修订 |
 | GET `/projects/:id/gallery` | 获取作者画廊 |
 | PUT、DELETE `/projects/:id/gallery/:slot` | 上传或删除画廊图片 |
-| GET、PUT `/projects/:id/revisions/:revisionId/files/:kind` | 读取或上传修订文件 |
-| DELETE `/projects/:id/revisions/:revisionId/entries/:kind/:entryKey` | 删除修订条目 |
-| POST `/projects/:id/revisions/:revisionId/submit` | 提交修订审核 |
+| GET、PUT `/projects/:id/versions/:versionId/files/:kind` | 读取或上传修订文件 |
+| DELETE `/projects/:id/versions/:versionId/entries/:kind/:entryKey` | 删除修订条目 |
+| POST `/projects/:id/versions/:versionId/submit` | 提交修订审核 |
 | POST `/projects/:id/submissions/:submissionId/withdraw` | 撤回投稿 |
 | GET `/admin/submissions` | 待审投稿列表和计数 |
 | GET `/admin/submissions/:id` | 投稿详情 |
