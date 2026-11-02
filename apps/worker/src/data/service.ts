@@ -20,6 +20,17 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     return guardedStorageEnv(this.env);
   }
 
+  projectRecommendation(...args: OperationArgs<Parameters<typeof projects.projectRecommendation>>) {
+    return projects.projectRecommendation(this.guardedEnv, ...args);
+  }
+
+  projectSignals(...args: OperationArgs<Parameters<typeof projects.projectSignals>>) {
+    return projects.projectSignals(this.guardedEnv, ...args);
+  }
+  projectChangeSignal(...args: OperationArgs<Parameters<typeof projects.projectChangeSignal>>) {
+    return projects.projectChangeSignal(this.guardedEnv, ...args);
+  }
+
   override async fetch(request: Request): Promise<Response> {
     const { pathname } = new URL(request.url);
     if (pathname.startsWith("/client/")) return distributionClientAsset(request, this.guardedEnv);
@@ -29,7 +40,7 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     if (pathname === "/api/v1/site/banner" && request.method === "POST") {
       return distributionBannerUpload(request, this.guardedEnv);
     }
-    if (/^\/api\/v1\/projects\/[^/]+\/(?:revisions\/[^/]+\/files\/[^/]+|gallery\/[^/]+)$/.test(pathname)) {
+    if (/^\/api\/v1\/projects\/[^/]+\/(?:versions\/[^/]+\/files\/[^/]+|gallery\/[^/]+)$/.test(pathname)) {
       return authorAdminFilesFetch(request, this.guardedEnv);
     }
     if (pathname.startsWith("/api/v1/admin/submissions/")) {
@@ -149,27 +160,6 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     return result;
   }
 
-  async authorAdminCreateReferenceSet(
-    ...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminCreateReferenceSet>>
-  ) {
-    const result = await authorAdmin.authorAdminCreateReferenceSet(this.guardedEnv, ...args);
-    return result;
-  }
-
-  async authorAdminCreateReferenceVersion(
-    ...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminCreateReferenceVersion>>
-  ) {
-    const result = await authorAdmin.authorAdminCreateReferenceVersion(this.guardedEnv, ...args);
-    return result;
-  }
-
-  async authorAdminUpdateReferenceSet(
-    ...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminUpdateReferenceSet>>
-  ) {
-    const result = await authorAdmin.authorAdminUpdateReferenceSet(this.guardedEnv, ...args);
-    return result;
-  }
-
   authorAdminRecheck(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminRecheck>>) {
     return authorAdmin.authorAdminRecheck(this.guardedEnv, ...args);
   }
@@ -219,8 +209,8 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     return projects.projectPreviewTarget(this.guardedEnv, ...args);
   }
 
-  projectTickets(...args: OperationArgs<Parameters<typeof projects.projectTickets>>) {
-    return projects.projectTickets(this.guardedEnv, ...args);
+  projectDownloads(...args: OperationArgs<Parameters<typeof projects.projectDownloads>>) {
+    return projects.projectDownloads(this.guardedEnv, ...args);
   }
 
   projectAcquisition(...args: OperationArgs<Parameters<typeof projects.projectAcquisition>>) {
@@ -244,8 +234,12 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     return result;
   }
 
-  authorAdminCreateRevision(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminCreateRevision>>) {
-    return authorAdmin.authorAdminCreateRevision(this.guardedEnv, ...args);
+  authorAdminCreateVersion(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminCreateVersion>>) {
+    return authorAdmin.authorAdminCreateVersion(this.guardedEnv, ...args);
+  }
+
+  authorAdminChangeEvidence(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminChangeEvidence>>) {
+    return authorAdmin.authorAdminChangeEvidence(this.guardedEnv, ...args);
   }
 
   authorAdminPrepareSubmission(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminPrepareSubmission>>) {
@@ -268,52 +262,54 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     return content.contentClaim(this.guardedEnv, submissionId);
   }
 
-  contentLoadSubmission(revisionId: string) {
-    return content.contentLoadSubmission(this.guardedEnv, revisionId);
+  contentLoadSubmission(versionId: string) {
+    return content.contentLoadSubmission(this.guardedEnv, versionId);
   }
 
   contentRecordRun(
     submissionId: string,
+    leaseToken: string,
     route: "block" | "warn" | "pass",
     report: string,
     hash: string,
     durationMs: number,
     checkedAt: string,
   ) {
-    return content.contentRecordRun(this.guardedEnv, submissionId, route, report, hash, durationMs, checkedAt);
+    return content.contentRecordRun(
+      this.guardedEnv,
+      submissionId,
+      leaseToken,
+      route,
+      report,
+      hash,
+      durationMs,
+      checkedAt,
+    );
   }
 
-  contentNeedsHuman(
-    submissionId: string,
-    message: string,
-    result: { report: string; hash: string; checkedAt: string } | null,
-  ) {
-    return content.contentNeedsHuman(this.guardedEnv, submissionId, message, result);
+  contentNeedsHuman(submissionId: string, message: string, leaseToken: string | null) {
+    return content.contentNeedsHuman(this.guardedEnv, submissionId, message, leaseToken);
   }
 
-  contentRequeue(submissionId: string, message: string) {
-    return content.contentRequeue(this.guardedEnv, submissionId, message);
+  contentRequeue(submissionId: string, message: string, leaseToken: string) {
+    return content.contentRequeue(this.guardedEnv, submissionId, message, leaseToken);
   }
 
-  async contentAutoPublish(target: RunTarget, report: string, reportHash: string, checkedAt: string) {
-    const published = await content.contentAutoPublish(this.guardedEnv, target, report, reportHash, checkedAt);
+  async contentAutoPublish(target: RunTarget, leaseToken: string) {
+    const published = await content.contentAutoPublish(this.guardedEnv, target, leaseToken);
     return published;
   }
 
-  contentLoadRevision(revisionId: string, projectId: string) {
-    return content.contentLoadRevision(this.guardedEnv, revisionId, projectId);
-  }
-
-  contentBaselineConflict(fingerprints: string[]) {
-    return content.contentBaselineConflict(this.guardedEnv, fingerprints);
+  contentLoadVersion(versionId: string, projectId: string) {
+    return content.contentLoadVersion(this.guardedEnv, versionId, projectId);
   }
 
   async buildScheduledRankings(scheduledTime: number): Promise<void> {
-    await buildScheduledRankings(this.guardedEnv.DB, scheduledTime);
+    await buildScheduledRankings(this.guardedEnv.DB, scheduledTime, this.env.RECOMMENDATION_POLICY);
   }
 
-  async cleanupScheduledData(dryRun: boolean, scheduledTime: number) {
-    return cleanupScheduledData(this.guardedEnv.DB, dryRun, scheduledTime);
+  async cleanupScheduledData(scheduledTime: number) {
+    return cleanupScheduledData(this.guardedEnv.DB, scheduledTime);
   }
 
   async findDueSubmissions(scheduledTime: number): Promise<string[]> {

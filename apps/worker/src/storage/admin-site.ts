@@ -1,3 +1,5 @@
+import { type JsonValue, jsonValueSchema, serializeAuditDetail } from "@workshop/contracts";
+
 export async function updateAdminSite(
   db: D1Database,
   actorId: string,
@@ -19,10 +21,10 @@ export async function updateAdminSite(
     SELECT key, value FROM site_settings WHERE key IN ('discover_banner', 'site_content')
   `)
     .all<{ key: string; value: string }>();
-  const before: Record<string, unknown> = {};
+  const before: Record<string, JsonValue> = {};
   for (const row of current.results) {
     try {
-      before[row.key] = JSON.parse(row.value) as unknown;
+      before[row.key] = jsonValueSchema.parse(JSON.parse(row.value));
     } catch {
       before[row.key] = row.value;
     }
@@ -51,7 +53,7 @@ export async function updateAdminSite(
   }
   const after = {
     ...(banner === undefined ? {} : { discover_banner: banner }),
-    ...(siteContent === undefined ? {} : { site_content: siteContent }),
+    ...(siteContent === undefined ? {} : { site_content: jsonValueSchema.parse(siteContent) }),
   };
   statements.push(
     db
@@ -59,7 +61,7 @@ export async function updateAdminSite(
     INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
     VALUES (?, 'site.update', 'site', 'site', ?, ?, ?)
   `)
-      .bind(crypto.randomUUID(), actorId, JSON.stringify({ before, after }), now),
+      .bind(crypto.randomUUID(), actorId, serializeAuditDetail("site.update", { before, after }), now),
   );
   await db.batch(statements);
   return { banner, siteContent };

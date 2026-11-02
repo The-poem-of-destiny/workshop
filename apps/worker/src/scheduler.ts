@@ -8,9 +8,8 @@ export async function runScheduled(env: Env, exports: Cloudflare.Exports, schedu
     await data.buildScheduledRankings(timestamp);
   }
   if (scheduled.getUTCHours() === 0 && scheduled.getUTCMinutes() === 5) {
-    const dryRun = env.CLEANUP_DRY_RUN === "1";
-    const result = await data.cleanupScheduledData(dryRun, timestamp);
-    if (dryRun) console.log("cleanup dry-run", result);
+    const result = await data.cleanupScheduledData(timestamp);
+    console.log("cleanup observation; retention policy undecided", result);
   }
 
   const due = await data.findDueSubmissions(timestamp);

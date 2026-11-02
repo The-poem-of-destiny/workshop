@@ -4,15 +4,12 @@ import {
   companionScriptIdSchema,
   companionVersionInputSchema,
   companionVersionSchema,
-  referenceSetListResponseSchema,
-  referenceSetSchema,
   siteSettingsSchema,
 } from "@workshop/contracts";
 import { updateAdminSite } from "../storage/admin-site.js";
 import { getClientChannel } from "../storage/client.js";
 import { getCompanionVersion, publishCompanionVersion } from "../storage/companion.js";
 import { getBanner, getSiteContent, listRecommendations } from "../storage/home.js";
-import { getReferenceSet, listReferenceSets } from "../storage/references.js";
 import { getSessionByToken } from "../storage/sessions.js";
 import type { DataEnv } from "./env.js";
 
@@ -30,13 +27,6 @@ export async function distributionSite(env: DataEnv) {
 }
 export async function distributionRecommendations(env: DataEnv) {
   return { items: await listRecommendations(env.DB) };
-}
-export async function distributionReferences(env: DataEnv) {
-  return referenceSetListResponseSchema.parse({ items: await listReferenceSets(env.DB) });
-}
-export async function distributionReference(env: DataEnv, id: string) {
-  const set = await getReferenceSet(env.DB, id);
-  return set ? referenceSetSchema.parse(set) : null;
 }
 export async function distributionClientChannel(env: DataEnv, channel: "stable" | "staging") {
   return getClientChannel(env.DB, channel);

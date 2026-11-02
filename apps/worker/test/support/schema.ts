@@ -23,6 +23,20 @@ import projectGallery from "../../migrations/0022_project_gallery.sql?raw";
 import catalogMetrics from "../../migrations/0023_catalog_metrics.sql?raw";
 import submissionWithdrawal from "../../migrations/0024_submission_withdrawal.sql?raw";
 import removePublicCacheEpoch from "../../migrations/0025_remove_public_cache_epoch.sql?raw";
+import oauthAuthorizationDetail from "../../migrations/0026_oauth_authorization_detail.sql?raw";
+import removeReferenceBaselines from "../../migrations/0027_remove_reference_baselines.sql?raw";
+import galleryAssets from "../../migrations/0028_gallery_assets.sql?raw";
+import versionEntryIndex from "../../migrations/0029_version_entry_index.sql?raw";
+import requirements from "../../migrations/0030_requirements.sql?raw";
+import unifiedReviews from "../../migrations/0031_unified_reviews.sql?raw";
+import removeMetadataEvidence from "../../migrations/0032_remove_metadata_evidence.sql?raw";
+import dailyAcquisitions from "../../migrations/0033_daily_acquisitions.sql?raw";
+import recommendationRuns from "../../migrations/0034_recommendation_runs.sql?raw";
+import versionContentAuthority from "../../migrations/0035_version_content_authority.sql?raw";
+import playerRecommendations from "../../migrations/0036_player_recommendations.sql?raw";
+import contentVersions from "../../migrations/0037_content_versions.sql?raw";
+import recommendationSignals from "../../migrations/0038_recommendation_signals.sql?raw";
+import closedAuditActions from "../../migrations/0039_closed_audit_actions.sql?raw";
 import { splitSql } from "./sql";
 
 export async function applySchema(db: D1Database): Promise<void> {
@@ -52,6 +66,20 @@ export async function applySchema(db: D1Database): Promise<void> {
     catalogMetrics,
     submissionWithdrawal,
     removePublicCacheEpoch,
+    oauthAuthorizationDetail,
+    removeReferenceBaselines,
+    galleryAssets,
+    versionEntryIndex,
+    requirements,
+    unifiedReviews,
+    removeMetadataEvidence,
+    dailyAcquisitions,
+    recommendationRuns,
+    versionContentAuthority,
+    playerRecommendations,
+    contentVersions,
+    recommendationSignals,
+    closedAuditActions,
   ]) {
     const sql = source.replace(/^\s*--.*$/gm, "").replace(/^\s*PRAGMA\b.*$/gm, "");
     for (const statement of splitSql(sql)) await db.prepare(statement).run();

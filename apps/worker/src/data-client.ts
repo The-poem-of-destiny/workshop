@@ -44,7 +44,7 @@ export function fetchProjectPreview(context: LoopbackContext, target: ProjectPre
       ),
     );
   }
-  const path = `/preview/v1/${encodeURIComponent(target.projectId)}/${encodeURIComponent(target.revisionId)}/${target.kind}/${target.sha256}`;
+  const path = `/preview/v1/${encodeURIComponent(target.projectId)}/${encodeURIComponent(target.versionId)}/${target.kind}/${target.sha256}`;
   return loopback(context)
     .CachedReads({ props: { kind: "preview", target } })
     .fetch(`https://cached.workshop.invalid${path}`);

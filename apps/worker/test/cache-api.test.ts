@@ -12,15 +12,32 @@ let version: string;
 beforeAll(async () => applySchema(bindings.DB));
 beforeEach(async () => {
   version = crypto.randomUUID();
-  await bindings.DB.exec("DELETE FROM projects; DELETE FROM users;");
+  await bindings.DB.exec(`
+    UPDATE projects SET working_version_id = NULL, published_version_id = NULL, published_cover_asset_id = NULL;
+    DELETE FROM project_versions;
+    DELETE FROM projects;
+    DELETE FROM users;
+  `);
   await bindings.DB.prepare("INSERT INTO users (id, username) VALUES ('cache-author', 'cache-author')").run();
   await bindings.DB.prepare(`INSERT INTO projects
-    (id, author_id, title, visibility, published_revision_id, published_at, updated_at)
-    VALUES ('cache-project', 'cache-author', 'Original', 'public', 'cache-revision', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`).run();
-  await bindings.DB.prepare(`INSERT INTO project_revisions (id, project_id, revision_no, title, created_by)
-    VALUES ('cache-revision', 'cache-project', 1, 'Original', 'cache-author')`).run();
+    (id, author_id, visibility, published_at, updated_at)
+    VALUES ('cache-project', 'cache-author', 'public', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`).run();
+  await publishTitle("Original");
 });
 afterEach(() => vi.restoreAllMocks());
+
+async function publishTitle(title: string): Promise<void> {
+  const id = crypto.randomUUID();
+  await bindings.DB.batch([
+    bindings.DB.prepare(`INSERT INTO project_versions
+      (id, project_id, version_no, title, created_by, entry_index)
+      VALUES (?, 'cache-project', (SELECT COALESCE(MAX(version_no), 0) + 1 FROM project_versions WHERE project_id = 'cache-project'), ?, 'cache-author', '{"schemaVersion":1,"entries":[]}')`).bind(
+      id,
+      title,
+    ),
+    bindings.DB.prepare("UPDATE projects SET published_version_id = ? WHERE id = 'cache-project'").bind(id),
+  ]);
+}
 
 async function read(
   path: string,
@@ -60,7 +77,7 @@ describe("Cache API read behavior", () => {
     const first = exposed(await read(project));
     expect(maxAge(first)).toBe(60);
     expect(await first.json()).toMatchObject({ title: "Original" });
-    await bindings.DB.prepare("UPDATE projects SET title = 'Changed' WHERE id = 'cache-project'").run();
+    await publishTitle("Changed");
     clock.mockReturnValue(start + 20_000);
     const hit = exposed(await read(project));
     expect(await hit.json()).toMatchObject({ title: "Original" });
@@ -77,9 +94,9 @@ describe("Cache API read behavior", () => {
     expect((await first.json<{ items: unknown[] }>()).items).toHaveLength(1);
     const different = await read("/public/v1/api/v1/projects?search=Missing");
     expect((await different.json<{ items: unknown[] }>()).items).toHaveLength(0);
-    await bindings.DB.prepare("UPDATE projects SET title = 'Changed' WHERE id = 'cache-project'").run();
+    await publishTitle("Changed");
     expect(await (await read(project)).json()).toMatchObject({ title: "Changed" });
-    await bindings.DB.prepare("UPDATE projects SET title = 'New version' WHERE id = 'cache-project'").run();
+    await publishTitle("New version");
     expect(await (await read(project)).json()).toMatchObject({ title: "Changed" });
     version = crypto.randomUUID();
     expect(await (await read(project)).json()).toMatchObject({ title: "New version" });
@@ -89,7 +106,7 @@ describe("Cache API read behavior", () => {
     const head = await read(project, { method: "HEAD" });
     expect(head.status).toBe(200);
     expect(await head.text()).toBe("");
-    await bindings.DB.prepare("UPDATE projects SET title = 'Changed' WHERE id = 'cache-project'").run();
+    await publishTitle("Changed");
     expect(await (await read(project)).json()).toMatchObject({ title: "Original" });
     const secondHead = await read(project, { method: "HEAD" });
     expect(secondHead.status).toBe(200);
@@ -101,7 +118,6 @@ describe("Cache API read behavior", () => {
     ["/api/v1/recommendations", 60],
     ["/api/v1/projects/discovery", 60],
     ["/api/v1/site", 300],
-    ["/api/v1/reference-sets", 300],
     ["/api/v1/projects/rankings", 300],
   ] as const)("uses the configured default class for %s", async (path, seconds) => {
     const response = exposed(await read(`/public/v1${path}`), path);
@@ -120,7 +136,7 @@ describe("Cache API read behavior", () => {
     expect(maxAge(site)).toBeLessThanOrEqual(123);
     const unversioned = { VERSION_METADATA: undefined };
     expect(await (await read(project, { settings: unversioned })).json()).toMatchObject({ title: "Original" });
-    await bindings.DB.prepare("UPDATE projects SET title = 'Changed' WHERE id = 'cache-project'").run();
+    await publishTitle("Changed");
     expect(await (await read(project, { settings: unversioned })).json()).toMatchObject({ title: "Changed" });
   });
 
@@ -145,7 +161,7 @@ describe("Cache API read behavior", () => {
     const first = exposed(await read(project, { settings }));
     expect(first.headers.get("cache-control")).toContain("no-store");
     expect(await first.json()).toMatchObject({ title: "Original" });
-    await bindings.DB.prepare("UPDATE projects SET title = 'Changed' WHERE id = 'cache-project'").run();
+    await publishTitle("Changed");
     const second = exposed(await read(project, { settings }));
     expect(second.headers.get("cache-control")).toContain("no-store");
     expect(await second.json()).toMatchObject({ title: "Changed" });

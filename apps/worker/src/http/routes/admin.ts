@@ -5,9 +5,6 @@ import {
   adminMemberListSchema,
   adminProjectListSchema,
   adminRecommendationUpdateSchema,
-  adminReferenceSetCreateSchema,
-  adminReferenceSetUpdateSchema,
-  adminReferenceVersionCreateSchema,
   adminReviewRequestSchema,
   adminRoleRequestSchema,
   adminSubmissionDetailSchema,
@@ -261,58 +258,4 @@ adminRoutes.delete("/recommendations/:projectId", async (c) => {
   const result = response.data;
   if (result.kind === "not_found") return jsonError(c, "not_found", "Recommendation not found");
   return c.body(null, 204);
-});
-
-adminRoutes.post("/reference-sets", async (c) => {
-  const session = await requireReviewer(c);
-  if (session === null) return jsonError(c, "unauthorized", "Login required");
-  if (session === false || session.role !== "owner") return jsonError(c, "forbidden", "Owner role required");
-  const parsed = adminReferenceSetCreateSchema.safeParse(await readJson(c));
-  if (!parsed.success) return jsonError(c, "bad_request", "Invalid reference set", parsed.error.flatten());
-  const response = await c.executionCtx.exports.DataService.authorAdminCreateReferenceSet(
-    c.req.header("authorization"),
-    parsed.data,
-  );
-  if (response.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
-  if (response.kind === "forbidden") return jsonError(c, "forbidden", "Owner role required");
-  const result = response.data;
-  if (result.kind === "conflict") return jsonError(c, "conflict", "Reference set name or version already exists");
-  return c.json({ id: result.id, versionId: result.versionId }, 201);
-});
-
-adminRoutes.post("/reference-sets/:id/versions", async (c) => {
-  const session = await requireReviewer(c);
-  if (session === null) return jsonError(c, "unauthorized", "Login required");
-  if (session === false || session.role !== "owner") return jsonError(c, "forbidden", "Owner role required");
-  const parsed = adminReferenceVersionCreateSchema.safeParse(await readJson(c));
-  if (!parsed.success) return jsonError(c, "bad_request", "Invalid reference version", parsed.error.flatten());
-  const response = await c.executionCtx.exports.DataService.authorAdminCreateReferenceVersion(
-    c.req.header("authorization"),
-    c.req.param("id"),
-    parsed.data,
-  );
-  if (response.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
-  if (response.kind === "forbidden") return jsonError(c, "forbidden", "Owner role required");
-  const result = response.data;
-  if (result.kind === "not_found") return jsonError(c, "not_found", "Reference set not found");
-  if (result.kind === "conflict") return jsonError(c, "conflict", "Reference version already exists");
-  return c.json({ id: result.id, ordinal: result.ordinal }, 201);
-});
-
-adminRoutes.put("/reference-sets/:id", async (c) => {
-  const session = await requireReviewer(c);
-  if (session === null) return jsonError(c, "unauthorized", "Login required");
-  if (session === false || session.role !== "owner") return jsonError(c, "forbidden", "Owner role required");
-  const parsed = adminReferenceSetUpdateSchema.safeParse(await readJson(c));
-  if (!parsed.success) return jsonError(c, "bad_request", "Invalid reference set", parsed.error.flatten());
-  const response = await c.executionCtx.exports.DataService.authorAdminUpdateReferenceSet(
-    c.req.header("authorization"),
-    c.req.param("id"),
-    parsed.data,
-  );
-  if (response.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
-  if (response.kind === "forbidden") return jsonError(c, "forbidden", "Owner role required");
-  const result = response.data;
-  if (result.kind === "not_found") return jsonError(c, "not_found", "Reference set not found");
-  return c.json({ ok: true });
 });

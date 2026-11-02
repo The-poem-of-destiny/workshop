@@ -32,8 +32,7 @@ function request(path: string, token: string, init?: RequestInit) {
 beforeAll(() => applySchema(bindings.DB));
 beforeEach(async () => {
   await bindings.DB.exec(`
-    DELETE FROM audit_events; DELETE FROM reference_items; DELETE FROM reference_versions;
-    DELETE FROM reference_sets; DELETE FROM recommendations; DELETE FROM site_settings;
+    DELETE FROM audit_events; DELETE FROM recommendations; DELETE FROM site_settings;
     DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;
   `);
   const seedSql = `
@@ -41,14 +40,10 @@ beforeEach(async () => {
       ('owner', 'owner', 'Owner', 'owner', '${now}', '${now}'),
       ('reviewer', 'reviewer', 'Reviewer', 'reviewer', '${now}', '${now}'),
       ('member', 'member', 'Member', 'member', '${now}', '${now}');
-    INSERT INTO projects (id, author_id, title, description, project_type, extension_type, search_tags, visibility, updated_at)
-      VALUES ('p1', 'member', 'Project', '', '角色', '内容', '[]', 'public', '${now}');
-    INSERT INTO reference_sets (id, name, description, created_by, created_at, updated_at)
-      VALUES ('rs1', 'Set', 'old', 'owner', '${now}', '${now}');
-    INSERT INTO reference_versions (id, reference_set_id, version_label, version_ordinal, grace_until, created_by, created_at)
-      VALUES ('rv1', 'rs1', 'v1', 1, '2099-01-01T00:00:00.000Z', 'owner', '${now}');
-    INSERT INTO reference_items (id, reference_version_id, kind, display_name, exact_hash, normalized_content_hash, name_hash, structure_hash)
-      VALUES ('ri1', 'rv1', 'worldbook', 'Old', 'e', 'n', 'h', 's');
+    INSERT INTO projects (id, author_id, visibility, published_version_id, updated_at)
+      VALUES ('p1', 'member', 'public', 'r1', '${now}');
+    INSERT INTO project_versions(id,project_id,version_no,title,description,project_type,extension_type,created_by)
+      VALUES('r1','p1',1,'Project','','角色','内容','member');
   `;
   for (const statement of splitSql(seedSql)) await bindings.DB.prepare(statement).run();
   await seedSession("owner-token", "owner");
@@ -128,7 +123,7 @@ describe("admin writes", () => {
   it("upserts and deletes recommendations", async () => {
     const put = await request("/api/v1/admin/recommendations/p1", "owner-token", {
       method: "PUT",
-      body: JSON.stringify({ comment: "Great", reaction: "🔥" }),
+      body: JSON.stringify({ comment: "Great", projectVersionId: "r1" }),
     });
     expect(put.status).toBe(200);
     expect(
@@ -139,27 +134,5 @@ describe("admin writes", () => {
       )?.comment,
     ).toBe("Great");
     expect((await request("/api/v1/admin/recommendations/p1", "owner-token", { method: "DELETE" })).status).toBe(204);
-  });
-
-  it("replaces reference items atomically and validates kind", async () => {
-    const invalid = await request("/api/v1/admin/reference-sets/rs1", "owner-token", {
-      method: "PUT",
-      body: JSON.stringify({ items: [{ kind: "bad", displayName: "No" }] }),
-    });
-    expect(invalid.status).toBe(400);
-    expect(
-      (await bindings.DB.prepare("SELECT COUNT(*) AS count FROM reference_items").first<{ count: number }>())?.count,
-    ).toBe(1);
-    const valid = await request("/api/v1/admin/reference-sets/rs1", "owner-token", {
-      method: "PUT",
-      body: JSON.stringify({ items: [{ kind: "regex", displayName: "New" }] }),
-    });
-    expect(valid.status).toBe(200);
-    expect(
-      await bindings.DB.prepare("SELECT kind, display_name FROM reference_items").first<{
-        kind: string;
-        display_name: string;
-      }>(),
-    ).toEqual({ kind: "regex", display_name: "New" });
   });
 });

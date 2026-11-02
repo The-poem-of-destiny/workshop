@@ -1,4 +1,5 @@
 import type { AuthFlowMode, Session } from "@workshop/contracts";
+import { z } from "zod";
 import { sha256Hex } from "./identity.js";
 import { hashSessionToken } from "./session-hash.js";
 
@@ -12,7 +13,7 @@ export interface AuthFlowRow {
   mode: AuthFlowMode;
   status: "pending" | "authorized" | "redeemed" | "expired";
   user_id: string | null;
-  guild_id: string | null;
+  detail: string | null;
   error: string | null;
   expires_at: string;
   consumed_at: string | null;
@@ -31,6 +32,16 @@ export interface NewOAuthFlow {
   expiresAt: string;
   browserBindingHash: string;
 }
+
+export const oauthAuthorizationDetailSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    guildId: z.string().min(1),
+    eligibility: z.literal("member"),
+    verifiedAt: z.string().datetime(),
+  })
+  .strict();
+export type OAuthAuthorizationDetail = z.infer<typeof oauthAuthorizationDetailSchema>;
 
 export async function insertOAuthFlow(db: D1Database, flow: NewOAuthFlow): Promise<void> {
   await db
@@ -75,10 +86,19 @@ export async function markFlowAuthorized(
   const result = await db
     .prepare(`
     UPDATE oauth_flows
-    SET status = 'authorized', user_id = ?, guild_id = ?, redeem_hash = COALESCE(?, redeem_hash), authorized_at = ?, error = NULL
+    SET status = 'authorized', user_id = ?, detail = ?, redeem_hash = COALESCE(?, redeem_hash), authorized_at = ?, error = NULL
     WHERE id = ? AND status = 'pending' AND expires_at > ? AND consumed_at IS NULL
   `)
-    .bind(userId, guildId, redeemCode ? await sha256Hex(redeemCode) : null, now, flowId, now)
+    .bind(
+      userId,
+      JSON.stringify(
+        oauthAuthorizationDetailSchema.parse({ schemaVersion: 1, guildId, eligibility: "member", verifiedAt: now }),
+      ),
+      redeemCode ? await sha256Hex(redeemCode) : null,
+      now,
+      flowId,
+      now,
+    )
     .run();
   return result.meta.changes > 0;
 }

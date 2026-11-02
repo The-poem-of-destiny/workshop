@@ -34,13 +34,13 @@ beforeEach(async () => {
     .bind("u1", "tester", "测试用户", "avatar-hash", now, now)
     .run();
   await bindings.DB.prepare(`
-    INSERT INTO projects (id, author_id, title, visibility, published_revision_id, updated_at)
-    VALUES ('p1', 'u1', '测试项目', 'public', 'r1', ?)
+    INSERT INTO projects (id, author_id, visibility, published_version_id, updated_at)
+    VALUES ('p1', 'u1', 'public', 'r1', ?)
   `)
     .bind(now)
     .run();
   await bindings.DB.prepare(`
-    INSERT INTO project_revisions (id, project_id, revision_no, title, created_by)
+    INSERT INTO project_versions (id, project_id, version_no, title, created_by)
     VALUES ('r1', 'p1', 1, '测试项目', 'u1')
   `).run();
   await bindings.DB.prepare(
