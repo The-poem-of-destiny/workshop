@@ -36,12 +36,20 @@ jobs:
             exit 0
           fi
 
-          last="$(gh run list --workflow deploy-staging.yml --status success --limit 1 --json headSha --jq '.[0].headSha // empty')"
+          last=""
+          while read -r run_id run_sha; do
+            deployed="$(gh api "repos/${{ github.repository }}/actions/runs/${run_id}/jobs" --jq '[.jobs[] | select(.name == "deploy" and .conclusion == "success")] | length')"
+            if [ "$deployed" -gt 0 ]; then
+              last="$run_sha"
+              break
+            fi
+          done < <(gh run list --workflow deploy-staging.yml --status success --limit 100 --json databaseId,headSha --jq '.[] | "\(.databaseId) \(.headSha)"')
           if [ -z "$last" ]; then
-            base="$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}" --jq '.parents[0].sha')"
-          else
-            base="$last"
+            echo "::notice::No verified previous staging deployment found; automatic deployment is paused for operator verification."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          base="$last"
 
           if [ "$base" = "$HEAD_SHA" ]; then
             echo "deploy=false" >> "$GITHUB_OUTPUT"
@@ -49,6 +57,11 @@ jobs:
           fi
 
           files="$(gh api --paginate "repos/${{ github.repository }}/compare/${base}...${HEAD_SHA}" --jq '.files[]? | .filename, .previous_filename // empty')"
+          if printf '%s\n' "$files" | grep -Eq '^apps/worker/migrations/'; then
+            echo "::notice::Schema migrations changed; automatic deployment is paused. Complete the separately authorized data/report migration and target binding verification before deployment."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if printf '%s\n' "$files" | grep -Eq '^(apps/worker/|apps/tavern-client/|packages/|tools/|tests/|pnpm-workspace.yaml|pnpm-lock.yaml|package.json)'; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           else
@@ -144,8 +157,6 @@ jobs:
           set -euo pipefail
           sha256sum -c artifact.sha256
           jq -e --arg sha "$HEAD_SHA" '.sourceSha == $sha' artifact-manifest.json
-      - name: Apply staging migrations
-        run: pnpm --filter @workshop/worker exec wrangler d1 migrations apply workshop-staging --remote --config wrangler.jsonc --env staging
       - name: Deploy staging worker
         run: pnpm --filter @workshop/worker exec wrangler deploy build/index.js --no-bundle --config wrangler.jsonc --env staging
       - name: Publish staging client
