@@ -16,11 +16,12 @@ interface __BaseEnv_WorkerBindings {
   DISCORD_ALLOWED_GUILD_IDS: "1417861565679669272,1134557553011998840" | "";
   DISCORD_GUILD_ROLE_IDS: "1134557553011998840:1335363403870502912" | "";
   CONTENT_SERVICE: DurableObjectNamespace<import("./src/index").ContentService>;
+  WRITE_BARRIER: DurableObjectNamespace<import("./src/index").WriteBarrier>;
 }
 declare namespace Cloudflare {
   interface GlobalProps {
     mainModule: typeof import("./src/index");
-    durableNamespaces: "ContentService";
+    durableNamespaces: "ContentService" | "WriteBarrier";
   }
   interface StagingEnv {
     R2: R2Bucket;
@@ -32,6 +33,7 @@ declare namespace Cloudflare {
     DISCORD_ALLOWED_GUILD_IDS: "1417861565679669272,1134557553011998840";
     DISCORD_GUILD_ROLE_IDS: "1134557553011998840:1335363403870502912";
     CONTENT_SERVICE: DurableObjectNamespace<import("./src/index").ContentService>;
+    WRITE_BARRIER: DurableObjectNamespace<import("./src/index").WriteBarrier>;
   }
   interface ProductionEnv {
     R2: R2Bucket;
@@ -43,6 +45,7 @@ declare namespace Cloudflare {
     DISCORD_ALLOWED_GUILD_IDS: "";
     DISCORD_GUILD_ROLE_IDS: "";
     CONTENT_SERVICE: DurableObjectNamespace<import("./src/index").ContentService>;
+    WRITE_BARRIER: DurableObjectNamespace<import("./src/index").WriteBarrier>;
   }
   interface Env extends __BaseEnv_WorkerBindings {}
 }

@@ -25,6 +25,10 @@
       {
         "name": "CONTENT_SERVICE",
         "class_name": "ContentService"
+      },
+      {
+        "name": "WRITE_BARRIER",
+        "class_name": "WriteBarrier"
       }
     ]
   },
@@ -32,6 +36,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["ContentService"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["WriteBarrier"]
     }
   ],
   "triggers": {
@@ -67,6 +75,10 @@
           {
             "name": "CONTENT_SERVICE",
             "class_name": "ContentService"
+          },
+          {
+            "name": "WRITE_BARRIER",
+            "class_name": "WriteBarrier"
           }
         ]
       },
@@ -100,6 +112,10 @@
           {
             "name": "CONTENT_SERVICE",
             "class_name": "ContentService"
+          },
+          {
+            "name": "WRITE_BARRIER",
+            "class_name": "WriteBarrier"
           }
         ]
       },

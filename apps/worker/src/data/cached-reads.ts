@@ -6,6 +6,7 @@ import { loadProjectPreview } from "../storage/content-index";
 import type { ProjectPreviewTarget } from "./contracts";
 import type { DataEnv } from "./env";
 import { publicProjection } from "./public-projections";
+import { guardedStorageEnv } from "./storage-guard";
 
 export type ReadProps =
   | { kind: "public" }
@@ -139,7 +140,7 @@ export class CachedReads extends WorkerEntrypoint<DataEnv, ReadProps> {
       }
     }
 
-    let response = await readSource(url, props, this.env);
+    let response = await readSource(url, props, guardedStorageEnv(this.env));
     const headers = new Headers(response.headers);
     headers.delete("cdn-cache-control");
     headers.delete("cloudflare-cdn-cache-control");
