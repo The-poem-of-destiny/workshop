@@ -90,6 +90,16 @@ export function extractProjectEntries(raw: unknown, kind: ProjectEntryKind): Ent
   return [];
 }
 
+/** Mutates parsed upload entries so all consumers see the same installed name. */
+export function markWorldbookNames(raw: unknown): void {
+  for (const { entry } of extractProjectEntries(raw, "worldbook")) {
+    const name = typeof entry.name === "string" ? entry.name : typeof entry.comment === "string" ? entry.comment : "";
+    const marked = name.includes("[WS]") ? name : `[WS] ${name}`;
+    entry.name = marked;
+    if ("comment" in entry) entry.comment = marked;
+  }
+}
+
 export function parseProjectJson(text: string): unknown {
   try {
     return JSON.parse(text);
