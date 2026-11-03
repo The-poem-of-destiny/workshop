@@ -20,3 +20,4 @@ Scope, commands, authorization, maintenance, import recovery and verification be
 `test-full-import.py`, `test-full-source.py` and `test-full-index.py` cover import ambiguity, public/working snapshot separation and independently derived content indexes. They run through the root `pnpm check` gate.
 
 Public-sample imports preserve the last approval time in both publication timestamps; later draft edits do not move the public update time.
+Public-sample selection filters and deduplicates before limiting. The default order is project ID ascending; `--order updated-desc` selects update time descending instead. Narrowing the sample is not full-migration acceptance.

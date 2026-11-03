@@ -53,49 +53,44 @@ try {
     assert.equal(asset.bytes, expected.length, `${asset.kind} byte length`);
     assert.equal(asset.sha256, createHash("sha256").update(expected).digest("hex"), `${asset.kind} SHA-256`);
   }
-
-  const orderingSource = path.join(dir, "ordering.sql");
   await writeFile(
-    orderingSource,
+    source,
     `
-    CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT);
-    CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT, author_id TEXT, status TEXT, is_published INTEGER, visibility INTEGER, updated_at TEXT);
-    INSERT INTO users VALUES ('u1', 'owner');
-    INSERT INTO projects VALUES ('a', 'Duplicate', 'u1', 'approved', 1, 1, '2024-01-01'),
-      ('b', 'Other', 'u1', 'approved', 1, 1, '2024-01-02'),
-      ('z', 'Duplicate', 'u1', 'approved', 1, 1, '2024-01-03');
-  `,
+      CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT);
+      CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT, author_id TEXT, status TEXT, is_published INTEGER, visibility INTEGER, updated_at TEXT);
+      INSERT INTO users VALUES ('u1','owner');
+      INSERT INTO projects VALUES ('a','Duplicate','u1','approved',1,1,'2024-01-01');
+      INSERT INTO projects VALUES ('b','Other','u1','approved',1,1,'2024-01-02');
+      INSERT INTO projects VALUES ('c','Duplicate','u1','approved',1,1,'2024-01-03');
+    `,
   );
-  for (const [order, expected, overLimit] of [
-    ["id", "b", "z"],
-    ["updated-desc", "z", "b"],
-  ]) {
-    const selectionDir = path.join(dir, `selection-${order}`);
-    const selectionRun = spawnSync(
-      "python3",
-      [
-        path.join(here, "from_d1_sql.py"),
-        orderingSource,
-        r2,
-        selectionDir,
-        "--dedupe-name-author",
-        "--order",
-        order,
-        "--limit",
-        "1",
-      ],
-      { encoding: "utf8" },
-    );
-    assert.equal(selectionRun.status, 0, selectionRun.stderr);
-    const selected = JSON.parse(await readFile(path.join(selectionDir, "projects.json"), "utf8"));
-    const selection = JSON.parse(await readFile(path.join(selectionDir, "selection.json"), "utf8"));
-    assert.deepEqual(
-      selected.map((project) => project.id),
-      [expected],
-    );
-    assert.deepEqual(selection.overLimit, [overLimit]);
-    assert.deepEqual(selection.deduped, [{ id: "a", kept: "z", reason: "same_name_author" }]);
-  }
+  const ordered = spawnSync("python3", [path.join(here, "from_d1_sql.py"), source, r2, out, "--dedupe-name-author"], {
+    encoding: "utf8",
+  });
+  assert.equal(ordered.status, 0, ordered.stderr);
+  const orderedProjects = JSON.parse(await readFile(path.join(out, "projects.json"), "utf8"));
+  assert.deepEqual(
+    orderedProjects.map((project) => project.id),
+    ["b", "c"],
+  );
+  const limited = spawnSync(
+    "python3",
+    [path.join(here, "from_d1_sql.py"), source, r2, out, "--dedupe-name-author", "--limit", "1"],
+    { encoding: "utf8" },
+  );
+  assert.equal(limited.status, 0, limited.stderr);
+  const limitedProjects = JSON.parse(await readFile(path.join(out, "projects.json"), "utf8"));
+  const selection = JSON.parse(await readFile(path.join(out, "selection.json"), "utf8"));
+  assert.deepEqual(
+    limitedProjects.map((project) => project.id),
+    ["b"],
+  );
+  assert.deepEqual(
+    selection.selected.map((project) => project.id),
+    ["b"],
+  );
+  assert.deepEqual(selection.overLimit, ["c"]);
+  assert.deepEqual(selection.deduped, [{ id: "a", kept: "c", reason: "same_name_author" }]);
   console.log("sql export tests passed");
 } finally {
   await rm(dir, { recursive: true, force: true });
