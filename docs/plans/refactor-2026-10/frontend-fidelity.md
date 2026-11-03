@@ -100,7 +100,7 @@ These records predate the 2026-10-28 integration. The separate published-metadat
 
 - [WCAG 2.2 contrast minimum](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html): normal text at least 4.5:1, large text at least 3:1. Placeholder and metadata text also require contrast; disabled controls have a separate exception.
 - Pixel sizes are design choices, not WCAG mandates. Increased font size/line height, paragraph spacing, neutral surfaces and visible keyboard focus complement color contrast; measured ratios alone do not prove freedom from reading fatigue or full WCAG conformance.
-- Uploaded cover/gallery images accept actual PNG/JPEG/WebP data only, at most 5 MiB and 4096px per edge. The two additional gallery slots have author authorization and row-version checks; gallery changes are independent of draft content revisions.
+- Uploaded cover/gallery images accept actual PNG/JPEG/WebP data only, at most 1 MiB and 4096px per edge. The two additional gallery slots have author authorization and row-version checks; gallery changes are independent of draft content revisions.
 
 ## Feedback Verification
 

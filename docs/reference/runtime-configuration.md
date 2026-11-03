@@ -60,12 +60,17 @@ TTL 以秒为单位集中配置，必须是十进制非负整数且不超过 315
 
 ## 推荐批次配置
 
-`RECOMMENDATION_POLICY` 是可选的严格 JSON 对象。字段：`temperature`（0.1–4，默认 0.7）、`authorCap`（1–24，默认 2）、`discoveryLimit`（1–24，默认 12）、`rankingLimit`（1–200，默认 24）和 `budget`（必须完整提供 verified/hot/new/underexposed 四个非负有限预算，总和大于零；默认 0.30/0.25/0.20/0.25）。无效配置使批次失败，不静默回退。现有成功运行仍可读取；这些默认值不是实际分布验证后的最优值。
+`RECOMMENDATION_POLICY` 是可选的严格 JSON 对象。字段：`temperature`（0.1–4，默认 0.7）、`authorCap`（1–24，默认 2）、`discoveryLimit`（1–24，默认 12）和 `budget`（必须完整提供 verified/hot/new/underexposed 四个非负有限预算，总和大于零；默认 0.30/0.25/0.20/0.25）。无效配置使批次失败，不静默回退；这些默认值不是实际分布验证后的最优值。
 
-每轮 `recommendation_runs.result` 保存 `scoringVersion`、主池、分项贡献和适用版本评语来源；运行列保存 UTC 半开来源／展示窗口。曝光上报仅为登录客户端的可见项目集合，按运行加盐哈希抽样 1/16，每个抽样身份每轮最多四次合并写入，点击必须属于可见集合。它不是可靠身份、完成下载或 CTR 证明；缺失曝光保持未知。内容变更由客户端比较确切版本目录，服务端核对 hash、条目差异数量、作者与当前工作版本，最多每日一次，小幅奖励上限 0.03；不奖励纯 metadata 更新。
+`recommendation_batches.result` 保存四池选取、分项贡献及版本绑定的玩家推荐来源。时段使用固定的 legacy 月度请求估计，不再持续调整：`apps/worker/src/recommendation-traffic-config.ts` 记录来源区间、统计天数和 24 个 UTC 小时总量；修改此文件并重新部署即可调整，不需要 D1 配置或运行时 Analytics secret。
 
-## 存量审核报告迁移
+本次来源为 legacy Worker `poemofdestinycreativeworkshop` 的 Cloudflare `workersOverviewRequestsAdaptiveGroups.count`，2026-10-03 00:00 UTC 至 2026-11-03 00:00 UTC（左闭右开，31 天），共 1,957,820 请求、737 个非空小时；缺失小时按零计。每小时总量除以 31 得到平均日内分布，划为六个 1–8 小时的整点时段，最小化各时段预计请求占比偏差。请求数包括 API 等 Worker 请求，既非全站访问人数也非推荐位真实曝光；不新增用户行为采集，不把估算称为实际曝光。
 
-对已有 submission 的数据库应用 `0031_unified_reviews.sql` 前，先使用 `node tools/migrate/export-review-reports.mjs <legacy.sqlite> <export-directory>` 导出精确 UTF-8 报告及 SHA-256 清单，再使用 `node tools/migrate/transfer-review-reports.mjs check <export-directory>` 离线核验。只有另获远端写入授权后，才可运行 `transfer-review-reports.mjs upload <export-directory> <receipt.sql>`；它使用专用 `STAGING_IMPORT_R2_ACCESS_KEY_ID`／`STAGING_IMPORT_R2_SECRET_ACCESS_KEY` 和 `CLOUDFLARE_ACCOUNT_ID`，目标固定为 staging bucket，不读取个人 API token。
+批次按实际激活、替代、失效边界及作品下架／版本变更计算机会，部分小时按比例计入。每次激活仅保存不可变小时估计快照作为历史核算证据，避免未来配置修改重算旧机会；这不是另一套可变 D1 配置。历史证据不足则机会未知而不是零。缓存 TTL 仍可能令旧公开响应继续存在。同一时段最多三次生成尝试；提前生成与边界激活由 Worker Cron 完成，无本机常驻服务。
 
-上传使用条件写入，读取目标实际字节核验后才生成 receipt SQL。将 receipt 应用于对应存量数据库后才能执行 0031；任一当前报告或历史检查报告缺少匹配 receipt，迁移以 CHECK 约束失败，禁止丢弃源报告列。receipt 不代替部署权限、备份或操作者对目标数据库的核对。空数据库无需报告 receipt；完整旧站备份重建流程不虚构原本不存在的新审核报告。
+
+## 建库与审核报告
+
+`apps/worker/migrations/0001_initial.sql` 是空数据库的最终建库 schema，不是存量数据库的升级脚本；不得将其隐式应用到旧生产库。旧站迁移只使用[离线迁移主路径](../operations/legacy-data-migration.md)，不再维护 `0031`、报告 receipt 或原地升级专用工具。源备份的既定历史遗漏必须在独立源对账中列明，不能伪造新审核报告。
+
+当前审核证据分为从未生成、对象可用、已明确清理三态；意外缺失仍是错误。正式删除关系、报告清理状态与资源清理执行边界见 [Worker API 参考](worker-api.md)。保留期限未确认，不启用定时清理，也不自行设定期限。
