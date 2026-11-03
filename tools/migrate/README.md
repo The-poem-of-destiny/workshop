@@ -18,3 +18,5 @@ Scope, commands, authorization, maintenance, import recovery and verification be
 - `full-staging-rehearse.py`, `full-staging-load.py` and `full-staging-control.py` orchestrate isolated rehearsal, gated replacement, maintenance and anonymous read-only smoke.
 
 `test-full-import.py`, `test-full-source.py` and `test-full-index.py` cover import ambiguity, public/working snapshot separation and independently derived content indexes. They run through the root `pnpm check` gate.
+
+Public-sample selection filters and deduplicates before limiting. The default order is project ID ascending; `--order updated-desc` selects update time descending instead. Narrowing the sample is not full-migration acceptance.
