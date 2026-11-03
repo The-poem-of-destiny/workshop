@@ -465,12 +465,6 @@ export const api = {
     if (params.cursor) query.set("cursor", params.cursor);
     return requestJson<AdminAuditList>(`/api/v1/admin/audit-events?${query}`);
   },
-  recommendationSignals: (body: { runId: string; visible: string[]; clicked: string[] }) =>
-    requestJson<{ kind: "ok" }>("/api/v1/recommendations/signals", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }),
   projectChangeSignal: (body: {
     projectId: string;
     projectVersionId: string;

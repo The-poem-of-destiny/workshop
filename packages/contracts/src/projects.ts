@@ -193,7 +193,7 @@ export const projectEntryIndexSchema = z.object({
 export type ProjectEntryIndex = z.infer<typeof projectEntryIndexSchema>;
 
 export const discoveryResponseSchema = z.object({
-  runId: z.string().nullable(),
+  batchId: z.string().nullable(),
   scheduledAt: z.string().nullable(),
   items: z.array(projectSummarySchema.extend({ recommendationComment: z.string().nullable() })),
 });

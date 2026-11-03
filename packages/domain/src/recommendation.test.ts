@@ -21,7 +21,7 @@ function candidate(id: number): RecommendationCandidate {
     downloads: 0,
     likesDelta: -10,
     previousDownloads: null,
-    impressions: null,
+    estimatedOpportunity: null,
     endorsements: [],
   };
 }
@@ -42,7 +42,7 @@ describe("bounded recommendation selection", () => {
     expect(selected.every((item) => item.pool === "new")).toBe(true);
   });
 
-  it("does not turn missing telemetry into measured zero or credit invalid endorsements", () => {
+  it("does not turn missing opportunity into measured zero or credit invalid endorsements", () => {
     const item = candidate(0);
     item.endorsements = [
       { userId: item.authorId, projectVersionId: item.projectVersionId, updatedAt: "2026-11-01T00:00:00Z" },
@@ -59,6 +59,38 @@ describe("bounded recommendation selection", () => {
     };
     item.endorsements = [endorsement, endorsement, endorsement];
     expect(selectRecommendations([item], options)[0]!.contributions.endorsements).toBeCloseTo(Math.log(2) * 0.02);
+  });
+
+  it("uses known opportunity to bound category scarcity and reduce repeat allocation", () => {
+    const common = { ...candidate(0), projectType: "common", estimatedOpportunity: 1000 };
+    const scarce = { ...candidate(3), projectType: "scarce", estimatedOpportunity: 0 };
+    const results = selectRecommendations([common, scarce], { ...options, limit: 2 });
+    const commonResult = results.find((item) => item.projectId === common.projectId)!;
+    const scarceResult = results.find((item) => item.projectId === scarce.projectId)!;
+    expect(scarceResult.contributions.categoryScarcity).toBe(0.05);
+    expect(commonResult.contributions.categoryScarcity).toBe(0);
+    expect(commonResult.contributions.exposurePressure).toBeGreaterThan(scarceResult.contributions.exposurePressure!);
+    expect(scarceResult.score).toBeGreaterThan(commonResult.score);
+    const unknown = selectRecommendations([common, { ...scarce, estimatedOpportunity: null }], {
+      ...options,
+      limit: 2,
+    });
+    expect(unknown.every((item) => item.contributions.categoryScarcity === 0)).toBe(true);
+  });
+
+  it("reserves exploration probability for a category with few eligible candidates", () => {
+    const candidates = Array.from({ length: 100 }, (_, id) => ({ ...candidate(id), authorId: `a${id}` }));
+    candidates.push({ ...candidate(100), authorId: "rare", projectType: "rare" });
+    const selected = selectRecommendations(candidates, { ...options, limit: 1, random: () => 0.97 });
+    expect(selected[0]!.projectId).toBe("p100");
+  });
+
+  it("preserves the capped reward for valid content updates", () => {
+    const item = {
+      ...candidate(0),
+      contentChange: { changedEntries: 10, totalEntries: 10, reportedAt: "2026-11-02T00:00:00Z" },
+    };
+    expect(selectRecommendations([item], options)[0]!.contributions.contentChange).toBeCloseTo(0.03);
   });
 
   it("rejects contradictory snapshots and invalid sampling rather than biasing selection", () => {

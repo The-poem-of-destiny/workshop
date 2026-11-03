@@ -10,7 +10,7 @@ import { download } from "./download";
 import type { DataEnv } from "./env";
 import * as identity from "./identity-operations";
 import * as projects from "./project-operations";
-import { buildScheduledRankings, cleanupScheduledData, findDueSubmissions } from "./scheduled";
+import { buildScheduledRecommendationBatch, cleanupScheduledData, findDueSubmissions } from "./scheduled";
 import { guardedStorageEnv } from "./storage-guard";
 
 type OperationArgs<T extends unknown[]> = T extends [unknown, ...infer Args] ? Args : never;
@@ -24,9 +24,6 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     return projects.projectRecommendation(this.guardedEnv, ...args);
   }
 
-  projectSignals(...args: OperationArgs<Parameters<typeof projects.projectSignals>>) {
-    return projects.projectSignals(this.guardedEnv, ...args);
-  }
   projectChangeSignal(...args: OperationArgs<Parameters<typeof projects.projectChangeSignal>>) {
     return projects.projectChangeSignal(this.guardedEnv, ...args);
   }
@@ -193,10 +190,6 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     return projects.projectDiscovery(this.guardedEnv, ...args);
   }
 
-  projectRankings(...args: OperationArgs<Parameters<typeof projects.projectRankings>>) {
-    return projects.projectRankings(this.guardedEnv, ...args);
-  }
-
   projectDetail(...args: OperationArgs<Parameters<typeof projects.projectDetail>>) {
     return projects.projectDetail(this.guardedEnv, ...args);
   }
@@ -304,8 +297,8 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     return content.contentLoadVersion(this.guardedEnv, versionId, projectId);
   }
 
-  async buildScheduledRankings(scheduledTime: number): Promise<void> {
-    await buildScheduledRankings(this.guardedEnv.DB, scheduledTime, this.env.RECOMMENDATION_POLICY);
+  async buildScheduledRecommendationBatch(scheduledTime: number): Promise<void> {
+    await buildScheduledRecommendationBatch(this.guardedEnv.DB, scheduledTime, this.env.RECOMMENDATION_POLICY);
   }
 
   async cleanupScheduledData(scheduledTime: number) {

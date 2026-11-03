@@ -33,7 +33,6 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 | GET `/home` | 首页三段聚合 | 全成功 P60；部分失败 N | 公开成功投影 60 秒；部分失败不缓存 |
 | GET `/projects`、`/projects/batch` | 列表与批量摘要 | P60 | 公开投影 60 秒；batch 每次最多 50 个 ID |
 | GET `/projects/discovery` | 发现 | P60 | 公开投影 60 秒 |
-| GET `/projects/rankings` | 排行 | P300 | 公开投影 300 秒 |
 | GET `/projects/:id`、`/projects/:id/entries` | 公开详情及索引 | P60 | 公开投影 60 秒 |
 | GET `/projects/:id/preview/:kind` | 登录用户预览 | N | 实时会话和当前公开 revision 门禁后，固定 revision/kind/hash 投影 86400 秒 |
 | POST `/projects/:id/downloads`、`/acquisitions` | 票据与版本准入 | N | 不缓存；实时版本与权限 |

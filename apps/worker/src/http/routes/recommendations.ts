@@ -9,21 +9,6 @@ import { sessionToken } from "../session.js";
 export const recommendationRoutes = new Hono<{ Bindings: Env }>();
 recommendationRoutes.get("/", (c) => fetchPublic(c.executionCtx, c.req.raw));
 
-const signalsSchema = z
-  .object({
-    runId: z.string().min(1).max(200),
-    visible: z.array(z.string().min(1).max(200)).max(24),
-    clicked: z.array(z.string().min(1).max(200)).max(24),
-  })
-  .strict();
-recommendationRoutes.post("/signals", async (c) => {
-  const input = signalsSchema.safeParse(await c.req.json().catch(() => null));
-  if (!input.success) return jsonError(c, "bad_request", "Invalid recommendation signals");
-  const result = await c.executionCtx.exports.DataService.projectSignals(sessionToken(c), input.data);
-  if (result.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
-  if (result.kind === "not_found") return jsonError(c, "not_found", "Active recommendation run not found");
-  return c.json(result);
-});
 const changeSchema = z
   .object({
     projectId: z.string().min(1).max(200),

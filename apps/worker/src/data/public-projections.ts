@@ -65,11 +65,6 @@ export async function publicProjection(request: Request, env: DataEnv): Promise<
   if (path === "/api/v1/site") return Response.json(await distribution.distributionSite(env));
   if (path === "/api/v1/recommendations") return Response.json(await distribution.distributionRecommendations(env));
   if (path === "/api/v1/projects/discovery") return Response.json(await projects.projectDiscovery(env));
-  if (path === "/api/v1/projects/rankings") {
-    const kind = url.searchParams.get("kind") ?? "7d";
-    if (kind !== "daily" && kind !== "7d" && kind !== "30d") return error(400, "bad_request", "Unknown ranking kind");
-    return Response.json(await projects.projectRankings(env, kind));
-  }
   if (path === "/api/v1/projects/batch") return projectBatch(url, env);
   if (path === "/api/v1/projects") {
     const parsed = projectListQuerySchema.safeParse(Object.fromEntries(url.searchParams));

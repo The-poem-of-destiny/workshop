@@ -26,12 +26,6 @@ projectsRoutes.get("/", async (c) => {
 
 projectsRoutes.get("/discovery", async (c) => c.json(await c.executionCtx.exports.DataService.projectDiscovery()));
 
-projectsRoutes.get("/rankings", async (c) => {
-  const kind = c.req.query("kind") ?? "7d";
-  if (kind !== "daily" && kind !== "7d" && kind !== "30d") return jsonError(c, "bad_request", "Unknown ranking kind");
-  return c.json(await c.executionCtx.exports.DataService.projectRankings(kind));
-});
-
 projectsRoutes.get("/:id", async (c) => {
   const project = await c.executionCtx.exports.DataService.projectDetail(c.req.param("id"));
   if (!project) return jsonError(c, "not_found", "Project not found");

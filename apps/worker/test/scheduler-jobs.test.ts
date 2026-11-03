@@ -1,7 +1,11 @@
 import { env } from "cloudflare:test";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DataEnv } from "../src/data/env";
-import { buildRankings, observeCleanupCandidates, readRecommendationRun } from "../src/storage/rankings";
+import {
+  buildRecommendationBatch,
+  observeCleanupCandidates,
+  readRecommendationBatch,
+} from "../src/storage/recommendation-batches";
 import { applySchema } from "./support/schema";
 
 const bindings = env as unknown as DataEnv;
@@ -14,17 +18,19 @@ async function seedProject(id: string, downloads: number) {
     .bind(`u-${id}`, `u-${id}`, now, now)
     .run();
   await bindings.DB.prepare(`
-    INSERT INTO projects (id, author_id, visibility, working_version_id, published_version_id,
-      published_at, created_at, updated_at)
-    VALUES (?, ?, 'public', ?, ?, ?, ?, ?)
+    INSERT INTO projects (id, author_id, visibility, published_at, created_at, updated_at)
+    VALUES (?, ?, 'public', ?, ?, ?)
   `)
-    .bind(id, `u-${id}`, `r-${id}`, `r-${id}`, now, now, now)
+    .bind(id, `u-${id}`, now, now, now)
     .run();
   await bindings.DB.prepare(`
     INSERT INTO project_versions (id, project_id, version_no, title, created_by, created_at)
     VALUES (?, ?, 1, ?, ?, ?)
   `)
     .bind(`r-${id}`, id, id, `u-${id}`, now)
+    .run();
+  await bindings.DB.prepare("UPDATE projects SET working_version_id=?, published_version_id=? WHERE id=?")
+    .bind(`r-${id}`, `r-${id}`, id)
     .run();
   await bindings.DB.prepare(`
     INSERT INTO project_metrics_daily (day_key, project_id, downloads) VALUES (?, ?, ?)
@@ -38,37 +44,51 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(now));
   await bindings.DB.exec(`
-    DELETE FROM recommendation_runs;
+    DELETE FROM recommendation_batches;
     DELETE FROM project_metrics_daily;
     DELETE FROM download_daily_stats;
+    UPDATE projects SET working_version_id=NULL, published_version_id=NULL, published_cover_asset_id=NULL;
+    DELETE FROM project_versions;
     DELETE FROM projects;
-    DELETE FROM users;
     DELETE FROM sessions;
+    DELETE FROM users;
     DELETE FROM oauth_flows;
   `);
 });
+afterEach(() => vi.useRealTimers());
 
 describe("scheduled jobs", () => {
   it("serves only current versions within the successful run display interval", async () => {
     await seedProject("p1", 10);
     await seedProject("p2", 3);
-    await buildRankings(bindings.DB, new Date(now));
-    const run = await readRecommendationRun(bindings.DB, "discovery", Date.parse(now));
+    await buildRecommendationBatch(bindings.DB, new Date(now), undefined, {
+      start: Date.parse(now),
+      end: Date.parse(now) + 3_600_000,
+    });
+    const run = await readRecommendationBatch(bindings.DB, Date.parse(now));
     expect(run?.items.map((item) => item.project_id).sort()).toEqual(["p1", "p2"]);
     expect(run?.items.map((item) => item.project_version_id).sort()).toEqual(["r-p1", "r-p2"]);
     await bindings.DB.prepare("UPDATE projects SET visibility='private' WHERE id='p1'").run();
-    expect(
-      (await readRecommendationRun(bindings.DB, "discovery", Date.parse(now)))?.items.map((item) => item.project_id),
-    ).toEqual(["p2"]);
-    expect(await readRecommendationRun(bindings.DB, "discovery", Date.parse(now) + 3_600_000)).toBeNull();
-    await bindings.DB.prepare(`INSERT INTO recommendation_runs(id,kind,status,scheduled_at,display_start_at,display_end_at,source_start_at,source_end_at,error)
+    expect((await readRecommendationBatch(bindings.DB, Date.parse(now)))?.items.map((item) => item.project_id)).toEqual(
+      ["p2"],
+    );
+    expect(await readRecommendationBatch(bindings.DB, Date.parse(now) + 3_600_000)).toBeNull();
+    await bindings.DB.prepare(`INSERT INTO recommendation_batches(id,kind,status,scheduled_at,display_start_at,display_end_at,source_start_at,source_end_at,error)
       VALUES('failed','discovery','failed',?,?,?,?,?,'failure')`)
       .bind(now, now, "2026-10-21T01:00:00.000Z", now, "2026-10-22T00:00:00.000Z")
       .run();
-    expect(
-      (await readRecommendationRun(bindings.DB, "discovery", Date.parse(now)))?.items.map((item) => item.project_id),
-    ).toEqual(["p2"]);
+    expect((await readRecommendationBatch(bindings.DB, Date.parse(now)))?.items.map((item) => item.project_id)).toEqual(
+      ["p2"],
+    );
+    await bindings.DB.prepare(`INSERT INTO project_versions (id,project_id,version_no,title,created_by,created_at)
+      VALUES ('r-p2-new','p2',2,'updated','u-p2',?)`)
+      .bind(now)
+      .run();
+    await bindings.DB.prepare("UPDATE projects SET published_version_id='r-p2-new' WHERE id='p2'").run();
+    expect((await readRecommendationBatch(bindings.DB, Date.parse(now)))?.items).toEqual([]);
   });
 
   it("reports old and recent deletion candidates without imposing retention or deleting rows", async () => {

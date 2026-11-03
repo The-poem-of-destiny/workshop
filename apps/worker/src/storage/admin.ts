@@ -55,6 +55,9 @@ interface DetailSubmissionRow extends SubmissionTargetRow {
   check_error: string | null;
   report_r2_key: string | null;
   check_report_hash: string | null;
+  report_cleaned_at: string | null;
+  route_gate: string | null;
+  duration_ms: number | null;
   checked_at: string | null;
   checker_version: string | null;
   auto_published_at: string | null;
@@ -181,6 +184,9 @@ function submissionDetail(row: DetailSubmissionRow, report: string | null) {
     checkError: row.check_error,
     checkReport: parseJson(report),
     checkReportHash: row.check_report_hash,
+    reportCleanedAt: row.report_cleaned_at,
+    routeGate: row.route_gate,
+    durationMs: row.duration_ms,
     checkedAt: row.checked_at,
     checkerVersion: row.checker_version,
     autoPublishedAt: row.auto_published_at,
@@ -194,8 +200,8 @@ export async function getAdminSubmission(db: D1Database, r2: R2Bucket, id: strin
            s.submitted_by, s.submitted_at, s.resolved_at,
            ar.client_gate, ar.client_checker_version AS client_checker_version,
            ar.status AS check_status, ar.attempts AS check_attempts, ar.error AS check_error,
-           ar.report_r2_key, ar.report_hash AS check_report_hash, ar.route_gate,
-           ar.checked_at, ar.checker_version AS checker_version, s.auto_published_at,
+           ar.report_r2_key, ar.report_hash AS check_report_hash, ar.report_cleaned_at, ar.route_gate,
+           ar.duration_ms, ar.checked_at, ar.checker_version AS checker_version, s.auto_published_at,
            r.manifest_hash,
            r.title AS project_title, r.description AS project_description,
            p.visibility AS project_visibility, p.author_id AS project_author_id,
@@ -232,7 +238,7 @@ export async function getAdminSubmission(db: D1Database, r2: R2Bucket, id: strin
     `)
       .bind(id)
       .first<ReviewRow>(),
-    readFrozenReviewReport(r2, row.report_r2_key, row.check_report_hash),
+    readFrozenReviewReport(r2, row.report_r2_key, row.check_report_hash, row.report_cleaned_at),
   ]);
 
   return {

@@ -1,43 +1,4 @@
-import { projectEntryIndexDocumentSchema, recommendationRunResultSchema } from "@workshop/contracts";
-
-async function digest(value: string) {
-  return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))), (b) =>
-    b.toString(16).padStart(2, "0"),
-  ).join("");
-}
-/** Reports are untrusted sampled observations, not delivery or billing evidence. */
-export async function recordRecommendationSignals(
-  db: D1Database,
-  userId: string,
-  secret: string,
-  input: { runId: string; visible: string[]; clicked: string[] },
-) {
-  const now = new Date().toISOString();
-  const run = await db
-    .prepare(
-      "SELECT result FROM recommendation_runs WHERE id=? AND kind='discovery' AND status='complete' AND display_start_at<=? AND display_end_at>?",
-    )
-    .bind(input.runId, now, now)
-    .first<{ result: string }>();
-  if (!run) return { kind: "not_found" as const };
-  const reporter = await digest(`${secret}\0${input.runId}\0${userId}`);
-  if (Number.parseInt(reporter.slice(0, 2), 16) >= 16) return { kind: "ok" as const };
-  const eligible = new Set(
-    recommendationRunResultSchema.parse(JSON.parse(run.result)).items.map((item) => item.project_id),
-  );
-  const visible = [...new Set(input.visible)].filter((id) => eligible.has(id));
-  const clicked = [...new Set(input.clicked)].filter((id) => visible.includes(id));
-  if (!visible.length) return { kind: "ok" as const };
-  await db
-    .prepare(`INSERT INTO recommendation_signals(reporter_hash,run_id,visible_projects,clicked_projects,writes,updated_at)
-    VALUES(?,?,?,?,1,?) ON CONFLICT(reporter_hash,run_id) DO UPDATE SET
-    visible_projects=(SELECT json_group_array(value) FROM (SELECT DISTINCT value FROM json_each(recommendation_signals.visible_projects) UNION SELECT value FROM json_each(excluded.visible_projects))),
-    clicked_projects=(SELECT json_group_array(value) FROM (SELECT DISTINCT value FROM json_each(recommendation_signals.clicked_projects) UNION SELECT value FROM json_each(excluded.clicked_projects))),
-    writes=recommendation_signals.writes+1,updated_at=excluded.updated_at WHERE recommendation_signals.writes<4`)
-    .bind(reporter, input.runId, JSON.stringify(visible), JSON.stringify(clicked), now)
-    .run();
-  return { kind: "ok" as const };
-}
+import { projectEntryIndexDocumentSchema } from "@workshop/contracts";
 
 /** A bounded hint tied to exact immutable content manifests; metadata-only changes earn nothing. */
 export async function recordProjectChange(
