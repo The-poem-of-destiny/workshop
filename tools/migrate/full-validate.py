@@ -115,17 +115,26 @@ def application_integrity(db, preparation):
             failures.append({"kind": "invalid_gallery_project_association", "count": invalid})
     if {"projects", "project_versions", "assets"} <= schema:
         allowed = set()
+        private_omissions = set()
         omissions = preparation.get("omissions", [])
         for item in omissions if isinstance(omissions, list) else []:
             if (not isinstance(item, dict) or item.get("table") != "projects"
-                    or item.get("reason") != "content index unavailable: duplicate entry keys"
                     or not isinstance(item.get("source"), dict)):
+                continue
+            reason = item.get("reason", "")
+            if (reason != "content index unavailable: duplicate entry keys"
+                    and not reason.startswith("invalid content asset omitted: ")):
                 continue
             source = item["source"]
             if source.get("id") is None or source.get("kind") not in ("worldbook", "regex"):
                 continue
             encoded = json.dumps([str(source["id"])], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
             version = "legacy-revision-" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+            if reason.startswith("invalid content asset omitted: "):
+                if db.execute("SELECT 1 FROM projects p JOIN project_versions v ON v.project_id = p.id "
+                              "WHERE v.id = ? AND p.visibility = 'private'", (version,)).fetchone():
+                    private_omissions.add(version)
+                continue
             if db.execute("SELECT 1 FROM assets WHERE version_id = ? AND kind = ? AND sha256 = ?",
                           (version, source["kind"], source.get("sha256"))).fetchone():
                 allowed.add(version)
@@ -135,6 +144,9 @@ def application_integrity(db, preparation):
             if index is None:
                 if version in allowed and manifest is None and worldbook == 0 and regex == 0:
                     accepted.append({"kind": "published_duplicate_entry_keys", "count": 1,
+                                     "source_verification_required": True})
+                elif version in private_omissions and manifest is None and worldbook == 0 and regex == 0:
+                    accepted.append({"kind": "private_invalid_content_omitted", "count": 1,
                                      "source_verification_required": True})
                 else:
                     failures.append({"kind": "published_revision_not_ready", "count": 1})

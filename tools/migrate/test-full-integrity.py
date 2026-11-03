@@ -70,6 +70,22 @@ class IntegrityTest(unittest.TestCase):
         data["omissions"][0]["source"]["sha256"] = "wrong"
         self.assertIn("published_revision_not_ready", self.kinds(data))
 
+    def test_private_invalid_content_requires_source_evidence_and_stays_private(self):
+        data = copy.deepcopy(self.data)
+        version_id = "legacy-revision-" + hashlib.sha256(b'["old"]').hexdigest()
+        project = data["tables"]["projects"][0]
+        project.update(visibility="private", working_version_id=version_id, published_version_id=version_id)
+        data["tables"]["project_versions"][0].update(id=version_id, entry_index=None, manifest_hash=None)
+        self.assertIn("published_revision_not_ready", self.kinds(data))
+        data["omissions"] = [{"table": "projects", "reason": "invalid content asset omitted: invalid JSON",
+                              "source": {"id": "old", "kind": "worldbook", "sha256": "a" * 64}}]
+        report = VALIDATOR.validate(data, MIGRATIONS)
+        self.assertEqual(report["failures"], [])
+        self.assertEqual(report["accepted_exceptions"], [{"kind": "private_invalid_content_omitted", "count": 1,
+                                                        "source_verification_required": True}])
+        project["visibility"] = "public"
+        self.assertIn("published_revision_not_ready", self.kinds(data))
+
     def test_index_entry_requires_matching_content_asset(self):
         data = copy.deepcopy(self.data)
         version = data["tables"]["project_versions"][0]
