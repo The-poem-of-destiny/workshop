@@ -25,13 +25,6 @@ BATCH_ROWS = 250
 BATCH_ESTIMATED_WRITES = 20_000
 MAX_GROUP_ESTIMATED_WRITES = 25_000
 MAX_ROW_BYTES = 2_000_000
-# Wrangler's installed getCreateMigrationsTableQuery/buildMigrationQuery use
-# this ledger and CURRENT_TIMESTAMP. It is platform metadata, not app schema.
-LEDGER_CREATE_SQL = """CREATE TABLE IF NOT EXISTS "d1_migrations"(
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        name       TEXT UNIQUE,
-        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
-);"""
 
 
 def module(name, filename):
@@ -99,13 +92,13 @@ def schema(db):
     return [{"type": kind, "name": name, "table": table, "sql": sql}
             for kind, name, table, sql in db.execute(
                 "SELECT type,name,tbl_name,sql FROM sqlite_schema "
-                "WHERE name NOT LIKE 'sqlite_%' AND tbl_name != 'd1_migrations' ORDER BY type,name")]
+                "WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name")]
 
 
 def inventory(db):
     result = {"schema": schema(db), "tables": {}}
     for name, in db.execute("SELECT name FROM sqlite_schema WHERE type='table' "
-                            "AND name NOT LIKE 'sqlite_%' AND name != 'd1_migrations' ORDER BY name"):
+                            "AND name NOT LIKE 'sqlite_%' ORDER BY name"):
         indexes = []
         for index in db.execute("PRAGMA index_list(" + quote(name) + ")"):
             indexes.append({"definition": list(index), "columns": [list(row) for row in
@@ -118,30 +111,6 @@ def inventory(db):
     return result
 
 
-def ledger_schema(db):
-    return [list(row) for row in db.execute(
-        "SELECT type,name,sql FROM sqlite_schema WHERE tbl_name='d1_migrations' ORDER BY type,name")]
-
-
-def validate_ledger(db, migrations):
-    expected = [(index, migration["name"]) for index, migration in enumerate(migrations, 1)]
-    actual = db.execute("SELECT id,name FROM d1_migrations ORDER BY id").fetchall()
-    if actual != expected:
-        raise ValueError("Wrangler migration ledger ordered names or IDs differ")
-    canonical = sqlite3.connect(":memory:")
-    try:
-        canonical.execute(LEDGER_CREATE_SQL)
-        if ledger_schema(db) != ledger_schema(canonical):
-            raise ValueError("Wrangler migration ledger schema differs")
-    finally:
-        canonical.close()
-    for timestamp, in db.execute("SELECT applied_at FROM d1_migrations"):
-        if (not isinstance(timestamp, str)
-                or re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", timestamp) is None
-                or db.execute("SELECT datetime(?,'+0 seconds')", (timestamp,)).fetchone()[0] != timestamp):
-            raise ValueError("Wrangler migration ledger timestamp is not standard UTC")
-    return {"table": "d1_migrations", "schema": ledger_schema(db), "names": [name for _, name in expected],
-            "timestamp_policy": "SQLite CURRENT_TIMESTAMP UTC; applied_at excluded from deterministic logical evidence"}
 
 
 def plan_digest(plan):
@@ -150,8 +119,6 @@ def plan_digest(plan):
 
 def inputs(preparation_path, source_path, manifest_path, migrations_dir):
     migrations = validator.migration_files(Path(migrations_dir))
-    if len(migrations) != 40:
-        raise ValueError("the complete final migration chain through 0040 is required")
     result = {"preparation": pin(preparation_path), "source": pin(source_path),
               "manifest": pin(manifest_path), "migrations_dir": str(Path(migrations_dir).resolve()),
               "migrations": [dict(pin(path), name=path.name) for path in migrations]}
@@ -201,14 +168,6 @@ def rows_digest(db):
     for name, in db.execute("SELECT name FROM sqlite_schema WHERE type='table' "
                             "AND name NOT LIKE 'sqlite_%' ORDER BY name"):
         if name in stage.FTS_SHADOWS:
-            continue
-        if name == "d1_migrations":
-            tables[name] = [list(row) for row in db.execute(
-                "SELECT id,name FROM d1_migrations ORDER BY id")]
-            continue
-        if name == "site_settings":
-            tables[name] = [list(row) for row in db.execute(
-                "SELECT key,value,updated_by FROM site_settings ORDER BY key")]
             continue
         rows = [list(row) for row in db.execute("SELECT * FROM " + quote(name))]
         tables[name] = sorted(rows, key=stable)
@@ -338,13 +297,10 @@ def build(preparation_path, source_path, manifest_path, migrations_dir, output_d
     source_check = loader.source_reconcile(data, source_path, manifest_path)
     if not source_check["ok"]:
         raise ValueError("original preparation does not reconcile to approved source")
-    candidate_data = copy.deepcopy(data)
-    candidate_data["tables"].pop("site_settings", None)
-    validation = validator.validate(candidate_data, migrations_dir)
+    validation = validator.validate(data, migrations_dir)
     if not validation["ok"]:
-        raise ValueError("business preparation fails complete migration chain validation")
+        raise ValueError("business preparation fails target schema validation")
     tables = copy.deepcopy(data["tables"])
-    tables.pop("site_settings", None)
     output_dir.mkdir(mode=0o700, parents=False, exist_ok=False)
     (output_dir / "batches").mkdir(mode=0o700)
     json_write(output_dir / "source-check.json", source_check)
@@ -355,16 +311,9 @@ def build(preparation_path, source_path, manifest_path, migrations_dir, output_d
     db = sqlite3.connect(db_path)
     try:
         emitter = Emitter(output_dir, db)
-        emitter.emit("initialize:wrangler-ledger", [LEDGER_CREATE_SQL], estimate=128)
-        # Every migration is replayed in order while the candidate has no business
-        # data. Separate batches never carry incomplete trigger bodies.
-        for index, migration in enumerate(frozen_inputs["migrations"], 1):
+        for migration in frozen_inputs["migrations"]:
             sqls = statements(Path(migration["path"]).read_text(encoding="utf-8"))
-            groups = [([sql], 0, 128) for sql in sqls]
-            groups.append((["INSERT INTO d1_migrations(id,name) VALUES (" + str(index) + "," +
-                            stage.value(migration["name"]) + ");"], 1, 64))
-            emitter.groups("initialize:" + migration["name"], groups)
-        migration_ledger = validate_ledger(db, frozen_inputs["migrations"])
+            emitter.groups("initialize:" + migration["name"], [([sql], 0, 128) for sql in sqls])
         canonical_schema = schema(db)
         canonical_inventory = inventory(db)
         triggers = [(row["name"], row["sql"]) for row in canonical_schema if row["type"] == "trigger"]
@@ -373,14 +322,17 @@ def build(preparation_path, source_path, manifest_path, migrations_dir, output_d
             raise ValueError("required final canonical schema is absent")
         emitter.groups("suspend-triggers", [(["DROP TRIGGER " + quote(name) + ";"], 0, 8)
                                             for name, _ in triggers])
-        settings = list(db.execute("SELECT * FROM site_settings ORDER BY key"))
         all_tables = set(canonical_inventory["tables"])
         project_columns = {row[1] for row in db.execute("PRAGMA table_info(projects)")}
         for name in validator.order_tables(db, set(tables)):
             indexes = len(list(db.execute("PRAGMA index_list(" + quote(name) + ")")))
 
             def row_groups():
-                for row in sorted(tables[name], key=stable):
+                for original in sorted(tables[name], key=stable):
+                    row = dict(original)
+                    if name == "projects":
+                        for column in ("working_version_id", "published_version_id", "published_cover_asset_id"):
+                            row[column] = None
                     if validator.stored_row_size(row) > MAX_ROW_BYTES:
                         raise ValueError("candidate row exceeds D1 row size limit")
                     lines = ["PRAGMA foreign_keys = ON;"]
@@ -394,6 +346,12 @@ def build(preparation_path, source_path, manifest_path, migrations_dir, output_d
                     yield lines[1:], 1, 16 * (1 + indexes) + chunk_count * 8 + (64 if chunks else 0)
 
             emitter.groups("data:" + name, row_groups())
+        def pointer_groups():
+            for row in sorted(tables.get("projects", []), key=stable):
+                fields = ("working_version_id", "published_version_id", "published_cover_asset_id")
+                sql = "UPDATE projects SET " + ", ".join(quote(key) + " = " + stage.value(row.get(key)) for key in fields)
+                yield [sql + " WHERE id = " + stage.value(row["id"]) + ";"], 1, 64
+        emitter.groups("restore-project-pointers", pointer_groups())
         search_groups = []
         for row in sorted(tables.get("projects", []), key=lambda row: row["id"]):
             sqls = canonical_search_statements(search_trigger, row["id"], project_columns)
@@ -412,14 +370,8 @@ def build(preparation_path, source_path, manifest_path, migrations_dir, output_d
         emitter.groups("restore-triggers", [([sql], 0, 8) for _, sql in triggers])
         if schema(db) != canonical_schema or inventory(db) != canonical_inventory:
             raise ValueError("final schema differs from complete canonical migration chain")
-        if validate_ledger(db, frozen_inputs["migrations"]) != migration_ledger:
-            raise ValueError("Wrangler migration ledger changed during business import")
-        if list(db.execute("SELECT * FROM site_settings ORDER BY key")) != settings:
-            raise ValueError("canonical seed settings were modified by data import")
         db.commit()
-        comparison = copy.deepcopy(data)
-        comparison["tables"].pop("site_settings", None)
-        reconciliation = loader.reconcile(comparison, db_path)
+        reconciliation = loader.reconcile(data, db_path)
         if not reconciliation["ok"]:
             raise ValueError("emitted SQL does not independently reconcile business data")
         expected_search(db, data, search_trigger)
@@ -427,25 +379,21 @@ def build(preparation_path, source_path, manifest_path, migrations_dir, output_d
         db.commit()
         canonical_inventory.update({"format": "workshop-multiday-inventory-v1", "schema_sha256": digest(canonical_schema),
             "sqlite_validation": validation, "reconciliation": reconciliation, "largest_stored_row_bytes": largest_row,
-            "migration_ledger": migration_ledger,
             "logical_snapshot_sha256": rows_digest(db),
-            "site_settings_policy": "canonical migration seed/default only; operational staging settings are a separate cutover gate",
             "estimate_policy": "Conservative row/index/FTS/chunk allowance; not an account billing guarantee."})
         json_write(output_dir / "inventory.json", canonical_inventory)
     finally:
         db.close()
-    # Exact rehearsal SQLite pages contain canonical CURRENT_TIMESTAMP seed data.
-    # Keep their byte seal outside the deterministic execution manifest; expected
-    # SQLite is private non-executable evidence, never an authorization input.
+    # Keep the SQLite byte seal outside the deterministic execution manifest;
+    # this private snapshot is evidence, not an authorization input.
     json_write(output_dir / "expected.sqlite.sha256", {"file": "expected.sqlite", "sha256": file_hash(db_path)})
     artifacts = {name: {"file": name, "sha256": file_hash(output_dir / name)} for name in
                  ("preparation.json", "source-check.json", "inventory.json")}
     plan = {"format": FORMAT, "inputs": frozen_inputs, "schema": canonical_schema,
             "schema_sha256": digest(canonical_schema), "batches": emitter.batches, "artifacts": artifacts,
-            "migration_ledger": migration_ledger,
             "expected": {"file": "expected.sqlite", "byte_hash_receipt": "expected.sqlite.sha256",
                          "logical_sha256": canonical_inventory["logical_snapshot_sha256"],
-                         "policy": "Non-executable evidence: byte receipt alone contains runtime seed and Wrangler applied_at timestamps."},
+                         "policy": "Private non-executable evidence, sealed separately from the execution manifest."},
             "limits": {"statement_bytes": STATEMENT_BYTES, "batch_bytes": BATCH_BYTES, "data_rows": BATCH_ROWS,
                        "stored_row_bytes": MAX_ROW_BYTES, "estimated_rows_written": BATCH_ESTIMATED_WRITES,
                        "indivisible_group_estimated_rows_written": MAX_GROUP_ESTIMATED_WRITES},
@@ -509,8 +457,6 @@ def validate_plan(plan_path):
         raise ValueError("sealed expected snapshot changed")
     db = sqlite3.connect(expected.as_uri() + "?mode=ro", uri=True)
     try:
-        if validate_ledger(db, frozen["migrations"]) != plan["migration_ledger"]:
-            raise ValueError("expected snapshot Wrangler migration ledger differs")
         if schema(db) != plan["schema"] or rows_digest(db) != plan["expected"]["logical_sha256"]:
             raise ValueError("expected snapshot schema or logical rows differ")
     finally:

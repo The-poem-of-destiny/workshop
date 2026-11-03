@@ -28,10 +28,10 @@ async function seedProject(id: string, content: string) {
     .bind(`u-${id}`, `u-${id}`, now, now)
     .run();
   await bindings.DB.prepare(`
-    INSERT INTO projects (id, author_id, visibility, working_version_id, created_at, updated_at)
-    VALUES (?, ?, 'private', ?, ?, ?)
+    INSERT INTO projects (id, author_id, visibility, created_at, updated_at)
+    VALUES (?, ?, 'private', ?, ?)
   `)
-    .bind(id, `u-${id}`, `r-${id}`, now, now)
+    .bind(id, `u-${id}`, now, now)
     .run();
   await bindings.DB.prepare(`
     INSERT INTO project_versions
@@ -40,6 +40,7 @@ async function seedProject(id: string, content: string) {
   `)
     .bind(`r-${id}`, id, id, `u-${id}`, now)
     .run();
+  await bindings.DB.prepare("UPDATE projects SET working_version_id = ? WHERE id = ?").bind(`r-${id}`, id).run();
   const key = `projects/${id}/versions/r-${id}/worldbook.json`;
   await bindings.DB.prepare(`
     INSERT INTO assets (id, project_id, version_id, kind, r2_key, sha256, bytes, mime, created_at)
@@ -74,6 +75,7 @@ beforeEach(async () => {
     DELETE FROM manual_reviews;
     DELETE FROM automated_reviews;
     DELETE FROM submissions;
+    UPDATE projects SET working_version_id = NULL, published_version_id = NULL, published_cover_asset_id = NULL;
     DELETE FROM assets;
     DELETE FROM project_versions;
     DELETE FROM projects;

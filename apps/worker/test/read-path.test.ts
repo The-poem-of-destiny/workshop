@@ -21,7 +21,9 @@ beforeEach(async () => {
     DELETE FROM recommendations;
     DELETE FROM site_settings;
     DELETE FROM download_daily_stats;
+    UPDATE projects SET working_version_id = NULL, published_version_id = NULL, published_cover_asset_id = NULL;
     DELETE FROM assets;
+    DELETE FROM project_versions;
     DELETE FROM projects;
     DELETE FROM users;
   `);
@@ -36,11 +38,11 @@ async function seed() {
 
   await bindings.DB.prepare(`
     INSERT INTO projects
-      (id, author_id, visibility, published_version_id, published_at, updated_at,
+      (id, author_id, visibility, published_at, updated_at,
        downloads_count, likes_count, subscriptions_count)
-    VALUES (?, ?, 'public', ?, ?, ?, 12, 3, 2)
+    VALUES (?, ?, 'public', ?, ?, 12, 3, 2)
   `)
-    .bind("p1", "u1", "r1", now, now)
+    .bind("p1", "u1", now, now)
     .run();
 
   await bindings.DB.prepare(`
@@ -58,7 +60,9 @@ async function seed() {
   `)
     .bind(now)
     .run();
-  await bindings.DB.prepare("UPDATE projects SET working_version_id = 'r3' WHERE id = 'p1'").run();
+  await bindings.DB.prepare(
+    "UPDATE projects SET working_version_id = 'r3', published_version_id = 'r1' WHERE id = 'p1'",
+  ).run();
 
   await bindings.DB.prepare(`
     INSERT INTO assets (id, project_id, version_id, kind, r2_key, sha256, bytes, mime, created_at)
@@ -109,8 +113,8 @@ async function seed() {
 
   await bindings.DB.prepare(`
     INSERT INTO projects
-      (id, author_id, visibility, working_version_id, published_version_id, published_at, updated_at)
-    VALUES ('p2', 'u1', 'private', 'r2', 'r2', ?, ?)
+      (id, author_id, visibility, published_at, updated_at)
+    VALUES ('p2', 'u1', 'private', ?, ?)
   `)
     .bind(now, now)
     .run();
@@ -120,6 +124,9 @@ async function seed() {
   `)
     .bind(now)
     .run();
+  await bindings.DB.prepare(
+    "UPDATE projects SET working_version_id = 'r2', published_version_id = 'r2' WHERE id = 'p2'",
+  ).run();
   await bindings.DB.prepare(`
     INSERT INTO assets (id, project_id, version_id, kind, r2_key, sha256, bytes, mime, created_at)
     VALUES ('cover2', 'p2', 'r2', 'cover', 'covers/p2/r2-cover.webp', ?, 3, 'image/webp', ?)
@@ -191,7 +198,7 @@ describe("public read path", () => {
 
   it("keeps a usable home list when discovery fails and never caches the partial response", async () => {
     await seed();
-    await bindings.DB.exec("ALTER TABLE recommendation_runs RENAME TO recommendation_runs_test_hidden");
+    await bindings.DB.exec("ALTER TABLE recommendation_batches RENAME TO recommendation_batches_test_hidden");
     try {
       const response = await SELF.fetch("https://workshop.test/api/v1/home");
       const home = homeResponseSchema.parse(await response.json());
@@ -203,14 +210,14 @@ describe("public read path", () => {
       });
       expect(home.projects).toMatchObject({ ok: true, data: { items: [{ id: "p1" }] } });
     } finally {
-      await bindings.DB.exec("ALTER TABLE recommendation_runs_test_hidden RENAME TO recommendation_runs");
+      await bindings.DB.exec("ALTER TABLE recommendation_batches_test_hidden RENAME TO recommendation_batches");
     }
   });
 
   it("returns a no-store error when all home sections fail", async () => {
     await seed();
     await bindings.DB.exec("ALTER TABLE site_settings RENAME TO site_settings_test_hidden");
-    await bindings.DB.exec("ALTER TABLE recommendation_runs RENAME TO recommendation_runs_test_hidden");
+    await bindings.DB.exec("ALTER TABLE recommendation_batches RENAME TO recommendation_batches_test_hidden");
     await bindings.DB.exec("ALTER TABLE projects RENAME TO projects_test_hidden");
     try {
       const response = await SELF.fetch("https://workshop.test/api/v1/home");
@@ -228,7 +235,7 @@ describe("public read path", () => {
       });
     } finally {
       await bindings.DB.exec("ALTER TABLE projects_test_hidden RENAME TO projects");
-      await bindings.DB.exec("ALTER TABLE recommendation_runs_test_hidden RENAME TO recommendation_runs");
+      await bindings.DB.exec("ALTER TABLE recommendation_batches_test_hidden RENAME TO recommendation_batches");
       await bindings.DB.exec("ALTER TABLE site_settings_test_hidden RENAME TO site_settings");
     }
   });
@@ -478,16 +485,19 @@ describe("public read path", () => {
     ] as const) {
       await bindings.DB.prepare(`
         INSERT INTO projects
-          (id, author_id, visibility, published_version_id, published_at, updated_at)
-        VALUES (?, 'u1', 'public', ?, ?, ?)
+          (id, author_id, visibility, published_at, updated_at)
+        VALUES (?, 'u1', 'public', ?, ?)
       `)
-        .bind(projectId, versionId, updatedAt, updatedAt)
+        .bind(projectId, updatedAt, updatedAt)
         .run();
       await bindings.DB.prepare(`
         INSERT INTO project_versions (id, project_id, version_no, title, created_by, created_at)
         VALUES (?, ?, 1, ?, 'u1', ?)
       `)
         .bind(versionId, projectId, projectId, updatedAt)
+        .run();
+      await bindings.DB.prepare("UPDATE projects SET published_version_id = ? WHERE id = ?")
+        .bind(versionId, projectId)
         .run();
     }
     const first = await listPublishedProjects(bindings.DB, { limit: 2, sort: "updated" });

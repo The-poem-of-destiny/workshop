@@ -55,7 +55,7 @@ def decode_cell(cell):
 
 def snapshot(query, migrations, path, expected):
     schema_rows = query("SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL "
-                        "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name != 'd1_migrations'")
+                        "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'")
     remote_schema = {(r["type"], r["name"]): " ".join(r["sql"].split()) for r in schema_rows}
     if remote_schema != expected:
         raise ValueError("staging schema differs from the supplied deployed migration chain")
@@ -136,7 +136,7 @@ def snapshot(query, migrations, path, expected):
 def schema(db):
     return {(kind, name): " ".join(sql.split()) for kind, name, sql in db.execute(
         "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL "
-        "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name != 'd1_migrations'")}
+        "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'")}
 
 
 

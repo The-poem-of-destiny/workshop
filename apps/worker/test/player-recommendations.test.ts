@@ -1,15 +1,17 @@
 import { env, SELF } from "cloudflare:test";
-import { beforeAll, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import type { DataEnv } from "../src/data/env";
-import { buildRankings, readRecommendationRun } from "../src/storage/rankings";
+import { buildRecommendationBatch, readRecommendationBatch } from "../src/storage/recommendation-batches";
 import { applySchema } from "./support/schema";
 
 const bindings = env as unknown as DataEnv;
 const now = "2026-10-21T00:00:00.000Z";
 beforeAll(() => applySchema(bindings.DB));
 beforeEach(async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(now));
   await bindings.DB.exec(
-    "DELETE FROM recommendations; DELETE FROM recommendation_runs; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;",
+    "DELETE FROM audit_events; DELETE FROM recommendations; DELETE FROM recommendation_batches; UPDATE projects SET working_version_id=NULL, published_version_id=NULL, published_cover_asset_id=NULL; DELETE FROM project_versions; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;",
   );
   for (const id of ["author", "player"]) {
     await bindings.DB.prepare("INSERT INTO users(id,username,role) VALUES(?,?,'member')").bind(id, id).run();
@@ -23,7 +25,7 @@ beforeEach(async () => {
       .run();
   }
   await bindings.DB.prepare(
-    "INSERT INTO projects(id,author_id,visibility,published_version_id,published_at) VALUES('p','author','public','v1',?)",
+    "INSERT INTO projects(id,author_id,visibility,published_at) VALUES('p','author','public',?)",
   )
     .bind(now)
     .run();
@@ -32,7 +34,9 @@ beforeEach(async () => {
   )
     .bind(now)
     .run();
+  await bindings.DB.prepare("UPDATE projects SET published_version_id='v1' WHERE id='p'").run();
 });
+afterEach(() => vi.useRealTimers());
 function request(token: string, version: string, comment: string, method = "PUT") {
   return SELF.fetch("https://workshop.test/api/v1/recommendations/p", {
     method,
@@ -54,19 +58,23 @@ it("keeps one endorsement per player/version and rejects stale publications", as
 });
 it("excludes self endorsements and stops displaying withdrawn comments immediately", async () => {
   await request("author", "v1", "self");
-  await buildRankings(bindings.DB, new Date(now));
-  let run = await readRecommendationRun(bindings.DB, "discovery", Date.parse(now));
+  await buildRecommendationBatch(bindings.DB, new Date(now), undefined, {
+    start: Date.parse(now),
+    end: Date.parse(now) + 3_600_000,
+  });
+  let run = await readRecommendationBatch(bindings.DB, Date.parse(now));
   expect(run?.items[0]?.contributions.endorsements).toBe(0);
   expect(run?.items[0]?.recommendationComment).toBeNull();
   await request("player", "v1", "player comment");
   // Keep the fixture endorsement within the frozen calculation's freshness window.
   await bindings.DB.prepare("UPDATE recommendations SET updated_at=?").bind(now).run();
-  await buildRankings(bindings.DB, new Date(now));
-  run = await readRecommendationRun(bindings.DB, "discovery", Date.parse(now));
+  await buildRecommendationBatch(bindings.DB, new Date(now), undefined, {
+    start: Date.parse(now) - 3_600_000,
+    end: Date.parse(now) + 3_600_000,
+  });
+  run = await readRecommendationBatch(bindings.DB, Date.parse(now));
   expect(run?.items[0]?.contributions.endorsements).toBeGreaterThan(0);
   expect(run?.items[0]?.recommendationComment).toBe("player comment");
   await request("player", "v1", "", "DELETE");
-  expect(
-    (await readRecommendationRun(bindings.DB, "discovery", Date.parse(now)))?.items[0]?.recommendationComment,
-  ).toBeNull();
+  expect((await readRecommendationBatch(bindings.DB, Date.parse(now)))?.items[0]?.recommendationComment).toBeNull();
 });

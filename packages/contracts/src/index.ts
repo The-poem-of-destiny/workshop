@@ -8,7 +8,7 @@ export * from "./health.js";
 export * from "./identity.js";
 export * from "./install.js";
 export * from "./projects.js";
-export * from "./recommendation-runs.js";
+export * from "./recommendation-batches.js";
 export * from "./recommendations.js";
 export * from "./release.js";
 export * from "./requirements.js";

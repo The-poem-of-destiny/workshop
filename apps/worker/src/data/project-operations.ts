@@ -5,9 +5,8 @@ import { getClientChannel } from "../storage/client.js";
 import { getProjectEntryIndex, resolveProjectPreviewTarget } from "../storage/content-index.js";
 import { recordAcquisition, releaseDownloads } from "../storage/downloads.js";
 import { getDiscovery } from "../storage/home.js";
+import { recordProjectChange } from "../storage/project-change-signals.js";
 import { getPublishedProject, isValidProjectListCursor, listPublishedProjects } from "../storage/projects.js";
-import { getRankings } from "../storage/rankings.js";
-import { recordProjectChange, recordRecommendationSignals } from "../storage/recommendation-signals.js";
 import { getReleaseAssets } from "../storage/releases.js";
 import { getSessionByToken } from "../storage/sessions.js";
 import type { DataEnv } from "./env";
@@ -18,9 +17,6 @@ export async function projectList(env: DataEnv, query: Parameters<typeof listPub
 }
 export async function projectDiscovery(env: DataEnv) {
   return discoveryResponseSchema.parse(await getDiscovery(env.DB));
-}
-export function projectRankings(env: DataEnv, kind: Parameters<typeof getRankings>[1]) {
-  return getRankings(env.DB, kind);
 }
 export function projectDetail(env: DataEnv, projectId: string) {
   return getPublishedProject(env.DB, projectId);
@@ -43,16 +39,6 @@ export async function projectRecommendation(
     : updateAdminRecommendation(env.DB, projectId, session.userId, input);
 }
 
-export async function projectSignals(
-  env: DataEnv,
-  token: string,
-  input: Parameters<typeof recordRecommendationSignals>[3],
-) {
-  const session = await getSessionByToken(env.DB, token, env.SESSION_HASH_SECRET);
-  if (!session) return { kind: "unauthorized" as const };
-  if (!env.SESSION_HASH_SECRET) throw new Error("Recommendation sampling requires SESSION_HASH_SECRET");
-  return recordRecommendationSignals(env.DB, session.userId, env.SESSION_HASH_SECRET, input);
-}
 export async function projectChangeSignal(
   env: DataEnv,
   token: string,

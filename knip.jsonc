@@ -6,7 +6,7 @@
   "rules": { "cycles": "error" },
   "workspaces": {
     ".": {
-      "entry": ["tools/migrate/cli.mjs", "tools/migrate/r2-copy.mjs", "tools/backup/verify.mjs"],
+      "entry": ["tools/migrate/full-r2.mjs", "tools/backup/verify.mjs"],
       "project": ["tools/**/*.mjs"],
       // Recursive `pnpm -r --if-present typecheck` is a workspace script, not
       // an npm executable. E2E invokes Wrangler through --filter @workshop/worker,

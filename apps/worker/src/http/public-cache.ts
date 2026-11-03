@@ -12,8 +12,6 @@ const PROJECT_LIST_PARAMETERS: Record<string, true> = {
   tag: true,
   search: true,
 };
-const RANKING_PARAMETERS: Record<string, true> = { kind: true };
-const RANKING_KINDS: Record<string, true> = { daily: true, "7d": true, "30d": true };
 const NO_PARAMETERS: Record<string, never> = {};
 
 export type PublicRequest =
@@ -90,9 +88,6 @@ function canonicalPublicUrl(request: Request): URL | null | undefined {
     query = canonicalProjectListSearch(incoming.searchParams);
   } else if (pathname === "/api/v1/projects/batch") {
     query = canonicalProjectBatchSearch(incoming.searchParams);
-  } else if (pathname === "/api/v1/projects/rankings") {
-    query = canonicalSearch(incoming.searchParams, RANKING_PARAMETERS, { kind: "7d" });
-    if (query && query.has("kind") && !RANKING_KINDS[query.get("kind") ?? ""]) return null;
   } else if (
     pathname === "/api/v1/projects/discovery" ||
     pathname === "/api/v1/home" ||

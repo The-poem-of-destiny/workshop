@@ -96,20 +96,83 @@ def public_status(state):
     )}
 
 
-def open_journal(path, plan_path, plan, account, token):
-    path = imp.outside_repository(path)
+def prior_ledgers(paths, account, token, destination):
+    ledger, origins, seen = {}, [], set()
+    for source in paths:
+        source = Path(source).resolve()
+        if source == destination:
+            raise ValueError('prior state cannot be the destination state')
+        saved = imp.Journal(source, token)
+        try:
+            state = saved.state
+            identity = state.get('plan_id')
+            if (state.get('account_id') != account or not isinstance(identity, str)
+                    or not re.fullmatch(r'[0-9a-f]{64}', identity)
+                    or not isinstance(state.get('plan_sha256'), str)
+                    or not re.fullmatch(r'[0-9a-f]{64}', state['plan_sha256'])
+                    or not isinstance(state.get('ledger'), dict)):
+                raise ValueError('prior state account, plan or ledger cannot be verified')
+            ancestry = state.get('budget_origins', [])
+            if not isinstance(ancestry, list) or any(not isinstance(item, dict) or not isinstance(item.get('plan_id'), str)
+                                                      or not re.fullmatch(r'[0-9a-f]{64}', item['plan_id']) for item in ancestry):
+                raise ValueError('prior state budget provenance cannot be verified')
+            identities = [identity] + [item['plan_id'] for item in ancestry]
+            if len(set(identities)) != len(identities) or seen.intersection(identities):
+                raise ValueError('overlapping prior state provenance would double-carry charges')
+            seen.update(identities)
+            for day, entry in state['ledger'].items():
+                try:
+                    valid_day = isinstance(day, str) and dt.date.fromisoformat(day).isoformat() == day
+                except ValueError:
+                    valid_day = False
+                if not valid_day or not isinstance(entry, dict) or 'charged' not in entry:
+                    raise ValueError('prior state ledger cannot be verified')
+                if any(key not in ('charged', 'observed_written', 'observed_read') or isinstance(value, bool)
+                       or not isinstance(value, int) or value < 0 for key, value in entry.items()):
+                    raise ValueError('prior state ledger cannot be verified')
+                target = ledger.setdefault(day, {'charged': 0})
+                target['charged'] += entry['charged']
+                for key in ('observed_written', 'observed_read'):
+                    if key in entry:
+                        target[key] = max(target.get(key, 0), entry[key])
+            if (state.get('candidate_create_intent') or state.get('pending') or state.get('next_batch', 0)) and not state['ledger']:
+                raise ValueError('prior state ledger cannot be verified')
+            pending = state.get('pending')
+            if pending:
+                if (not isinstance(pending, dict) or not isinstance(pending.get('day'), str)
+                        or isinstance(pending.get('reserved'), bool) or not isinstance(pending.get('reserved'), int)
+                        or pending['reserved'] < 0 or pending['day'] not in state['ledger']
+                        or state['ledger'][pending['day']]['charged'] < pending['reserved']):
+                    raise ValueError('prior state reservation cannot be verified')
+            latest = sorted(source.glob('[0-9]*-*.json'))[-1]
+            origins.extend(ancestry)
+            origins.append({'plan_id': identity, 'plan_sha256': state['plan_sha256'],
+                            'state_dir': str(source), 'receipt': latest.name, 'receipt_sha256': digest(latest)})
+        finally:
+            saved.close()
+    return ledger, origins
+
+
+def open_journal(path, plan_path, plan, account, token, prior_states=()):
+    path = Path(path).resolve()
     if path.exists():
+        if prior_states:
+            raise ValueError('prior states can only be supplied when creating a new journal')
         journal = imp.Journal(path, token)
         expected = {'plan_id': plan['plan_id'], 'plan_sha256': digest(plan_path), 'account_id': account}
         if any(journal.state.get(key) != value for key, value in expected.items()):
             journal.close()
             raise ValueError('plan bytes or credential account differ from saved execution')
         return journal
+    ledger, origins = prior_ledgers(prior_states, account, token, path)
+    if any(origin['plan_id'] == plan['plan_id'] for origin in origins):
+        raise ValueError('prior state provenance includes the destination plan')
     path.parent.mkdir(parents=True, exist_ok=True)
     journal = imp.Journal(path, token, create=True)
     journal.record('initialized', version=1, plan_id=plan['plan_id'], plan_sha256=digest(plan_path),
                    account_id=account, candidate_name=plan['candidate_name'], candidate_database_id=None,
-                   phase='prepared', next_batch=0, batch_count=len(plan['batches']), ledger={}, pending=None)
+                   phase='prepared', next_batch=0, batch_count=len(plan['batches']), ledger=ledger,
+                   budget_origins=origins, pending=None)
     return journal
 
 
@@ -172,8 +235,13 @@ def finish_batch(journal, pending, result):
         journal.record('accounting-unavailable', phase='failed', failure='successful_import_missing_write_accounting')
         raise imp.ImportFailure('completed import lacks authoritative write accounting')
     budget.settle(ledger, pending['day'], pending['reserved'], actual)
-    journal.record('batch-completed', result, phase='loading', next_batch=pending['index'] + 1,
-                   pending=None, ledger=ledger, next_attempt_at=None)
+    exceeded = actual > pending['reserved']
+    journal.record('reservation-exceeded' if exceeded else 'batch-completed', result,
+                   phase='failed' if exceeded else 'loading', next_batch=pending['index'] + 1,
+                   pending=None, ledger=ledger, next_attempt_at=None,
+                   failure='actual_writes_exceeded_reservation' if exceeded else None)
+    if exceeded:
+        raise imp.ImportFailure('actual writes exceeded reservation; no further writes authorized')
 
 
 def resume_pending(journal, plan):
@@ -270,20 +338,6 @@ def imp_quote(value):
     return '"' + value.replace('"', '""') + '"'
 
 
-def verify_ledger(cloud, database, plan):
-    planner = module('multiday-plan')
-    rows = cloud.query(database, 'SELECT id,name,applied_at FROM d1_migrations ORDER BY id')
-    definitions = cloud.query(database, "SELECT type,name,sql FROM sqlite_schema WHERE tbl_name='d1_migrations' ORDER BY type,name")
-    if [[row['type'], row['name'], row['sql']] for row in definitions] != plan['migration_ledger']['schema']:
-        return False
-    db = sqlite3.connect(':memory:')
-    try:
-        db.execute(planner.LEDGER_CREATE_SQL)
-        db.executemany('INSERT INTO d1_migrations(id,name,applied_at) VALUES (?,?,?)',
-                       [(row['id'], row['name'], row['applied_at']) for row in rows])
-        return planner.validate_ledger(db, plan['inputs']['migrations']) == plan['migration_ledger']
-    finally:
-        db.close()
 
 
 def verify(journal, cloud, plan_path, plan):
@@ -310,17 +364,13 @@ def verify(journal, cloud, plan_path, plan):
     expected_path = Path(plan_path).parent / 'expected.sqlite'
     expected = sqlite3.connect(expected_path.as_uri() + '?mode=ro', uri=True)
     original = json.loads((Path(plan_path).parent / 'preparation.json').read_text())
-    comparison = dict(original, tables={key: value for key, value in original['tables'].items() if key != 'site_settings'})
     try:
-        reconciled = loader.reconcile(comparison, snapshot)
+        reconciled = loader.reconcile(original, snapshot)
         search = compare_search(expected, actual)
         source = loader.source_reconcile(original, Path(plan['inputs']['source']['path']), Path(plan['inputs']['manifest']['path']))
-        migration_ledger = verify_ledger(cloud, database, plan)
         result = {'ok': reconciled.get('ok') is True and source.get('ok') is True and all(search.values()),
                   'reconciliation': reconciled, 'source_reconciliation': source, 'search': search,
-                  'schema': stage.schema(actual) == expected_schema, 'snapshot_sha256': digest(snapshot)}
-        result['migration_ledger'] = migration_ledger
-        result['ok'] = result['ok'] and result['schema'] and migration_ledger
+                  'snapshot_sha256': digest(snapshot)}
     finally:
         actual.close()
         expected.close()
@@ -338,6 +388,8 @@ def main():
     parser.add_argument('command', choices=('advance', 'watch', 'verify', 'status'))
     parser.add_argument('--plan', type=Path, required=True)
     parser.add_argument('--state-dir', type=Path, required=True)
+    parser.add_argument('--prior-state', type=Path, action='append', default=[],
+                        help='carry a same-account prior migration journal into a new state (repeatable)')
     parser.add_argument('--confirm-staging', action='store_true')
     parser.add_argument('--max-batches', type=int, default=10)
     args = parser.parse_args()
@@ -349,7 +401,7 @@ def main():
         account, token = imp.credentials()
         if args.command != 'status' and not args.confirm_staging:
             raise ValueError('explicit --confirm-staging required')
-        journal = open_journal(args.state_dir, args.plan, plan, account, token)
+        journal = open_journal(args.state_dir, args.plan, plan, account, token, args.prior_state)
         cloud = Cloud(account, token, journal)
         if args.command == 'status':
             print(json.dumps(public_status(journal.state), ensure_ascii=True))

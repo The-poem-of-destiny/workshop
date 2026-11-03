@@ -6,7 +6,7 @@ import {
   siteSettingsSchema,
 } from "@workshop/contracts";
 import { getPublishedProjectsByIds, listPublishedProjects } from "./projects.js";
-import { readRecommendationRun } from "./rankings.js";
+import { readRecommendationBatch } from "./recommendation-batches.js";
 
 interface RecommendationRow {
   id: string;
@@ -99,11 +99,11 @@ export async function listRecommendations(db: D1Database): Promise<Recommendatio
 }
 
 export async function getDiscovery(db: D1Database) {
-  const run = await readRecommendationRun(db, "discovery");
+  const batch = await readRecommendationBatch(db);
   return {
-    runId: run?.runId ?? null,
-    scheduledAt: run?.scheduledAt ?? null,
-    items: run?.items.map((item) => ({ ...item.project, recommendationComment: item.recommendationComment })) ?? [],
+    batchId: batch?.batchId ?? null,
+    scheduledAt: batch?.scheduledAt ?? null,
+    items: batch?.items.map((item) => ({ ...item.project, recommendationComment: item.recommendationComment })) ?? [],
   };
 }
 

@@ -11,7 +11,7 @@ export interface RecommendationCandidate {
   downloads: number;
   likesDelta: number;
   previousDownloads: number | null;
-  impressions: number | null;
+  estimatedOpportunity: number | null;
   contentChange?: { changedEntries: number; totalEntries: number; reportedAt: string } | null;
   endorsements: ReadonlyArray<{ userId: string; projectVersionId: string; updatedAt: string }>;
 }
@@ -40,6 +40,7 @@ export interface RecommendationSelection {
     contentChange: number;
     exposurePressure: number | null;
     categoryConfidence: number;
+    categoryScarcity: number;
   };
 }
 
@@ -87,20 +88,31 @@ function uniqueCandidates(candidates: readonly RecommendationCandidate[]): Recom
   return values;
 }
 
-/** Pure selection: callers supply authorized, current-version candidates and aggregate signals. */
-export function selectRecommendations(
-  candidates: readonly RecommendationCandidate[],
-  options: RecommendationSelectionOptions,
-): RecommendationSelection[] {
-  if (candidates.length > 5000) throw new Error("Recommendation candidate snapshot exceeds 5000 projects");
-  validateSelectionOptions(options);
-  const budgetTotal = recommendationPools.reduce((total, pool) => total + options.budget[pool], 0);
-  const values = uniqueCandidates(candidates);
+function categoryStatistics(values: RecommendationCandidate[]) {
   const categories = new Map<string, RecommendationCandidate[]>();
   for (const candidate of values) {
     const group = categories.get(candidate.projectType);
     if (group) group.push(candidate);
     else categories.set(candidate.projectType, [candidate]);
+  }
+  // An incomplete opportunity history cannot establish relative underrepresentation.
+  const opportunityKnown = values.every(
+    (candidate) =>
+      candidate.estimatedOpportunity !== null &&
+      Number.isFinite(candidate.estimatedOpportunity) &&
+      candidate.estimatedOpportunity >= 0,
+  );
+  const categoryOpportunity = new Map<string, number>();
+  let totalOpportunity = 0;
+  if (opportunityKnown) {
+    for (const candidate of values) {
+      const opportunity = candidate.estimatedOpportunity!;
+      categoryOpportunity.set(
+        candidate.projectType,
+        (categoryOpportunity.get(candidate.projectType) ?? 0) + opportunity,
+      );
+      totalOpportunity += opportunity;
+    }
   }
   const percentiles = new Map<string, number>();
   for (const peers of categories.values()) {
@@ -112,67 +124,21 @@ export function selectRecommendations(
       percentiles.set(peer.projectId, firstEqual / peers.length);
     }
   }
-  const scored = values.map((candidate) => {
-    const peers = categories.get(candidate.projectType) ?? [];
-    const percentile = percentiles.get(candidate.projectId) ?? 0;
-    const categoryConfidence = peers.length / (peers.length + 10);
-    const downloads = clamp(Math.log1p(nonnegative(candidate.downloads)) / 12);
-    const likes = clamp(Math.log1p(nonnegative(candidate.likesDelta)) / 6);
-    const trend =
-      candidate.previousDownloads === null
-        ? 0
-        : clamp(Math.log1p(nonnegative(candidate.downloads) / (nonnegative(candidate.previousDownloads) + 10)) / 3);
-    const freshness = Math.exp(-age(candidate.publishedAt, options.now) / 14);
-    const validEndorsers = new Set(
-      candidate.endorsements
-        .filter(
-          (endorsement) =>
-            endorsement.userId !== candidate.authorId &&
-            endorsement.projectVersionId === candidate.projectVersionId &&
-            age(endorsement.updatedAt, options.now) <= 90,
-        )
-        .map((endorsement) => endorsement.userId),
-    );
-    const endorsements = Math.min(0.08, Math.log1p(validEndorsers.size) * 0.02);
-    const exposurePressure =
-      candidate.impressions === null ? null : clamp(Math.log1p(nonnegative(candidate.impressions)) / 12);
-    const change = candidate.contentChange;
-    const contentChange =
-      change && change.changedEntries > 0 && change.totalEntries >= change.changedEntries
-        ? Math.min(0.03, (change.changedEntries / Math.max(1, change.totalEntries)) * 0.03) *
-          Math.exp(-age(change.reportedAt, options.now) / 30)
-        : 0;
-    const contributions = {
-      downloads,
-      likes,
-      trend,
-      freshness,
-      endorsements,
-      contentChange,
-      exposurePressure,
-      categoryConfidence,
-    };
-    const verified = downloads * 0.55 + likes * 0.25 + percentile * categoryConfidence * 0.12;
-    const pool: RecommendationPool =
-      age(candidate.publishedAt, options.now) < 14
-        ? "new"
-        : trend > 0.25 && candidate.downloads >= 10
-          ? "hot"
-          : verified >= 0.3
-            ? "verified"
-            : "underexposed";
-    const base =
-      pool === "new"
-        ? freshness * 0.7 + downloads * 0.1
-        : pool === "hot"
-          ? trend * 0.6 + downloads * 0.2
-          : pool === "verified"
-            ? verified
-            : (1 - downloads) * 0.45 + (1 - (exposurePressure ?? 0.5)) * 0.3;
-    const pressureStrength = pool === "hot" ? 0.05 : pool === "new" ? 0.1 : 0.2;
-    const score = clamp(base + endorsements + contentChange - (exposurePressure ?? 0) * pressureStrength);
-    return { candidate, pool, score, contributions };
-  });
+  return { categories, categoryOpportunity, totalOpportunity, percentiles };
+}
+
+type ScoredCandidate = {
+  candidate: RecommendationCandidate;
+  pool: RecommendationPool;
+  score: number;
+  contributions: RecommendationSelection["contributions"];
+};
+
+function drawRecommendations(
+  scored: ScoredCandidate[],
+  options: RecommendationSelectionOptions,
+  budgetTotal: number,
+): RecommendationSelection[] {
   const selected: RecommendationSelection[] = [];
   const authors = new Map<string, number>();
   const used = new Set<string>();
@@ -195,7 +161,17 @@ export function selectRecommendations(
     }
     const poolValues = eligible.filter((item) => item.pool === chosenPool);
     const maxScore = Math.max(...poolValues.map((item) => item.score));
-    const weights = poolValues.map((item) => Math.exp((item.score - maxScore) / options.temperature));
+    const softmax = poolValues.map((item) => Math.exp((item.score - maxScore) / options.temperature));
+    const softmaxTotal = softmax.reduce((total, weight) => total + weight, 0);
+    const typeCounts = new Map<string, number>();
+    for (const { candidate } of poolValues) {
+      typeCounts.set(candidate.projectType, (typeCounts.get(candidate.projectType) ?? 0) + 1);
+    }
+    // Reserve 10% of each pool draw for equal-probability category exploration.
+    const weights = poolValues.map(
+      (item, index) =>
+        (0.9 * softmax[index]!) / softmaxTotal + 0.1 / (typeCounts.size * typeCounts.get(item.candidate.projectType)!),
+    );
     const sample = options.random();
     if (!Number.isFinite(sample) || sample < 0 || sample >= 1)
       throw new Error("Recommendation random must be in [0,1)");
@@ -223,4 +199,93 @@ export function selectRecommendations(
     });
   }
   return selected;
+}
+
+/** Pure selection: callers supply authorized, current-version candidates and estimated opportunities. */
+export function selectRecommendations(
+  candidates: readonly RecommendationCandidate[],
+  options: RecommendationSelectionOptions,
+): RecommendationSelection[] {
+  if (candidates.length > 5000) throw new Error("Recommendation candidate snapshot exceeds 5000 projects");
+  validateSelectionOptions(options);
+  const budgetTotal = recommendationPools.reduce((total, pool) => total + options.budget[pool], 0);
+  const values = uniqueCandidates(candidates);
+  const { categories, categoryOpportunity, totalOpportunity, percentiles } = categoryStatistics(values);
+  const scored = values.map((candidate) => {
+    const peers = categories.get(candidate.projectType) ?? [];
+    const percentile = percentiles.get(candidate.projectId) ?? 0;
+    const categoryConfidence = peers.length / (peers.length + 10);
+    const downloads = clamp(Math.log1p(nonnegative(candidate.downloads)) / 12);
+    const likes = clamp(Math.log1p(nonnegative(candidate.likesDelta)) / 6);
+    const trend =
+      candidate.previousDownloads === null
+        ? 0
+        : clamp(Math.log1p(nonnegative(candidate.downloads) / (nonnegative(candidate.previousDownloads) + 10)) / 3);
+    const freshness = Math.exp(-age(candidate.publishedAt, options.now) / 14);
+    const validEndorsers = new Set(
+      candidate.endorsements
+        .filter(
+          (endorsement) =>
+            endorsement.userId !== candidate.authorId &&
+            endorsement.projectVersionId === candidate.projectVersionId &&
+            age(endorsement.updatedAt, options.now) <= 90,
+        )
+        .map((endorsement) => endorsement.userId),
+    );
+    const endorsements = Math.min(0.08, Math.log1p(validEndorsers.size) * 0.02);
+    const exposurePressure =
+      candidate.estimatedOpportunity === null ||
+      !Number.isFinite(candidate.estimatedOpportunity) ||
+      candidate.estimatedOpportunity < 0
+        ? null
+        : clamp(Math.log1p(candidate.estimatedOpportunity) / 12);
+    const categoryScarcity =
+      totalOpportunity > 0
+        ? clamp(
+            peers.length / values.length - (categoryOpportunity.get(candidate.projectType) ?? 0) / totalOpportunity,
+            0,
+            0.05,
+          )
+        : 0;
+    const change = candidate.contentChange;
+    const contentChange =
+      change && change.changedEntries > 0 && change.totalEntries >= change.changedEntries
+        ? Math.min(0.03, (change.changedEntries / Math.max(1, change.totalEntries)) * 0.03) *
+          Math.exp(-age(change.reportedAt, options.now) / 30)
+        : 0;
+    const contributions = {
+      downloads,
+      likes,
+      trend,
+      freshness,
+      endorsements,
+      contentChange,
+      exposurePressure,
+      categoryConfidence,
+      categoryScarcity,
+    };
+    const verified = downloads * 0.55 + likes * 0.25 + percentile * categoryConfidence * 0.12;
+    const pool: RecommendationPool =
+      age(candidate.publishedAt, options.now) < 14
+        ? "new"
+        : trend > 0.25 && candidate.downloads >= 10
+          ? "hot"
+          : verified >= 0.3
+            ? "verified"
+            : "underexposed";
+    const base =
+      pool === "new"
+        ? freshness * 0.7 + downloads * 0.1
+        : pool === "hot"
+          ? trend * 0.6 + downloads * 0.2
+          : pool === "verified"
+            ? verified
+            : (1 - downloads) * 0.45 + (1 - (exposurePressure ?? 0.5)) * 0.3;
+    const pressureStrength = pool === "hot" ? 0.05 : pool === "new" ? 0.1 : 0.2;
+    const score = clamp(
+      base + endorsements + contentChange + categoryScarcity - (exposurePressure ?? 0) * pressureStrength,
+    );
+    return { candidate, pool, score, contributions };
+  });
+  return drawRecommendations(scored, options, budgetTotal);
 }

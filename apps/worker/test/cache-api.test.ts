@@ -118,7 +118,6 @@ describe("Cache API read behavior", () => {
     ["/api/v1/recommendations", 60],
     ["/api/v1/projects/discovery", 60],
     ["/api/v1/site", 300],
-    ["/api/v1/projects/rankings", 300],
   ] as const)("uses the configured default class for %s", async (path, seconds) => {
     const response = exposed(await read(`/public/v1${path}`), path);
     expect(response.status).toBe(200);

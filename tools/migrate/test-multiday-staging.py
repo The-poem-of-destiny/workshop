@@ -63,6 +63,63 @@ class BudgetTest(unittest.TestCase):
             budget.decide({'day': '2026-11-02', 'rows_written': 0, 'rows_read': 0}, {}, 50_001, NOW)
 
 
+class CarryforwardTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.plan_path = self.root / 'plan.json'
+        self.plan_path.write_text('{}')
+
+    def create(self, name, identity, prior=(), account=ACCOUNT):
+        plan = {'plan_id': identity * 64, 'candidate_name': NAME, 'batches': []}
+        return run.open_journal(self.root / name, self.plan_path, plan, account, FakeCloud.token, prior)
+
+    def test_same_day_candidates_carry_unknown_reservations_and_exhaust_budget(self):
+        first = self.create('first', '1')
+        day = budget.reserve(first.state['ledger'], 49_900)
+        first.record('unknown', ledger=first.state['ledger'], pending={'reserved': 49_900, 'day': day})
+        first.close()
+        second = self.create('second', '2', [self.root / 'first'])
+        try:
+            with patch.object(budget, 'analytics', return_value=usage()):
+                self.assertFalse(run.allowance(second, ACCOUNT, FakeCloud.token, 128))
+            self.assertEqual(second.state['ledger'][day]['charged'], 49_900)
+            self.assertEqual(second.state['budget']['reason'], 'migration_daily_ceiling')
+            with self.assertRaisesRegex(ValueError, 'only be supplied'):
+                self.create('second', '2', [self.root / 'first'])
+        finally:
+            second.close()
+        with self.assertRaisesRegex(ValueError, 'double-carry'):
+            self.create('third', '3', [self.root / 'first', self.root / 'second'])
+
+    def test_mismatched_or_unverifiable_prior_state_is_rejected(self):
+        other = self.create('other', '1', account='b' * 32)
+        other.close()
+        with self.assertRaisesRegex(ValueError, 'cannot be verified'):
+            self.create('new', '2', [self.root / 'other'])
+        damaged = self.create('damaged', '3')
+        damaged.record('invalid', ledger={'2026-11-03': {'charged': -1}})
+        damaged.close()
+        with self.assertRaisesRegex(ValueError, 'ledger cannot be verified'):
+            self.create('new', '2', [self.root / 'damaged'])
+
+    def test_receipt_over_reservation_stops_before_another_batch(self):
+        journal = self.create('state', '1')
+        self.addCleanup(journal.close)
+        ledger = {}
+        day = budget.reserve(ledger, 128)
+        pending = {'day': day, 'reserved': 128, 'index': 0}
+        journal.record('batch-requested', ledger=ledger, pending=pending)
+        with self.assertRaisesRegex(imp.ImportFailure, 'exceeded reservation'):
+            run.finish_batch(journal, pending, {'outcome': 'complete', 'ok': True,
+                                                'statistics': {'rows_written': 129}})
+        self.assertEqual(journal.state['ledger'][day]['charged'], 129)
+        self.assertEqual(journal.state['phase'], 'failed')
+        with self.assertRaisesRegex(imp.ImportFailure, 'execution is failed'):
+            run.advance(journal, FakeCloud(), self.plan_path, {'batches': []}, 1)
+
+
 class FakeCloud:
     account = ACCOUNT
     token = 'synthetic-test-credential'

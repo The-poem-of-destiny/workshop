@@ -1,13 +1,14 @@
-import { buildRankings, observeCleanupCandidates } from "../storage/rankings.js";
+import { observeCleanupCandidates } from "../storage/recommendation-batches.js";
+import { runRecommendationSchedule } from "../storage/recommendation-schedule";
 
 const MAX_ATTEMPTS = 3;
 
-export async function buildScheduledRankings(
+export async function buildScheduledRecommendationBatch(
   db: D1Database,
   scheduledTime: number,
   configuration?: string,
 ): Promise<void> {
-  await buildRankings(db, new Date(scheduledTime), configuration);
+  await runRecommendationSchedule(db, scheduledTime, configuration);
 }
 
 export async function cleanupScheduledData(db: D1Database, scheduledTime: number) {

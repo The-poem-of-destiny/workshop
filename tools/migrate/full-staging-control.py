@@ -2,13 +2,11 @@
 """Control staging admission and check migrated public reads without business writes."""
 from __future__ import annotations
 
-import argparse
 from collections import Counter
 import hashlib
 import json
 import os
 import re
-from pathlib import Path
 import stat
 import sys
 from urllib.error import HTTPError, URLError
@@ -178,13 +176,6 @@ def smoke(client, preparation, samples):
     check_items(home["discovery"]["data"], projects, versions)
     discovery = client.json("/api/v1/projects/discovery")
     check_items(discovery, projects, versions)
-    for kind in ("daily", "7d", "30d"):
-        ranking = client.json("/api/v1/projects/rankings?" + urlencode({"kind": kind}))
-        require(ranking.get("kind") == kind and isinstance(ranking.get("items"), list), "invalid_ranking_response")
-        for row in ranking["items"]:
-            require(isinstance(row, dict) and isinstance(row.get("rank"), int)
-                    and isinstance(row.get("score"), (int, float)), "invalid_ranking_entry")
-            check_summary(row.get("project"), projects, versions)
 
     cursor = None
     cursors = set()
@@ -324,35 +315,23 @@ def smoke(client, preparation, samples):
                      "scheduled_rebuilds_not_triggered", "local_worker_runtime_not_exercised"]}
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("status", "close", "open", "smoke"))
-    parser.add_argument("--token-file", type=Path, required=True,
-                        help="existing owner-only maintenance token file; never a Cloudflare or legacy token")
-    parser.add_argument("--preparation", type=Path, help="validated private full-snapshot preparation; required for smoke")
-    parser.add_argument("--samples", type=int, default=3, help="representative detail/private/asset checks (1-10)")
-    parser.add_argument("--timeout", type=int, default=60, help="per-request timeout in seconds (1-300)")
-    args = parser.parse_args()
-    require(1 <= args.samples <= 10 and 1 <= args.timeout <= 300, "invalid_numeric_option")
-    require(args.mode != "smoke" or args.preparation is not None, "smoke_requires_preparation")
-    client = Staging(read_token(args.token_file), args.timeout)
-    if args.mode == "smoke":
-        with args.preparation.open(encoding="utf-8") as source:
-            preparation = json.load(source)
-        result = smoke(client, preparation, args.samples)
-    else:
-        result = {"mode": args.mode, "status": "passed",
-                  "maintenance": client.maintenance(None if args.mode == "status" else args.mode),
-                  "counts": dict(client.counts)}
-    print(json.dumps(result, sort_keys=True))
-
-
-if __name__ == "__main__":
+def run(args):
     try:
-        main()
+        require(1 <= args.samples <= 10 and 1 <= args.timeout <= 300, "invalid_numeric_option")
+        require(args.mode != "smoke" or args.preparation is not None, "smoke_requires_preparation")
+        client = Staging(read_token(args.token_file), args.timeout)
+        if args.mode == "smoke":
+            with args.preparation.open(encoding="utf-8") as source:
+                preparation = json.load(source)
+            result = smoke(client, preparation, args.samples)
+        else:
+            result = {"mode": args.mode, "status": "passed",
+                      "maintenance": client.maintenance(None if args.mode == "status" else args.mode),
+                      "counts": dict(client.counts)}
+        print(json.dumps(result, sort_keys=True))
+        return 0
     except ControlError as error:
         print(json.dumps({"status": "failed", "error": str(error)}), file=sys.stderr)
-        raise SystemExit(1) from None
     except Exception:
         print(json.dumps({"status": "failed", "error": "invalid_local_input_or_response"}), file=sys.stderr)
-        raise SystemExit(1) from None
+    return 1

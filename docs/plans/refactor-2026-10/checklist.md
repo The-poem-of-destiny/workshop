@@ -71,9 +71,8 @@
 - [x] 标签筛选、作者筛选。
 - [x] API 默认 24/页；统一 cursor/nextCursor 契约。
 - [x] Web 分页/加载更多与“第 X–Y 条”。
-- [x] 发现栏小时桶 + `discovery_exposures`。
-- [x] 7d/30d 周期热度排序与快照写入。
-- [x] 公开榜单读取 API（`GET /projects/rankings?kind=7d`）保留；UI 不再展示周热度货架（D-26）。
+- [x] 发现栏使用独立推荐批次；逐用户曝光采集已移除。
+- [x] 普通作品列表支持 7/30/90 天及全部周期的指标排序；独立推荐位不再生成榜单。
 - [x] reference version items + hash 指纹（B10/C11）。
 - [ ] 每日抽签接口（Q-10 暂缓，不阻塞当前开发）。
 

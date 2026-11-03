@@ -5,7 +5,7 @@ export async function runScheduled(env: Env, exports: Cloudflare.Exports, schedu
   const timestamp = scheduled.getTime();
   const data = exports.DataService;
   if (scheduled.getUTCMinutes() === 5) {
-    await data.buildScheduledRankings(timestamp);
+    await data.buildScheduledRecommendationBatch(timestamp);
   }
   if (scheduled.getUTCHours() === 0 && scheduled.getUTCMinutes() === 5) {
     const result = await data.cleanupScheduledData(timestamp);

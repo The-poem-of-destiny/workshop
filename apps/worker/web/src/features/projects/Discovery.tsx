@@ -2,7 +2,6 @@ import { BookOpen, History } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ProjectSummary } from "../../api";
 import type { HomeLoadState } from "../../useWorkshopHome";
-import { useRecommendationSignals } from "./useRecommendationSignals";
 import "../../styles/discovery.css";
 
 function DiscoveryCard({
@@ -19,7 +18,6 @@ function DiscoveryCard({
     <button
       className="discovery-item"
       type="button"
-      data-recommendation-project={project.id}
       onClick={(event) => onOpen(project, event.currentTarget)}
       aria-label={`查看 ${project.title}`}
     >
@@ -107,8 +105,6 @@ export function Discovery({
   const state =
     home.status === "loading" ? "loading" : home.status === "error" || !home.data.discovery.ok ? "error" : "ready";
   const items = home.status === "ready" && home.data.discovery.ok ? home.data.discovery.data.items : emptyItems;
-  const runId = home.status === "ready" && home.data.discovery.ok ? home.data.discovery.data.runId : null;
-  const signals = useRecommendationSignals(runId);
   const discovered = useMemo(() => {
     const next = [...items];
     for (let index = next.length - 1; index > 0; index -= 1) {
@@ -135,16 +131,9 @@ export function Discovery({
   return (
     <section className="discovery">
       <h2>发现</h2>
-      <div className="discovery-grid" ref={signals.root}>
+      <div className="discovery-grid">
         {discovered.map((project) => (
-          <DiscoveryCard
-            key={project.id}
-            project={project}
-            onOpen={(value, opener) => {
-              signals.clicked(value.id);
-              onOpen(value, opener);
-            }}
-          />
+          <DiscoveryCard key={project.id} project={project} onOpen={onOpen} />
         ))}
       </div>
     </section>

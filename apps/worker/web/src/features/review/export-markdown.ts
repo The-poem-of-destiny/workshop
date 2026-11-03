@@ -136,6 +136,10 @@ function appendDiffLines(lines: string[], diff: SubmissionDiff): void {
   }
   lines.push(`- 封面：${diff.cover.changed ? "已变更" : "未变更"}`, "");
   lines.push("### 检查项差异", "");
+  if (!diff.findings) {
+    lines.push("当前完整报告不可用，无法比较检查项。", "");
+    return;
+  }
   const labels: Record<"accepted" | "changed" | "added" | "removed", string> = {
     accepted: "与基线一致（不代表已认可）",
     changed: "变更",
@@ -168,7 +172,7 @@ export function buildReviewMarkdown({
   reason: string;
 }): string {
   const { submission, project, version: revision } = detail;
-  const gate = report?.routeGate ?? null;
+  const gate = submission.routeGate ?? report?.routeGate ?? null;
   const severity = countSeverities(report?.findings ?? []);
   const blocking = (report?.findings ?? []).filter(isBlockingFinding);
   const lines: string[] = [
@@ -193,6 +197,9 @@ export function buildReviewMarkdown({
     `| 检查器版本 | ${submission.checkerVersion ?? "未记录"} |`,
     `| manifest hash | ${revision.manifestHash ?? "未记录"} |`,
     `| 报告 hash | ${submission.checkReportHash ?? "未记录"} |`,
+    `| 报告状态 | ${submission.reportCleanedAt ? `已清理（${submission.reportCleanedAt}）` : submission.checkReportHash ? "可用" : "尚未生成"} |`,
+    `| 检查时间 | ${submission.checkedAt ?? "未记录"} |`,
+    `| 检查耗时 | ${submission.durationMs === null ? "未记录" : `${submission.durationMs} ms`} |`,
     "",
     "### 项目描述（提交者提供，不可信）",
     "",

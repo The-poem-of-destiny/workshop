@@ -2,12 +2,11 @@
 """Inspect a migration preparation or reconcile a local SQLite snapshot.
 
 All inputs are local. Reports contain counts and schema names, not row values.
-The optional source check independently accounts for source-backed identities,
+The source check independently accounts for source-backed identities,
 projects, relationships, references, audit records, recommendations, content
 indexes and approved omissions. It does not prove database identity or privacy.
 
   python3 tools/migrate/full-load.py plan PREPARATION.json --migrations DIR
-  python3 tools/migrate/full-load.py reconcile PREPARATION.json SNAPSHOT.sqlite
   python3 tools/migrate/full-load.py reconcile PREPARATION.json SNAPSHOT.sqlite --source DUMP.sql --manifest MANIFEST.json
   python3 tools/migrate/full-load.py source PREPARATION.json DUMP.sql MANIFEST.json
 """
@@ -681,21 +680,11 @@ def reconcile(data, snapshot):
         fk_count = sum(1 for _ in db.execute("PRAGMA foreign_key_check"))
         if fk_count:
             failures.append({"kind": "foreign_key_violations", "count": fk_count})
-        if {"projects", "project_versions"} <= schema:
-            for column in ("working_version_id", "published_version_id"):
-                count = db.execute(
-                    "SELECT count(*) FROM projects p WHERE p." + quote(column) +
-                    " IS NOT NULL AND NOT EXISTS (SELECT 1 FROM project_versions r WHERE r.id = p." +
-                    quote(column) + " AND r.project_id = p.id)").fetchone()[0]
-                if count:
-                    failures.append({"kind": "invalid_project_revision_pointer", "column": column, "count": count})
-        if {"projects", "assets"} <= schema:
-            count = db.execute(
-                "SELECT count(*) FROM projects p WHERE p.published_cover_asset_id IS NOT NULL "
-                "AND NOT EXISTS (SELECT 1 FROM assets a WHERE a.id = p.published_cover_asset_id "
-                "AND a.project_id = p.id AND a.version_id IS NULL AND a.kind = 'cover')").fetchone()[0]
-            if count:
-                failures.append({"kind": "invalid_project_cover_pointer", "count": count})
+        validator = load_validator()
+        integrity = validator.application_integrity(db, data)
+        failures.extend(integrity["failures"])
+        report["accepted_exceptions"] = integrity["accepted_exceptions"]
+        failures.extend(validator.stored_size_failures(db))
         report["ok"] = not failures and not data["diagnostics"]
         if data["diagnostics"]:
             failures.append({"kind": "preparation_diagnostics", "count": len(data["diagnostics"])})
@@ -713,8 +702,8 @@ def main():
     p = sub.add_parser("reconcile")
     p.add_argument("preparation", type=Path)
     p.add_argument("snapshot", type=Path)
-    p.add_argument("--source", type=Path)
-    p.add_argument("--manifest", type=Path)
+    p.add_argument("--source", type=Path, required=True)
+    p.add_argument("--manifest", type=Path, required=True)
     p = sub.add_parser("source")
     p.add_argument("preparation", type=Path)
     p.add_argument("source", type=Path)
@@ -727,14 +716,11 @@ def main():
         elif args.command == "source":
             result = source_reconcile(data, args.source, args.manifest)
         else:
-            if bool(args.source) != bool(args.manifest):
-                raise ValueError("source and manifest must be supplied together")
             result = reconcile(data, args.snapshot)
-            if args.source:
-                source_result = source_reconcile(data, args.source, args.manifest)
-                result["source_checks"] = source_result
-                result["source_reconciliation_verified"] = source_result["ok"]
-                result["ok"] = result["ok"] and source_result["ok"]
+            source_result = source_reconcile(data, args.source, args.manifest)
+            result["source_checks"] = source_result
+            result["source_reconciliation_verified"] = source_result["ok"]
+            result["ok"] = result["ok"] and source_result["ok"]
     except (OSError, UnicodeError, ValueError, TypeError, sqlite3.Error, json.JSONDecodeError):
         print(json.dumps({"ok": False, "error": "input_or_schema_error"}))
         return 1

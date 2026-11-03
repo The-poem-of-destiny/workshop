@@ -1,23 +1,9 @@
 # Migration tools
 
-Scope, commands, authorization, maintenance, import recovery and verification belong in the [migration runbook](../../docs/operations/legacy-data-migration.md). Neither tool family is a production-cutover authorization or a lossless historical migration.
+Use [`offline.py`](../../docs/operations/legacy-data-migration.md) for local preparation, source reconciliation and separately authorized staging candidate transfer and verification. This procedure does not authorize remote actions or production cutover.
 
-## Public samples
+For separately authorized staging admission and public-read checks, use `python3 tools/migrate/offline.py control {status,close,open,smoke} --token-file <private-token-file>`. The token file must be an owner-only regular file containing the maintenance token, not a Cloudflare or legacy token. `smoke` also requires `--preparation <validated-private-preparation>` and staging to be explicitly reopened; `--samples` (1–10, default 3) and `--timeout` (1–300 seconds, default 60) are optional. These actions do not replace the active database, and opening admission or exercising staging requires separate authorization.
 
-- `from_d1_sql.py` exports an explicitly selected public subset.
-- `cli.mjs` / `lib.mjs` orchestrate local transformation, reconciliation and additive SQL; `entities.mjs`, `assets.mjs`, `validation.mjs` and `values.mjs` own their respective data contracts.
-- `load-local.mjs` and `r2-copy.mjs` operate on isolated local state.
-- `import-staging.mjs` / `import-r2.mjs` implement the separately authorized staging sample import.
+The transform retains available business snapshots and historical records, reporting explicit omissions. `full-load.py` independently derives expectations from the original backup and verifies the target; `full-validate.py` checks schema and application integrity. The planner freezes inputs and emits bounded batches; the staging executor records durable receipts and never blindly retries ambiguous imports. `full-r2.mjs` checks original object bytes and conditionally creates staging objects.
 
-## Current Published/Working Snapshots
-
-- `full-transform.py`, `full_transform_history.py` and `full-transform-content.mjs` prepare current snapshots and explicit omissions.
-- `full-load.py` independently reconciles source data and original asset bytes, generates SQL and checks target rows; `full-validate.py` exercises the current schema locally.
-- `full-d1-import.py` owns target validation, durable import receipts and bookmark-only polling.
-- `full-r2.mjs` verifies and conditionally creates staging objects.
-- `full-staging-rehearse.py`, `full-staging-load.py` and `full-staging-control.py` orchestrate isolated rehearsal, gated replacement, maintenance and anonymous read-only smoke.
-
-`test-full-import.py`, `test-full-source.py` and `test-full-index.py` cover import ambiguity, public/working snapshot separation and independently derived content indexes. They run through the root `pnpm check` gate.
-
-Public-sample imports preserve the last approval time in both publication timestamps; later draft edits do not move the public update time.
-Public-sample selection filters and deduplicates before limiting. The default order is project ID ascending; `--order updated-desc` selects update time descending instead. Narrowing the sample is not full-migration acceptance.
+`from_d1_sql.py` is retained solely as an independent public-export utility for the backup verification format; it is not a migration acceptance path. Historical in-place review-report upgrade executors and their duplicate R2 transport are removed; all snapshot objects use `full-r2.mjs` through the sole CLI.

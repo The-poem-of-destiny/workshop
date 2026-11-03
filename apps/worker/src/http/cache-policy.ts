@@ -20,6 +20,6 @@ export function cacheTtl(env: Env, category: CacheClass): number {
 
 export function publicCacheClass(path: string): CacheClass {
   if (path.startsWith("/client/")) return "immutable";
-  if (path === "/api/v1/projects/rankings" || path === "/api/v1/site") return "reference";
+  if (path === "/api/v1/site") return "reference";
   return "public";
 }

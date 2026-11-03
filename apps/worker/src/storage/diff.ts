@@ -46,7 +46,7 @@ export interface SubmissionDiff {
     beforeSha256: string | null;
     afterSha256: string | null;
   };
-  findings: FindingDiff;
+  findings: FindingDiff | null;
 }
 
 interface AssetRow {
@@ -213,7 +213,7 @@ export async function getSubmissionDiff(
 ): Promise<SubmissionDiff | null> {
   const target = await db
     .prepare(`
-    SELECT s.version_id, s.project_id, ar.report_r2_key, ar.report_hash, s.base_published_version_id
+    SELECT s.version_id, s.project_id, ar.report_r2_key, ar.report_hash, ar.report_cleaned_at, s.base_published_version_id
     FROM submissions s JOIN automated_reviews ar ON ar.submission_id = s.id WHERE s.id = ?
   `)
     .bind(submissionId)
@@ -222,6 +222,7 @@ export async function getSubmissionDiff(
       project_id: string;
       report_r2_key: string | null;
       report_hash: string | null;
+      report_cleaned_at: string | null;
       base_published_version_id: string | null;
     }>();
   if (!target) return null;
@@ -229,13 +230,19 @@ export async function getSubmissionDiff(
   const previousSubmission = previousId
     ? await db
         .prepare(`
-    SELECT s.id, s.version_id, ar.report_r2_key, ar.report_hash FROM submissions s
+    SELECT s.id, s.version_id, ar.report_r2_key, ar.report_hash, ar.report_cleaned_at FROM submissions s
     JOIN automated_reviews ar ON ar.submission_id = s.id
     WHERE s.project_id = ? AND s.version_id = ? AND s.status = 'approved'
     ORDER BY s.submitted_at DESC, s.id DESC LIMIT 1
   `)
         .bind(target.project_id, previousId)
-        .first<{ id: string; version_id: string; report_r2_key: string | null; report_hash: string | null }>()
+        .first<{
+          id: string;
+          version_id: string;
+          report_r2_key: string | null;
+          report_hash: string | null;
+          report_cleaned_at: string | null;
+        }>()
     : null;
   const versions = await db
     .prepare(`SELECT * FROM project_versions WHERE project_id = ? AND id IN (?, ?)`)
@@ -265,13 +272,17 @@ export async function getSubmissionDiff(
     currentMetadata[key] = currentVersion[key] ?? null;
     if (previousMetadata && previousVersion) previousMetadata[key] = previousVersion[key] ?? null;
   }
-  const readReport = async (key: string | null, hash: string | null): Promise<unknown> => {
-    const text = await readFrozenReviewReport(r2, key, hash);
+  const readReport = async (key: string | null, hash: string | null, cleanedAt: string | null): Promise<unknown> => {
+    const text = await readFrozenReviewReport(r2, key, hash, cleanedAt);
     return text === null ? null : JSON.parse(text);
   };
   const [previousReport, currentReport] = await Promise.all([
-    readReport(previousSubmission?.report_r2_key ?? null, previousSubmission?.report_hash ?? null),
-    readReport(target.report_r2_key, target.report_hash),
+    readReport(
+      previousSubmission?.report_r2_key ?? null,
+      previousSubmission?.report_hash ?? null,
+      previousSubmission?.report_cleaned_at ?? null,
+    ),
+    readReport(target.report_r2_key, target.report_hash, target.report_cleaned_at),
   ]);
 
   const rows = await db
@@ -327,6 +338,6 @@ export async function getSubmissionDiff(
       beforeSha256: coverBefore,
       afterSha256: coverAfter,
     },
-    findings: diffFindings(currentReport, previousReport),
+    findings: currentReport === null ? null : diffFindings(currentReport, previousReport),
   };
 }

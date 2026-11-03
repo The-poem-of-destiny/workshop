@@ -192,6 +192,7 @@ export function ReviewEvidence({
             checkStatus={detail.submission.checkStatus}
             routeGate={routeGate}
             checkError={detail.submission.checkError}
+            reportCleanedAt={detail.submission.reportCleanedAt}
             checkedAt={detail.submission.checkedAt ? formatDate(detail.submission.checkedAt) : null}
             checkerVersion={detail.submission.checkerVersion}
           />

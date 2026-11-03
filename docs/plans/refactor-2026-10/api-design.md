@@ -107,7 +107,6 @@ Workers Cache 入口缓存发生在 Worker 执行前，不能依赖入口代码�
 - `GET /api/v1/projects?cursor=&sort=&search=&projectType=&tag=&authorId=`：顺序 keyset；Web 每页 24，只显示区间不显示总量；搜索保留中文短索引。
 - `GET /api/v1/projects/:id`、`/:id/entries`：相同公开规则；返回当前 publishedRevisionId。索引不在普通 Worker 匿名热路径解析完整文件。
 - `GET /api/v1/projects/discovery`：顶部发现栏的数据，不是发现页。
-- `GET /api/v1/projects/rankings?kind=daily|7d|30d`：最后完整快照，不读 building。
 - `GET /api/v1/home`、`/site`、`/recommendations`、`/reference-sets`、`/reference-sets/:id`、`/assets/*`：只返回登记的公开投影／当前有权引用的图片。
 - `GET /api/v1/me`、`/me/state?ids=`（最多 50 个）、`/me/subscriptions`：必须会话，直读本人状态；禁止 Public。
 - `PUT/DELETE /api/v1/me/likes/:id`、`/subscriptions/:id`、`/ratings/:id`：显式幂等设置，不使用 toggle；取消订阅不触发卸载。

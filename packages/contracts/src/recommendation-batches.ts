@@ -10,9 +10,10 @@ const contributionSchema = z
     contentChange: z.number().finite(),
     exposurePressure: z.number().finite().nullable(),
     categoryConfidence: z.number().finite(),
+    categoryScarcity: z.number().finite(),
   })
   .strict();
-export const recommendationRunResultSchema = z
+export const recommendationBatchResultSchema = z
   .object({
     schemaVersion: z.literal(1),
     scoringVersion: z.literal("four-pool-v1"),
@@ -50,4 +51,4 @@ export const recommendationRunResultSchema = z
       ids.add(item.project_id);
     }
   });
-export type RecommendationRunResult = z.infer<typeof recommendationRunResultSchema>;
+export type RecommendationBatchResult = z.infer<typeof recommendationBatchResultSchema>;

@@ -14,7 +14,7 @@ const asOf = "2026-10-26T12:00:00.000Z";
 beforeAll(async () => applySchema(bindings.DB));
 beforeEach(async () => {
   await bindings.DB.exec(
-    "DELETE FROM download_daily_stats; DELETE FROM assets; DELETE FROM projects; DELETE FROM users;",
+    "DELETE FROM download_daily_stats; UPDATE projects SET working_version_id=NULL, published_version_id=NULL, published_cover_asset_id=NULL; DELETE FROM assets; DELETE FROM project_versions; DELETE FROM projects; DELETE FROM users;",
   );
   await bindings.DB.prepare("INSERT INTO users (id, username) VALUES ('u', 'author')").run();
   await bindings.R2.delete("catalog/wb");
@@ -23,14 +23,15 @@ afterEach(() => vi.useRealTimers());
 
 async function project(id: string, type = "角色", tags = '["奇幻"]') {
   await bindings.DB.prepare(`INSERT INTO projects
-    (id, author_id, visibility, published_version_id, published_at, updated_at)
-    VALUES (?, 'u', 'public', ?, ?, ?)`)
-    .bind(id, `r-${id}`, asOf, asOf)
+    (id, author_id, visibility, published_at, updated_at)
+    VALUES (?, 'u', 'public', ?, ?)`)
+    .bind(id, asOf, asOf)
     .run();
   await bindings.DB.prepare(`INSERT INTO project_versions
     (id, project_id, version_no, title, project_type, tags, created_by) VALUES (?, ?, 1, ?, ?, ?, 'u')`)
     .bind(`r-${id}`, id, `奇幻${id}`, type, tags)
     .run();
+  await bindings.DB.prepare("UPDATE projects SET published_version_id = ? WHERE id = ?").bind(`r-${id}`, id).run();
 }
 
 async function event(id: string, delta: number, time: string) {
@@ -49,7 +50,7 @@ describe("catalog net windows on real D1", () => {
     await event("older", 1, new Date(now - 14 * 86_400_000).toISOString());
     await event("older", 1, new Date(now - 13 * 86_400_000).toISOString());
     await bindings.DB.prepare("UPDATE projects SET likes_count = CASE id WHEN 'recent' THEN 1 ELSE 2 END").run();
-    for (const period of ["all", "7d", "30d"] as const) {
+    for (const period of ["all", "7d", "30d", "90d"] as const) {
       const url = `https://workshop.example/api/v1/projects?sort=likes&period=${period}`;
       const response = await SELF.fetch(url);
       expect(response.status).toBe(200);

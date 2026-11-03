@@ -29,7 +29,7 @@ const candidates = rows.map((r) => ({
   downloads: r.downloads,
   likesDelta: r.likes,
   previousDownloads: r.previous,
-  impressions: null,
+  estimatedOpportunity: null,
   endorsements: [],
 }));
 const endorsements = db
@@ -44,14 +44,6 @@ for (const r of endorsements)
     ?.endorsements.push({ userId: r.curator_id, projectVersionId: r.project_version_id, updatedAt: r.updated_at });
 const windowStart = `${start}T00:00:00.000Z`;
 const windowEnd = new Date(Date.parse(`${end}T00:00:00Z`) + 86400000).toISOString();
-const exposures = new Map(
-  db
-    .prepare(
-      `SELECT v.value AS project_id,COUNT(*)*16 AS impressions FROM recommendation_signals s JOIN recommendation_runs r ON r.id=s.run_id,json_each(s.visible_projects) v WHERE r.scheduled_at>=? AND r.scheduled_at<? GROUP BY v.value`,
-    )
-    .all(windowStart, windowEnd)
-    .map((r) => [r.project_id, r.impressions]),
-);
 const changes = new Map(
   db
     .prepare(
@@ -61,7 +53,6 @@ const changes = new Map(
     .map((r) => [r.project_version_id, r]),
 );
 for (const candidate of candidates) {
-  candidate.impressions = exposures.get(candidate.projectId) ?? null;
   const change = changes.get(candidate.projectVersionId);
   candidate.contentChange = change
     ? { changedEntries: change.changed_entries, totalEntries: change.total_entries, reportedAt: change.reported_at }
@@ -130,14 +121,13 @@ console.log(
     {
       sourceWindow: { start, endInclusive: end },
       candidates: candidates.length,
-      telemetry: {
-        observedProjects: exposures.size,
+      signals: {
         contentChangeVersions: changes.size,
-        absentExposure: "null; not imputed as zero",
+        estimatedOpportunity: "unknown; traffic source not configured",
       },
-      runsPerPolicy: 1000,
-      scheduledRunsPerDay: 96,
-      estimatedBaseRunRowMutationsPerDay: 192,
+      simulationsPerPolicy: 1000,
+      scheduledBatchesPerDay: 24,
+      estimatedBaseBatchRowMutationsPerDay: 48,
       policies: output,
     },
     null,

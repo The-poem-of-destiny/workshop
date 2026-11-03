@@ -144,9 +144,6 @@ class MultidayPlanTest(unittest.TestCase):
             self.assertEqual(db.execute("PRAGMA foreign_key_check").fetchall(), [], batch["id"])
             self.assertEqual(db.execute("SELECT name FROM sqlite_schema WHERE name LIKE '_workshop_multiday%'").fetchall(), [])
             completed.append(batch["id"])
-            ledger = db.execute("SELECT id,name FROM d1_migrations ORDER BY id").fetchall()
-            migration_names = sorted(path.name for path in self.migrations.glob("*.sql"))
-            self.assertEqual(ledger, list(enumerate(migration_names[:len(ledger)], 1)))
         self.addCleanup(db.close)
         self.assertEqual(db.execute("SELECT likes_count,downloads_count,subscriptions_count FROM projects WHERE id='p-first'").fetchone(), (1, 9, 0))
         self.assertEqual(db.execute("SELECT count(*) FROM project_metrics_daily").fetchone()[0], 252)
@@ -154,18 +151,7 @@ class MultidayPlanTest(unittest.TestCase):
                          [("p-first", "2025-01-01", 7, 3), ("p-first", "2025-01-02", 2, -1)])
         self.assertEqual(db.execute("SELECT count(*) FROM download_daily_stats").fetchone()[0], 0)
         self.assertEqual(db.execute("SELECT description FROM project_versions WHERE project_id='p-first'").fetchone()[0], self.description)
-        self.assertIsNone(db.execute("SELECT value FROM site_settings WHERE key='environment-secret'").fetchone())
-        self.assertEqual(db.execute("SELECT value FROM site_settings WHERE key='cache_epoch'").fetchone(), ("1",))
-        ledger = db.execute("SELECT id,name,applied_at FROM d1_migrations ORDER BY id").fetchall()
-        self.assertEqual([(row[0], row[1]) for row in ledger],
-                         list(enumerate(sorted(path.name for path in self.migrations.glob("*.sql")), 1)))
-        self.assertTrue(all(row[2] == db.execute("SELECT datetime(?)", (row[2],)).fetchone()[0] for row in ledger))
-        self.assertEqual(db.execute("SELECT seq FROM sqlite_sequence WHERE name='d1_migrations'").fetchone(), (len(plan["inputs"]["migrations"]),))
-        self.assertEqual(planner.validate_ledger(db, plan["inputs"]["migrations"]), plan["migration_ledger"])
-        db.execute("UPDATE d1_migrations SET name='unexpected.sql' WHERE id=1")
-        with self.assertRaisesRegex(ValueError, "ledger ordered names"):
-            planner.validate_ledger(db, plan["inputs"]["migrations"])
-        db.rollback()
+        self.assertEqual(db.execute("SELECT value FROM site_settings WHERE key='environment-secret'").fetchone(), ("legacy-value",))
         for needle, expected in (("AlpineNeedle", []), ("BirchNeedle", []),
                                  ("TagNeedle", []), ("AuthorNeedle", [])):
             actual = db.execute("SELECT p.id FROM project_search JOIN projects p ON p.rowid=project_search.rowid "

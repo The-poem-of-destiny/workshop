@@ -17,7 +17,6 @@ const policySchema = z
     temperature: z.number().min(0.1).max(4).default(0.7),
     authorCap: z.number().int().min(1).max(24).default(2),
     discoveryLimit: z.number().int().min(1).max(24).default(12),
-    rankingLimit: z.number().int().min(1).max(200).default(24),
     budget: budgetSchema.default({ verified: 0.3, hot: 0.25, new: 0.2, underexposed: 0.25 }),
   })
   .strict();

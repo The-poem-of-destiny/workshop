@@ -251,6 +251,7 @@ export function CheckReportSection({
   checkError,
   checkedAt,
   checkerVersion,
+  reportCleanedAt,
 }: {
   submissionId: string;
   report: CheckReport | null;
@@ -260,6 +261,7 @@ export function CheckReportSection({
   checkError: string | null;
   checkedAt: string | null;
   checkerVersion: string | null;
+  reportCleanedAt: string | null;
 }) {
   const [source, setSource] = useState<OpenSource | null>(null);
   const severity = countSeverities(report?.findings ?? []);
@@ -286,9 +288,11 @@ export function CheckReportSection({
 
       {!report ? (
         <p className="review-state">
-          {checkStatus === "queued" || checkStatus === "running"
-            ? "检查尚在排队或运行，报告完成后会自动刷新。"
-            : "暂无结构化检查报告。"}
+          {reportCleanedAt
+            ? `完整报告已清理（${reportCleanedAt}）；检查结论仍保留。`
+            : checkStatus === "queued" || checkStatus === "running"
+              ? "检查尚在排队或运行，报告完成后会自动刷新。"
+              : "尚未生成完整检查报告。"}
         </p>
       ) : (
         <>

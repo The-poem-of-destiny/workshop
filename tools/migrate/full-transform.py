@@ -498,7 +498,7 @@ def main():
               "objects": sorted(objects, key=lambda row: (row["targetKey"], row["sourceBucket"], row["sourceKey"])),
               "omissions": sorted(omissions, key=stable),
               "diagnostics": sorted(issues, key=stable)}
-    descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
         os.fchmod(stream.fileno(), 0o600)
         json.dump(result, stream, ensure_ascii=False, sort_keys=True, indent=2)

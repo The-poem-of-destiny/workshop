@@ -64,7 +64,7 @@ export const submissionDiffSchema = z.object({
     beforeSha256: z.string().nullable(),
     afterSha256: z.string().nullable(),
   }),
-  findings: findingDiffSchema,
+  findings: findingDiffSchema.nullable(),
 });
 
 export type DiffKind = z.infer<typeof diffKindSchema>;
@@ -88,6 +88,9 @@ export const adminSubmissionDetailSchema = z.object({
     checkError: z.string().nullable(),
     checkReport: jsonValueSchema,
     checkReportHash: z.string().nullable(),
+    reportCleanedAt: z.string().nullable(),
+    routeGate: z.string().nullable(),
+    durationMs: z.number().int().nullable(),
     checkedAt: z.string().nullable(),
     checkerVersion: z.string().nullable(),
     autoPublishedAt: z.string().nullable(),

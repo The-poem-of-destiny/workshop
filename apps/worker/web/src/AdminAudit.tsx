@@ -19,7 +19,6 @@ const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   "legacy.character_reference_version_created": "历史：创建角色参考版本",
   "legacy.editor_pick_removed": "历史：移除编辑精选",
   "legacy.editor_pick_saved": "历史：保存编辑精选",
-  "legacy.current_schema_event": "历史：切换前操作",
 };
 
 const AUDIT_ACTION_OPTIONS = auditActionSchema.options;

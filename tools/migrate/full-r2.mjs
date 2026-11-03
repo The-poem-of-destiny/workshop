@@ -39,7 +39,13 @@ async function curl(options, maxBytes) {
   const config =
     options.map(([name, value]) => (value === null ? name : `${name} = ${configValue(value)}`)).join("\n") + "\n";
   return await new Promise((done, reject) => {
-    const { CLOUDFLARE_API_TOKEN: _token, ...env } = process.env;
+    const {
+      CLOUDFLARE_API_TOKEN: _token,
+      STAGING_IMPORT_TOKEN: _stagingToken,
+      STAGING_IMPORT_R2_ACCESS_KEY_ID: _accessKey,
+      STAGING_IMPORT_R2_SECRET_ACCESS_KEY: _secret,
+      ...env
+    } = process.env;
     const child = spawn("curl", ["-q", "--config", "-"], { env, stdio: ["pipe", "pipe", "pipe"] });
     const chunks = [];
     let size = 0;
@@ -64,27 +70,6 @@ async function curl(options, maxBytes) {
     });
     child.stdin.end(config);
   });
-}
-async function credentials(account, token) {
-  const response = await curl(
-    [
-      ["silent", null],
-      ["show-error", null],
-      ["write-out", "%{http_code}"],
-      ["url", `https://api.cloudflare.com/client/v4/accounts/${account}/tokens/verify`],
-      ["header", `Authorization: Bearer ${token}`],
-    ],
-    1024 * 1024,
-  );
-  let payload;
-  try {
-    payload = JSON.parse(response.body.toString("utf8"));
-  } catch {
-    fail("token verification returned invalid JSON");
-  }
-  if (response.status !== 200 || payload?.success !== true || !/^[a-f0-9]{32}$/i.test(payload?.result?.id ?? ""))
-    fail(`account token verification failed (HTTP ${response.status})`);
-  return { accessKeyId: payload.result.id, secret: sha256(token) };
 }
 
 async function request(account, credentials, method, key, object, file) {
@@ -202,10 +187,11 @@ export async function run(mode, backup, plan) {
   for (const object of objects) await verifyLocal(object);
   if (mode === "check") return { objects: objects.length, bytes: objects.reduce((sum, o) => sum + o.bytes, 0) };
   const account = process.env.CLOUDFLARE_ACCOUNT_ID;
-  const token = process.env.CLOUDFLARE_API_TOKEN;
-  if (!/^[a-f0-9]{32}$/i.test(account ?? "") || !token || /[\r\n\0]/.test(token))
-    fail("valid CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are required");
-  const creds = await credentials(account, token);
+  const accessKeyId = process.env.STAGING_IMPORT_R2_ACCESS_KEY_ID;
+  const secret = process.env.STAGING_IMPORT_R2_SECRET_ACCESS_KEY;
+  if (!/^[a-f0-9]{32}$/i.test(account ?? "") || !accessKeyId || !secret || /[\r\n\0]/.test(accessKeyId + secret))
+    fail("valid CLOUDFLARE_ACCOUNT_ID and dedicated staging R2 access key and secret are required");
+  const creds = { accessKeyId, secret };
   let uploaded = 0;
   for (const object of objects) {
     if (mode === "verify") {

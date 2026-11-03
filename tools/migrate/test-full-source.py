@@ -148,7 +148,7 @@ class SourceReconciliationTest(unittest.TestCase):
         manifest.write_text(json.dumps({"databases": [{"name": "creative_workshop",
             "sha256": hashlib.sha256(dump.encode()).hexdigest(), "table_counts": {}}],
             "buckets": {}}), encoding="utf-8")
-        output = self.directory / "transformed.json"
+        output = self.directory / f"transformed-{hashlib.sha256(dump.encode()).hexdigest()}.json"
         result = subprocess.run([sys.executable, str(TRANSFORMER), str(source), str(manifest), str(output)],
                                 capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)

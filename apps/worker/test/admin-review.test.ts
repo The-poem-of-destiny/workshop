@@ -31,13 +31,14 @@ async function seed() {
       ('reviewer', 'reviewer', 'Reviewer', 'reviewer', '${now}', '${now}'),
       ('member', 'member', 'Member', 'member', '${now}', '${now}');
     INSERT INTO projects
-      (id, author_id, visibility, working_version_id, updated_at)
-    VALUES ('p1', 'member', 'private', 'r1', '${now}');
+      (id, author_id, visibility, updated_at)
+    VALUES ('p1', 'member', 'private', '${now}');
     INSERT INTO project_versions
       (id, project_id, version_no, title, description, author_note, project_type, extension_type,
        tags, manifest_hash, created_by, created_at)
     VALUES ('r1', 'p1', 1, 'Submitted title', 'Submitted description', 'Submitted note', '事件', '规则',
       '["submitted"]', 'manifest-1', 'member', '${now}');
+    UPDATE projects SET working_version_id = 'r1' WHERE id = 'p1';
     INSERT INTO assets (id, project_id, version_id, kind, r2_key, sha256, bytes, mime, created_at)
     VALUES ('a1', 'p1', 'r1', 'worldbook', 'projects/p1/r1/worldbook.json', 'hash', 12,
       'application/json', '${now}');
@@ -74,7 +75,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await bindings.DB.exec(
-    "DELETE FROM audit_events; DELETE FROM manual_reviews; DELETE FROM automated_reviews; DELETE FROM submissions; DELETE FROM assets; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;",
+    "DELETE FROM audit_events; DELETE FROM manual_reviews; DELETE FROM automated_reviews; DELETE FROM submissions; UPDATE projects SET working_version_id = NULL, published_version_id = NULL, published_cover_asset_id = NULL; DELETE FROM assets; DELETE FROM project_versions; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;",
   );
   await seed();
 });
@@ -111,17 +112,19 @@ describe("admin review and publishing", () => {
   });
 
   it("lists multiple statuses in one request and paginates with a keyset cursor", async () => {
-    await bindings.DB.prepare(`
-      INSERT INTO projects (id, author_id, visibility, working_version_id, updated_at)
-      VALUES ('p2', 'member', 'private', 'r2', '2026-10-21T00:00:01.000Z');
+    const statements = splitSql(`
+      INSERT INTO projects (id, author_id, visibility, updated_at)
+      VALUES ('p2', 'member', 'private', '2026-10-21T00:00:01.000Z');
       INSERT INTO project_versions (id, project_id, version_no, title, created_by)
       VALUES ('r2', 'p2', 1, 'Second project', 'member');
+      UPDATE projects SET working_version_id = 'r2' WHERE id = 'p2';
       INSERT INTO submissions
         (id, project_id, version_id, status, submitted_by, submitted_at)
       VALUES ('s2', 'p2', 'r2', 'checking', 'member', '2026-10-21T00:00:01.000Z');
       INSERT INTO automated_reviews(submission_id,status,client_gate,client_checker_version)
       VALUES ('s2','queued','warn','checker-1');
-    `).run();
+    `);
+    for (const statement of statements) await bindings.DB.prepare(statement).run();
 
     const defaultPage = await request("/submissions");
     expect(defaultPage.status).toBe(200);
@@ -278,7 +281,6 @@ describe("admin review and publishing", () => {
       versionId: "r1",
       previousVersionId: null,
       worldbook: { added: [{ entryKey: expect.any(String) }], unchanged: 0 },
-      findings: { accepted: [], changed: [], added: [], removed: [] },
     });
 
     // The HTTP route starts the checker in the background; queue directly so
@@ -420,6 +422,43 @@ describe("admin review and publishing", () => {
       message: "将被移除",
       file: "worldbook.json · 附录",
     });
+  });
+
+  it("distinguishes cleaned, never generated, and unexpectedly missing reports", async () => {
+    const initial = await request("/submissions/s1");
+    expect(initial.status).toBe(200);
+    await expect(initial.json()).resolves.toMatchObject({
+      submission: { checkReport: null, checkReportHash: null, reportCleanedAt: null },
+    });
+    const hash = await tokenHash('{"routeGate":"block"}');
+    const key = `reports/s1/${hash}.json`;
+    await bindings.DB.prepare(`UPDATE automated_reviews SET status='done', route_gate='block', checker_version='checker',
+      checked_at='2026-10-20T00:00:00.000Z', duration_ms=42, report_hash=?, report_cleaned_at='2026-10-21T00:00:00.000Z'
+      WHERE submission_id='s1'`)
+      .bind(hash)
+      .run();
+    const cleaned = await request("/submissions/s1");
+    expect(cleaned.status).toBe(200);
+    await expect(cleaned.json()).resolves.toMatchObject({
+      submission: {
+        checkReport: null,
+        checkReportHash: hash,
+        reportCleanedAt: "2026-10-21T00:00:00.000Z",
+        routeGate: "block",
+        checkerVersion: "checker",
+        checkedAt: "2026-10-20T00:00:00.000Z",
+        durationMs: 42,
+      },
+    });
+    const diff = await request("/submissions/s1/diff");
+    expect(diff.status).toBe(200);
+    await expect(diff.json()).resolves.toMatchObject({ findings: null });
+    await bindings.DB.prepare(
+      "UPDATE automated_reviews SET report_r2_key=?, report_cleaned_at=NULL WHERE submission_id='s1'",
+    )
+      .bind(key)
+      .run();
+    expect((await request("/submissions/s1")).status).toBe(500);
   });
 
   it("requires a reject reason and exposes it to the author", async () => {

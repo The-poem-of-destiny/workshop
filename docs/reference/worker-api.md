@@ -49,7 +49,6 @@
 | GET `/projects` | `limit` 1–50 默认 25；`cursor`、`sort`、`period`、`projectType`、`authorId`、`tag`、`search`；合法值见 [projects.ts](../../packages/contracts/src/projects.ts)。非法查询或 cursor 400。 |
 | GET `/projects/batch` | 唯一 `ids` 参数为逗号分隔的 1–50 个 ID，trim、去重并按字典序排列；响应 `{items,missingIds}`，隐藏或不存在的项目只列入 missingIds。空项、重复参数或未知非 tracking 参数为 400。 |
 | GET `/projects/discovery` | 发现项目列表。 |
-| GET `/projects/rankings` | `kind=daily\|7d\|30d`，默认 `7d`；其他值 400。 |
 | GET `/projects/:id` | 已发布项目详情；不存在或不可公开访问 404。 |
 | GET `/projects/:id/entries` | 已发布项目条目索引；不存在 404。 |
 | GET `/projects/:id/preview/:kind` | Bearer；kind 为 `worldbook` 或 `regex`，返回预览；无会话 401，kind 无效 400，不存在 404。 |
@@ -62,9 +61,9 @@
 一次逻辑获取由客户端生成一个 UUID v4；网络重试必须复用同一键，独立获取使用新键。POST 按用户、版本、UTC 日汇总，重复键不递增；世界书和正则 GET 不额外计数。每用户每版本每日最多 128 次不同逻辑获取，以有界 JSON 保存当天幂等键，达到上限返回 429，既有键重试仍成功。项目累计和日汇总计逻辑获取次数，不宣称字节传输完成。旧项目日指标保留为历史权威，不补造旧用户／版本下载记录。URL 本身不授予权限；每次 GET 都需有效 Bearer，并在打开对象后重查授权和发布指针。
 用户日统计记录所有授权逻辑获取；公开下载指标只统计公开项目的非作者普通玩家获取，作者、reviewer／owner 和私有访问不贡献公开指标。
 
-玩家推荐使用 `PUT /api/v1/recommendations/:projectId`，Bearer 和 JSON `{projectVersionId,comment}`；仅当前公开发布版可写，同一玩家／版本保留一条，可编辑或以 `DELETE` 携带同一 JSON 撤回。旧版本不会自动背书新版本。匿名 401，版本过期或项目不可访问 404。发现响应包含 `runId`、`scheduledAt` 和 `{project,recommendationComment}` 条目；评论只随机选取当前仍有效的非作者玩家非空评论。
+玩家推荐使用 `PUT /api/v1/recommendations/:projectId`，Bearer 和 JSON `{projectVersionId,comment}`；仅当前公开发布版可写，同一玩家／版本保留一条，可编辑或以 `DELETE` 携带同一 JSON 撤回。旧版本不会自动背书新版本。匿名 401，版本过期或项目不可访问 404。发现响应包含 `batchId`、`scheduledAt` 和项目条目；评论只随机选取当前仍有效的非作者玩家非空评论。
 
-`POST /api/v1/recommendations/signals` 接受登录玩家的 `{runId,visible,clicked}`（各最多 24 个项目 ID），仅当前发现队列有效；采样、去重和有界合并后用于曝光压力，不是下载记账。`POST /api/v1/recommendations/changes` 接受作者客户端计算的版本／清单哈希及 changedEntries、totalEntries；服务端对照两份不可变条目目录验证，元数据修改不贡献内容变化。此提示不是通用 diff 服务。
+`POST /api/v1/recommendations/changes` 接受作者客户端计算的版本／清单哈希及 changedEntries、totalEntries；服务端对照两份不可变条目目录验证，元数据修改不贡献内容变化。此提示不是通用 diff 服务。
 
 可执行示例（设置 `BASE`、`TOKEN`、`PROJECT_ID`，需 `curl` 和 `jq`）：
 
@@ -115,7 +114,7 @@ URL=$(jq -r '.files[0].url // empty' /tmp/workshop-downloads.json)
 | GET `/:id/versions/:versionId/change-evidence` | 作者会话、当前工作版本；返回当前／上一发布版不可变条目目录与 manifestHash，任一目录缺失或无上一版 404，不回退读取完整内容。 |
 | POST `/:id/submissions/:submissionId/withdraw` | If-Match；返回结果，已处理或状态变化 409。 |
 
-文件上传需正数 `Content-Length`。worldbook 和 regex 接受 `application/json` 或 `text/plain`，上限 10 MiB，服务端验证内容；cover 和 gallery 接受 PNG、JPEG、WebP，上限 5 MiB。cover 的内容格式必须匹配 MIME，尺寸上限 4096×4096；gallery 另由存储层校验图片和 slot。超限 413，MIME 不支持 415。请求体直接为文件，不是 multipart。
+文件上传需正数 `Content-Length`。worldbook 和 regex 接受 `application/json` 或 `text/plain`，上限 10 MiB，服务端验证内容；cover 和 gallery 接受 PNG、JPEG、WebP，上限 1 MiB。cover 的内容格式必须匹配 MIME，尺寸上限 4096×4096；gallery 另由存储层校验图片和 slot。超限 413，MIME 不支持 415。请求体直接为文件，不是 multipart。
 
 示例：已登录且有写入权限，使用一个合法 worldbook JSON 文件，依次读取版本、上传并提交；每次变更后使用返回的新版本：
 
@@ -153,21 +152,42 @@ curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "If-Match: $VERSION" -H '
 | PUT `/recommendations/:projectId` | owner；`adminRecommendationUpdateSchema`，返回推荐内容；项目不存在 404。 |
 | DELETE `/recommendations/:projectId` | owner；204，不存在 404。 |
 
-存量当前站升级时，既有操作日志统一转为 `legacy.current_schema_event`：detail 保留固定 `sourceSchema`、原 `originalAction` 和精确原始 `originalDetail` 文本（可为 null），不补造历史推荐的版本归属。新写入仍使用各 action 的严格结构；此历史包装不是允许新业务绕过 action 契约的通用入口。
-
 操作审计不保存项目批准、拒绝或计数重算；批准与拒绝的权威记录属于审查表。迁移明确排除对应三种旧日志，原始备份不变。历史兼容信息修改统一为 `project.patch`，detail 保留来源表、原作者／目标标识及 beforeValue／afterValue；不因此恢复兼容字段。其余保留的历史管理操作使用明确的 `legacy.*` 枚举，不开放任意前缀。
 
-自动检查的状态、尝试次数、租约、最终报告键／哈希属于 `automated_reviews`；人工决定属于 `manual_reviews`，投稿只保留生命周期。报告精确字节写入 `reports/{submissionId}/{sha256}.json` 后才保存引用，读取校验哈希，缺失或损坏是错误而非空报告。每次领取有独立租约 token，过期尝试不能覆盖新报告、重新排队或发布。报告和旧尝试的原始备份不做物理清理。
+自动检查的状态、尝试次数、租约、门禁、检查器版本、时间、耗时和最终报告键／哈希属于 `automated_reviews`；人工决定属于 `manual_reviews`，decision 是受约束的 approve/reject 文本。报告精确字节写入 `reports/{submissionId}/{sha256}.json` 后才保存引用，读取校验哈希：有 key 但对象缺失或损坏是错误；key、hash、cleaned_at 均为空表示尚未生成；key 为空而 hash 和 report_cleaned_at 有值表示已清理，hash 仅为历史指纹，不证明对象存在。详情保留结构化结论；当前完整报告缺失时 diff 不伪造检查项差异。每次领取有独立租约 token，过期尝试不能覆盖新报告、重新排队或发布。此处不实现报告 GC。
 
 角色基线的 reference-set 读写接口已移除，不再用于内容重复检测；JSON 格式、安全策略、元数据检查和安装 diff 不依赖该接口。
 
 定时清理目前仅生成只读预警：软删除项目、过期会话、已完成或过期 OAuth flow、孤立资产关联数和最老待处理时间。保留策略未定，不物理删除项目、审查证据或 R2 对象。
 
+### 资源生命周期与删除责任（方案，非执行授权）
+
+本节替代旧计划中按 90 天自动回收版本的描述。staging 可单独获准重建不授权清理 legacy、production、备份或用户内容；下面的期限、审批及执行器均未确定，不自动执行。责任人是未来维护者／数据所有者；每次操作需明确环境、账号、数据库和 bucket 身份，并由有权负责人批准候选与不可逆范围。
+
+| 父对象／资源 | 引用与目标删除责任 | 保留及前提 |
+| --- | --- | --- |
+| 用户 | projects.author、audit actor 等证据 RESTRICT；session 等纯附属 CASCADE；site_settings updater SET NULL | 作者归属、审计和人工决定默认保留，不能删除用户时抹掉证据；隐私／法定义务另行决定 |
+| 用户的其他引用 | project_versions.created_by、submissions.submitted_by/withdrawn_by 默认 NO ACTION；manual_reviews.reviewer、recommendations.curator、download_daily_stats.user RESTRICT；oauth_flows.user SET NULL；likes、ratings、subscriptions CASCADE | 删除用户必须逐项处理阻断关系并保全证据；OAuth 准入证据及互动删除影响须另审 |
+| 项目纯派生／互动 | project_likes、project_ratings、project_subscriptions、project_metrics_daily、project_search_tags CASCADE；FTS 搜索索引不由外键维护 | 可级联不等于已批准硬删除；清理后复核触发器维护的搜索索引与聚合 |
+| 项目 | project_versions、submissions、assets、下载、推荐、change signals 等业务记录 RESTRICT；纯关系允许 CASCADE | 软删除不等于硬删除；先明确恢复期和证据处理，清查全部依赖并人工批准 |
+| 版本 | 项目 working/published 指针是同项目、延迟检查的引用；投稿 version/base、assets 和其他业务证据 RESTRICT | 当前工作／发布版本、审核中的冻结版本及基线禁止直接回收；历史版本须先决定保留与可恢复策略 |
+| 投稿 | automated_reviews、manual_reviews 是审核证据，RESTRICT | 不能靠父项目删除级联抹除审核结论和人工决定；先完成独立证据政策 |
+| 资产与 R2 key | assets 是关联权威，版本可共享同一对象；站点 banner、报告及客户端分发等各自 key 也须纳入完整引用清单 | 不以某版本或前缀无引用断言对象孤儿；失败上传和替换旧图先只读列候选 |
+| 自动报告 | checked_at、report_r2_key、report_hash、report_cleaned_at；共享 key 的所有引用均须检查 | 期限及仍待人工审核是否豁免待定；结构化结论和 hash 保留，禁止先删仍依赖原文的报告 |
+| recommendation_batches、project_change_signals | 批次可能正在展示或用于机会衰减，change signals 参与内容变化评分 | 先确定算法完整历史窗口及审计要求后定期限；已移除的曝光／点击 signals 不恢复 |
+| sessions、OAuth flows | session 关联用户；flow 的状态、有效期和兑换是安全边界 | 过期／撤销后仍须确定安全追溯与秘密最小化期限，分别审批，不记录 secret、授权码或令牌 |
+| 下载日记录、互动日汇总、审计 | 日记录可能承担幂等、限额、周期排序及累计统计；audit actor 和 manual review 是证据 | 先证明聚合／归档后的计数、窗口、幂等与追责不变；默认保留审计，不因软删除抹除 |
+| 本地备份、冻结计划、临时文件、工作树 | 独立于线上资源；核验唯一恢复副本、输入指纹和未合并工作 | 保留根工作区归档和 legacy 原始备份；单独盘点审批，禁止将 staging 重建许可当成本地删除许可 |
+
+未来执行器先生成只读预演：对象及大小、关联表和引用、资格理由、最老时间、候选数量／成本、保留政策版本、账号／环境／资源身份和可恢复性；冻结清单供负责人审阅。批准后限批、限速、记录每项操作 ID、原始 key/hash/checked_at、结果及错误，逐批复核，成本收益须按真实对象字节和请求量估算而非承诺节省。
+
+D1 与 R2 不跨服务原子：单次 SELECT 无引用不防止删除瞬间重新引用，报告按 hash 相同重查也可能复用 key。执行前必须以覆盖所有写入和引用路径的互斥／删除墓碑等机制阻止新增引用，隔离／宽限后在保护内重新检查所有引用；无法证明保护完整则不删除。报告仅在资格成立且引用安全时删除，随后以 submission_id、原 checked_at、key、hash 条件 CAS 置空 key 并记录清理时间；删除成功而 CAS 失败时保留失败账本并停止相关对象处理，核对并发引用，按已验证备份恢复或在保护下重试；对象已不存在的删除可幂等，绝不吞掉错误或标记成功。若无有效备份，物理删除不可回滚；恢复演练成功前不可宣称可恢复。验收核对 D1 外键、存活引用与 R2 对象／hash、结构化审查、排行和幂等，记录剩余失败并人工处置。
+
 站点和伴随脚本的 owner 写入不在 admin 前缀：
 
 | 方法和路径 | 输入及结果 |
 | --- | --- |
-| POST `/api/v1/site/banner` | owner，PNG/JPEG/WebP 原始字节，最多 10 MiB、尺寸最多 4096×4096；201 返回 banner。空或无法识别的图片 400，超限 413，MIME 不支持 415。 |
+| POST `/api/v1/site/banner` | owner，PNG/JPEG/WebP 原始字节，最多 2 MiB、尺寸最多 4096×4096；201 返回 banner。空或无法识别的图片 400，超限 413，MIME 不支持 415。 |
 | PUT `/api/v1/site` | owner；`adminSiteUpdateSchema`，至少提供 banner 或 siteContent，返回站点设置；无效 400。 |
 | GET `/api/v1/companion-scripts/:scriptId` | 公开读取当前伴随脚本版本，不存在 404。 |
 | GET `/api/v1/companion-scripts/:scriptId/versions/:version` | 公开读取指定版本，不存在 404。 |
