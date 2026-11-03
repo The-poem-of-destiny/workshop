@@ -150,8 +150,8 @@ def plan_digest(plan):
 
 def inputs(preparation_path, source_path, manifest_path, migrations_dir):
     migrations = validator.migration_files(Path(migrations_dir))
-    if len(migrations) != 39:
-        raise ValueError("the complete final migration chain through 0039 is required")
+    if len(migrations) != 40:
+        raise ValueError("the complete final migration chain through 0040 is required")
     result = {"preparation": pin(preparation_path), "source": pin(source_path),
               "manifest": pin(manifest_path), "migrations_dir": str(Path(migrations_dir).resolve()),
               "migrations": [dict(pin(path), name=path.name) for path in migrations]}

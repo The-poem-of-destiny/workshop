@@ -39,8 +39,7 @@ interface ProjectRow {
   catalog_score?: number;
 }
 
-const PUBLIC_UPDATED_AT = `COALESCE((SELECT MAX(s.resolved_at) FROM submissions s
-  WHERE s.version_id = p.published_version_id AND s.status = 'approved'), p.published_at, r.created_at)`;
+const PUBLIC_UPDATED_AT = "COALESCE(p.published_updated_at, p.published_at, r.created_at)";
 
 const SELECT_PROJECT = `
   SELECT

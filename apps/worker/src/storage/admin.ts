@@ -297,7 +297,7 @@ function approvalStatement(db: D1Database, target: SubmissionTargetRow, submissi
   return db
     .prepare(`
         UPDATE projects
-        SET published_version_id = ?, published_at = ?, published_cover_asset_id = NULL,
+        SET published_version_id = ?, published_at = ?, published_updated_at = ?, published_cover_asset_id = NULL,
             row_version = row_version + 1, updated_at = ?
         FROM submissions s
         JOIN project_versions r ON r.id = s.version_id
@@ -314,6 +314,7 @@ function approvalStatement(db: D1Database, target: SubmissionTargetRow, submissi
       `)
     .bind(
       target.version_id,
+      now,
       now,
       now,
       submissionId,

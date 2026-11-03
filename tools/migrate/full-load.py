@@ -216,6 +216,7 @@ def source_reconcile(data, dump, manifest_path):
         expected_projects.append((root, str(base["author_id"]), version_id(draft),
                                   version_id(published) if published else None, visibility,
                                   (pub.get("latest_approved_at") or pub.get("reviewed_at")) if pub else None,
+                                  (pub.get("latest_approved_at") or pub.get("reviewed_at")) if pub else None,
                                   base.get("downloads_count") or 0, base.get("likes_count") or 0,
                                   subscriptions[root], base.get("created_at"), base.get("updated_at"), None))
         for pid in {draft, published} - {None}:
@@ -231,7 +232,7 @@ def source_reconcile(data, dump, manifest_path):
     compare("projects", expected_projects,
             ((str(row["id"]), str(row["author_id"]), row.get("working_version_id"),
               row.get("published_version_id"), row.get("visibility"),
-              row.get("published_at"), row.get("downloads_count"),
+              row.get("published_at"), row.get("published_updated_at"), row.get("downloads_count"),
               row.get("likes_count"), row.get("subscriptions_count"), row.get("created_at"),
               row.get("updated_at"), row.get("deleted_at")) for row in tables.get("projects", [])))
     compare("current_revisions", expected_revisions,

@@ -297,7 +297,8 @@ def main():
             "visibility": "public" if visible else "private",
             "working_version_id": revision_by_source[str(draft_id)],
             "published_version_id": revision_by_source[str(published_id)] if pub else None,
-            "published_at": published_at, "downloads_count": base.get("downloads_count") or 0,
+            "published_at": published_at, "published_updated_at": published_at,
+            "downloads_count": base.get("downloads_count") or 0,
             "likes_count": base.get("likes_count") or 0, "subscriptions_count": 0,
             "created_at": base["created_at"], "updated_at": base["updated_at"]})
         for number, v in enumerate(ordered, 1):

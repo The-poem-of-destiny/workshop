@@ -37,6 +37,7 @@ import playerRecommendations from "../../migrations/0036_player_recommendations.
 import contentVersions from "../../migrations/0037_content_versions.sql?raw";
 import recommendationSignals from "../../migrations/0038_recommendation_signals.sql?raw";
 import closedAuditActions from "../../migrations/0039_closed_audit_actions.sql?raw";
+import publishedUpdatedAt from "../../migrations/0040_published_updated_at.sql?raw";
 import { splitSql } from "./sql";
 
 export async function applySchema(db: D1Database): Promise<void> {
@@ -80,6 +81,7 @@ export async function applySchema(db: D1Database): Promise<void> {
     contentVersions,
     recommendationSignals,
     closedAuditActions,
+    publishedUpdatedAt,
   ]) {
     const sql = source.replace(/^\s*--.*$/gm, "").replace(/^\s*PRAGMA\b.*$/gm, "");
     for (const statement of splitSql(sql)) await db.prepare(statement).run();

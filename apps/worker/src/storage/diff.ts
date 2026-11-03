@@ -254,6 +254,7 @@ export async function getSubmissionDiff(
     "project_type",
     "extension_type",
     "tags",
+    "schema_version",
     "version_label",
     "requirements",
     "cover_position_x",

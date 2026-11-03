@@ -97,6 +97,19 @@ describe("admin review and publishing", () => {
     await expect(response.json()).resolves.toEqual({ ok: true, status: "queued" });
   });
 
+  it("allows only one concurrent reviewer recheck", async () => {
+    const results = await Promise.all([
+      workerExports.DataService.authorAdminRecheck("Bearer reviewer-token", "s1"),
+      workerExports.DataService.authorAdminRecheck("Bearer owner-token", "s1"),
+    ]);
+    expect(results.map((result) => result.kind).sort()).toEqual(["ok", "running"]);
+
+    const submission = await bindings.DB.prepare(
+      "SELECT s.status, ar.status AS check_status, ar.checker_version FROM submissions s JOIN automated_reviews ar ON ar.submission_id = s.id WHERE s.id = 's1'",
+    ).first<Record<string, unknown>>();
+    expect(submission).toEqual({ status: "pending", check_status: "queued", checker_version: null });
+  });
+
   it("lists multiple statuses in one request and paginates with a keyset cursor", async () => {
     await bindings.DB.prepare(`
       INSERT INTO projects (id, author_id, visibility, working_version_id, updated_at)
@@ -165,12 +178,17 @@ describe("admin review and publishing", () => {
     });
     expect(response.status).toBe(201);
     const project = await bindings.DB.prepare(
-      "SELECT published_version_id, row_version FROM projects WHERE id = 'p1'",
+      "SELECT published_version_id, published_updated_at, row_version FROM projects WHERE id = 'p1'",
     ).first<Record<string, unknown>>();
     expect(project).toMatchObject({
       published_version_id: "r1",
       row_version: 2,
     });
+    const submission = await bindings.DB.prepare("SELECT resolved_at FROM submissions WHERE id = 's1'").first<{
+      resolved_at: string;
+    }>();
+    expect(submission?.resolved_at).toEqual(expect.any(String));
+    expect(project?.published_updated_at).toBe(submission?.resolved_at);
     const review = await bindings.DB.prepare(
       "SELECT manifest_hash, checker_version FROM manual_reviews WHERE submission_id = 's1'",
     ).first<Record<string, unknown>>();

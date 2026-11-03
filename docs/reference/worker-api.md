@@ -8,6 +8,7 @@
 - API JSON 错误格式为 `{ "error": { "code": "...", "message": "...", "details": ... } }`，`details` 可省略。状态映射见 [errors.ts](../../packages/contracts/src/errors.ts)：400 `bad_request`、401 `unauthorized`、403 `forbidden`、404 `not_found`、409 `conflict`、412 `precondition_failed`、413 `payload_too_large`、415 `unsupported_media_type`、426 `upgrade_required`、429 `rate_limited`、500 `internal`。校验错误可能带 Zod details；未捕获异常返回 500。callback 返回 HTML 而不是此 JSON 格式。
 - 非公开缓存路径默认 `Cache-Control: private, no-store`；入口白名单中的匿名公开响应和静态资源具有不同缓存语义，详见[运行时配置](runtime-configuration.md#公开缓存和私有绕过)。API 的 OPTIONS 仅对 `ALLOWED_ORIGINS` 中精确匹配的 Origin 返回 204，否则 403；允许的方法为 GET、POST、PUT、PATCH、DELETE、OPTIONS，允许的请求头为 `authorization,content-type,if-match,idempotency-key,x-client-version,x-client-channel`。普通 API 响应对允许的 Origin 设置 CORS；不应假设预检支持其他头。
 - 项目列表使用不透明 `cursor` 和 `nextCursor`；下一页保留原有排序与筛选条件，传入返回的 cursor。`total` 为完整筛选集数量，不是本页数量。管理列表也返回 `nextCursor`；其参数和响应分别见 [admin.ts](../../packages/contracts/src/admin.ts) 与 [admin-dto.ts](../../packages/contracts/src/admin-dto.ts)。无更多结果时 cursor 为 null。
+- 公开项目的 `updatedAt` 只随成功发布更新，保存草稿不会改变公开更新时间或更新时间排序；历史数据优先回填当前已发布版本的审批时间。审核重查采用原子状态转换，同一提交的并发重查只有一个成功排队。
 
 应用运行时的 D1/R2 I/O 经同一 Worker 的 `DataService` 和 `CachedReads` 具名入口；公开读取使用内部 fetch，实时业务使用 RPC，文件通过内部 fetch 流式传输。ContentService 保留 Durable Object 内的检查计算，并通过 `state.exports` 请求数据。入口及客户端类型与静态检查约束代码边界，不是 Cloudflare 绑定权限隔离；发布、备份和迁移工具保留受控运维通道。
 
@@ -38,6 +39,8 @@
 ## 发现、项目和下载
 
 以下路径以 `/api/v1` 为前缀。公开读取不要求会话；私有发布内容的读取权限由各 handler 和 storage 判定。
+
+公开项目的 `updatedAt` 表示当前发布修订的发布时间，草稿编辑不会改变该值或按更新时间的排序。人工批准和自动发布在切换发布版本时原子更新该时间；历史数据按当前修订的最近批准时间回填，缺失时回退至发布时间或修订创建时间。公开缓存可能暂时展示旧值。
 
 | 方法和路径 | 输入、成功结果及特殊错误 |
 | --- | --- |

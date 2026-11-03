@@ -38,6 +38,11 @@ export interface CheckReportFile {
   ejsEntries: number | null;
 }
 
+export interface MetadataReport {
+  gate: string | null;
+  findings: { field: string; severity: "warn" | "block"; message: string }[];
+}
+
 export interface CheckReport {
   gate: string | null;
   audit: string | null;
@@ -46,6 +51,7 @@ export interface CheckReport {
   parserCompatibility: string | null;
   generatedAt: string | null;
   routeGate: string | null;
+  metadata: MetadataReport | null;
   files: CheckReportFile[];
   findings: CheckFinding[];
   removedFindings: CheckFinding[];
@@ -159,6 +165,19 @@ function files(value: unknown): CheckReportFile[] {
   return parsed;
 }
 
+function metadataReport(value: unknown): MetadataReport | null {
+  const source = record(value);
+  if (!source) return null;
+  const items = Array.isArray(source.findings) ? source.findings : [];
+  const parsed: MetadataReport["findings"] = [];
+  for (const item of items) {
+    const entry = record(item);
+    if (!entry || (entry.severity !== "warn" && entry.severity !== "block")) continue;
+    parsed.push({ field: text(entry.field), severity: entry.severity, message: text(entry.message) });
+  }
+  return { gate: text(source.gate) || null, findings: parsed };
+}
+
 /** Accepts the checker report stored on the submission or on the latest check run. */
 export function parseCheckReport(value: unknown): CheckReport | null {
   const source = record(value);
@@ -171,12 +190,14 @@ export function parseCheckReport(value: unknown): CheckReport | null {
     parserCompatibility: text(source.parserCompatibility) || null,
     generatedAt: text(source.generatedAt) || null,
     routeGate: text(source.routeGate) || null,
+    metadata: metadataReport(source.metadata),
     files: files(source.files),
     findings: findings(source.findings),
     removedFindings: findings(source.removedFindings),
     raw: value,
   };
-  if (!parsed.findings.length && !parsed.files.length && !parsed.gate && !parsed.routeGate) return null;
+  if (!parsed.findings.length && !parsed.files.length && !parsed.gate && !parsed.routeGate && !parsed.metadata)
+    return null;
   return parsed;
 }
 

@@ -311,6 +311,25 @@ export function CheckReportSection({
 
           <ReportMetadata report={report} />
 
+          {report.metadata ? (
+            <section className="review-report-group" aria-label="元数据检查">
+              <h4>元数据检查 · {gateLabels[report.metadata.gate ?? "missing"] ?? report.metadata.gate ?? "missing"}</h4>
+              {report.metadata.findings.length ? (
+                <ul>
+                  {keyedItems(report.metadata.findings).map(({ item: finding, key }) => (
+                    <li key={key}>
+                      <strong>{finding.severity === "block" ? "阻断" : "提示"}</strong>
+                      {" · "}
+                      {finding.field || "元数据"}：{finding.message}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="review-muted">没有元数据检查项。</p>
+              )}
+            </section>
+          ) : null}
+
           {links.length ? (
             <div className="review-external-links">
               <h4>

@@ -134,28 +134,24 @@ export async function authorAdminDeleteRecommendation(env: DataEnv, authorizatio
 export async function authorAdminRecheck(env: DataEnv, authorization: string | undefined, id: string) {
   const auth = await reviewer(env, authorization);
   if (auth.kind !== "ok") return auth;
-  const target = await env.DB.prepare(`
-    SELECT s.status, ar.status AS check_status, ar.checker_version AS checker_version
-    FROM submissions s JOIN automated_reviews ar ON ar.submission_id = s.id WHERE s.id = ?
-  `)
-    .bind(id)
-    .first<{ status: string; check_status: string; checker_version: string | null }>();
-  if (!target) return { kind: "not_found" as const };
-  if (target.status !== "pending" && target.status !== "checking") return { kind: "resolved" as const };
-  if (target.check_status === "queued" || target.check_status === "running") return { kind: "running" as const };
-  await env.DB.batch([
+  const [requeued] = await env.DB.batch([
     env.DB.prepare(`
       UPDATE automated_reviews SET status = 'queued', attempts = 0, lease_until = NULL, lease_token = NULL, error = NULL,
         checker_version = NULL, route_gate = NULL, report_r2_key = NULL, report_hash = NULL, checked_at = NULL, duration_ms = NULL
       WHERE submission_id = ? AND status NOT IN ('queued','running')
         AND EXISTS(SELECT 1 FROM submissions s WHERE s.id = submission_id AND s.status IN ('pending','checking'))
     `).bind(id),
-    env.DB.prepare(`UPDATE submissions SET status = 'pending' WHERE id = ? AND status IN ('pending','checking')
-      AND EXISTS(SELECT 1 FROM automated_reviews ar WHERE ar.submission_id = submissions.id AND ar.status = 'queued')`).bind(
-      id,
-    ),
+    env.DB.prepare(`UPDATE submissions SET status = 'pending' WHERE id = ? AND changes() = 1
+      AND status IN ('pending','checking')`).bind(id),
   ]);
-  return { kind: "ok" as const };
+  if ((requeued?.meta.changes ?? 0) !== 0) return { kind: "ok" as const };
+
+  const target = await env.DB.prepare("SELECT status FROM submissions WHERE id = ?")
+    .bind(id)
+    .first<{ status: string }>();
+  if (!target) return { kind: "not_found" as const };
+  if (target.status !== "pending" && target.status !== "checking") return { kind: "resolved" as const };
+  return { kind: "running" as const };
 }
 
 export async function authorAdminFetch(request: Request, env: DataEnv, context: ExecutionContext): Promise<Response> {

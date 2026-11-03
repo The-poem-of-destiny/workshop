@@ -141,10 +141,11 @@ describe("ContentService", () => {
         route_gate: "pass",
       },
     ]);
-    const project = await bindings.DB.prepare("SELECT published_version_id FROM projects WHERE id = 'p1'").first<{
-      published_version_id: string | null;
-    }>();
+    const project = await bindings.DB.prepare(
+      "SELECT published_version_id, published_updated_at FROM projects WHERE id = 'p1'",
+    ).first<{ published_version_id: string | null; published_updated_at: string | null }>();
     expect(project?.published_version_id).toBe("r-p1");
+    expect(project?.published_updated_at).toBe(submission?.auto_published_at);
   });
 
   it("routes checker block to human review without publishing", async () => {

@@ -22,6 +22,8 @@ upgrade.exec(`INSERT INTO users(id,username) VALUES('u','author');
     VALUES('s','p','v','u','done','pass','{"routeGate":"pass"}','hash');
   INSERT INTO submission_check_runs(id,submission_id,review_checker_revision,route_gate,report,report_hash,duration_ms)
     VALUES('run','s','checker','pass','{"routeGate":"pass"}','hash',731);
+  UPDATE projects SET published_revision_id='v',published_at='2024-01-01T00:00:00Z',updated_at='2026-01-01T00:00:00Z' WHERE id='p';
+  UPDATE submissions SET status='approved',resolved_at='2024-02-01T00:00:00Z' WHERE id='s';
   CREATE TABLE review_report_transfer_receipts(source TEXT,source_id TEXT,submission_id TEXT,report_hash TEXT,
     PRIMARY KEY(source,source_id));
   INSERT INTO review_report_transfer_receipts VALUES('submissions','s','s','hash'),
@@ -43,6 +45,12 @@ if (
 }
 if (upgrade.prepare("SELECT duration_ms FROM automated_reviews WHERE submission_id='s'").get().duration_ms !== 731) {
   throw new Error("populated upgrade lost retained review duration");
+}
+if (
+  upgrade.prepare("SELECT published_updated_at FROM projects WHERE id='p'").get().published_updated_at !==
+  "2024-02-01T00:00:00Z"
+) {
+  throw new Error("populated upgrade exposed draft time instead of approved publication time");
 }
 upgrade.close();
 

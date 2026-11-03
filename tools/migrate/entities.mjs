@@ -101,13 +101,15 @@ export function projectRows(sourceProject, userById, projects, skipped) {
     cover_zoom: Number.isFinite(sourceProject.cover_zoom) ? sourceProject.cover_zoom : 1,
     entry_index: null,
   };
+  const publishedAt = sourceProject.latest_approved_at ?? sourceProject.reviewed_at ?? times.updated_at;
   const project = {
     id,
     author_id: authorId,
     visibility: "public",
     working_version_id: version.id,
     published_version_id: version.id,
-    published_at: sourceProject.latest_approved_at ?? sourceProject.reviewed_at ?? times.updated_at,
+    published_at: publishedAt,
+    published_updated_at: publishedAt,
     row_version: 1,
     created_at: times.created_at,
     updated_at: times.updated_at,

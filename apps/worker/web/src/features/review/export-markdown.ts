@@ -81,6 +81,20 @@ function findingLines(finding: CheckFinding, sources: SourceFile[], heading: str
 }
 
 function appendReportLines(lines: string[], report: CheckReport, sources: SourceFile[]): void {
+  if (report.metadata) {
+    lines.push(
+      "## 元数据检查",
+      "",
+      `- 门禁：${gateLabels[report.metadata.gate ?? "missing"] ?? report.metadata.gate ?? "missing"}`,
+    );
+    for (const finding of report.metadata.findings) {
+      lines.push(
+        `- ${finding.severity === "block" ? "阻断" : "提示"} · ${finding.field || "元数据"}：${finding.message}`,
+      );
+    }
+    if (!report.metadata.findings.length) lines.push("- 没有元数据检查项。");
+    lines.push("");
+  }
   const links = summarizeExternalLinks(report);
   if (links.length) {
     lines.push("## 报告中的外部链接", "");
@@ -227,9 +241,7 @@ export async function saveReviewMarkdown(markdown: string, fileName: string): Pr
   const link = document.createElement("a");
   link.href = url;
   link.download = fileName;
-  document.body.append(link);
   link.click();
-  link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   try {
     await navigator.clipboard.writeText(markdown);
