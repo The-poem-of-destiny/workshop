@@ -1,17 +1,261 @@
--- Creative Workshop schema baseline.
--- New databases apply the entire numbered migration chain; this historical
--- baseline alone is not the current schema. Existing databases apply pending migrations.
+-- Final target schema for a clean database only; never apply as an upgrade.
 
-PRAGMA foreign_keys = ON;
+-- Durable Object migration classes remain separately configured in wrangler.jsonc.
 
-CREATE TABLE users (
+CREATE TABLE "assets" (
   id TEXT PRIMARY KEY,
-  username TEXT NOT NULL,
-  global_name TEXT,
-  avatar TEXT,
-  role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('member', 'reviewer', 'owner')),
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  version_id TEXT,
+  kind TEXT NOT NULL CHECK(kind IN ('worldbook','regex','cover','gallery_1','gallery_2')),
+  r2_key TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  bytes INTEGER NOT NULL CHECK(bytes >= 0),
+  mime TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  FOREIGN KEY(project_id, version_id) REFERENCES "project_versions"(project_id,id) ON DELETE RESTRICT,
+  CHECK(kind NOT IN ('gallery_1','gallery_2') OR version_id IS NULL),
+  CHECK(kind NOT IN ('worldbook','regex') OR version_id IS NOT NULL),
+  UNIQUE(version_id,kind)
+,
+  UNIQUE(project_id,id)
+);
+
+CREATE TABLE audit_events (
+  id TEXT PRIMARY KEY,
+  action TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_id TEXT,
+  actor_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+  detail TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE automated_reviews (
+  submission_id TEXT PRIMARY KEY REFERENCES submissions(id) ON DELETE RESTRICT,
+  status TEXT NOT NULL CHECK(status IN ('queued','running','done','needs_human','failed')),
+  attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+  lease_until TEXT,
+  lease_token TEXT,
+  error TEXT,
+  client_gate TEXT NOT NULL CHECK(client_gate IN ('pass','warn','block','missing')),
+  client_checker_version TEXT,
+  checker_version TEXT,
+  route_gate TEXT CHECK(route_gate IN ('pass','warn','block')),
+  report_r2_key TEXT,
+  report_hash TEXT,
+  duration_ms INTEGER CHECK(duration_ms >= 0),
+  checked_at TEXT,
+  report_cleaned_at TEXT,
+  CHECK(report_r2_key IS NULL OR (report_hash IS NOT NULL AND report_cleaned_at IS NULL)),
+  CHECK(report_r2_key IS NOT NULL OR report_hash IS NULL OR report_cleaned_at IS NOT NULL),
+  CHECK(report_cleaned_at IS NULL OR (report_r2_key IS NULL AND report_hash IS NOT NULL AND checked_at IS NOT NULL))
+);
+
+CREATE TABLE download_daily_stats (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  project_version_id TEXT NOT NULL,
+  day_key TEXT NOT NULL CHECK(length(day_key) = 10 AND date(day_key) IS day_key),
+  count INTEGER NOT NULL CHECK(count BETWEEN 1 AND 128),
+  first_downloaded_at TEXT NOT NULL,
+  last_downloaded_at TEXT NOT NULL,
+  acquisition_ids TEXT NOT NULL CHECK(json_valid(acquisition_ids)
+    AND json_type(acquisition_ids) = 'array' AND json_array_length(acquisition_ids) = count),
+  PRIMARY KEY(user_id, project_version_id, day_key),
+  FOREIGN KEY(project_id, project_version_id) REFERENCES "project_versions"(project_id,id) ON DELETE RESTRICT
+);
+
+CREATE TABLE manual_reviews (
+  id TEXT PRIMARY KEY,
+  submission_id TEXT NOT NULL UNIQUE REFERENCES submissions(id) ON DELETE RESTRICT,
+  reviewer_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  decision TEXT NOT NULL CHECK(decision IN ('approve','reject')),
+  reason TEXT,
+  manifest_hash TEXT,
+  checker_version TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE oauth_flows (
+  id TEXT PRIMARY KEY,
+  state_hash TEXT NOT NULL UNIQUE,
+  origin TEXT NOT NULL,
+  mode TEXT NOT NULL CHECK (mode IN ('browser', 'embed', 'device')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'authorized', 'redeemed', 'expired')),
+  user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  expires_at TEXT NOT NULL,
+  consumed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+, code_verifier TEXT, code_challenge TEXT, redeem_hash TEXT, error TEXT, authorized_at TEXT, browser_binding_hash TEXT, detail TEXT
+  CHECK (detail IS NULL OR (json_valid(detail)
+    AND json_extract(detail, '$.schemaVersion') = 1
+    AND json_type(detail, '$.guildId') = 'text'
+    AND json_extract(detail, '$.eligibility') = 'member'
+    AND json_type(detail, '$.verifiedAt') = 'text')));
+
+CREATE TABLE project_change_signals (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  project_version_id TEXT NOT NULL,
+  previous_version_id TEXT NOT NULL,
+  previous_manifest_hash TEXT NOT NULL,
+  current_manifest_hash TEXT NOT NULL,
+  changed_entries INTEGER NOT NULL CHECK(changed_entries BETWEEN 1 AND 20000),
+  total_entries INTEGER NOT NULL CHECK(total_entries BETWEEN changed_entries AND 20000),
+  reported_at TEXT NOT NULL,
+  PRIMARY KEY(project_version_id),
+  FOREIGN KEY(project_id,project_version_id) REFERENCES project_versions(project_id,id) ON DELETE RESTRICT,
+  FOREIGN KEY(project_id,previous_version_id) REFERENCES project_versions(project_id,id) ON DELETE RESTRICT
+);
+
+CREATE TABLE project_likes (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  PRIMARY KEY (project_id, user_id)
+);
+
+CREATE TABLE project_metrics_daily (
+  day_key TEXT NOT NULL,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  downloads INTEGER NOT NULL DEFAULT 0,
+  likes_delta INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day_key, project_id)
+);
+
+CREATE TABLE project_ratings (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment_text TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (project_id, user_id)
+);
+
+CREATE VIRTUAL TABLE project_search USING fts5(
+  title,
+  project_type,
+  extension_type,
+  tag_text,
+  author_name,
+  tokenize = 'trigram'
+);
+
+CREATE VIRTUAL TABLE project_search_short USING fts5(spaced_text);
+
+CREATE TABLE project_search_tags (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  tag TEXT NOT NULL,
+  PRIMARY KEY (project_id, tag)
+);
+
+CREATE TABLE project_subscriptions (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (project_id, user_id)
+);
+
+CREATE TABLE "project_versions" (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  version_no INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  author_note TEXT,
+  project_type TEXT,
+  extension_type TEXT,
+  tags TEXT NOT NULL DEFAULT '[]',
+  manifest_hash TEXT,
+  worldbook_count INTEGER NOT NULL DEFAULT 0,
+  regex_count INTEGER NOT NULL DEFAULT 0,
+  schema_version TEXT,
+  discord_thread_url TEXT,
+  created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), version_label TEXT, cover_position_x REAL NOT NULL DEFAULT 50, cover_position_y REAL NOT NULL DEFAULT 50, cover_zoom REAL NOT NULL DEFAULT 1, entry_index TEXT
+  CHECK(entry_index IS NULL OR (json_valid(entry_index)
+    AND json_extract(entry_index,'$.schemaVersion') = 1
+    AND json_type(entry_index,'$.entries') = 'array'
+    AND length(CAST(entry_index AS BLOB)) <= 512000)), requirements TEXT CHECK(requirements IS NULL OR
+  (json_valid(requirements) AND json_extract(requirements,'$.schemaVersion') = 1
+    AND json_type(requirements,'$.dependencies') = 'array'
+    AND json_type(requirements,'$.conflicts') = 'array'
+    AND json_type(requirements,'$.notes') = 'text')),
+  UNIQUE (project_id, version_no)
+);
+
+CREATE TABLE projects (
+  id TEXT PRIMARY KEY,
+  author_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('public', 'private')),
+  working_version_id TEXT,
+  published_version_id TEXT,
+  published_at TEXT,
+  downloads_count INTEGER NOT NULL DEFAULT 0,
+  likes_count INTEGER NOT NULL DEFAULT 0,
+  subscriptions_count INTEGER NOT NULL DEFAULT 0,
+  row_version INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  deleted_at TEXT
+, published_cover_asset_id TEXT, published_updated_at TEXT,
+  FOREIGN KEY(id,working_version_id) REFERENCES project_versions(project_id,id) DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY(id,published_version_id) REFERENCES project_versions(project_id,id) DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY(id,published_cover_asset_id) REFERENCES assets(project_id,id) DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE TABLE recommendation_batches (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK(kind IN ('discovery')),
+  status TEXT NOT NULL CHECK(status IN ('building','complete','failed')),
+  scheduled_at TEXT NOT NULL,
+  started_at TEXT,
+  display_start_at TEXT NOT NULL,
+  display_end_at TEXT NOT NULL,
+  source_start_at TEXT NOT NULL,
+  source_end_at TEXT NOT NULL,
+  result TEXT CHECK(result IS NULL OR (json_valid(result) AND json_extract(result,'$.schemaVersion')=1
+    AND json_extract(result,'$.scoringVersion')='four-pool-v1' AND json_type(result,'$.items')='array')),
+  error TEXT,
+  CHECK(display_start_at < display_end_at),
+  CHECK(source_start_at < source_end_at),
+  CHECK(status <> 'complete' OR result IS NOT NULL)
+);
+
+CREATE TABLE recommendation_batch_activations (
+  batch_id TEXT PRIMARY KEY REFERENCES recommendation_batches(id) ON DELETE CASCADE,
+  hourly_mean TEXT NOT NULL CHECK(json_valid(hourly_mean) AND json_type(hourly_mean)='array' AND json_array_length(hourly_mean)=24),
+  activated_at TEXT NOT NULL,
+  ended_at TEXT,
+  CHECK(ended_at IS NULL OR ended_at >= activated_at)
+);
+
+CREATE TABLE recommendation_batch_eligibility (
+  batch_id TEXT NOT NULL REFERENCES recommendation_batch_activations(batch_id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  project_version_id TEXT NOT NULL,
+  ended_at TEXT,
+  PRIMARY KEY(batch_id,project_id),
+  FOREIGN KEY(project_id,project_version_id) REFERENCES project_versions(project_id,id) ON DELETE RESTRICT
+);
+
+CREATE TRIGGER recommendation_eligibility_end AFTER UPDATE OF visibility,deleted_at,published_version_id ON projects
+WHEN NEW.visibility <> 'public' OR NEW.deleted_at IS NOT NULL OR NEW.published_version_id IS NOT OLD.published_version_id
+BEGIN
+  UPDATE recommendation_batch_eligibility SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+  WHERE project_id=NEW.id AND ended_at IS NULL;
+END;
+
+CREATE TABLE "recommendations" (
+  id TEXT PRIMARY KEY,
+  curator_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  project_version_id TEXT NOT NULL,
+  comment TEXT NOT NULL DEFAULT '' CHECK(length(comment)<=2000),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(curator_id,project_version_id),
+  FOREIGN KEY(project_id,project_version_id) REFERENCES "project_versions"(project_id,id) ON DELETE RESTRICT
 );
 
 CREATE TABLE sessions (
@@ -24,239 +268,6 @@ CREATE TABLE sessions (
   revoked_at TEXT
 );
 
-CREATE INDEX idx_sessions_user ON sessions(user_id, session_version);
-
-CREATE TABLE oauth_flows (
-  id TEXT PRIMARY KEY,
-  state_hash TEXT NOT NULL UNIQUE,
-  verifier_hash TEXT,
-  origin TEXT NOT NULL,
-  mode TEXT NOT NULL CHECK (mode IN ('browser', 'embed', 'device')),
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'authorized', 'redeemed', 'expired')),
-  user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
-  expires_at TEXT NOT NULL,
-  consumed_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
-
-CREATE INDEX idx_oauth_flows_status ON oauth_flows(status, expires_at);
-
-CREATE TABLE projects (
-  id TEXT PRIMARY KEY,
-  author_id TEXT NOT NULL REFERENCES users(id),
-  title TEXT NOT NULL,
-  description TEXT,
-  author_note TEXT,
-  project_type TEXT,
-  extension_type TEXT,
-  search_tags TEXT NOT NULL DEFAULT '[]',
-  visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('public', 'private')),
-  working_revision_id TEXT,
-  published_revision_id TEXT,
-  published_at TEXT,
-  downloads_count INTEGER NOT NULL DEFAULT 0,
-  likes_count INTEGER NOT NULL DEFAULT 0,
-  subscriptions_count INTEGER NOT NULL DEFAULT 0,
-  row_version INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  deleted_at TEXT
-);
-
-CREATE INDEX idx_projects_author ON projects(author_id, updated_at DESC);
-CREATE INDEX idx_projects_public ON projects(visibility, published_revision_id, updated_at DESC)
-  WHERE deleted_at IS NULL;
-
-CREATE TABLE project_revisions (
-  id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  revision_no INTEGER NOT NULL,
-  title TEXT NOT NULL,
-  description TEXT,
-  author_note TEXT,
-  project_type TEXT,
-  extension_type TEXT,
-  facets TEXT NOT NULL DEFAULT '{}',
-  custom_tags TEXT NOT NULL DEFAULT '[]',
-  tags TEXT NOT NULL DEFAULT '[]',
-  metadata TEXT NOT NULL DEFAULT '{}',
-  manifest_hash TEXT,
-  worldbook_count INTEGER NOT NULL DEFAULT 0,
-  regex_count INTEGER NOT NULL DEFAULT 0,
-  schema_version TEXT,
-  discord_thread_url TEXT,
-  created_by TEXT NOT NULL REFERENCES users(id),
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  UNIQUE (project_id, revision_no)
-);
-
-CREATE INDEX idx_project_revisions_project ON project_revisions(project_id, revision_no DESC);
-
-CREATE TABLE assets (
-  id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  revision_id TEXT REFERENCES project_revisions(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL CHECK (kind IN ('worldbook', 'regex', 'cover', 'avatar', 'banner')),
-  r2_key TEXT NOT NULL UNIQUE,
-  sha256 TEXT NOT NULL,
-  bytes INTEGER NOT NULL CHECK (bytes >= 0),
-  mime TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  UNIQUE (revision_id, kind)
-);
-
-CREATE INDEX idx_assets_project ON assets(project_id, kind);
-
-CREATE TABLE submissions (
-  id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  revision_id TEXT NOT NULL REFERENCES project_revisions(id) ON DELETE CASCADE,
-  status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending', 'checking', 'approved', 'rejected', 'superseded')),
-  gate TEXT CHECK (gate IN ('pass', 'warn', 'block', 'missing')),
-  checker_revision TEXT,
-  submitted_by TEXT NOT NULL REFERENCES users(id),
-  submitted_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  resolved_at TEXT
-);
-
-CREATE UNIQUE INDEX idx_submissions_one_pending
-  ON submissions(project_id)
-  WHERE status IN ('pending', 'checking');
-CREATE INDEX idx_submissions_status ON submissions(status, submitted_at);
-
-CREATE TABLE reviews (
-  id TEXT PRIMARY KEY,
-  submission_id TEXT NOT NULL UNIQUE REFERENCES submissions(id) ON DELETE CASCADE,
-  reviewer_id TEXT NOT NULL REFERENCES users(id),
-  decision TEXT NOT NULL CHECK (decision IN ('approve', 'reject')),
-  reason TEXT,
-  manifest_hash TEXT,
-  checker_version TEXT,
-  report TEXT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
-
-CREATE INDEX idx_reviews_reviewer ON reviews(reviewer_id, created_at DESC);
-
-CREATE TABLE project_likes (
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  PRIMARY KEY (project_id, user_id)
-);
-
-CREATE INDEX idx_project_likes_user ON project_likes(user_id, created_at DESC);
-
-CREATE TABLE project_subscriptions (
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  PRIMARY KEY (project_id, user_id)
-);
-
-CREATE INDEX idx_project_subscriptions_user ON project_subscriptions(user_id, created_at DESC);
-
-CREATE TRIGGER project_likes_count_insert AFTER INSERT ON project_likes
-BEGIN
-  UPDATE projects SET likes_count = likes_count + 1 WHERE id = NEW.project_id;
-END;
-
-CREATE TRIGGER project_likes_count_delete AFTER DELETE ON project_likes
-BEGIN
-  UPDATE projects SET likes_count = MAX(likes_count - 1, 0) WHERE id = OLD.project_id;
-END;
-
-CREATE TRIGGER project_subscriptions_count_insert AFTER INSERT ON project_subscriptions
-BEGIN
-  UPDATE projects SET subscriptions_count = subscriptions_count + 1 WHERE id = NEW.project_id;
-END;
-
-CREATE TRIGGER project_subscriptions_count_delete AFTER DELETE ON project_subscriptions
-BEGIN
-  UPDATE projects SET subscriptions_count = MAX(subscriptions_count - 1, 0) WHERE id = OLD.project_id;
-END;
-
-CREATE TABLE project_ratings (
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
-  comment_text TEXT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  PRIMARY KEY (project_id, user_id)
-);
-
-CREATE INDEX idx_project_ratings_project ON project_ratings(project_id, rating);
-
-CREATE TABLE download_events (
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  day_key TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  PRIMARY KEY (user_id, project_id, day_key)
-);
-
-CREATE INDEX idx_download_events_project_day ON download_events(project_id, day_key);
-
-CREATE TABLE project_metrics_daily (
-  day_key TEXT NOT NULL,
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  downloads INTEGER NOT NULL DEFAULT 0,
-  likes_delta INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (day_key, project_id)
-);
-
-CREATE INDEX idx_project_metrics_project ON project_metrics_daily(project_id, day_key DESC);
-
-CREATE TRIGGER download_events_count AFTER INSERT ON download_events
-BEGIN
-  UPDATE projects SET downloads_count = downloads_count + 1 WHERE id = NEW.project_id;
-  INSERT INTO project_metrics_daily (day_key, project_id, downloads)
-  VALUES (NEW.day_key, NEW.project_id, 1)
-  ON CONFLICT(day_key, project_id) DO UPDATE SET downloads = downloads + 1;
-END;
-
-CREATE TABLE ranking_runs (
-  id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL CHECK (kind IN ('daily', '7d', '30d')),
-  bucket TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'building' CHECK (status IN ('building', 'complete')),
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  completed_at TEXT,
-  UNIQUE (kind, bucket)
-);
-
-CREATE TABLE ranking_entries (
-  run_id TEXT NOT NULL REFERENCES ranking_runs(id) ON DELETE CASCADE,
-  rank INTEGER NOT NULL,
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  score REAL,
-  PRIMARY KEY (run_id, rank),
-  UNIQUE (run_id, project_id)
-);
-
-CREATE TABLE discovery_exposures (
-  bucket TEXT NOT NULL,
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  rank INTEGER NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  PRIMARY KEY (bucket, project_id)
-);
-
-CREATE TABLE recommendations (
-  id TEXT PRIMARY KEY,
-  curator_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  comment TEXT NOT NULL DEFAULT '',
-  reaction TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  UNIQUE (curator_id, project_id)
-);
-
-CREATE INDEX idx_recommendations_project ON recommendations(project_id, updated_at DESC);
-
 CREATE TABLE site_settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
@@ -264,149 +275,158 @@ CREATE TABLE site_settings (
   updated_by TEXT REFERENCES users(id) ON DELETE SET NULL
 );
 
-CREATE TABLE reference_sets (
+CREATE TABLE submissions (
   id TEXT PRIMARY KEY,
-  name TEXT NOT NULL COLLATE NOCASE UNIQUE,
-  description TEXT,
-  created_by TEXT NOT NULL REFERENCES users(id),
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  version_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'checking', 'approved', 'rejected', 'superseded')),
+  submitted_by TEXT NOT NULL REFERENCES users(id),
+  submitted_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  resolved_at TEXT
+, auto_published_at TEXT, base_published_version_id TEXT, withdrawn_at TEXT, withdrawn_by TEXT REFERENCES users(id),
+  FOREIGN KEY(project_id,version_id) REFERENCES project_versions(project_id,id) ON DELETE RESTRICT,
+  FOREIGN KEY(project_id,base_published_version_id) REFERENCES project_versions(project_id,id) ON DELETE RESTRICT
+);
+
+CREATE TABLE users (
+  id TEXT PRIMARY KEY,
+  username TEXT NOT NULL,
+  global_name TEXT,
+  avatar TEXT,
+  role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('member', 'reviewer', 'owner')),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
-CREATE TABLE reference_versions (
-  id TEXT PRIMARY KEY,
-  reference_set_id TEXT NOT NULL REFERENCES reference_sets(id) ON DELETE CASCADE,
-  version_label TEXT NOT NULL,
-  version_ordinal INTEGER NOT NULL,
-  grace_until TEXT NOT NULL,
-  created_by TEXT NOT NULL REFERENCES users(id),
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  UNIQUE (reference_set_id, version_label),
-  UNIQUE (reference_set_id, version_ordinal)
-);
+CREATE INDEX idx_recommendation_activations_time ON recommendation_batch_activations(activated_at);
 
-CREATE INDEX idx_reference_versions_latest
-  ON reference_versions(reference_set_id, version_ordinal DESC);
+CREATE UNIQUE INDEX idx_assets_display_kind ON assets(project_id,kind) WHERE version_id IS NULL;
 
-CREATE TABLE reference_items (
-  id TEXT PRIMARY KEY,
-  reference_version_id TEXT NOT NULL REFERENCES reference_versions(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL CHECK (kind IN ('worldbook', 'regex')),
-  source_key TEXT,
-  display_name TEXT NOT NULL,
-  exact_hash TEXT NOT NULL,
-  normalized_content_hash TEXT NOT NULL,
-  name_hash TEXT NOT NULL,
-  keys_hash TEXT,
-  structure_hash TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
+CREATE INDEX idx_assets_project ON assets(project_id,kind);
 
-CREATE INDEX idx_reference_items_version ON reference_items(reference_version_id, kind);
-CREATE INDEX idx_reference_items_exact ON reference_items(kind, exact_hash);
-CREATE INDEX idx_reference_items_name ON reference_items(kind, name_hash);
+CREATE INDEX idx_assets_r2_key ON assets(r2_key);
 
-CREATE TABLE audit_events (
-  id TEXT PRIMARY KEY,
-  action TEXT NOT NULL,
-  target_type TEXT NOT NULL,
-  target_id TEXT,
-  actor_id TEXT REFERENCES users(id) ON DELETE SET NULL,
-  detail TEXT,
-  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
-
-CREATE INDEX idx_audit_events_target ON audit_events(target_type, target_id, created_at DESC);
 CREATE INDEX idx_audit_events_actor ON audit_events(actor_id, created_at DESC);
 
--- Search: trigram FTS for >=3 character queries and a spaced-character index
--- for 1-2 character Chinese queries. Both are maintained by triggers so a
--- forgotten application write cannot silently desynchronize search.
-CREATE TABLE project_search_tags (
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  tag TEXT NOT NULL,
-  PRIMARY KEY (project_id, tag)
-);
+CREATE INDEX idx_audit_events_target ON audit_events(target_type, target_id, created_at DESC);
+
+CREATE INDEX idx_automated_review_queue ON automated_reviews(status,lease_until);
+
+CREATE INDEX idx_download_daily_project_day ON download_daily_stats(project_id,day_key,user_id);
+
+CREATE INDEX idx_oauth_flows_state ON oauth_flows(state_hash);
+
+CREATE INDEX idx_oauth_flows_status ON oauth_flows(status, expires_at);
+
+CREATE INDEX idx_project_likes_user ON project_likes(user_id, created_at DESC);
+
+CREATE INDEX idx_project_metrics_project ON project_metrics_daily(project_id, day_key DESC);
+
+CREATE INDEX idx_project_ratings_project ON project_ratings(project_id, rating);
+
+CREATE UNIQUE INDEX idx_project_revisions_owner ON "project_versions"(project_id, id);
+
+CREATE INDEX idx_project_revisions_project ON "project_versions"(project_id, version_no DESC);
 
 CREATE INDEX idx_project_search_tags_tag ON project_search_tags(tag, project_id);
 
-CREATE VIRTUAL TABLE project_search USING fts5(
-  title,
-  project_type,
-  extension_type,
-  tag_text,
-  author_name,
-  tokenize = 'trigram'
-);
+CREATE INDEX idx_project_subscriptions_user ON project_subscriptions(user_id, created_at DESC);
+
+CREATE INDEX idx_projects_author ON projects(author_id, updated_at DESC);
+
+CREATE INDEX idx_projects_public ON projects(visibility, published_version_id, updated_at DESC)
+  WHERE deleted_at IS NULL;
+
+CREATE INDEX idx_recommendation_batches_display ON recommendation_batches(kind,status,display_start_at,display_end_at,scheduled_at);
+
+CREATE INDEX idx_recommendations_project_version ON recommendations(project_id,project_version_id,updated_at DESC);
+
+CREATE INDEX idx_sessions_user ON sessions(user_id, session_version);
+
+CREATE UNIQUE INDEX idx_submissions_one_pending
+  ON submissions(project_id)
+  WHERE status IN ('pending', 'checking');
+
+CREATE INDEX idx_submissions_status ON submissions(status, submitted_at);
+
+CREATE INDEX idx_submissions_status_cursor ON submissions(status, submitted_at, id);
 
 CREATE VIEW project_search_short_source AS
 SELECT p.rowid AS project_rowid,
-       (WITH RECURSIVE chars(text, n) AS (
-           SELECT COALESCE(p.title, '') || char(31)
-               || COALESCE(p.project_type, '') || char(31)
-               || COALESCE(p.extension_type, '') || char(31)
-               || COALESCE(u.global_name, '') || char(31)
-               || COALESCE(u.username, '') || char(31)
-               || COALESCE((SELECT group_concat(tag, char(31))
-                              FROM project_search_tags t
-                              WHERE t.project_id = p.id), ''), 1
-           UNION ALL
-           SELECT text, n + 1 FROM chars WHERE n < length(text)
-       ) SELECT group_concat(substr(text, n, 1), ' ') FROM chars) AS spaced_text
-FROM projects p
-LEFT JOIN users u ON u.id = p.author_id;
+ (WITH RECURSIVE chars(text,n) AS (
+   SELECT COALESCE(r.title,'') || char(31) || COALESCE(r.project_type,'') || char(31)
+     || COALESCE(r.extension_type,'') || char(31) || COALESCE(u.global_name,'') || char(31)
+     || COALESCE(u.username,'') || char(31)
+     || COALESCE((SELECT group_concat(tag,char(31)) FROM project_search_tags t WHERE t.project_id=p.id),'') ,1
+   UNION ALL SELECT text,n+1 FROM chars WHERE n<length(text)
+ ) SELECT group_concat(substr(text,n,1),' ') FROM chars) AS spaced_text
+FROM projects p JOIN "project_versions" r ON r.id=p.published_version_id
+JOIN users u ON u.id=p.author_id;
 
-CREATE VIRTUAL TABLE project_search_short USING fts5(spaced_text);
+CREATE TRIGGER audit_action_insert BEFORE INSERT ON audit_events
+WHEN NEW.action NOT IN ('member.role_change','site.update','project.patch','project.delete',
+  'submission.withdraw','submission.cutover_supersede','companion.publish',
+  'recommendation.update','recommendation.delete','legacy.admin_added','legacy.admin_removed',
+  'legacy.character_reference_created','legacy.character_reference_version_created',
+  'legacy.editor_pick_removed','legacy.editor_pick_saved')
+BEGIN SELECT RAISE(ABORT,'unsupported audit action'); END;
 
-CREATE TRIGGER project_search_insert
-AFTER INSERT ON projects
+CREATE TRIGGER audit_action_update BEFORE UPDATE OF action ON audit_events
+WHEN NEW.action NOT IN ('member.role_change','site.update','project.patch','project.delete',
+  'submission.withdraw','submission.cutover_supersede','companion.publish',
+  'recommendation.update','recommendation.delete','legacy.admin_added','legacy.admin_removed',
+  'legacy.character_reference_created','legacy.character_reference_version_created',
+  'legacy.editor_pick_removed','legacy.editor_pick_saved')
+BEGIN SELECT RAISE(ABORT,'unsupported audit action'); END;
+
+CREATE TRIGGER download_daily_insert AFTER INSERT ON download_daily_stats
+WHEN EXISTS(SELECT 1 FROM projects p JOIN users u ON u.id = NEW.user_id
+  WHERE p.id = NEW.project_id AND p.visibility = 'public' AND p.deleted_at IS NULL
+    AND p.author_id <> NEW.user_id AND u.role NOT IN ('reviewer','owner'))
 BEGIN
-  INSERT INTO project_search_tags (project_id, tag)
-  SELECT NEW.id, value FROM (
-    SELECT value FROM json_each(CASE WHEN json_valid(NEW.search_tags) THEN NEW.search_tags ELSE '[]' END) WHERE type = 'text'
-    UNION
-    SELECT NEW.extension_type WHERE NEW.extension_type IS NOT NULL
-  ) WHERE value <> '';
-
-  INSERT INTO project_search (rowid, title, project_type, extension_type, tag_text, author_name)
-  VALUES (
-    NEW.rowid,
-    NEW.title,
-    NEW.project_type,
-    NEW.extension_type,
-    COALESCE((SELECT group_concat(tag, ' ') FROM project_search_tags t WHERE t.project_id = NEW.id), ''),
-    (SELECT COALESCE(global_name, username) FROM users WHERE id = NEW.author_id)
-  );
-
-  INSERT INTO project_search_short (rowid, spaced_text)
-  SELECT project_rowid, spaced_text FROM project_search_short_source WHERE project_rowid = NEW.rowid;
+  UPDATE projects SET downloads_count = downloads_count + 1 WHERE id = NEW.project_id;
+  INSERT INTO project_metrics_daily(day_key,project_id,downloads) VALUES(NEW.day_key,NEW.project_id,1)
+  ON CONFLICT(day_key,project_id) DO UPDATE SET downloads = downloads + 1;
 END;
 
-CREATE TRIGGER project_search_update
-AFTER UPDATE OF title, project_type, extension_type, search_tags, author_id, updated_at ON projects
+CREATE TRIGGER download_daily_update AFTER UPDATE OF count ON download_daily_stats
+WHEN NEW.count > OLD.count AND EXISTS(SELECT 1 FROM projects p JOIN users u ON u.id = NEW.user_id
+  WHERE p.id = NEW.project_id AND p.visibility = 'public' AND p.deleted_at IS NULL
+    AND p.author_id <> NEW.user_id AND u.role NOT IN ('reviewer','owner'))
 BEGIN
-  DELETE FROM project_search_tags WHERE project_id = OLD.id;
-  INSERT INTO project_search_tags (project_id, tag)
-  SELECT NEW.id, value FROM (
-    SELECT value FROM json_each(CASE WHEN json_valid(NEW.search_tags) THEN NEW.search_tags ELSE '[]' END) WHERE type = 'text'
-    UNION
-    SELECT NEW.extension_type WHERE NEW.extension_type IS NOT NULL
-  ) WHERE value <> '';
+  UPDATE projects SET downloads_count = downloads_count + NEW.count - OLD.count WHERE id = NEW.project_id;
+  INSERT INTO project_metrics_daily(day_key,project_id,downloads) VALUES(NEW.day_key,NEW.project_id,NEW.count-OLD.count)
+  ON CONFLICT(day_key,project_id) DO UPDATE SET downloads = downloads + NEW.count - OLD.count;
+END;
 
-  DELETE FROM project_search WHERE rowid = OLD.rowid;
-  INSERT INTO project_search (rowid, title, project_type, extension_type, tag_text, author_name)
-  VALUES (
-    NEW.rowid,
-    NEW.title,
-    NEW.project_type,
-    NEW.extension_type,
-    COALESCE((SELECT group_concat(tag, ' ') FROM project_search_tags t WHERE t.project_id = NEW.id), ''),
-    (SELECT COALESCE(global_name, username) FROM users WHERE id = NEW.author_id)
-  );
+CREATE TRIGGER project_like_metrics AFTER INSERT ON project_likes
+BEGIN
+  INSERT INTO project_metrics_daily (day_key, project_id, likes_delta)
+  SELECT strftime('%Y-%m-%d', 'now'), NEW.project_id, 1
+  WHERE EXISTS (SELECT 1 FROM projects WHERE id = NEW.project_id)
+  ON CONFLICT(day_key, project_id) DO UPDATE SET likes_delta = likes_delta + 1;
+END;
 
-  DELETE FROM project_search_short WHERE rowid = OLD.rowid;
-  INSERT INTO project_search_short (rowid, spaced_text)
-  SELECT project_rowid, spaced_text FROM project_search_short_source WHERE project_rowid = NEW.rowid;
+CREATE TRIGGER project_likes_count_delete AFTER DELETE ON project_likes
+BEGIN
+  UPDATE projects SET likes_count = MAX(likes_count - 1, 0) WHERE id = OLD.project_id;
+END;
+
+CREATE TRIGGER project_likes_count_insert AFTER INSERT ON project_likes
+BEGIN
+  UPDATE projects SET likes_count = likes_count + 1 WHERE id = NEW.project_id;
+END;
+
+CREATE TRIGGER project_search_author_update AFTER UPDATE OF global_name,username ON users
+WHEN OLD.global_name IS NOT NEW.global_name OR OLD.username IS NOT NEW.username
+BEGIN
+ UPDATE project_search SET author_name=COALESCE(NEW.global_name,NEW.username)
+ WHERE rowid IN(SELECT rowid FROM projects WHERE author_id=NEW.id);
+ DELETE FROM project_search_short WHERE rowid IN(SELECT rowid FROM projects WHERE author_id=NEW.id);
+ INSERT INTO project_search_short(rowid,spaced_text)
+ SELECT project_rowid,spaced_text FROM project_search_short_source
+ WHERE project_rowid IN(SELECT rowid FROM projects WHERE author_id=NEW.id);
 END;
 
 CREATE TRIGGER project_search_delete
@@ -417,17 +437,45 @@ BEGIN
   DELETE FROM project_search_tags WHERE project_id = OLD.id;
 END;
 
-CREATE TRIGGER project_search_author_update
-AFTER UPDATE OF global_name, username ON users
-WHEN OLD.global_name IS NOT NEW.global_name OR OLD.username IS NOT NEW.username
+CREATE TRIGGER project_search_update AFTER UPDATE OF published_version_id,author_id ON projects
 BEGIN
-  UPDATE project_search
-  SET author_name = COALESCE(NEW.global_name, NEW.username)
-  WHERE rowid IN (SELECT rowid FROM projects WHERE author_id = NEW.id);
+ DELETE FROM project_search_tags WHERE project_id=NEW.id;
+ INSERT INTO project_search_tags(project_id,tag)
+ SELECT NEW.id,j.value FROM "project_versions" r,json_each(r.tags) j
+ WHERE r.id=NEW.published_version_id AND j.type='text' AND j.value<>''
+ UNION SELECT NEW.id,r.extension_type FROM "project_versions" r
+ WHERE r.id=NEW.published_version_id AND r.extension_type IS NOT NULL AND r.extension_type<>'';
+ DELETE FROM project_search WHERE rowid=NEW.rowid;
+ INSERT INTO project_search(rowid,title,project_type,extension_type,tag_text,author_name)
+ SELECT NEW.rowid,r.title,r.project_type,r.extension_type,
+ COALESCE((SELECT group_concat(tag,' ') FROM project_search_tags t WHERE t.project_id=NEW.id),''),
+ (SELECT COALESCE(global_name,username) FROM users WHERE id=NEW.author_id)
+ FROM "project_versions" r WHERE r.id=NEW.published_version_id;
+ DELETE FROM project_search_short WHERE rowid=NEW.rowid;
+ INSERT INTO project_search_short(rowid,spaced_text)
+ SELECT project_rowid,spaced_text FROM project_search_short_source WHERE project_rowid=NEW.rowid;
+END;
 
-  DELETE FROM project_search_short
-  WHERE rowid IN (SELECT rowid FROM projects WHERE author_id = NEW.id);
-  INSERT INTO project_search_short (rowid, spaced_text)
-  SELECT project_rowid, spaced_text FROM project_search_short_source
-  WHERE project_rowid IN (SELECT rowid FROM projects WHERE author_id = NEW.id);
+CREATE TRIGGER project_search_version_insert AFTER INSERT ON "project_versions"
+WHEN EXISTS(SELECT 1 FROM projects WHERE published_version_id=NEW.id)
+BEGIN
+ UPDATE projects SET published_version_id=published_version_id WHERE published_version_id=NEW.id;
+END;
+
+CREATE TRIGGER project_subscriptions_count_delete AFTER DELETE ON project_subscriptions
+BEGIN
+  UPDATE projects SET subscriptions_count = MAX(subscriptions_count - 1, 0) WHERE id = OLD.project_id;
+END;
+
+CREATE TRIGGER project_subscriptions_count_insert AFTER INSERT ON project_subscriptions
+BEGIN
+  UPDATE projects SET subscriptions_count = subscriptions_count + 1 WHERE id = NEW.project_id;
+END;
+
+CREATE TRIGGER project_unlike_metrics AFTER DELETE ON project_likes
+BEGIN
+  INSERT INTO project_metrics_daily (day_key, project_id, likes_delta)
+  SELECT strftime('%Y-%m-%d', 'now'), OLD.project_id, -1
+  WHERE EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+  ON CONFLICT(day_key, project_id) DO UPDATE SET likes_delta = likes_delta - 1;
 END;

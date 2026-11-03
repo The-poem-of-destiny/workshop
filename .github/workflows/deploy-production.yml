@@ -60,6 +60,10 @@ jobs:
           set -euo pipefail
           sha256sum -c artifact.sha256
           jq -e --arg sha "$GITHUB_SHA" '.sourceSha == $sha' artifact-manifest.json
+      - name: Require separately verified production schema
+        run: |
+          echo "::error::Production promotion is paused until the target initial schema and production bindings are independently reconciled and explicitly authorized. This workflow never applies an initial schema to an existing production database."
+          exit 1
       - name: Back up production D1
         run: |
           set -euo pipefail
@@ -96,8 +100,6 @@ jobs:
           pnpm --filter @workshop/worker exec wrangler r2 object put \
             "${BACKUP_BUCKET}/d1/${stamp}/manifest.json" \
             --file "$GITHUB_WORKSPACE/backup/manifest.json" --remote --config wrangler.jsonc --env production
-      - name: Apply production migrations
-        run: pnpm --filter @workshop/worker exec wrangler d1 migrations apply workshop-prod --remote --config wrangler.jsonc --env production
       - name: Deploy production worker
         run: pnpm --filter @workshop/worker exec wrangler deploy build/index.js --no-bundle --config wrangler.jsonc --env production
       - name: Publish stable client

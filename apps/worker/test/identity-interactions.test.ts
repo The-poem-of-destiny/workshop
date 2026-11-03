@@ -25,6 +25,8 @@ beforeEach(async () => {
     DELETE FROM project_subscriptions;
     DELETE FROM project_likes;
     DELETE FROM sessions;
+    UPDATE projects SET working_version_id = NULL, published_version_id = NULL, published_cover_asset_id = NULL;
+    DELETE FROM project_versions;
     DELETE FROM projects;
     DELETE FROM users;
   `);
@@ -34,8 +36,8 @@ beforeEach(async () => {
     .bind("u1", "tester", "测试用户", "avatar-hash", now, now)
     .run();
   await bindings.DB.prepare(`
-    INSERT INTO projects (id, author_id, visibility, published_version_id, updated_at)
-    VALUES ('p1', 'u1', 'public', 'r1', ?)
+    INSERT INTO projects (id, author_id, visibility, updated_at)
+    VALUES ('p1', 'u1', 'public', ?)
   `)
     .bind(now)
     .run();
@@ -43,6 +45,7 @@ beforeEach(async () => {
     INSERT INTO project_versions (id, project_id, version_no, title, created_by)
     VALUES ('r1', 'p1', 1, '测试项目', 'u1')
   `).run();
+  await bindings.DB.prepare("UPDATE projects SET published_version_id = 'r1' WHERE id = 'p1'").run();
   await bindings.DB.prepare(
     "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, 'u1', '2099-01-01T00:00:00.000Z')",
   )

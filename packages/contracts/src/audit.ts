@@ -16,7 +16,6 @@ export const auditActionSchema = z.enum([
   "legacy.character_reference_version_created",
   "legacy.editor_pick_removed",
   "legacy.editor_pick_saved",
-  "legacy.current_schema_event",
 ]);
 export type AuditAction = z.infer<typeof auditActionSchema>;
 
@@ -93,15 +92,6 @@ export const adminAuditEventSchema = z.discriminatedUnion("action", [
   z.object({ ...base, action: z.literal("legacy.character_reference_version_created"), detail: legacyAdminDetail }),
   z.object({ ...base, action: z.literal("legacy.editor_pick_removed"), detail: legacyAdminDetail }),
   z.object({ ...base, action: z.literal("legacy.editor_pick_saved"), detail: legacyAdminDetail }),
-  z.object({
-    ...base,
-    action: z.literal("legacy.current_schema_event"),
-    detail: z.object({
-      sourceSchema: z.literal("workshop-pre-target-cutover"),
-      originalAction: z.string(),
-      originalDetail: z.string().nullable(),
-    }),
-  }),
 ]);
 export const adminAuditListSchema = z.object({
   items: z.array(adminAuditEventSchema),
