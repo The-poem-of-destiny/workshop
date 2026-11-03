@@ -100,6 +100,13 @@ jobs:
           pnpm --filter @workshop/worker exec wrangler r2 object put \
             "${BACKUP_BUCKET}/d1/${stamp}/manifest.json" \
             --file "$GITHUB_WORKSPACE/backup/manifest.json" --remote --config wrangler.jsonc --env production
+      - name: Configure production maintenance secret
+        env:
+          MAINTENANCE_TOKEN: ${{ secrets.MAINTENANCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$MAINTENANCE_TOKEN" || { echo "::error::Missing production MAINTENANCE_TOKEN"; exit 1; }
+          printf '%s' "$MAINTENANCE_TOKEN" | pnpm --filter @workshop/worker exec wrangler secret put MAINTENANCE_TOKEN --config wrangler.jsonc --env production
       - name: Deploy production worker
         run: pnpm --filter @workshop/worker exec wrangler deploy build/index.js --no-bundle --config wrangler.jsonc --env production
       - name: Publish stable client
