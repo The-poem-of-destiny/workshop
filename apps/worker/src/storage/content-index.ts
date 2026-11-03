@@ -1,4 +1,9 @@
-import type { ProjectEntryIndex, ProjectPreview, ProjectPreviewKind } from "@workshop/contracts";
+import {
+  type ProjectEntryIndex,
+  type ProjectPreview,
+  type ProjectPreviewKind,
+  projectEntryIndexDocumentSchema,
+} from "@workshop/contracts";
 import { extractProjectEntries, type ProjectEntryKind } from "@workshop/domain";
 import type { ProjectPreviewTarget } from "../data/contracts.js";
 
@@ -121,34 +126,17 @@ export async function buildEntryIndex(
 export async function getProjectEntryIndex(db: D1Database, projectId: string): Promise<ProjectEntryIndex | null> {
   const target = await db
     .prepare(`
-    SELECT p.published_revision_id
-    FROM projects p JOIN project_revisions r ON r.id = p.published_revision_id AND r.project_id = p.id
+    SELECT p.published_version_id, r.entry_index
+    FROM projects p JOIN project_versions r ON r.id = p.published_version_id AND r.project_id = p.id
     WHERE p.id = ? AND p.deleted_at IS NULL
-      AND p.visibility = 'public' AND r.entry_index_ready = 1
+      AND p.visibility = 'public' AND r.entry_index IS NOT NULL
   `)
     .bind(projectId)
-    .first<{ published_revision_id: string }>();
+    .first<{ published_version_id: string; entry_index: string }>();
   if (!target) return null;
 
-  const indexed = await db
-    .prepare(`
-    SELECT kind, entry_key, name, content_hash, content_length
-    FROM revision_entry_index
-    WHERE revision_id = ?
-    ORDER BY kind, entry_key
-  `)
-    .bind(target.published_revision_id)
-    .all<{ kind: ProjectEntryKind; entry_key: string; name: string; content_hash: string; content_length: number }>();
-  return {
-    revisionId: target.published_revision_id,
-    entries: indexed.results.map((entry) => ({
-      kind: entry.kind,
-      entryKey: entry.entry_key,
-      name: entry.name,
-      contentHash: entry.content_hash,
-      contentLength: entry.content_length,
-    })),
-  };
+  const index = projectEntryIndexDocumentSchema.parse(JSON.parse(target.entry_index));
+  return { versionId: target.published_version_id, entries: index.entries };
 }
 
 export async function resolveProjectPreviewTarget(
@@ -158,21 +146,21 @@ export async function resolveProjectPreviewTarget(
 ): Promise<ProjectPreviewTarget | null> {
   const target = await db
     .prepare(`
-      SELECT p.published_revision_id AS revision_id, a.r2_key, a.sha256,
+      SELECT p.published_version_id AS version_id, a.r2_key, a.sha256,
         CASE WHEN ? = 'regex' THEN r.regex_count ELSE r.worldbook_count END AS entry_count
       FROM projects p
-      JOIN project_revisions r ON r.id = p.published_revision_id AND r.project_id = p.id
-      LEFT JOIN assets a ON a.revision_id = r.id AND a.kind = ?
+      JOIN project_versions r ON r.id = p.published_version_id AND r.project_id = p.id
+      LEFT JOIN assets a ON a.version_id = r.id AND a.kind = ?
       WHERE p.id = ? AND p.deleted_at IS NULL AND p.visibility = 'public'
-        AND p.published_revision_id IS NOT NULL AND r.entry_index_ready = 1
+        AND p.published_version_id IS NOT NULL AND r.entry_index IS NOT NULL
     `)
     .bind(kind, kind, projectId)
-    .first<{ revision_id: string; r2_key: string | null; sha256: string | null; entry_count: number }>();
+    .first<{ version_id: string; r2_key: string | null; sha256: string | null; entry_count: number }>();
   if (!target || Boolean(target.r2_key) !== Boolean(target.sha256)) return null;
   if (!target.r2_key && target.entry_count !== 0) return null;
   return {
     projectId,
-    revisionId: target.revision_id,
+    versionId: target.version_id,
     kind,
     r2Key: target.r2_key,
     sha256: target.sha256,
@@ -181,8 +169,8 @@ export async function resolveProjectPreviewTarget(
 }
 
 export async function loadProjectPreview(r2: R2Bucket, target: ProjectPreviewTarget): Promise<ProjectPreview | null> {
-  const { kind, revisionId } = target;
-  if (!target.r2Key) return target.entryCount === 0 ? { revisionId, kind, entries: [] } : null;
+  const { kind, versionId } = target;
+  if (!target.r2Key) return target.entryCount === 0 ? { versionId, kind, entries: [] } : null;
   const object = await r2.get(target.r2Key);
   if (!object) return null;
   let raw: unknown;
@@ -204,5 +192,5 @@ export async function loadProjectPreview(r2: R2Bucket, target: ProjectPreviewTar
           ? ref.entry.content
           : "",
   }));
-  return { revisionId, kind, entries };
+  return { versionId, kind, entries };
 }

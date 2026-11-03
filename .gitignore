@@ -10,6 +10,9 @@ worker-configuration.d.ts
 # machine-local agent context — never commit
 AGENTS.local.md
 
+# machine-local task records and evidence — never commit
+/.local/
+
 # local secrets — never commit
 .env
 .env.*

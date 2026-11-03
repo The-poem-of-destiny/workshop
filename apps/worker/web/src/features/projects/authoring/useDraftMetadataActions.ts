@@ -6,7 +6,7 @@ export function useDraftMetadataActions({
   entry,
   form,
   busy,
-  workingRevisionFrozen,
+  workingVersionFrozen,
   setBusy,
   rowVersion,
   setRowVersion,
@@ -18,7 +18,7 @@ export function useDraftMetadataActions({
   entry: AuthorProject;
   form: ProjectForm;
   busy: boolean;
-  workingRevisionFrozen: boolean;
+  workingVersionFrozen: boolean;
   setBusy: (value: boolean) => void;
   rowVersion: number;
   setRowVersion: (value: number) => void;
@@ -28,7 +28,7 @@ export function useDraftMetadataActions({
   onError: (message: string) => void;
 }) {
   async function save(): Promise<void> {
-    if (busy || workingRevisionFrozen) return;
+    if (busy || workingVersionFrozen) return;
     setBusy(true);
     try {
       const result = await api.patchProject(entry.project.id, rowVersion, metadataPayload(form));

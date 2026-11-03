@@ -1,4 +1,5 @@
 import { extractProjectEntries, type ProjectEntryKind } from "@workshop/domain";
+import { readFrozenReviewReport } from "./review-reports";
 
 export interface EntryChange {
   entryKey: string;
@@ -32,11 +33,11 @@ export interface FindingDiff {
 }
 
 export interface SubmissionDiff {
-  revisionId: string;
-  previousRevisionId: string | null;
-  revisionNo: number;
-  previousRevisionNo: number | null;
-  findingBaseline: { revisionId: string | null; submissionId: string | null; available: boolean };
+  versionId: string;
+  previousVersionId: string | null;
+  versionNo: number;
+  previousVersionNo: number | null;
+  findingBaseline: { versionId: string | null; submissionId: string | null; available: boolean };
   metadata: { before: Record<string, unknown> | null; after: Record<string, unknown> };
   worldbook: KindDiff;
   regex: KindDiff;
@@ -49,7 +50,7 @@ export interface SubmissionDiff {
 }
 
 interface AssetRow {
-  revision_id: string;
+  version_id: string;
   kind: string;
   r2_key: string;
   sha256: string;
@@ -212,38 +213,40 @@ export async function getSubmissionDiff(
 ): Promise<SubmissionDiff | null> {
   const target = await db
     .prepare(`
-    SELECT s.revision_id, s.project_id, s.check_report, s.base_published_revision_id
-    FROM submissions s WHERE s.id = ?
+    SELECT s.version_id, s.project_id, ar.report_r2_key, ar.report_hash, s.base_published_version_id
+    FROM submissions s JOIN automated_reviews ar ON ar.submission_id = s.id WHERE s.id = ?
   `)
     .bind(submissionId)
     .first<{
-      revision_id: string;
+      version_id: string;
       project_id: string;
-      check_report: string | null;
-      base_published_revision_id: string | null;
+      report_r2_key: string | null;
+      report_hash: string | null;
+      base_published_version_id: string | null;
     }>();
   if (!target) return null;
-  const previousId = target.base_published_revision_id;
+  const previousId = target.base_published_version_id;
   const previousSubmission = previousId
     ? await db
         .prepare(`
-    SELECT id, revision_id, check_report FROM submissions
-    WHERE project_id = ? AND revision_id = ? AND status = 'approved'
-    ORDER BY submitted_at DESC, id DESC LIMIT 1
+    SELECT s.id, s.version_id, ar.report_r2_key, ar.report_hash FROM submissions s
+    JOIN automated_reviews ar ON ar.submission_id = s.id
+    WHERE s.project_id = ? AND s.version_id = ? AND s.status = 'approved'
+    ORDER BY s.submitted_at DESC, s.id DESC LIMIT 1
   `)
         .bind(target.project_id, previousId)
-        .first<{ id: string; revision_id: string; check_report: string | null }>()
+        .first<{ id: string; version_id: string; report_r2_key: string | null; report_hash: string | null }>()
     : null;
-  const revisions = await db
-    .prepare(`SELECT * FROM project_revisions WHERE project_id = ? AND id IN (?, ?)`)
-    .bind(target.project_id, target.revision_id, previousId ?? target.revision_id)
+  const versions = await db
+    .prepare(`SELECT * FROM project_versions WHERE project_id = ? AND id IN (?, ?)`)
+    .bind(target.project_id, target.version_id, previousId ?? target.version_id)
     .all<Record<string, unknown>>();
-  const currentRevision = revisions.results.find((row) => row.id === target.revision_id);
-  if (!currentRevision) return null;
-  const previousRevision = revisions.results.find((row) => row.id === previousId) ?? null;
-  if (previousId && !previousRevision) throw new Error(`Frozen review baseline unavailable: ${previousId}`);
+  const currentVersion = versions.results.find((row) => row.id === target.version_id);
+  if (!currentVersion) return null;
+  const previousVersion = versions.results.find((row) => row.id === previousId) ?? null;
+  if (previousId && !previousVersion) throw new Error(`Frozen review baseline unavailable: ${previousId}`);
   const currentMetadata: Record<string, unknown> = {};
-  const previousMetadata: Record<string, unknown> | null = previousRevision ? {} : null;
+  const previousMetadata: Record<string, unknown> | null = previousVersion ? {} : null;
   for (const key of [
     "title",
     "description",
@@ -253,51 +256,47 @@ export async function getSubmissionDiff(
     "tags",
     "schema_version",
     "version_label",
-    "precautions",
+    "requirements",
     "cover_position_x",
     "cover_position_y",
     "cover_zoom",
     "discord_thread_url",
   ]) {
-    currentMetadata[key] = currentRevision[key] ?? null;
-    if (previousMetadata && previousRevision) previousMetadata[key] = previousRevision[key] ?? null;
+    currentMetadata[key] = currentVersion[key] ?? null;
+    if (previousMetadata && previousVersion) previousMetadata[key] = previousVersion[key] ?? null;
   }
-  let previousReport: unknown = null;
-  try {
-    previousReport = previousSubmission?.check_report ? JSON.parse(previousSubmission.check_report) : null;
-  } catch {
-    previousReport = null;
-  }
-  let currentReport: unknown = null;
-  try {
-    currentReport = target.check_report ? JSON.parse(target.check_report) : null;
-  } catch {
-    currentReport = null;
-  }
+  const readReport = async (key: string | null, hash: string | null): Promise<unknown> => {
+    const text = await readFrozenReviewReport(r2, key, hash);
+    return text === null ? null : JSON.parse(text);
+  };
+  const [previousReport, currentReport] = await Promise.all([
+    readReport(previousSubmission?.report_r2_key ?? null, previousSubmission?.report_hash ?? null),
+    readReport(target.report_r2_key, target.report_hash),
+  ]);
 
   const rows = await db
     .prepare(`
-    SELECT revision_id, kind, r2_key, sha256 FROM assets
-    WHERE revision_id IN (?, ?) AND kind IN ('worldbook', 'regex', 'cover')
+    SELECT version_id, kind, r2_key, sha256 FROM assets
+    WHERE version_id IN (?, ?) AND kind IN ('worldbook', 'regex', 'cover')
   `)
-    .bind(target.revision_id, previousId ?? target.revision_id)
+    .bind(target.version_id, previousId ?? target.version_id)
     .all<AssetRow>();
 
-  const byRevision = new Map<string, Map<string, AssetRow>>();
+  const byVersion = new Map<string, Map<string, AssetRow>>();
   for (const row of rows.results) {
-    const map = byRevision.get(row.revision_id) ?? new Map<string, AssetRow>();
+    const map = byVersion.get(row.version_id) ?? new Map<string, AssetRow>();
     map.set(row.kind, row);
-    byRevision.set(row.revision_id, map);
+    byVersion.set(row.version_id, map);
   }
-  const current = byRevision.get(target.revision_id) ?? new Map<string, AssetRow>();
+  const current = byVersion.get(target.version_id) ?? new Map<string, AssetRow>();
   const previous = previousId
-    ? (byRevision.get(previousId) ?? new Map<string, AssetRow>())
+    ? (byVersion.get(previousId) ?? new Map<string, AssetRow>())
     : new Map<string, AssetRow>();
 
   async function text(asset: AssetRow | undefined): Promise<string | null> {
     if (!asset) return null;
     const object = await r2.get(asset.r2_key);
-    if (!object) throw new Error(`Frozen review asset unavailable: ${asset.revision_id}/${asset.kind}`);
+    if (!object) throw new Error(`Frozen review asset unavailable: ${asset.version_id}/${asset.kind}`);
     return object.text();
   }
 
@@ -311,12 +310,12 @@ export async function getSubmissionDiff(
   const coverBefore = previous.get("cover")?.sha256 ?? null;
   const coverAfter = current.get("cover")?.sha256 ?? null;
   return {
-    revisionId: target.revision_id,
-    previousRevisionId: previousId,
-    revisionNo: Number(currentRevision.revision_no),
-    previousRevisionNo: previousRevision ? Number(previousRevision.revision_no) : null,
+    versionId: target.version_id,
+    previousVersionId: previousId,
+    versionNo: Number(currentVersion.version_no),
+    previousVersionNo: previousVersion ? Number(previousVersion.version_no) : null,
     findingBaseline: {
-      revisionId: previousId,
+      versionId: previousId,
       submissionId: previousSubmission?.id ?? null,
       available: previousReport !== null,
     },

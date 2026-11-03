@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { visibilitySchema } from "./identity.js";
+import { requirementsSchema } from "./requirements.js";
 
 export const projectTypeSchema = z.enum(["事件", "系统核心", "角色", "扩展"]);
 export type ProjectType = z.infer<typeof projectTypeSchema>;
@@ -49,14 +50,14 @@ export const projectSummarySchema = z.object({
   visibility: visibilitySchema,
   publishedAt: z.string().nullable(),
   updatedAt: z.string(),
-  publishedRevisionId: z.string().nullable().optional(),
+  publishedVersionId: z.string().nullable().optional(),
 });
 
 export type ProjectSummary = z.infer<typeof projectSummarySchema>;
 
 export const projectDetailSchema = projectSummarySchema.extend({
   authorNote: z.string().nullable(),
-  precautions: z.string().nullable().optional(),
+  requirements: requirementsSchema.nullable().optional(),
   discordThreadUrl: z.string().nullable(),
 });
 
@@ -92,7 +93,7 @@ export const projectPreviewBehaviorSchema = z.discriminatedUnion("kind", [
 ]);
 
 export const projectPreviewSchema = z.object({
-  revisionId: z.string(),
+  versionId: z.string(),
   kind: projectPreviewKindSchema,
   entries: z.array(
     z.object({
@@ -116,8 +117,8 @@ export type ProjectGalleryResponse = z.infer<typeof projectGalleryResponseSchema
 export const projectListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(25),
   cursor: z.string().max(2048).optional(),
-  sort: projectSortSchema.default("updated"),
-  // UTC rolling window for likes/downloads; omitted means all-time.
+  sort: projectSortSchema.default("published"),
+  // UTC rolling window for likes/downloads; omitted means 30 days.
   // Like windows sum transitions (including unlikes of older likes), not active likes.
   period: projectPeriodSchema.optional(),
   projectType: projectTypeSchema.optional(),
@@ -154,24 +155,47 @@ export const projectBatchResponseSchema = z.object({
 
 export type ProjectBatchResponse = z.infer<typeof projectBatchResponseSchema>;
 
+export const projectEntryIndexDocumentSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    entries: z
+      .array(
+        z
+          .object({
+            kind: z.enum(["worldbook", "regex"]),
+            entryKey: z.string().min(1).max(2000),
+            name: z.string().max(2000),
+            contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+            contentLength: z.number().int().nonnegative(),
+          })
+          .strict(),
+      )
+      .max(20_000),
+  })
+  .strict()
+  .superRefine((document, ctx) => {
+    const seen = new Set<string>();
+    for (const entry of document.entries) {
+      const key = `${entry.kind}:${entry.entryKey}`;
+      if (seen.has(key)) ctx.addIssue({ code: "custom", message: "Duplicate entry key" });
+      seen.add(key);
+    }
+    if (new TextEncoder().encode(JSON.stringify(document)).byteLength > 512_000) {
+      ctx.addIssue({ code: "custom", message: "Entry index exceeds 512000 bytes" });
+    }
+  });
+
 export const projectEntryIndexSchema = z.object({
-  revisionId: z.string(),
-  entries: z.array(
-    z.object({
-      kind: z.enum(["worldbook", "regex"]),
-      entryKey: z.string(),
-      name: z.string(),
-      contentHash: z.string(),
-      contentLength: z.number().int().nonnegative(),
-    }),
-  ),
+  versionId: z.string(),
+  entries: projectEntryIndexDocumentSchema.shape.entries,
 });
 
 export type ProjectEntryIndex = z.infer<typeof projectEntryIndexSchema>;
 
 export const discoveryResponseSchema = z.object({
-  bucket: z.string().optional(),
-  items: z.array(projectSummarySchema),
+  runId: z.string().nullable(),
+  scheduledAt: z.string().nullable(),
+  items: z.array(projectSummarySchema.extend({ recommendationComment: z.string().nullable() })),
 });
 
 export type DiscoveryResponse = z.infer<typeof discoveryResponseSchema>;

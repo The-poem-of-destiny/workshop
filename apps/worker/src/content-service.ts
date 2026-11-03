@@ -1,24 +1,27 @@
-import type { ProjectEntryIndex } from "@workshop/contracts";
+import { type ProjectEntryIndex, requirementsSchema } from "@workshop/contracts";
 import {
   extractProjectEntries,
   inspectProjectMetadata,
   type ProjectEntryKind,
   validateProjectContentText,
 } from "@workshop/domain";
-import { analyzeFiles, REVIEW_CHECKER_REVISION, routeGate } from "./content-checker";
+import { analyzeFiles, REVIEW_CHECKER_VERSION, routeGate } from "./content-checker";
 import type { Env } from "./env";
 import { validateContentStream } from "./streaming-content";
+import { maintenanceUnavailable, withWriteBarrier } from "./write-barrier";
 
 interface RunTarget {
   id: string;
   project_id: string;
-  revision_id: string;
-  base_published_revision_id: string | null;
+  version_id: string;
+  base_published_version_id: string | null;
   status: string;
   check_status: string;
   check_attempts: number;
+  lease_token: string | null;
+  lease_until: string | null;
   client_gate: string | null;
-  review_checker_revision: string | null;
+  checker_version: string | null;
 }
 
 const MAX_ATTEMPTS = 3;
@@ -62,37 +65,10 @@ async function buildEntryIndex(
   return entries;
 }
 
-async function baselineConflict(
-  text: string,
-  findConflict: (fingerprints: string[]) => Promise<string | null>,
-): Promise<string | null> {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return null;
-  }
-  const refs = extractProjectEntries(parsed, "worldbook");
-  if (refs.length === 0) return null;
-  const fingerprints = await Promise.all(
-    refs.map(async (ref) => {
-      const entry = ref.entry;
-      const name = String(entry.comment ?? entry.name ?? "")
-        .replace(/\r\n/g, "\n")
-        .trim();
-      const content = String(entry.content ?? "")
-        .replace(/\r\n/g, "\n")
-        .trim();
-      return sha256(JSON.stringify({ name, content }));
-    }),
-  );
-  return findConflict(fingerprints);
-}
-
 export class ContentService implements DurableObject {
   constructor(
     private readonly state: DurableObjectState,
-    _env: Env,
+    private readonly env: Env,
   ) {}
 
   async fetch(request: Request): Promise<Response> {
@@ -106,25 +82,31 @@ export class ContentService implements DurableObject {
       return Response.json(await validateContentStream(request.body, kind));
     }
     let submissionId = "";
-    let validateRevision = "";
+    let validateVersion = "";
     let validateProjectId = "";
     try {
       const body = (await request.json()) as {
         submissionId?: unknown;
-        validateRevision?: unknown;
+        validateVersion?: unknown;
         projectId?: unknown;
       };
       if (typeof body.submissionId === "string") submissionId = body.submissionId;
-      if (typeof body.validateRevision === "string") validateRevision = body.validateRevision;
+      if (typeof body.validateVersion === "string") validateVersion = body.validateVersion;
       if (typeof body.projectId === "string") validateProjectId = body.projectId;
     } catch {
       return Response.json({ error: "bad_request" }, { status: 400 });
     }
-    if (validateRevision) {
-      return this.validateRevision(validateRevision, validateProjectId);
+    if (validateVersion) {
+      return this.validateVersion(validateVersion, validateProjectId);
     }
     if (!submissionId) return Response.json({ error: "bad_request" }, { status: 400 });
-    return this.runSubmission(submissionId);
+    try {
+      const result = await withWriteBarrier(this.env, "content", () => this.runSubmission(submissionId));
+      return result.admitted ? result.value : maintenanceUnavailable();
+    } catch (error) {
+      console.error("Maintenance barrier content work failed", error);
+      return maintenanceUnavailable();
+    }
   }
 
   private async runSubmission(submissionId: string): Promise<Response> {
@@ -134,38 +116,42 @@ export class ContentService implements DurableObject {
     if (target.status === "approved" || target.status === "rejected" || target.status === "superseded") {
       return Response.json({ skipped: "resolved" });
     }
+    if (target.check_status === "running" && target.lease_until && Date.parse(target.lease_until) > Date.now()) {
+      return Response.json({ skipped: "leased" });
+    }
     if (target.check_attempts >= MAX_ATTEMPTS) {
-      await data.contentNeedsHuman(submissionId, "检查超时次数已达上限，转人工审核。", null);
+      await data.contentNeedsHuman(submissionId, "检查超时次数已达上限，转人工审核。", target.lease_token);
       return Response.json({ skipped: "attempts" });
     }
     if (target.check_status === "done" || target.check_status === "needs_human") {
       return Response.json({ skipped: target.check_status });
     }
-    if (target.review_checker_revision && target.review_checker_revision !== REVIEW_CHECKER_REVISION) {
-      await data.contentNeedsHuman(submissionId, "固定检查器版本不可用，转人工审核。", null);
-      return Response.json({ skipped: "checker_revision_unavailable" });
+    if (target.checker_version && target.checker_version !== REVIEW_CHECKER_VERSION) {
+      await data.contentNeedsHuman(submissionId, "固定检查器版本不可用，转人工审核。", target.lease_token);
+      return Response.json({ skipped: "checker_version_unavailable" });
     }
 
-    if (!(await data.contentClaim(submissionId))) return Response.json({ skipped: "not_claimed" });
+    const leaseToken = await data.contentClaim(submissionId);
+    if (!leaseToken) return Response.json({ skipped: "not_claimed" });
 
     try {
-      return await this.checkSubmission(target, submissionId);
+      return await this.checkSubmission(target, submissionId, leaseToken);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const attempts = target.check_attempts + 1;
       if (attempts >= MAX_ATTEMPTS) {
-        await data.contentNeedsHuman(submissionId, message, null);
+        await data.contentNeedsHuman(submissionId, message, leaseToken);
       } else {
-        await data.contentRequeue(submissionId, message);
+        await data.contentRequeue(submissionId, message, leaseToken);
       }
       return Response.json({ ok: false, error: message, attempts }, { status: 500 });
     }
   }
 
-  private async checkSubmission(target: RunTarget, submissionId: string): Promise<Response> {
+  private async checkSubmission(target: RunTarget, submissionId: string, leaseToken: string): Promise<Response> {
     const data = this.state.exports.DataService;
     const startedAt = Date.now();
-    const { files: inputFiles, metadata } = await data.contentLoadSubmission(target.revision_id);
+    const { files: inputFiles, metadata } = await data.contentLoadSubmission(target.version_id);
     if (inputFiles.length === 0) throw new Error("冻结内容没有世界书或正则文件");
     const files = inputFiles.map((file) => {
       if (file.text === null) throw new Error(`冻结文件缺失：${file.kind}`);
@@ -177,7 +163,7 @@ export class ContentService implements DurableObject {
       title: metadata.title,
       description: metadata.description,
       authorNote: metadata.author_note,
-      precautions: metadata.precautions,
+      requirements: metadata.requirements === null ? null : requirementsSchema.parse(JSON.parse(metadata.requirements)),
       versionLabel: metadata.version_label,
       tags: JSON.parse(metadata.tags),
       coverPositionX: metadata.cover_position_x,
@@ -195,47 +181,50 @@ export class ContentService implements DurableObject {
       ...report,
       metadata: metadataReport,
       routeGate: route,
-      reviewCheckerRevision: REVIEW_CHECKER_REVISION,
+      checkerVersion: REVIEW_CHECKER_VERSION,
     });
     const reportHash = await sha256(storedReport);
     const checkedAt = new Date().toISOString();
-    await data.contentRecordRun(submissionId, route, storedReport, reportHash, Date.now() - startedAt, checkedAt);
+    if (
+      !(await data.contentRecordRun(
+        submissionId,
+        leaseToken,
+        route,
+        storedReport,
+        reportHash,
+        Date.now() - startedAt,
+        checkedAt,
+      ))
+    ) {
+      return Response.json({ skipped: "lease_replaced" });
+    }
 
     if (route === "block") {
-      await data.contentNeedsHuman(submissionId, "自动检查要求人工审核。", {
-        report: storedReport,
-        hash: reportHash,
-        checkedAt,
-      });
-      return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_REVISION });
+      await data.contentNeedsHuman(submissionId, "自动检查要求人工审核。", leaseToken);
+      return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_VERSION });
     }
     if (target.status === "pending" || target.client_gate === "block" || target.client_gate === "missing") {
       await data.contentNeedsHuman(
         submissionId,
         target.status === "pending" ? "人工重检完成，等待审核决定。" : "客户端检查未通过或缺失，转人工审核。",
-        {
-          report: storedReport,
-          hash: reportHash,
-          checkedAt,
-        },
+        leaseToken,
       );
-      return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_REVISION, manual: true });
+      return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_VERSION, manual: true });
     }
 
-    if (!(await data.contentAutoPublish(target, storedReport, reportHash, checkedAt))) {
+    if (!(await data.contentAutoPublish(target, leaseToken))) {
       throw new Error("自动发布前置条件已变化");
     }
-    return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_REVISION, published: true });
+    return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_VERSION, published: true });
   }
 
-  private async validateRevision(validateRevision: string, validateProjectId: string): Promise<Response> {
+  private async validateVersion(validateVersion: string, validateProjectId: string): Promise<Response> {
     if (!validateProjectId) return Response.json({ error: "bad_request" }, { status: 400 });
     const data = this.state.exports.DataService;
-    const files = await data.contentLoadRevision(validateRevision, validateProjectId);
+    const files = await data.contentLoadVersion(validateVersion, validateProjectId);
     const presence: Record<ProjectEntryKind, boolean> = { worldbook: false, regex: false };
     const counts: Record<ProjectEntryKind, number> = { worldbook: 0, regex: 0 };
     const hashes: Partial<Record<ProjectEntryKind, string>> = {};
-    let conflict: string | null = null;
     let error: string | null = null;
     for (const file of files) {
       const kind = file.kind;
@@ -252,12 +241,8 @@ export class ContentService implements DurableObject {
       presence[kind] = true;
       counts[kind] = result.entryCount;
       hashes[kind] = await sha256(text);
-      if (kind === "worldbook") {
-        conflict = await baselineConflict(text, (fingerprints) => data.contentBaselineConflict(fingerprints));
-        if (conflict) break;
-      }
     }
-    const entries = error || conflict ? [] : await buildEntryIndex(files);
-    return Response.json({ presence, counts, hashes, conflict, error, entries });
+    const entries = error ? [] : await buildEntryIndex(files);
+    return Response.json({ presence, counts, hashes, error, entries });
   }
 }

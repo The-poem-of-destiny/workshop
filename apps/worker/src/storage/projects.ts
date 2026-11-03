@@ -5,6 +5,7 @@ import {
   projectDetailSchema,
   projectListResponseSchema,
 } from "@workshop/contracts";
+import { parseRequirements } from "./authoring-model.js";
 
 interface ProjectRow {
   id: string;
@@ -27,13 +28,13 @@ interface ProjectRow {
   regex_count: number;
   schema_version: string | null;
   version_label: string | null;
-  precautions: string | null;
+  requirements: string | null;
   cover_position_x: number;
   cover_position_y: number;
   cover_zoom: number;
   discord_thread_url: string | null;
   cover_key: string | null;
-  published_revision_id: string | null;
+  published_version_id: string | null;
   gallery: string;
   catalog_score?: number;
 }
@@ -42,50 +43,50 @@ const PUBLIC_UPDATED_AT = "COALESCE(p.published_updated_at, p.published_at, r.cr
 
 const SELECT_PROJECT = `
   SELECT
-    p.id, p.title, p.description, p.author_note, p.project_type, p.extension_type,
-    p.visibility, p.published_at, ${PUBLIC_UPDATED_AT} AS updated_at, p.published_revision_id,
+    p.id, r.title, r.description, r.author_note, r.project_type, r.extension_type,
+    p.visibility, p.published_at, ${PUBLIC_UPDATED_AT} AS updated_at, p.published_version_id,
     p.downloads_count, p.likes_count, p.subscriptions_count,
     u.id AS author_id,
     COALESCE(u.global_name, u.username) AS author_name,
     u.avatar AS author_avatar,
-    p.search_tags AS tags, r.worldbook_count, r.regex_count,
-    p.published_schema_version AS schema_version,
-    p.version_label, p.precautions,
-    p.cover_position_x, p.cover_position_y, p.cover_zoom,
-    p.published_discord_thread_url AS discord_thread_url,
+    r.tags, r.worldbook_count, r.regex_count,
+    r.schema_version,
+    r.version_label, r.requirements,
+    r.cover_position_x, r.cover_position_y, r.cover_zoom,
+    r.discord_thread_url,
     COALESCE(
       (
         SELECT a.r2_key
         FROM assets a
         WHERE a.id = p.published_cover_asset_id
           AND a.project_id = p.id
-          AND a.revision_id IS NULL
+          AND a.version_id IS NULL
           AND a.kind = 'cover'
       ),
       (
         SELECT a.r2_key
         FROM assets a
-        WHERE a.revision_id = p.published_revision_id AND a.kind = 'cover'
+        WHERE a.version_id = p.published_version_id AND a.kind = 'cover'
         LIMIT 1
       )
     ) AS cover_key,
     COALESCE(
       (
-        SELECT json_group_array(json_object('slot', g.slot, 'url', '/api/v1/public-assets/' || g.r2_key))
-        FROM project_gallery g WHERE g.project_id = p.id
+        SELECT json_group_array(json_object('slot', CASE g.kind WHEN 'gallery_1' THEN 0 ELSE 1 END, 'url', '/api/v1/public-assets/' || g.r2_key))
+        FROM assets g WHERE g.project_id = p.id AND g.version_id IS NULL AND g.kind IN ('gallery_1','gallery_2')
       ),
       '[]'
     ) AS gallery
   FROM projects p
   JOIN users u ON u.id = p.author_id
-  JOIN project_revisions r ON r.id = p.published_revision_id
+  JOIN project_versions r ON r.id = p.published_version_id
 `;
 
 const SELECT_PERIOD_PROJECT = SELECT_PROJECT.replace("p.id,", "COALESCE(metric.score, 0) AS catalog_score, p.id,");
 
 const PUBLIC_PROJECT = `
   p.visibility = 'public'
-  AND p.published_revision_id IS NOT NULL
+  AND p.published_version_id IS NOT NULL
   AND p.deleted_at IS NULL
 `;
 
@@ -154,7 +155,7 @@ function toSummary(row: ProjectRow): ProjectSummary {
     visibility: row.visibility,
     publishedAt: row.published_at,
     updatedAt: row.updated_at,
-    publishedRevisionId: row.published_revision_id,
+    publishedVersionId: row.published_version_id,
   };
 }
 
@@ -162,7 +163,7 @@ function toDetail(row: ProjectRow): ProjectDetail {
   return {
     ...toSummary(row),
     authorNote: row.author_note,
-    precautions: row.precautions,
+    requirements: parseRequirements(row.requirements),
     discordThreadUrl: row.discord_thread_url,
   };
 }
@@ -177,7 +178,7 @@ interface CatalogCursor {
 function cursorScope(query: ProjectListQuery): string {
   return JSON.stringify([
     query.sort,
-    query.period ?? "all",
+    query.sort === "likes" || query.sort === "downloads" ? (query.period ?? "30d") : "all",
     query.projectType ?? null,
     query.authorId ?? null,
     query.tag ?? null,
@@ -259,13 +260,13 @@ export async function listPublishedProjects(
   const cursor = decodeCursor(query.cursor, query);
   if (query.cursor && !cursor) throw new Error("Invalid catalog cursor");
   const asOf = cursor?.asOf ?? new Date().toISOString();
-  const period = query.period ?? "all";
+  const period = query.period ?? "30d";
   const periodic = period !== "all" && (query.sort === "likes" || query.sort === "downloads");
   const where = [PUBLIC_PROJECT];
   const bindings: unknown[] = [];
 
   if (query.projectType) {
-    where.push("p.project_type = ?");
+    where.push("r.project_type = ?");
     bindings.push(query.projectType);
   }
   if (query.authorId) {
@@ -273,7 +274,7 @@ export async function listPublishedProjects(
     bindings.push(query.authorId);
   }
   if (query.tag) {
-    where.push("EXISTS (SELECT 1 FROM json_each(p.search_tags) WHERE json_each.value = ?)");
+    where.push("EXISTS (SELECT 1 FROM json_each(r.tags) WHERE json_each.value = ?)");
     bindings.push(query.tag);
   }
   if (query.search) {
@@ -289,13 +290,12 @@ export async function listPublishedProjects(
   const metricBindings: unknown[] = [];
   if (periodic) {
     const days = Number.parseInt(period, 10);
-    const start = new Date(Date.parse(asOf) - days * 86_400_000).toISOString();
-    const table = query.sort === "likes" ? "project_like_events" : "download_events";
-    const time = query.sort === "likes" ? "occurred_at" : "created_at";
-    const aggregate = query.sort === "likes" ? "SUM(delta)" : "COUNT(*)";
-    prefix = `WITH metric AS (SELECT project_id, ${aggregate} AS score FROM ${table}
-      WHERE ${time} >= ? AND ${time} <= ? GROUP BY project_id) `;
-    metricBindings.push(start, asOf);
+    const end = asOf.slice(0, 10);
+    const start = new Date(Date.parse(`${end}T00:00:00.000Z`) - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+    const metric = query.sort === "likes" ? "likes_delta" : "downloads";
+    prefix = `WITH metric AS (SELECT project_id, SUM(${metric}) AS score FROM project_metrics_daily
+      WHERE day_key >= ? AND day_key <= ? GROUP BY project_id) `;
+    metricBindings.push(start, end);
     metricJoin = " LEFT JOIN metric ON metric.project_id = p.id ";
   }
   const column = periodic ? "COALESCE(metric.score, 0)" : SORT_COLUMN[query.sort];
@@ -308,7 +308,7 @@ export async function listPublishedProjects(
     db
       .prepare(`SELECT COUNT(*) AS total FROM projects p
       JOIN users u ON u.id = p.author_id
-      JOIN project_revisions r ON r.id = p.published_revision_id WHERE ${filterSql}`)
+      JOIN project_versions r ON r.id = p.published_version_id WHERE ${filterSql}`)
       .bind(...filterBindings),
     db
       .prepare(`${prefix}${select}${metricJoin} WHERE ${where.join(" AND ")}

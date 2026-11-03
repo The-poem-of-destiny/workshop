@@ -5,6 +5,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Markdown } from "../../lib/markdown";
 import { ProjectCommunity } from "./ProjectCommunity";
 import { ProjectMedia } from "./ProjectMedia";
+import { ProjectRecommendation } from "./ProjectRecommendation";
+import { ProjectRequirements } from "./ProjectRequirements";
 import { ProjectSourcePreview } from "./ProjectSourcePreview";
 
 export type InstallState = "notInstalled" | "upToDate" | "updateAvailable" | "localChanged" | "scanIncomplete";
@@ -256,6 +258,16 @@ export function ProjectDetail({
                 onError={onError}
                 onSubscriptionChange={onSubscriptionChange}
               />
+              {detail?.publishedVersionId ? (
+                <ProjectRecommendation
+                  key={`${detail.id}:${detail.publishedVersionId}`}
+                  projectId={detail.id}
+                  projectVersionId={detail.publishedVersionId}
+                  loggedIn={loggedIn}
+                  onLogin={onLogin}
+                  onError={onError}
+                />
+              ) : null}
             </aside>
             <section className="reading-column">
               {detailLoading ? <p className="detail-state">正在加载项目详情…</p> : null}
@@ -282,15 +294,10 @@ export function ProjectDetail({
                   <Markdown text={detail.authorNote} />
                 </section>
               ) : null}
-              {detail?.precautions?.trim() ? (
-                <section className="detail-section detail-warning">
-                  <h3>注意事项</h3>
-                  <Markdown text={detail.precautions} />
-                </section>
-              ) : null}
+              {detail?.requirements ? <ProjectRequirements value={detail.requirements} /> : null}
               {detail ? (
                 <ProjectSourcePreview
-                  key={`${detail.id}:${detail.publishedRevisionId ?? ""}`}
+                  key={`${detail.id}:${detail.publishedVersionId ?? ""}`}
                   project={detail}
                   versionLabel={versionLabel}
                   loggedIn={loggedIn}

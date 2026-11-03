@@ -3,6 +3,7 @@ import { api } from "../../api";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import "../../styles/workspaces.css";
+import { RequirementsEditor } from "./authoring/RequirementsEditor";
 import { TagPicker } from "./authoring/TagPicker";
 import { EXTENSION_TYPES, metadataPayload, PROJECT_TYPES, type ProjectForm } from "./projectMetadata";
 
@@ -10,7 +11,7 @@ const emptyForm: ProjectForm = {
   title: "",
   description: "",
   authorNote: "",
-  precautions: "",
+  requirements: { schemaVersion: 1, dependencies: [], conflicts: [], notes: "" },
   versionLabel: "",
   projectType: "事件",
   extensionType: "",
@@ -56,7 +57,7 @@ export function CreateProject({
     onDirtyChange?.(false);
     onCancel();
   }
-  const update = (key: Exclude<keyof ProjectForm, "tags">, value: string): void =>
+  const update = (key: Exclude<keyof ProjectForm, "tags" | "requirements">, value: string): void =>
     setForm((previous) => ({ ...previous, [key]: value }));
 
   async function create(): Promise<void> {
@@ -191,16 +192,11 @@ export function CreateProject({
             onChange={(event) => update("authorNote", event.target.value)}
           />
         </label>
-        <label htmlFor="create-precautions">
-          注意事项
-          <Textarea
-            id="create-precautions"
-            value={form.precautions}
-            disabled={busy}
-            onChange={(event) => update("precautions", event.target.value)}
-          />
-          <small className="field-hint">写给读者的提醒，例如推荐设置、可能的触发内容或兼容性说明。</small>
-        </label>
+        <RequirementsEditor
+          value={form.requirements}
+          disabled={busy}
+          onChange={(requirements) => setForm((previous) => ({ ...previous, requirements }))}
+        />
       </section>
 
       <div className="workspace-actions">

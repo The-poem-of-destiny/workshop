@@ -10,25 +10,24 @@ export const releaseFileSchema = z.object({
 export type ReleaseFile = z.infer<typeof releaseFileSchema>;
 
 export const releaseManifestSchema = z.object({
-  revisionId: z.string(),
+  versionId: z.string(),
   manifestHash: z.string().nullable(),
   files: z.array(releaseFileSchema),
 });
 
 export type ReleaseManifest = z.infer<typeof releaseManifestSchema>;
 
-export const downloadTicketFileSchema = z.object({
+export const downloadFileSchema = z.object({
   kind: z.enum(["worldbook", "regex"]),
   url: z.string(),
-  expiresAt: z.string().datetime(),
 });
 
-export const downloadTicketResponseSchema = z.object({
-  revisionId: z.string(),
-  files: z.array(downloadTicketFileSchema),
+export const downloadResponseSchema = z.object({
+  versionId: z.string(),
+  files: z.array(downloadFileSchema),
 });
 
-export type DownloadTicketResponse = z.infer<typeof downloadTicketResponseSchema>;
+export type DownloadResponse = z.infer<typeof downloadResponseSchema>;
 
 export const acquisitionProjectSchema = z.object({
   id: z.string(),
@@ -44,7 +43,7 @@ export const acquisitionProjectSchema = z.object({
 export const acquisitionResponseSchema = z.object({
   project: acquisitionProjectSchema,
   release: releaseManifestSchema,
-  tickets: z.array(downloadTicketFileSchema),
+  downloads: z.array(downloadFileSchema),
 });
 
 export type AcquisitionResponse = z.infer<typeof acquisitionResponseSchema>;

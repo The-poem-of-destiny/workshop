@@ -1,8 +1,18 @@
-# 当前状态（2026-10-22）
+# 当前状态（目标收敛：2026-11-03）
 
 本文件只记录当前工作状态，不作为设计完成或线上部署证明。设计见 [api-design.md](api-design.md)，发现与验证见 [api-audit.md](api-audit.md)，前端映射见 [frontend-fidelity.md](frontend-fidelity.md)。
 
-2026-10-29 缓存切换以 [D-48](decisions.md#d-48-公开入口缓存与有界陈旧) 和 [api-design.md](api-design.md#6-缓存设计公开投影与实时权限分离) 为准；以下旧阶段记录不代表当前部署或授权状态。default entrypoint 的公开投影在 staging 配置 300 秒缓存、尽力 purge，production 关闭；真实 hosted HIT／失效尚待验证。迁移 0025 保留 epoch 行以兼容旧 Worker，删除写触发器。
+当前工作树的缓存方案以 [API 缓存设计](../../reference/cache-design.md) 和 [运行配置](../../reference/runtime-configuration.md) 为准：停用 Workers Cache，按分类 TTL 使用各 PoP 的 Cache API，不使用全球 purge 或 epoch。以下阶段记录是历史，不代表当前实现、部署或授权状态。hosted 行为尚未验证，上线仍需用户明确授权。
+
+## 当前目标收敛
+
+以下旧阶段记录保留为历史，不再代表当前契约与授权。目标源码已切换为 canonical project versions、单版本内容权威、automated/manual reviews、哈希校验的 R2 报告、统一图片 assets、内嵌条目索引、requirements、日粒度逻辑获取与指标，以及四池推荐／版本绑定玩家推荐。当前接口和配置以 reference 文档为准。
+
+- 全量 `pnpm check` 通过；production Web build 后真实本地 HTTP E2E 12/12 通过；非空升级回归保留精确历史 audit detail 与匹配报告的 duration。两名独立最终 reviewer 已复核各自发现的修复，无剩余具体问题。浏览器完整 E2E 仍以本轮 GitHub 检查结果为准，不把 HTTP-only 当浏览器证明。
+- 不可变旧站备份完整转换 33 张源表，阻断诊断为 0；39 个 migrations 的新本地计划为 244 个有界批次，完成独立源数据／搜索对账。旧计划已停止且保留，不恢复旧执行；本地计划不是远端迁移成功证明。
+- 用户已授权分关注点 commit／PR／merge 与既有 CI staging 部署。#69 单独修正自动发布边界：移除隐式远端 D1 migration，schema 变更暂停自动部署。#67 为纯 domain 四池算法，#68 为不可拆开的 schema／API／UI／导入消费者干净切换，各关注点单独 commit。只在 required CI／E2E 全绿后合并，不使用管理员绕过。
+- 未执行远端数据迁移、报告上传、生产切换或物理清理；未使用个人 Cloudflare token。远端迁移、报告转存和 binding 切换仍需单独授权与验证，不标记 W8／M-05 完成。
+- 风险边界：Discord 资格仅登录时核验；多账号推荐不能由有界信号彻底解决；公开缓存允许到期前陈旧；没有真实曝光的项目保持未知，不伪造 CTR 或零曝光证据。
 
 ## Git 与部署边界
 

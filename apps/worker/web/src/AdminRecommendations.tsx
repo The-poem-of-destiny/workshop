@@ -2,7 +2,6 @@ import type { useAdminRecommendations } from "./useAdminRecommendations";
 
 export function AdminRecommendations({
   recommendations,
-  reaction,
   comment,
   editRecommendation,
   setRemoveTarget,
@@ -18,12 +17,10 @@ export function AdminRecommendations({
   pickProject,
   recSearched,
   setComment,
-  setReaction,
   recBusy,
   saveRecommendation,
 }: {
   recommendations: ReturnType<typeof useAdminRecommendations>["recommendations"];
-  reaction: ReturnType<typeof useAdminRecommendations>["reaction"];
   comment: ReturnType<typeof useAdminRecommendations>["comment"];
   editRecommendation: ReturnType<typeof useAdminRecommendations>["editRecommendation"];
   setRemoveTarget: ReturnType<typeof useAdminRecommendations>["setRemoveTarget"];
@@ -39,7 +36,6 @@ export function AdminRecommendations({
   pickProject: ReturnType<typeof useAdminRecommendations>["pickProject"];
   recSearched: ReturnType<typeof useAdminRecommendations>["recSearched"];
   setComment: ReturnType<typeof useAdminRecommendations>["setComment"];
-  setReaction: ReturnType<typeof useAdminRecommendations>["setReaction"];
   recBusy: ReturnType<typeof useAdminRecommendations>["recBusy"];
   saveRecommendation: ReturnType<typeof useAdminRecommendations>["saveRecommendation"];
 }) {
@@ -57,10 +53,7 @@ export function AdminRecommendations({
             <div className="recommendation-row" key={item.id}>
               <div className="recommendation-main">
                 <strong>{item.project.title}</strong>
-                <small>
-                  {item.project.author.name}
-                  {item.reaction ? ` · 反应 ${item.reaction}` : ""}
-                </small>
+                <small>{item.project.author.name}</small>
                 {item.comment ? <p>{item.comment}</p> : null}
               </div>
               <div className="recommendation-actions">
@@ -139,10 +132,6 @@ export function AdminRecommendations({
           <label>
             评语
             <input value={comment} onChange={(event) => setComment(event.target.value)} />
-          </label>
-          <label>
-            反应
-            <input value={reaction} onChange={(event) => setReaction(event.target.value)} />
           </label>
         </div>
       ) : null}

@@ -63,8 +63,14 @@ function canonicalProjectListSearch(source: URLSearchParams): URLSearchParams | 
 
   const query = new URLSearchParams();
   if (parsed.data.limit !== 25) query.set("limit", String(parsed.data.limit));
-  if (parsed.data.sort !== "updated") query.set("sort", parsed.data.sort);
-  if (parsed.data.period && parsed.data.period !== "all") query.set("period", parsed.data.period);
+  if (parsed.data.sort !== "published") query.set("sort", parsed.data.sort);
+  if (
+    (parsed.data.sort === "likes" || parsed.data.sort === "downloads") &&
+    parsed.data.period &&
+    parsed.data.period !== "30d"
+  ) {
+    query.set("period", parsed.data.period);
+  }
   if (parsed.data.cursor) query.set("cursor", parsed.data.cursor);
   if (parsed.data.projectType) query.set("projectType", parsed.data.projectType);
   if (parsed.data.authorId) query.set("authorId", parsed.data.authorId);
@@ -91,10 +97,8 @@ function canonicalPublicUrl(request: Request): URL | null | undefined {
     pathname === "/api/v1/projects/discovery" ||
     pathname === "/api/v1/home" ||
     pathname === "/api/v1/recommendations" ||
-    pathname === "/api/v1/reference-sets" ||
     pathname === "/api/v1/site" ||
     /^\/api\/v1\/projects\/[^/]+(?:\/entries)?$/.test(pathname) ||
-    /^\/api\/v1\/reference-sets\/[^/]+$/.test(pathname) ||
     /^\/api\/v1\/public-assets\/(?:covers|gallery|banners)\/.+/.test(pathname) ||
     /^\/client\/v\/[a-f0-9]{8,64}\/index\.js$/.test(pathname) ||
     /^\/client\/checker\/v\/[a-f0-9]{8,64}\/(?:browser-checker\.js|upload-checker\.mjs|review-checker\.mjs|manifest\.json|NOTICES\.txt)$/.test(

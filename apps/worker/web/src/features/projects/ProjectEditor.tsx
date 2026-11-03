@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { type AuthorProject, type AuthorSubmission, api } from "../../api";
-import { ProjectDraftMetadata, ProjectMetadataWarnings } from "./authoring/ProjectDraftMetadata";
+import { ProjectDraftMetadata } from "./authoring/ProjectDraftMetadata";
 import { ProjectSubmissionReview } from "./authoring/ProjectSubmissionReview";
 import { useDraftAssetSelection } from "./authoring/useDraftAssetSelection";
 import { useDraftCoverAndHistory } from "./authoring/useDraftCoverAndHistory";
@@ -8,7 +8,7 @@ import { useDraftMetadataActions } from "./authoring/useDraftMetadataActions";
 import "../../styles/workspaces.css";
 import { AssetPicker } from "./authoring/AssetPicker";
 import { CheckPanel } from "./authoring/CheckPanel";
-import { CurrentRevisionEntries } from "./authoring/CurrentRevisionEntries";
+import { CurrentVersionEntries } from "./authoring/CurrentVersionEntries";
 import { runLocalCheck } from "./authoring/checker";
 import { ImagePicker } from "./authoring/ImagePicker";
 import { mergedRegexUpload } from "./authoring/preview";
@@ -31,17 +31,17 @@ export function ProjectEditor({
 }) {
   const [form, setForm] = useState<ProjectForm>(() => projectForm(entry.project, entry));
   const [savedForm, setSavedForm] = useState(() => JSON.stringify(projectForm(entry.project, entry)));
-  const [workingRevisionId, setWorkingRevisionId] = useState(entry.workingRevisionId);
+  const [workingVersionId, setWorkingVersionId] = useState(entry.workingVersionId);
   const [rowVersion, setRowVersion] = useState(entry.rowVersion);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<null | { kind: "warn" | "block" | "missing" }>(null);
-  const [submittedRevisionId, setSubmittedRevisionId] = useState<string | null>(null);
+  const [submittedVersionId, setSubmittedVersionId] = useState<string | null>(null);
   const cover = usePendingImage();
   const clearCover = cover.clear;
-  const resetIdentity = useRef<{ projectId: string; revisionId: string | null } | null>(null);
-  const workingRevisionFrozen = Boolean(
-    (entry.latestSubmission && entry.latestSubmission.revisionId === workingRevisionId) ||
-      (workingRevisionId && submittedRevisionId === workingRevisionId),
+  const resetIdentity = useRef<{ projectId: string; versionId: string | null } | null>(null);
+  const workingVersionFrozen = Boolean(
+    (entry.latestSubmission && entry.latestSubmission.versionId === workingVersionId) ||
+      (workingVersionId && submittedVersionId === workingVersionId),
   );
   const {
     reset: resetAssets,
@@ -66,10 +66,10 @@ export function ProjectEditor({
     pickRegex,
     removeWorldbook,
     removeRegex,
-  } = useDraftAssetSelection(workingRevisionFrozen || busy, onNotice);
+  } = useDraftAssetSelection(workingVersionFrozen || busy, onNotice);
   const { coverUrl, setCoverNonce, submissions, submissionError, setHistoryNonce } = useDraftCoverAndHistory(
     entry.project.id,
-    workingRevisionId,
+    workingVersionId,
   );
   const check = useMemo(() => runLocalCheck(worldbook, regexAssets), [worldbook, regexAssets]);
   const metadataDirty = JSON.stringify(form) !== savedForm;
@@ -99,16 +99,16 @@ export function ProjectEditor({
     // Metadata refreshes must not discard dirty local selections; only a new working revision resets them.
     if (
       resetIdentity.current?.projectId === entry.project.id &&
-      resetIdentity.current.revisionId === entry.workingRevisionId
+      resetIdentity.current.versionId === entry.workingVersionId
     ) {
       return;
     }
-    resetIdentity.current = { projectId: entry.project.id, revisionId: entry.workingRevisionId };
+    resetIdentity.current = { projectId: entry.project.id, versionId: entry.workingVersionId };
     resetAssets();
     clearCover();
     setForm(projectForm(entry.project, entry));
     setSavedForm(JSON.stringify(projectForm(entry.project, entry)));
-    setWorkingRevisionId(entry.workingRevisionId);
+    setWorkingVersionId(entry.workingVersionId);
   }, [entry, clearCover, resetAssets]);
 
   useEffect(
@@ -122,7 +122,7 @@ export function ProjectEditor({
     entry,
     form,
     busy,
-    workingRevisionFrozen,
+    workingVersionFrozen,
     setBusy,
     rowVersion,
     setRowVersion,
@@ -132,11 +132,11 @@ export function ProjectEditor({
     onError,
   });
 
-  async function createFirstRevision(): Promise<void> {
+  async function createFirstVersion(): Promise<void> {
     setBusy(true);
     try {
-      const result = await api.createRevision(entry.project.id, rowVersion, metadataPayload(form));
-      setWorkingRevisionId(result.revisionId);
+      const result = await api.createVersion(entry.project.id, rowVersion, metadataPayload(form));
+      setWorkingVersionId(result.versionId);
       setRowVersion(result.rowVersion);
       setWorldbook(null);
       setRegexAssets([]);
@@ -150,12 +150,12 @@ export function ProjectEditor({
   }
 
   async function deleteSavedEntry(kind: "worldbook" | "regex", key: string): Promise<void> {
-    if (!workingRevisionId || busy || workingRevisionFrozen || dirty) return;
+    if (!workingVersionId || busy || workingVersionFrozen || dirty) return;
     setBusy(true);
     try {
-      const result = await api.deleteProjectEntry(entry.project.id, workingRevisionId, rowVersion, kind, key);
+      const result = await api.deleteProjectEntry(entry.project.id, workingVersionId, rowVersion, kind, key);
       setRowVersion(result.rowVersion);
-      setWorkingRevisionId(result.revisionId);
+      setWorkingVersionId(result.versionId);
       setWorldbook(null);
       regexAssetsRef.current = [];
       setRegexAssets([]);
@@ -173,11 +173,11 @@ export function ProjectEditor({
   }
 
   async function uploadWorldbook(): Promise<void> {
-    if (!worldbook || !workingRevisionId || busy || workingRevisionFrozen) return;
+    if (!worldbook || !workingVersionId || busy || workingVersionFrozen) return;
     const version = selectionVersion.current;
     setBusy(true);
     try {
-      const result = await api.uploadFile(entry.project.id, workingRevisionId, rowVersion, "worldbook", worldbook.file);
+      const result = await api.uploadFile(entry.project.id, workingVersionId, rowVersion, "worldbook", worldbook.file);
       setRowVersion(result.rowVersion);
       if (version === selectionVersion.current) setWorldbookUploaded(true);
       setSubmitNotice(null);
@@ -191,14 +191,14 @@ export function ProjectEditor({
   }
 
   async function uploadRegex(): Promise<void> {
-    if (regexAssets.length === 0 || !workingRevisionId || busy || workingRevisionFrozen) return;
+    if (regexAssets.length === 0 || !workingVersionId || busy || workingVersionFrozen) return;
     const selected = regexAssets;
     const version = selectionVersion.current;
     const file = mergedRegexUpload(selected);
     if (!file) return;
     setBusy(true);
     try {
-      const result = await api.uploadFile(entry.project.id, workingRevisionId, rowVersion, "regex", file);
+      const result = await api.uploadFile(entry.project.id, workingVersionId, rowVersion, "regex", file);
       setRowVersion(result.rowVersion);
       if (version === selectionVersion.current) setRegexUploaded(true);
       setSubmitNotice(null);
@@ -213,10 +213,10 @@ export function ProjectEditor({
 
   async function uploadCover(): Promise<void> {
     const pending = cover.pending;
-    if (!pending || !workingRevisionId || busy || workingRevisionFrozen) return;
+    if (!pending || !workingVersionId || busy || workingVersionFrozen) return;
     setBusy(true);
     try {
-      const result = await api.uploadFile(entry.project.id, workingRevisionId, rowVersion, "cover", pending.file);
+      const result = await api.uploadFile(entry.project.id, workingVersionId, rowVersion, "cover", pending.file);
       setRowVersion(result.rowVersion);
       cover.clear();
       setCoverNonce((value) => value + 1);
@@ -229,22 +229,22 @@ export function ProjectEditor({
     }
   }
 
-  async function sendSubmission(acknowledged: boolean): Promise<void> {
-    if (busy || dirty || !workingRevisionId || workingRevisionFrozen) {
+  async function sendSubmission(): Promise<void> {
+    if (busy || dirty || !workingVersionId || workingVersionFrozen) {
       setConfirm(null);
       return;
     }
     setConfirm(null);
     setBusy(true);
     try {
-      const result = await api.submitProject(entry.project.id, workingRevisionId, rowVersion, {
-        gate: check?.gate ?? "missing",
-        checkerRevision: check ? `${check.report.engine}/${check.report.policyVersion}` : undefined,
-        warningCount: check?.warnings.length ?? 0,
-        acknowledged,
+      const result = await api.submitProject(entry.project.id, workingVersionId, rowVersion, {
+        gate: check?.gate,
+        checkerVersion: check ? `${check.report.engine}/${check.report.policyVersion}` : undefined,
       });
       setRowVersion(result.rowVersion);
-      setSubmittedRevisionId(workingRevisionId);
+      setSubmittedVersionId(workingVersionId);
+      // Optional recommendation evidence must never turn a successful submission into a failed save.
+      void api.reportProjectChange(entry.project.id, workingVersionId).catch(() => undefined);
       onNotice(
         check
           ? "已提交审核；客户端自检只覆盖本次选择的文件，服务器会重新检查。"
@@ -276,7 +276,7 @@ export function ProjectEditor({
   }
 
   function submit(): void {
-    if (busy || parsingAssets > 0 || !workingRevisionId || workingRevisionFrozen) return;
+    if (busy || parsingAssets > 0 || !workingVersionId || workingVersionFrozen) return;
     const pendingUploads: string[] = [];
     if (metadataDirty) pendingUploads.push("未保存的资料（先保存草稿资料）");
     if (cover.pending) pendingUploads.push("封面");
@@ -299,7 +299,7 @@ export function ProjectEditor({
       setConfirm({ kind: "warn" });
       return;
     }
-    void sendSubmission(false);
+    void sendSubmission();
   }
 
   return (
@@ -313,7 +313,7 @@ export function ProjectEditor({
           删除项目
         </button>
       </div>
-      {workingRevisionFrozen ? (
+      {workingVersionFrozen ? (
         <p className="notice">
           资料、封面与内容已作为同一快照提交并冻结。继续修改请新建版本；新提交会重新审核，当前公开版本保持不变。
         </p>
@@ -329,18 +329,18 @@ export function ProjectEditor({
               ? "所选文件已上传"
               : "使用当前版本文件"}
         </span>
-        <span>提交：{workingRevisionFrozen ? "已冻结，历史保留" : "尚未提交；公开版本不受影响"}</span>
+        <span>提交：{workingVersionFrozen ? "已冻结，历史保留" : "尚未提交；公开版本不受影响"}</span>
       </div>
-      <ProjectDraftMetadata form={form} setForm={setForm} disabled={busy || workingRevisionFrozen} />
+      <ProjectDraftMetadata form={form} setForm={setForm} disabled={busy || workingVersionFrozen} />
 
       <section className="workspace-section authoring-section">
         <h3>内容文件</h3>
-        <CurrentRevisionEntries
+        <CurrentVersionEntries
           projectId={entry.project.id}
-          revisionId={workingRevisionId}
+          versionId={workingVersionId}
           rowVersion={rowVersion}
           busy={busy}
-          frozen={workingRevisionFrozen}
+          frozen={workingVersionFrozen}
           dirty={dirty}
           onDelete={deleteSavedEntry}
         />
@@ -351,7 +351,7 @@ export function ProjectEditor({
           regexError={regexError}
           worldbookUploaded={worldbookUploaded}
           regexUploaded={regexUploaded}
-          busy={busy || workingRevisionFrozen}
+          busy={busy || workingVersionFrozen}
           projectType={form.projectType}
           onPickWorldbook={pickWorldbook}
           onPickRegex={pickRegex}
@@ -382,7 +382,7 @@ export function ProjectEditor({
           label="选择封面"
           uploadLabel={coverUrl ? "更新封面" : "上传封面"}
           hint="JPEG、PNG 或 WebP，单张不超过 5 MiB，宽高不超过 4096 像素。选择后可以先预览再上传。"
-          disabled={busy || workingRevisionFrozen}
+          disabled={busy || workingVersionFrozen}
           currentUrl={coverUrl}
           currentAlt="当前封面"
           pending={cover.pending}
@@ -394,25 +394,24 @@ export function ProjectEditor({
       </section>
 
       <div className="actions">
-        <button type="button" className="primary" onClick={() => void save()} disabled={busy || workingRevisionFrozen}>
+        <button type="button" className="primary" onClick={() => void save()} disabled={busy || workingVersionFrozen}>
           保存草稿资料
         </button>
-        {!workingRevisionId ? (
-          <button type="button" onClick={() => void createFirstRevision()} disabled={busy}>
+        {!workingVersionId ? (
+          <button type="button" onClick={() => void createFirstVersion()} disabled={busy}>
             创建首个版本
           </button>
         ) : null}
       </div>
 
-      <ProjectMetadataWarnings findings={entry.metadataFindings} />
       <ProjectSubmissionReview
         check={check}
         busy={busy}
-        disabled={busy || parsingAssets > 0 || !workingRevisionId || workingRevisionFrozen}
+        disabled={busy || parsingAssets > 0 || !workingVersionId || workingVersionFrozen}
         submitNotice={submitNotice}
         confirm={confirm}
         onSubmit={submit}
-        onConfirm={() => void sendSubmission(true)}
+        onConfirm={() => void sendSubmission()}
         onCancel={() => setConfirm(null)}
       >
         <SubmissionHistory

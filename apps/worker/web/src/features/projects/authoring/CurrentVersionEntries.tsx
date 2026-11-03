@@ -6,9 +6,9 @@ import { ConfirmDialog } from "../../../components/ui/confirm-dialog";
 type Entry = { kind: "worldbook" | "regex"; key: string; name: string };
 
 /** Saved assets are independent of the local upload selection. Never execute their source. */
-export function CurrentRevisionEntries({
+export function CurrentVersionEntries({
   projectId,
-  revisionId,
+  versionId,
   rowVersion,
   busy,
   frozen,
@@ -16,7 +16,7 @@ export function CurrentRevisionEntries({
   onDelete,
 }: {
   projectId: string;
-  revisionId: string | null;
+  versionId: string | null;
   rowVersion: number;
   busy: boolean;
   frozen: boolean;
@@ -31,17 +31,17 @@ export function CurrentRevisionEntries({
   const [reload, setReload] = useState(0);
   // Asset content can change without changing the revision ID (upload/delete/retry).
   const request = useMemo(
-    () => ({ projectId, revisionId, rowVersion, generation: reload }),
-    [projectId, revisionId, rowVersion, reload],
+    () => ({ projectId, versionId, rowVersion, generation: reload }),
+    [projectId, versionId, rowVersion, reload],
   );
 
   useEffect(() => {
-    const { projectId: requestedProjectId, revisionId: requestedRevisionId } = request;
+    const { projectId: requestedProjectId, versionId: requestedVersionId } = request;
     let active = true;
     setEntries([]);
     setSelected(null);
     setError(null);
-    if (!requestedRevisionId) {
+    if (!requestedVersionId) {
       setLoading(false);
       return;
     }
@@ -50,7 +50,7 @@ export function CurrentRevisionEntries({
       (["worldbook", "regex"] as const).map(async (kind) => {
         let raw: unknown;
         try {
-          raw = await api.authorAsset(requestedProjectId, requestedRevisionId, kind);
+          raw = await api.authorAsset(requestedProjectId, requestedVersionId, kind);
         } catch (reason) {
           if (reason instanceof ApiError && reason.status === 404) return [];
           throw reason;
@@ -119,7 +119,7 @@ export function CurrentRevisionEntries({
       ) : null}
       <button
         type="button"
-        disabled={busy || pending || loading || !revisionId}
+        disabled={busy || pending || loading || !versionId}
         onClick={() => setReload((value) => value + 1)}
       >
         刷新当前内容

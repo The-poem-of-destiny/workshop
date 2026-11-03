@@ -3,8 +3,6 @@ import { projectListQuerySchema, projectListResponseSchema } from "@workshop/con
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DataEnv } from "../src/data/env";
-import { canonicalPublicRequest } from "../src/http/public-cache";
-import { consumeDownloadToken, issueDownloadTickets } from "../src/storage/downloads";
 import { setLike, unsetLike } from "../src/storage/interactions";
 import { isValidProjectListCursor, listPublishedProjects } from "../src/storage/projects";
 import { hashSessionToken } from "../src/storage/session-hash";
@@ -15,7 +13,9 @@ const asOf = "2026-10-26T12:00:00.000Z";
 
 beforeAll(async () => applySchema(bindings.DB));
 beforeEach(async () => {
-  await bindings.DB.exec("DELETE FROM projects; DELETE FROM users;");
+  await bindings.DB.exec(
+    "DELETE FROM download_daily_stats; DELETE FROM assets; DELETE FROM projects; DELETE FROM users;",
+  );
   await bindings.DB.prepare("INSERT INTO users (id, username) VALUES ('u', 'author')").run();
   await bindings.R2.delete("catalog/wb");
 });
@@ -23,25 +23,25 @@ afterEach(() => vi.useRealTimers());
 
 async function project(id: string, type = "角色", tags = '["奇幻"]') {
   await bindings.DB.prepare(`INSERT INTO projects
-    (id, author_id, title, project_type, search_tags, visibility, published_revision_id, published_at, updated_at)
-    VALUES (?, 'u', ?, ?, ?, 'public', ?, ?, ?)`)
-    .bind(id, `奇幻${id}`, type, tags, `r-${id}`, asOf, asOf)
+    (id, author_id, visibility, published_version_id, published_at, updated_at)
+    VALUES (?, 'u', 'public', ?, ?, ?)`)
+    .bind(id, `r-${id}`, asOf, asOf)
     .run();
-  await bindings.DB.prepare(`INSERT INTO project_revisions
-    (id, project_id, revision_no, title, created_by) VALUES (?, ?, 1, ?, 'u')`)
-    .bind(`r-${id}`, id, id)
+  await bindings.DB.prepare(`INSERT INTO project_versions
+    (id, project_id, version_no, title, project_type, tags, created_by) VALUES (?, ?, 1, ?, ?, ?, 'u')`)
+    .bind(`r-${id}`, id, `奇幻${id}`, type, tags)
     .run();
 }
 
 async function event(id: string, delta: number, time: string) {
-  await bindings.DB.prepare(`INSERT INTO project_like_events
-    (project_id, delta, occurred_at, source) VALUES (?, ?, ?, 'interaction')`)
-    .bind(id, delta, time)
+  await bindings.DB.prepare(`INSERT INTO project_metrics_daily(project_id,day_key,likes_delta) VALUES(?,?,?)
+    ON CONFLICT(project_id,day_key) DO UPDATE SET likes_delta = likes_delta + excluded.likes_delta`)
+    .bind(id, time.slice(0, 10), delta)
     .run();
 }
 
 describe("catalog net windows on real D1", () => {
-  it("preserves period selection through the real Worker gateway and canonical public keys", async () => {
+  it("preserves period selection through the real Worker gateway", async () => {
     await project("recent");
     await project("older");
     const now = Date.now();
@@ -49,31 +49,24 @@ describe("catalog net windows on real D1", () => {
     await event("older", 1, new Date(now - 14 * 86_400_000).toISOString());
     await event("older", 1, new Date(now - 13 * 86_400_000).toISOString());
     await bindings.DB.prepare("UPDATE projects SET likes_count = CASE id WHEN 'recent' THEN 1 ELSE 2 END").run();
-    const canonicalUrls = new Map<string, string>();
     for (const period of ["all", "7d", "30d"] as const) {
       const url = `https://workshop.example/api/v1/projects?sort=likes&period=${period}`;
-      const canonical = canonicalPublicRequest(new Request(url));
-      expect(canonical.kind).toBe("public");
-      if (canonical.kind !== "public") throw new Error("Expected public catalog request");
-      canonicalUrls.set(period, canonical.request.url);
       const response = await SELF.fetch(url);
       expect(response.status).toBe(200);
       const body = projectListResponseSchema.parse(await response.json());
       expect(body.total).toBe(2);
       expect(body.items.map((item) => item.id)).toEqual(period === "7d" ? ["recent", "older"] : ["older", "recent"]);
     }
-    expect(new Set(canonicalUrls.values()).size).toBe(3);
-    expect(new URL(canonicalUrls.get("7d")!).searchParams.get("period")).toBe("7d");
-    expect(new URL(canonicalUrls.get("30d")!).searchParams.get("period")).toBe("30d");
-    const omitted = canonicalPublicRequest(new Request("https://workshop.example/api/v1/projects?sort=likes"));
-    expect(omitted.kind).toBe("public");
-    if (omitted.kind !== "public") throw new Error("Expected public default catalog request");
-    expect(omitted.request.url).toBe(canonicalUrls.get("all"));
+    const omitted = await SELF.fetch("https://workshop.example/api/v1/projects?sort=likes");
+    const body = projectListResponseSchema.parse(await omitted.json());
+    expect(body.items.map((item) => item.id)).toEqual(["older", "recent"]);
   });
 
   it("rejects anonymous complete previews and returns authenticated content privately", async () => {
     await project("preview");
-    await bindings.DB.prepare("UPDATE project_revisions SET entry_index_ready = 1 WHERE id = 'r-preview'").run();
+    await bindings.DB.prepare(
+      `UPDATE project_versions SET entry_index = '{"schemaVersion":1,"entries":[]}' WHERE id = 'r-preview'`,
+    ).run();
     const anonymous = await SELF.fetch(
       new URL("/api/v1/projects/preview/preview/worldbook", "https://workshop.test").toString(),
       {},
@@ -95,7 +88,7 @@ describe("catalog net windows on real D1", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toContain("private");
     expect(response.headers.get("cache-control")).toContain("no-store");
-    expect(await response.json()).toEqual({ revisionId: "r-preview", kind: "worldbook", entries: [] });
+    expect(await response.json()).toEqual({ versionId: "r-preview", kind: "worldbook", entries: [] });
   });
 
   it("emits only actual like transitions and counts cancellation of an old like negatively", async () => {
@@ -103,29 +96,39 @@ describe("catalog net windows on real D1", () => {
     await project("zero");
     await setLike(bindings.DB, "u", "negative");
     await setLike(bindings.DB, "u", "negative");
-    const inserted = await bindings.DB.prepare("SELECT COUNT(*) AS n FROM project_like_events").first<{ n: number }>();
-    expect(inserted?.n).toBe(1);
-    await bindings.DB.prepare("UPDATE project_like_events SET occurred_at = '2020-01-01T00:00:00.000Z'").run();
+    expect(
+      (
+        await bindings.DB.prepare("SELECT likes_delta FROM project_metrics_daily WHERE project_id = 'negative'").first<{
+          likes_delta: number;
+        }>()
+      )?.likes_delta,
+    ).toBe(1);
+    await bindings.DB.prepare(
+      "UPDATE project_metrics_daily SET day_key = '2020-01-01' WHERE project_id = 'negative'",
+    ).run();
     await unsetLike(bindings.DB, "u", "negative");
     await unsetLike(bindings.DB, "u", "negative");
-    const events = await bindings.DB.prepare("SELECT delta FROM project_like_events ORDER BY id").all<{
-      delta: number;
-    }>();
-    expect(events.results.map((row) => row.delta)).toEqual([1, -1]);
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT SUM(likes_delta) AS net FROM project_metrics_daily WHERE project_id = 'negative'",
+        ).first<{ net: number }>()
+      )?.net,
+    ).toBe(0);
     const page = await listPublishedProjects(bindings.DB, { limit: 10, sort: "likes", period: "7d" });
     expect(page.items.map((item) => item.id)).toEqual(["zero", "negative"]);
     expect(page.items[1]?.counts.likes).toBe(0);
   });
 
   for (const days of [7, 30, 90] as const) {
-    it(`uses exact inclusive UTC ${days}-day bounds, not project age`, async () => {
+    it(`uses UTC natural ${days}-day bounds, not project age`, async () => {
       await project("inside");
       await project("outside");
       await project("negative");
-      const start = Date.parse(asOf) - days * 86_400_000;
+      const start = Date.parse(`${asOf.slice(0, 10)}T00:00:00.000Z`) - (days - 1) * 86_400_000;
       await event("inside", 1, new Date(start).toISOString());
       await event("outside", 1, new Date(start - 1).toISOString());
-      await event("outside", 1, new Date(Date.parse(asOf) + 1).toISOString());
+      await event("outside", 1, new Date(Date.parse(asOf.slice(0, 10)) + 86_400_000).toISOString());
       await event("negative", -1, asOf);
       vi.useFakeTimers({ toFake: ["Date"] });
       vi.setSystemTime(new Date(asOf));
@@ -204,19 +207,18 @@ describe("catalog net windows on real D1", () => {
     ]);
   });
 
-  it("applies timestamp bounds to download events and keeps read accounting bounded", async () => {
+  it("applies natural-day bounds to download aggregates without writes", async () => {
     await project("inside");
     await project("outside");
     await project("future");
-    const boundary = new Date(Date.parse(asOf) - 7 * 86_400_000).toISOString();
+    const boundary = "2026-10-20T00:00:00.000Z";
     for (const [id, time] of [
       ["inside", boundary],
       ["outside", new Date(Date.parse(boundary) - 1).toISOString()],
-      ["future", new Date(Date.parse(asOf) + 1).toISOString()],
+      ["future", "2026-10-27T00:00:00.000Z"],
     ]) {
-      await bindings.DB.prepare(`INSERT INTO download_events (user_id, project_id, day_key, created_at)
-        VALUES ('u', ?, ?, ?)`)
-        .bind(id, time!.slice(0, 10), time)
+      await bindings.DB.prepare(`INSERT INTO project_metrics_daily (project_id, day_key, downloads) VALUES (?, ?, 1)`)
+        .bind(id, time!.slice(0, 10))
         .run();
     }
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -231,59 +233,5 @@ describe("catalog net windows on real D1", () => {
     expect(page.total).toBe(3);
     expect(reads).toBeLessThan(200);
     expect(writes).toBe(0);
-  });
-
-  it("counts only successful consumption, once per user/project/UTC day", async () => {
-    await project("download");
-    await project("zero");
-    const hash = "session-hash";
-    await bindings.DB.prepare(`INSERT INTO sessions (token_hash, user_id, session_version, expires_at)
-      VALUES (?, 'u', 1, '2099-01-01T00:00:00.000Z')`)
-      .bind(hash)
-      .run();
-    const session = {
-      userId: "u",
-      sessionVersion: 1,
-      tokenHash: hash,
-      role: "member" as const,
-      expiresAt: "2099-01-01T00:00:00.000Z",
-    };
-    await bindings.DB.prepare(`INSERT INTO assets
-      (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime)
-      VALUES ('wb', 'download', 'r-download', 'worldbook', 'catalog/wb', ?, 2, 'application/json')`)
-      .bind("0".repeat(64))
-      .run();
-    const tickets = await issueDownloadTickets(
-      bindings.DB,
-      "download",
-      "r-download",
-      "u",
-      1,
-      [{ kind: "worldbook" }],
-      60000,
-    );
-    expect(await consumeDownloadToken(bindings.DB, bindings.R2, tickets[0]!.token, session)).toBe("not_found");
-    expect((await bindings.DB.prepare("SELECT COUNT(*) AS n FROM download_events").first<{ n: number }>())?.n).toBe(0);
-    await bindings.R2.put("catalog/wb", "{}");
-    expect(await consumeDownloadToken(bindings.DB, bindings.R2, tickets[0]!.token, session)).toHaveProperty("object");
-    expect(await consumeDownloadToken(bindings.DB, bindings.R2, tickets[0]!.token, session)).toBe("not_found");
-    const again = await issueDownloadTickets(
-      bindings.DB,
-      "download",
-      "r-download",
-      "u",
-      1,
-      [{ kind: "worldbook" }],
-      60000,
-    );
-    expect(await consumeDownloadToken(bindings.DB, bindings.R2, again[0]!.token, session)).toHaveProperty("object");
-    const counted = await bindings.DB.prepare("SELECT downloads_count FROM projects WHERE id = 'download'").first<{
-      downloads_count: number;
-    }>();
-    expect(counted?.downloads_count).toBe(1);
-    for (const period of ["all", "7d", "30d", "90d"] as const) {
-      const page = await listPublishedProjects(bindings.DB, { limit: 10, sort: "downloads", period });
-      expect(page.items.map((item) => item.id)).toEqual(["download", "zero"]);
-    }
   });
 });

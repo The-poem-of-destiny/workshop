@@ -31,8 +31,7 @@ describe("review metadata evidence", () => {
     const detail = {
       submission: { id: "s", submittedAt: "now", checkStatus: "completed" },
       project: { id: "p", author: { name: "author" }, visibility: "private" },
-      revision: { id: "r", revisionNo: 1, title: "title" },
-      checkRuns: [],
+      version: { id: "r", versionNo: 1, title: "title" },
     } as unknown as Parameters<typeof buildReviewMarkdown>[0]["detail"];
     const markdown = buildReviewMarkdown({ detail, report, diff: null, sources: [], reason: "" });
     expect(markdown).toContain("提示 · tags：duplicate tags");
@@ -54,20 +53,23 @@ describe("submission metadata diff", () => {
     await applySchema(bindings.DB);
   });
 
-  it("compares schema versions against the frozen published revision", async () => {
+  it("compares schema versions against the frozen published version", async () => {
     await bindings.DB.prepare(
       "INSERT INTO users (id, username, role) VALUES ('diff-user', 'diff-user', 'member')",
     ).run();
     await bindings.DB.prepare(
-      "INSERT INTO projects (id, author_id, title, visibility) VALUES ('diff-project', 'diff-user', 'project', 'private')",
+      "INSERT INTO projects (id, author_id, visibility) VALUES ('diff-project', 'diff-user', 'private')",
     ).run();
-    await bindings.DB.prepare(`INSERT INTO project_revisions
-      (id, project_id, revision_no, title, schema_version, created_by) VALUES
+    await bindings.DB.prepare(`INSERT INTO project_versions
+      (id, project_id, version_no, title, schema_version, created_by) VALUES
       ('diff-old', 'diff-project', 1, 'project', '1.0', 'diff-user'),
       ('diff-new', 'diff-project', 2, 'project', '2.0', 'diff-user')`).run();
     await bindings.DB.prepare(`INSERT INTO submissions
-      (id, project_id, revision_id, base_published_revision_id, status, submitted_by)
+      (id, project_id, version_id, base_published_version_id, status, submitted_by)
       VALUES ('diff-submission', 'diff-project', 'diff-new', 'diff-old', 'pending', 'diff-user')`).run();
+    await bindings.DB.prepare(
+      "INSERT INTO automated_reviews (submission_id, status) VALUES ('diff-submission', 'queued')",
+    ).run();
     const diff = await getSubmissionDiff(bindings.DB, bindings.R2, "diff-submission");
     expect(diff?.metadata.before?.schema_version).toBe("1.0");
     expect(diff?.metadata.after.schema_version).toBe("2.0");

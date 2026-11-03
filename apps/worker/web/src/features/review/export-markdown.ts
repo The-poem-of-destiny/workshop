@@ -118,9 +118,9 @@ function appendReportLines(lines: string[], report: CheckReport, sources: Source
 
 function appendDiffLines(lines: string[], diff: SubmissionDiff): void {
   lines.push("## 变更摘要", "");
-  lines.push(`- 内容基线：${diff.previousRevisionId ?? "无（首次提交）"} → #${diff.revisionNo}（${diff.revisionId}）`);
+  lines.push(`- 内容基线：${diff.previousVersionId ?? "无（首次提交）"} → #${diff.versionNo}（${diff.versionId}）`);
   lines.push(
-    `- finding 基线：${diff.findingBaseline.available ? `${diff.findingBaseline.revisionId} / ${diff.findingBaseline.submissionId}` : "无可用基线报告；新增不代表新引入问题"}`,
+    `- finding 基线：${diff.findingBaseline.available ? `${diff.findingBaseline.versionId} / ${diff.findingBaseline.submissionId}` : "无可用基线报告；新增不代表新引入问题"}`,
     "",
   );
   for (const kind of ["worldbook", "regex"] as const) {
@@ -167,8 +167,8 @@ export function buildReviewMarkdown({
   sources: SourceFile[];
   reason: string;
 }): string {
-  const { submission, project, revision, checkRuns } = detail;
-  const gate = checkRuns[0]?.routeGate ?? report?.routeGate ?? null;
+  const { submission, project, version: revision } = detail;
+  const gate = report?.routeGate ?? null;
   const severity = countSeverities(report?.findings ?? []);
   const blocking = (report?.findings ?? []).filter(isBlockingFinding);
   const lines: string[] = [
@@ -185,12 +185,12 @@ export function buildReviewMarkdown({
     `| 作者 | ${cell(project.author.name)} |`,
     `| 可见性 | ${project.visibility} |`,
     `| 提交 ID | ${submission.id} |`,
-    `| Revision | #${revision.revisionNo}（${revision.id}） |`,
+    `| Revision | #${revision.versionNo}（${revision.id}） |`,
     `| 提交时间 | ${submission.submittedAt} |`,
     `| 检查状态 | ${submission.checkStatus} |`,
     `| 客户端 gate | ${submission.clientGate ?? "missing"} |`,
     `| 服务端门禁 | ${gateLabels[gate ?? "missing"] ?? gate ?? "missing"} |`,
-    `| 检查器版本 | ${checkRuns[0]?.reviewCheckerRevision ?? submission.reviewCheckerRevision ?? "未记录"} |`,
+    `| 检查器版本 | ${submission.checkerVersion ?? "未记录"} |`,
     `| manifest hash | ${revision.manifestHash ?? "未记录"} |`,
     `| 报告 hash | ${submission.checkReportHash ?? "未记录"} |`,
     "",
@@ -230,8 +230,8 @@ export function buildReviewMarkdown({
 }
 
 export function reviewMarkdownFileName(detail: AdminSubmissionDetail): string {
-  const safe = detail.revision.title.replace(/[\\/:*?"<>|\s]+/g, "_").slice(0, 60) || "review";
-  return `${safe}-r${detail.revision.revisionNo}-复核.md`;
+  const safe = detail.version.title.replace(/[\\/:*?"<>|\s]+/g, "_").slice(0, 60) || "review";
+  return `${safe}-r${detail.version.versionNo}-复核.md`;
 }
 
 /** Downloads the Markdown and copies it to the clipboard; returns whether the copy succeeded. */

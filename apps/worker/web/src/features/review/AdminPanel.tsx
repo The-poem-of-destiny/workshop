@@ -51,7 +51,6 @@ export function AdminPanel({
     recheck,
     routeGate,
     report,
-    latestRun,
     openDecision,
     manualApproval,
     confirmDisabled,
@@ -166,7 +165,6 @@ export function AdminPanel({
             exportMarkdown={exportMarkdown}
             routeGate={routeGate}
             report={report}
-            latestRun={latestRun}
             diff={diff}
             downloadKind={downloadKind}
             download={download}

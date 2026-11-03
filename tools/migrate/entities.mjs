@@ -74,10 +74,10 @@ export function projectRows(sourceProject, userById, projects, skipped) {
     skipped.push({ project_id: id, reason: "duplicate_project_id" });
     return null;
   }
-  const revision = {
+  const version = {
     id: generatedId("revision", id),
     project_id: id,
-    revision_no: 1,
+    version_no: 1,
     title,
     description: sourceProject.description ?? null,
     author_note: null,
@@ -92,47 +92,29 @@ export function projectRows(sourceProject, userById, projects, skipped) {
     created_by: authorId,
     created_at: times.created_at,
     version_label: sourceProject.version_label ?? sourceProject.version ?? null,
-    precautions: sourceProject.precautions ?? null,
+    requirements:
+      sourceProject.precautions == null
+        ? null
+        : JSON.stringify({ schemaVersion: 1, dependencies: [], conflicts: [], notes: sourceProject.precautions }),
     cover_position_x: Number.isFinite(sourceProject.cover_position_x) ? sourceProject.cover_position_x : 50,
     cover_position_y: Number.isFinite(sourceProject.cover_position_y) ? sourceProject.cover_position_y : 50,
     cover_zoom: Number.isFinite(sourceProject.cover_zoom) ? sourceProject.cover_zoom : 1,
-    metadata_findings: "[]",
-    metadata_checker_revision: null,
-    metadata_checked_at: null,
-    metadata_checked_by: null,
-    entry_index_ready: 1,
+    entry_index: null,
   };
   const publishedAt = sourceProject.latest_approved_at ?? sourceProject.reviewed_at ?? times.updated_at;
   const project = {
     id,
     author_id: authorId,
-    title,
-    description: sourceProject.description ?? null,
-    author_note: null,
-    project_type: projectType,
-    extension_type: extensionType,
-    search_tags: JSON.stringify(tags),
     visibility: "public",
-    working_revision_id: revision.id,
-    published_revision_id: revision.id,
+    working_version_id: version.id,
+    published_version_id: version.id,
     published_at: publishedAt,
     published_updated_at: publishedAt,
     row_version: 1,
     created_at: times.created_at,
     updated_at: times.updated_at,
-    version_label: revision.version_label,
-    precautions: revision.precautions,
-    cover_position_x: revision.cover_position_x,
-    cover_position_y: revision.cover_position_y,
-    cover_zoom: revision.cover_zoom,
-    metadata_findings: "[]",
-    metadata_checker_revision: null,
-    metadata_checked_at: null,
-    metadata_checked_by: null,
-    published_schema_version: null,
-    published_discord_thread_url: revision.discord_thread_url,
   };
-  return { project, revision, author };
+  return { project, version, author };
 }
 
 export function memberRow(author) {

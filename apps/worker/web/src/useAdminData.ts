@@ -2,7 +2,6 @@ import { useState } from "react";
 import { type AdminProject, api, type JsonValue, type SiteBanner, type SiteSettings } from "./api";
 import type { useAdminMembers } from "./useAdminMembers";
 import type { useAdminRecommendations } from "./useAdminRecommendations";
-import { useAdminReferences } from "./useAdminReferences";
 
 const EMPTY_BANNER: SiteBanner = {
   imageUrl: null,
@@ -39,36 +38,13 @@ export function useAdminData({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [projectBusy, setProjectBusy] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
-  const references = useAdminReferences({ refresh, onError, onNotice });
-  const {
-    setSets,
-    newSetName,
-    setNewSetName,
-    newSetVersion,
-    setNewSetVersion,
-    createSet,
-    setId,
-    selectSet,
-    sets,
-    setName,
-    setSetName,
-    setVersion,
-    setSetVersion,
-    setDescription,
-    setSetDescription,
-    setItems,
-    setSetItems,
-    saveSet,
-    createVersion,
-  } = references;
   async function refresh(): Promise<void> {
     setBusy(true);
     setLoadError(null);
     try {
-      const [projectList, memberList, referenceList, siteValue, recommendationList] = await Promise.all([
+      const [projectList, memberList, siteValue, recommendationList] = await Promise.all([
         api.adminProjects(projectSearch || undefined),
         api.adminMembers(),
-        api.referenceSets(),
         api.site(),
         api.recommendations(),
       ]);
@@ -76,7 +52,6 @@ export function useAdminData({
       setMembers(memberList.items);
       setMemberCursor(memberList.nextCursor);
       setMemberError(null);
-      setSets(referenceList.items);
       setSite(siteValue);
       setBanner(siteValue.banner ?? EMPTY_BANNER);
       setSiteText(JSON.stringify(siteValue.siteContent ?? {}, null, 2));
@@ -141,23 +116,5 @@ export function useAdminData({
     projects,
     projectSearch,
     setProjectSearch,
-    newSetName,
-    setNewSetName,
-    newSetVersion,
-    setNewSetVersion,
-    createSet,
-    setId,
-    selectSet,
-    sets,
-    setName,
-    setSetName,
-    setVersion,
-    setSetVersion,
-    setDescription,
-    setSetDescription,
-    setItems,
-    setSetItems,
-    saveSet,
-    createVersion,
   };
 }

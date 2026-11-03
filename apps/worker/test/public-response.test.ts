@@ -24,7 +24,7 @@ describe("public response freshness", () => {
     expect(response.headers.has("cloudflare-cdn-cache-control")).toBe(false);
   });
 
-  it.each([null, "bad", "999999999999999999999999999999999999", "1", String(Date.now() + 600_000)])(
+  it.each([null, "bad", "999999999999999999999999999999999999", "1", String(Date.now() + 63_072_000_000)])(
     "does not cache missing, invalid or expired deadlines (%s)",
     (expires) => {
       expect(wrap(expires).headers.get("cache-control")).toBe("private, no-store");
@@ -43,5 +43,20 @@ describe("public response freshness", () => {
         "cache-control",
       ),
     ).toBe("private, no-store");
+  });
+
+  it.each(["GET", "HEAD"] as const)("does not return 304 for a non-versioned %s response", (method) => {
+    const request = new Request("https://workshop.test/api/v1/site", {
+      method,
+      headers: { "if-none-match": '"site"' },
+    });
+    const response = publicResponse(
+      new Response(method === "HEAD" ? null : "site", {
+        headers: { etag: '"site"', "cache-control": "private, no-store" },
+      }),
+      request,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toContain("no-store");
   });
 });

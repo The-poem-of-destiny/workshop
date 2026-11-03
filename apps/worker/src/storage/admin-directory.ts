@@ -1,3 +1,4 @@
+import { type AuditAction, adminAuditEventSchema, auditActionSchema, serializeAuditDetail } from "@workshop/contracts";
 import { decodeCursor, encodeCursor, parseJson } from "./admin-values.js";
 
 interface ProjectRow {
@@ -11,8 +12,8 @@ interface ProjectRow {
   extension_type: string | null;
   search_tags: string;
   visibility: "public" | "private";
-  working_revision_id: string | null;
-  published_revision_id: string | null;
+  working_version_id: string | null;
+  published_version_id: string | null;
   published_at: string | null;
   downloads_count: number;
   likes_count: number;
@@ -44,22 +45,23 @@ export async function listAdminProjects(
   const bindings: unknown[] = [];
   if (!filters.includeDeleted) where.push("p.deleted_at IS NULL");
   if (filters.projectType) {
-    where.push("p.project_type = ?");
+    where.push("v.project_type = ?");
     bindings.push(filters.projectType);
   }
   if (filters.search) {
-    where.push("(p.title LIKE ? OR p.description LIKE ? OR u.global_name LIKE ? OR u.username LIKE ?)");
+    where.push("(v.title LIKE ? OR v.description LIKE ? OR u.global_name LIKE ? OR u.username LIKE ?)");
     const pattern = `%${filters.search}%`;
     bindings.push(pattern, pattern, pattern, pattern);
   }
   const result = await db
     .prepare(`
     SELECT p.id, p.author_id, COALESCE(u.global_name, u.username) AS author_name,
-           p.title, p.description, p.author_note, p.project_type, p.extension_type,
-           p.search_tags, p.visibility, p.working_revision_id, p.published_revision_id,
+           v.title, v.description, v.author_note, v.project_type, v.extension_type,
+           v.tags AS search_tags, p.visibility, p.working_version_id, p.published_version_id,
            p.published_at, p.downloads_count, p.likes_count, p.subscriptions_count,
            p.row_version, p.created_at, p.updated_at, p.deleted_at
     FROM projects p JOIN users u ON u.id = p.author_id
+    JOIN project_versions v ON v.id = COALESCE(p.working_version_id, p.published_version_id) AND v.project_id = p.id
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
     ORDER BY p.updated_at DESC, p.id DESC
     LIMIT ? OFFSET ?
@@ -77,8 +79,8 @@ export async function listAdminProjects(
       searchTags: parseJson(row.search_tags),
       visibility: row.visibility,
       author: { id: row.author_id, name: row.author_name },
-      workingRevisionId: row.working_revision_id,
-      publishedRevisionId: row.published_revision_id,
+      workingVersionId: row.working_version_id,
+      publishedVersionId: row.published_version_id,
       publishedAt: row.published_at,
       counts: { downloads: row.downloads_count, likes: row.likes_count, subscriptions: row.subscriptions_count },
       rowVersion: row.row_version,
@@ -126,27 +128,35 @@ export async function changeAdminMemberRole(
   if (!target) return { kind: "not_found" as const };
 
   const now = new Date().toISOString();
-  const updated = await db
-    .prepare(`
-    UPDATE users SET role = ?, updated_at = ?
-    WHERE id = ?
-      AND (role <> 'owner' OR ? = 'owner' OR (SELECT COUNT(*) FROM users WHERE role = 'owner') > 1)
-  `)
-    .bind(role, now, targetUserId, role)
-    .run();
-  if (updated.meta.changes === 0) return { kind: "last_owner" as const };
-
-  await db.batch([
+  const auditId = crypto.randomUUID();
+  const results = await db.batch([
     db
-      .prepare("UPDATE sessions SET session_version = session_version + 1, revoked_at = ? WHERE user_id = ?")
-      .bind(now, targetUserId),
+      .prepare(`
+      UPDATE users SET role = ?, updated_at = ?
+      WHERE id = ? AND role = ?
+        AND (role <> 'owner' OR ? = 'owner' OR (SELECT COUNT(*) FROM users WHERE role = 'owner') > 1)
+    `)
+      .bind(role, now, targetUserId, target.role, role),
     db
       .prepare(`
       INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
-      VALUES (?, 'member.role_change', 'user', ?, ?, ?, ?)
+      SELECT ?, 'member.role_change', 'user', ?, ?, ?, ? WHERE changes() = 1
     `)
-      .bind(crypto.randomUUID(), targetUserId, actorId, JSON.stringify({ from: target.role, to: role }), now),
+      .bind(
+        auditId,
+        targetUserId,
+        actorId,
+        serializeAuditDetail("member.role_change", { from: target.role, to: role }),
+        now,
+      ),
+    db
+      .prepare(`
+      UPDATE sessions SET session_version = session_version + 1, revoked_at = ?
+      WHERE user_id = ? AND EXISTS (SELECT 1 FROM audit_events WHERE id = ?)
+    `)
+      .bind(now, targetUserId, auditId),
   ]);
+  if (results[0]?.meta.changes === 0) return { kind: "last_owner" as const };
   return { kind: "ok" as const };
 }
 interface AuditEventRow {
@@ -160,8 +170,14 @@ interface AuditEventRow {
   created_at: string;
 }
 
-export async function listAdminAuditEvents(db: D1Database, limit: number, cursor: string | undefined, action?: string) {
+export async function listAdminAuditEvents(
+  db: D1Database,
+  limit: number,
+  cursor: string | undefined,
+  action?: AuditAction,
+) {
   const offset = decodeCursor(cursor);
+  if (action !== undefined) auditActionSchema.parse(action);
   const where = action ? "WHERE e.action = ?" : "";
   const result = await db
     .prepare(`
@@ -176,16 +192,18 @@ export async function listAdminAuditEvents(db: D1Database, limit: number, cursor
     .bind(...(action ? [action] : []), limit + 1, offset)
     .all<AuditEventRow>();
   return {
-    items: result.results.slice(0, limit).map((row) => ({
-      id: row.id,
-      action: row.action,
-      targetType: row.target_type,
-      targetId: row.target_id,
-      actorId: row.actor_id,
-      actorName: row.actor_name,
-      detail: parseJson(row.detail),
-      createdAt: row.created_at,
-    })),
+    items: result.results.slice(0, limit).map((row) =>
+      adminAuditEventSchema.parse({
+        id: row.id,
+        action: row.action,
+        targetType: row.target_type,
+        targetId: row.target_id,
+        actorId: row.actor_id,
+        actorName: row.actor_name,
+        detail: parseJson(row.detail),
+        createdAt: row.created_at,
+      }),
+    ),
     nextCursor: result.results.length > limit ? encodeCursor(offset + limit) : null,
   };
 }

@@ -17,6 +17,17 @@ import { sessionOrError } from "./authoring-request.js";
 
 export const authoringRoutes = new Hono<{ Bindings: Env }>();
 
+authoringRoutes.get("/:id/versions/:versionId/change-evidence", async (c) => {
+  const result = await c.executionCtx.exports.DataService.authorAdminChangeEvidence(
+    c.req.header("authorization"),
+    c.req.param("id"),
+    c.req.param("versionId"),
+  );
+  if (result.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+  if (result.kind === "not_found") return jsonError(c, "not_found", "Change evidence unavailable");
+  return c.json(result.data);
+});
+
 async function bodyJson(c: Context<{ Bindings: Env }>): Promise<unknown> {
   try {
     return await c.req.json();
@@ -25,12 +36,12 @@ async function bodyJson(c: Context<{ Bindings: Env }>): Promise<unknown> {
   }
 }
 
-async function validateRevisionViaDo(env: Env, projectId: string, revisionId: string): Promise<PrevalidatedContent> {
+async function validateVersionViaDo(env: Env, projectId: string, versionId: string): Promise<PrevalidatedContent> {
   const id = env.CONTENT_SERVICE.idFromName("content-validator");
   const response = await env.CONTENT_SERVICE.get(id).fetch("https://content-service/validate", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ validateRevision: revisionId, projectId }),
+    body: JSON.stringify({ validateVersion: versionId, projectId }),
   });
   if (!response.ok) throw new Error("Content validation service unavailable");
   return response.json() as Promise<PrevalidatedContent>;
@@ -117,7 +128,7 @@ authoringRoutes.patch("/:id", async (c) => {
 });
 registerAuthoringGalleryRoutes(authoringRoutes);
 
-authoringRoutes.delete("/:id/revisions/:revisionId/entries/:kind/:entryKey", async (c) => {
+authoringRoutes.delete("/:id/versions/:versionId/entries/:kind/:entryKey", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
   const kind = c.req.param("kind");
@@ -133,7 +144,7 @@ authoringRoutes.delete("/:id/revisions/:revisionId/entries/:kind/:entryKey", asy
   const response = await c.executionCtx.exports.DataService.authorAdminDeleteEntry(
     c.req.header("authorization"),
     c.req.param("id"),
-    c.req.param("revisionId"),
+    c.req.param("versionId"),
     kind,
     entryKey,
     expectedVersion,
@@ -177,7 +188,7 @@ authoringRoutes.patch("/:id/visibility", async (c) => {
   return c.json({ rowVersion: result.rowVersion });
 });
 
-authoringRoutes.post("/:id/revisions", async (c) => {
+authoringRoutes.post("/:id/versions", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
   const expectedVersion = ifMatchVersion(c.req.header("if-match"));
@@ -188,7 +199,7 @@ authoringRoutes.post("/:id/revisions", async (c) => {
     if (!discord.ok) return jsonError(c, "bad_request", `Discord 线程地址无效：${discord.reason}`);
     parsed.data.discordThreadUrl = discord.value;
   }
-  const result = await c.executionCtx.exports.DataService.authorAdminCreateRevision(
+  const result = await c.executionCtx.exports.DataService.authorAdminCreateVersion(
     c.req.header("authorization"),
     c.req.param("id"),
     expectedVersion,
@@ -207,15 +218,11 @@ authoringRoutes.post("/:id/revisions", async (c) => {
   return c.json(result.data, 201);
 });
 
-authoringRoutes.get("/:id/revisions/:revisionId/files/:kind", (c) =>
-  c.executionCtx.exports.DataService.fetch(c.req.raw),
-);
+authoringRoutes.get("/:id/versions/:versionId/files/:kind", (c) => c.executionCtx.exports.DataService.fetch(c.req.raw));
 
-authoringRoutes.put("/:id/revisions/:revisionId/files/:kind", (c) =>
-  c.executionCtx.exports.DataService.fetch(c.req.raw),
-);
+authoringRoutes.put("/:id/versions/:versionId/files/:kind", (c) => c.executionCtx.exports.DataService.fetch(c.req.raw));
 
-authoringRoutes.post("/:id/revisions/:revisionId/submit", async (c) => {
+authoringRoutes.post("/:id/versions/:versionId/submit", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
   const expectedVersion = ifMatchVersion(c.req.header("if-match"));
@@ -223,7 +230,7 @@ authoringRoutes.post("/:id/revisions/:revisionId/submit", async (c) => {
   const prepared = await c.executionCtx.exports.DataService.authorAdminPrepareSubmission(
     c.req.header("authorization"),
     c.req.param("id"),
-    c.req.param("revisionId"),
+    c.req.param("versionId"),
     expectedVersion,
   );
   if (prepared.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
@@ -234,14 +241,14 @@ authoringRoutes.post("/:id/revisions/:revisionId/submit", async (c) => {
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid submission", parsed.error.flatten());
   let prevalidated: PrevalidatedContent;
   try {
-    prevalidated = await validateRevisionViaDo(c.env, c.req.param("id"), c.req.param("revisionId"));
+    prevalidated = await validateVersionViaDo(c.env, c.req.param("id"), c.req.param("versionId"));
   } catch {
     return jsonError(c, "internal", "Content validation service unavailable");
   }
   const response = await c.executionCtx.exports.DataService.authorAdminSubmit(
     c.req.header("authorization"),
     c.req.param("id"),
-    c.req.param("revisionId"),
+    c.req.param("versionId"),
     expectedVersion,
     parsed.data,
     prevalidated,

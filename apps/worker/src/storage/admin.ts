@@ -1,14 +1,14 @@
 import type { AdminReviewRequest, AdminSubmissionListQuery, AdminSubmissionStatus } from "@workshop/contracts";
-import { z } from "zod";
 import { parseJson } from "./admin-values.js";
+import { readFrozenReviewReport } from "./review-reports";
 
 interface SubmissionRow {
   id: string;
   project_id: string;
-  revision_id: string;
+  version_id: string;
   status: "pending" | "checking" | "approved" | "rejected" | "superseded";
   gate: string | null;
-  checker_revision: string | null;
+  checker_version: string | null;
   submitted_at: string;
   check_status: string;
   project_title: string;
@@ -19,20 +19,15 @@ interface SubmissionRow {
 interface SubmissionTargetRow {
   id: string;
   project_id: string;
-  revision_id: string;
-  base_published_revision_id: string | null;
+  version_id: string;
+  base_published_version_id: string | null;
   status: SubmissionRow["status"];
   manifest_hash: string | null;
-  review_checker_revision: string | null;
+  checker_version: string | null;
   check_status: string;
-  check_report: string | null;
+  route_gate: string | null;
   check_report_hash: string | null;
   client_gate: string | null;
-}
-
-function reportGate(value: string | null): string | null {
-  const parsed = z.object({ routeGate: z.string().optional() }).passthrough().safeParse(parseJson(value));
-  return parsed.success ? (parsed.data.routeGate ?? null) : null;
 }
 
 interface DetailSubmissionRow extends SubmissionTargetRow {
@@ -44,26 +39,24 @@ interface DetailSubmissionRow extends SubmissionTargetRow {
   project_visibility: "public" | "private";
   project_author_id: string;
   project_author_name: string;
-  revision_no: number;
-  revision_title: string;
-  revision_description: string | null;
-  revision_author_note: string | null;
-  revision_project_type: string | null;
-  revision_extension_type: string | null;
-  revision_tags: string;
-  revision_manifest_hash: string | null;
-  revision_created_at: string;
+  version_no: number;
+  version_title: string;
+  version_description: string | null;
+  version_author_note: string | null;
+  version_project_type: string | null;
+  version_extension_type: string | null;
+  version_tags: string;
+  version_manifest_hash: string | null;
+  version_created_at: string;
   client_gate: string | null;
-  client_checker_revision: string | null;
-  client_warning_count: number;
-  client_acknowledged_at: string | null;
+  client_checker_version: string | null;
   check_status: string;
   check_attempts: number;
   check_error: string | null;
-  check_report: string | null;
+  report_r2_key: string | null;
   check_report_hash: string | null;
   checked_at: string | null;
-  review_checker_revision: string | null;
+  checker_version: string | null;
   auto_published_at: string | null;
 }
 
@@ -123,12 +116,14 @@ export async function listAdminSubmissions(db: D1Database, query: AdminSubmissio
   const [result, countRows] = await Promise.all([
     db
       .prepare(`
-    SELECT s.id, s.project_id, s.revision_id, s.status, s.client_gate AS gate,
-           s.client_checker_revision AS checker_revision, s.submitted_at, s.check_status,
-           p.title AS project_title, u.id AS author_id,
+    SELECT s.id, s.project_id, s.version_id, s.status, ar.client_gate AS gate,
+           ar.client_checker_version AS checker_version, s.submitted_at, ar.status AS check_status,
+           r.title AS project_title, u.id AS author_id,
            COALESCE(u.global_name, u.username) AS author_name
     FROM submissions s
+    JOIN automated_reviews ar ON ar.submission_id = s.id
     JOIN projects p ON p.id = s.project_id
+    JOIN project_versions r ON r.id = s.version_id
     JOIN users u ON u.id = p.author_id
     ${where}
     ORDER BY s.submitted_at ASC, s.id ASC
@@ -162,7 +157,7 @@ export async function listAdminSubmissions(db: D1Database, query: AdminSubmissio
       author: { id: row.author_id, name: row.author_name },
       status: row.status,
       gate: row.gate,
-      checkerRevision: row.checker_revision,
+      checkerVersion: row.checker_version,
       checkStatus: row.check_status,
       submittedAt: row.submitted_at,
     })),
@@ -170,92 +165,78 @@ export async function listAdminSubmissions(db: D1Database, query: AdminSubmissio
   };
 }
 
-function submissionDetail(row: DetailSubmissionRow) {
+function submissionDetail(row: DetailSubmissionRow, report: string | null) {
   return {
     id: row.id,
     projectId: row.project_id,
-    revisionId: row.revision_id,
+    versionId: row.version_id,
     status: row.status,
     submittedBy: row.submitted_by,
     submittedAt: row.submitted_at,
     resolvedAt: row.resolved_at,
     clientGate: row.client_gate,
-    clientCheckerRevision: row.client_checker_revision,
-    clientWarningCount: row.client_warning_count,
-    clientAcknowledgedAt: row.client_acknowledged_at,
+    clientCheckerVersion: row.client_checker_version,
     checkStatus: row.check_status,
     checkAttempts: row.check_attempts,
     checkError: row.check_error,
-    checkReport: parseJson(row.check_report),
+    checkReport: parseJson(report),
     checkReportHash: row.check_report_hash,
     checkedAt: row.checked_at,
-    reviewCheckerRevision: row.review_checker_revision,
+    checkerVersion: row.checker_version,
     autoPublishedAt: row.auto_published_at,
   };
 }
 
-export async function getAdminSubmission(db: D1Database, id: string) {
+export async function getAdminSubmission(db: D1Database, r2: R2Bucket, id: string) {
   const row = await db
     .prepare(`
-    SELECT s.id, s.project_id, s.revision_id, s.status,
+    SELECT s.id, s.project_id, s.version_id, s.status,
            s.submitted_by, s.submitted_at, s.resolved_at,
-           s.client_gate, s.client_checker_revision, s.client_warning_count, s.client_acknowledged_at,
-           s.check_status, s.check_attempts, s.check_error, s.check_report, s.check_report_hash,
-           s.checked_at, s.review_checker_revision, s.auto_published_at,
+           ar.client_gate, ar.client_checker_version AS client_checker_version,
+           ar.status AS check_status, ar.attempts AS check_attempts, ar.error AS check_error,
+           ar.report_r2_key, ar.report_hash AS check_report_hash, ar.route_gate,
+           ar.checked_at, ar.checker_version AS checker_version, s.auto_published_at,
            r.manifest_hash,
-           p.title AS project_title, p.description AS project_description,
+           r.title AS project_title, r.description AS project_description,
            p.visibility AS project_visibility, p.author_id AS project_author_id,
            COALESCE(u.global_name, u.username) AS project_author_name,
-           r.revision_no, r.title AS revision_title, r.description AS revision_description,
-           r.author_note AS revision_author_note, r.project_type AS revision_project_type,
-           r.extension_type AS revision_extension_type, r.tags AS revision_tags,
-           r.manifest_hash AS revision_manifest_hash,
-           r.created_at AS revision_created_at
+           r.version_no, r.title AS version_title, r.description AS version_description,
+           r.author_note AS version_author_note, r.project_type AS version_project_type,
+           r.extension_type AS version_extension_type, r.tags AS version_tags,
+           r.manifest_hash AS version_manifest_hash,
+           r.created_at AS version_created_at
     FROM submissions s
+    JOIN automated_reviews ar ON ar.submission_id = s.id
     JOIN projects p ON p.id = s.project_id
     JOIN users u ON u.id = p.author_id
-    JOIN project_revisions r ON r.id = s.revision_id
+    JOIN project_versions r ON r.id = s.version_id
     WHERE s.id = ?
   `)
     .bind(id)
     .first<DetailSubmissionRow>();
   if (!row) return null;
 
-  const [assets, review, checkRuns] = await Promise.all([
+  const [assets, review, reportObject] = await Promise.all([
     db
       .prepare(`
       SELECT id, kind, sha256, bytes, mime, r2_key
-      FROM assets WHERE revision_id = ? ORDER BY kind ASC, id ASC
+      FROM assets WHERE version_id = ? ORDER BY kind ASC, id ASC
     `)
-      .bind(row.revision_id)
+      .bind(row.version_id)
       .all<AssetRow>(),
     db
       .prepare(`
       SELECT id, submission_id, reviewer_id, decision, reason, manifest_hash,
              checker_version, created_at
-      FROM reviews WHERE submission_id = ?
+      FROM manual_reviews WHERE submission_id = ?
     `)
       .bind(id)
       .first<ReviewRow>(),
-    db
-      .prepare(`
-      SELECT id, review_checker_revision, route_gate, report, report_hash, duration_ms, created_at
-      FROM submission_check_runs WHERE submission_id = ? ORDER BY created_at DESC
-    `)
-      .bind(id)
-      .all<{
-        id: string;
-        review_checker_revision: string;
-        route_gate: string;
-        report: string;
-        report_hash: string;
-        duration_ms: number;
-        created_at: string;
-      }>(),
+    readFrozenReviewReport(r2, row.report_r2_key, row.check_report_hash),
   ]);
 
   return {
-    submission: submissionDetail(row),
+    submission: submissionDetail(row, reportObject),
     project: {
       id: row.project_id,
       title: row.project_title,
@@ -263,17 +244,17 @@ export async function getAdminSubmission(db: D1Database, id: string) {
       visibility: row.project_visibility,
       author: { id: row.project_author_id, name: row.project_author_name },
     },
-    revision: {
-      id: row.revision_id,
-      revisionNo: row.revision_no,
-      title: row.revision_title,
-      description: row.revision_description,
-      authorNote: row.revision_author_note,
-      projectType: row.revision_project_type,
-      extensionType: row.revision_extension_type,
-      searchTags: parseJson(row.revision_tags),
-      manifestHash: row.revision_manifest_hash,
-      createdAt: row.revision_created_at,
+    version: {
+      id: row.version_id,
+      versionNo: row.version_no,
+      title: row.version_title,
+      description: row.version_description,
+      authorNote: row.version_author_note,
+      projectType: row.version_project_type,
+      extensionType: row.version_extension_type,
+      searchTags: parseJson(row.version_tags),
+      manifestHash: row.version_manifest_hash,
+      createdAt: row.version_created_at,
     },
     assets: assets.results.map((asset) => ({
       id: asset.id,
@@ -282,15 +263,6 @@ export async function getAdminSubmission(db: D1Database, id: string) {
       bytes: asset.bytes,
       mime: asset.mime,
       r2Key: asset.r2_key,
-    })),
-    checkRuns: checkRuns.results.map((run) => ({
-      id: run.id,
-      reviewCheckerRevision: run.review_checker_revision,
-      routeGate: run.route_gate,
-      report: parseJson(run.report),
-      reportHash: run.report_hash,
-      durationMs: run.duration_ms,
-      createdAt: run.created_at,
     })),
     review: review
       ? {
@@ -312,7 +284,7 @@ export async function getSubmissionAsset(db: D1Database, submissionId: string, k
     .prepare(`
     SELECT a.r2_key, a.mime, a.bytes, a.sha256
     FROM submissions s
-    JOIN assets a ON a.revision_id = s.revision_id
+    JOIN assets a ON a.version_id = s.version_id
     WHERE s.id = ? AND a.kind = ?
   `)
     .bind(submissionId, kind)
@@ -325,39 +297,30 @@ function approvalStatement(db: D1Database, target: SubmissionTargetRow, submissi
   return db
     .prepare(`
         UPDATE projects
-        SET published_revision_id = ?, published_at = ?, published_updated_at = ?, published_cover_asset_id = NULL,
-            title = r.title, description = r.description, author_note = r.author_note,
-            project_type = r.project_type, extension_type = r.extension_type,
-            search_tags = r.tags, published_schema_version = r.schema_version,
-            published_discord_thread_url = r.discord_thread_url,
-            version_label = r.version_label, precautions = r.precautions,
-            cover_position_x = r.cover_position_x, cover_position_y = r.cover_position_y,
-            cover_zoom = r.cover_zoom, metadata_findings = r.metadata_findings,
-            metadata_checker_revision = r.metadata_checker_revision,
-            metadata_checked_at = r.metadata_checked_at, metadata_checked_by = r.metadata_checked_by,
+        SET published_version_id = ?, published_at = ?, published_updated_at = ?, published_cover_asset_id = NULL,
             row_version = row_version + 1, updated_at = ?
         FROM submissions s
-        JOIN project_revisions r ON r.id = s.revision_id
+        JOIN project_versions r ON r.id = s.version_id
         WHERE projects.id = s.project_id
           AND s.id = ? AND s.status = 'pending'
-          AND s.revision_id = ?
-          AND s.check_status NOT IN ('queued', 'running')
-          AND s.check_report_hash IS ? AND s.review_checker_revision IS ?
+          AND s.version_id = ?
+          AND EXISTS (SELECT 1 FROM automated_reviews ar WHERE ar.submission_id = s.id
+            AND ar.status NOT IN ('queued','running') AND ar.report_hash IS ? AND ar.checker_version IS ?)
           AND r.manifest_hash IS ?
           AND projects.deleted_at IS NULL
-          AND projects.published_revision_id IS s.base_published_revision_id
-          AND projects.published_revision_id IS NOT s.revision_id
-          AND NOT EXISTS (SELECT 1 FROM reviews WHERE submission_id = s.id)
+          AND projects.published_version_id IS s.base_published_version_id
+          AND projects.published_version_id IS NOT s.version_id
+          AND NOT EXISTS (SELECT 1 FROM manual_reviews WHERE submission_id = s.id)
       `)
     .bind(
-      target.revision_id,
+      target.version_id,
       now,
       now,
       now,
       submissionId,
-      target.revision_id,
+      target.version_id,
       target.check_report_hash,
-      target.review_checker_revision,
+      target.checker_version,
       target.manifest_hash,
     );
 }
@@ -370,18 +333,18 @@ export async function reviewAdminSubmission(
 ) {
   const target = await db
     .prepare(`
-    SELECT s.id, s.project_id, s.revision_id, s.base_published_revision_id, s.status,
-           r.manifest_hash, s.review_checker_revision,
-           s.check_status, s.check_report, s.check_report_hash, s.client_gate
-    FROM submissions s
-    JOIN project_revisions r ON r.id = s.revision_id
+    SELECT s.id, s.project_id, s.version_id, s.base_published_version_id, s.status,
+           r.manifest_hash, ar.checker_version,
+           ar.status AS check_status, ar.route_gate, ar.report_hash AS check_report_hash, ar.client_gate
+    FROM submissions s JOIN automated_reviews ar ON ar.submission_id = s.id
+    JOIN project_versions r ON r.id = s.version_id
     WHERE s.id = ?
   `)
     .bind(submissionId)
     .first<SubmissionTargetRow>();
   if (!target) return { kind: "not_found" as const };
   if (target.status !== "pending") return { kind: "conflict" as const };
-  if (request.revisionId && request.revisionId !== target.revision_id) return { kind: "conflict" as const };
+  if (request.versionId && request.versionId !== target.version_id) return { kind: "conflict" as const };
   if (request.manifestHash && request.manifestHash !== target.manifest_hash) return { kind: "conflict" as const };
   if (request.reportHash && request.reportHash !== target.check_report_hash) return { kind: "conflict" as const };
   if (target.check_status === "queued" || target.check_status === "running") {
@@ -390,7 +353,7 @@ export async function reviewAdminSubmission(
   if (request.decision === "reject" && !request.reason?.trim()) {
     return { kind: "invalid_reason" as const };
   }
-  const serverGate = reportGate(target.check_report);
+  const serverGate = target.route_gate;
   if (
     request.decision === "approve" &&
     (target.client_gate === "block" || target.client_gate === "missing" || serverGate === "block") &&
@@ -402,7 +365,7 @@ export async function reviewAdminSubmission(
 
   const now = new Date().toISOString();
   const nextStatus = request.decision === "approve" ? "approved" : "rejected";
-  const checkerVersion = target.review_checker_revision;
+  const checkerVersion = target.checker_version;
   const reviewId = crypto.randomUUID();
   const approval = request.decision === "approve";
   const statements: D1PreparedStatement[] = [];
@@ -417,14 +380,14 @@ export async function reviewAdminSubmission(
       UPDATE submissions
       SET status = ?, resolved_at = ?
       WHERE id = ? AND status = 'pending'
-        AND check_status NOT IN ('queued', 'running')
-        AND check_report_hash IS ? AND review_checker_revision IS ?
-        AND EXISTS (SELECT 1 FROM project_revisions r WHERE r.id = submissions.revision_id AND r.manifest_hash IS ?)
-        AND NOT EXISTS (SELECT 1 FROM reviews WHERE submission_id = ?)
+        AND EXISTS (SELECT 1 FROM automated_reviews ar WHERE ar.submission_id = submissions.id
+          AND ar.status NOT IN ('queued','running') AND ar.report_hash IS ? AND ar.checker_version IS ?)
+        AND EXISTS (SELECT 1 FROM project_versions r WHERE r.id = submissions.version_id AND r.manifest_hash IS ?)
+        AND NOT EXISTS (SELECT 1 FROM manual_reviews WHERE submission_id = ?)
         AND (
           ? = 0 OR EXISTS (
             SELECT 1 FROM projects
-            WHERE id = ? AND deleted_at IS NULL AND published_revision_id = ?
+            WHERE id = ? AND deleted_at IS NULL AND published_version_id = ?
           )
         )
     `)
@@ -433,16 +396,16 @@ export async function reviewAdminSubmission(
         now,
         submissionId,
         target.check_report_hash,
-        target.review_checker_revision,
+        target.checker_version,
         target.manifest_hash,
         submissionId,
         approval ? 1 : 0,
         target.project_id,
-        target.revision_id,
+        target.version_id,
       ),
     db
       .prepare(`
-      INSERT INTO reviews
+      INSERT INTO manual_reviews
         (id, submission_id, reviewer_id, decision, reason, manifest_hash, checker_version, created_at)
       SELECT ?, ?, ?, ?, ?, ?, ?, ?
       WHERE EXISTS (SELECT 1 FROM submissions WHERE id = ? AND status = ?)
@@ -458,26 +421,6 @@ export async function reviewAdminSubmission(
         now,
         submissionId,
         nextStatus,
-      ),
-    db
-      .prepare(`
-      INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
-      SELECT ?, ?, 'submission', ?, ?, ?, ?
-      WHERE EXISTS (SELECT 1 FROM reviews WHERE id = ?)
-    `)
-      .bind(
-        crypto.randomUUID(),
-        `review.${request.decision}`,
-        submissionId,
-        reviewerId,
-        JSON.stringify({
-          projectId: target.project_id,
-          revisionId: target.revision_id,
-          checkerVersion,
-          reason: request.reason ?? null,
-        }),
-        now,
-        reviewId,
       ),
   );
 

@@ -2,6 +2,7 @@ import { parseDiscordThreadUrl } from "@workshop/domain";
 import { z } from "zod";
 import { visibilitySchema } from "./identity.js";
 import { extensionTypeSchema, projectSummarySchema, projectTypeSchema } from "./projects.js";
+import { requirementsSchema } from "./requirements.js";
 
 const discordThreadUrlSchema = z
   .string()
@@ -28,7 +29,7 @@ export const projectMetadataSchema = z.object({
   extensionType: extensionTypeSchema.nullable().optional(),
   schemaVersion: z.string().trim().max(32).nullable().optional(),
   versionLabel: z.string().trim().max(80).nullable().optional(),
-  precautions: z.string().max(2_000).nullable().optional(),
+  requirements: requirementsSchema.nullable().optional(),
   coverPositionX: z.number().min(0).max(100).optional(),
   coverPositionY: z.number().min(0).max(100).optional(),
   coverZoom: z.number().min(1).max(3).optional(),
@@ -51,7 +52,7 @@ export type UploadKind = z.infer<typeof uploadKindSchema>;
 
 export const submitProjectSchema = z.object({
   gate: z.enum(["pass", "warn", "block", "missing"]).optional(),
-  checkerRevision: z.string().min(1).max(200).optional(),
+  checkerVersion: z.string().min(1).max(200).optional(),
   warningCount: z.number().int().min(0).max(10_000).default(0),
   acknowledged: z.boolean().optional(),
 });
@@ -60,15 +61,15 @@ export type SubmitProject = z.infer<typeof submitProjectSchema>;
 export const authoringProjectResponseSchema = z.object({
   project: projectSummarySchema,
   rowVersion: z.number().int().positive(),
-  workingRevisionId: z.string(),
+  workingVersionId: z.string(),
 });
 export type AuthoringProjectResponse = z.infer<typeof authoringProjectResponseSchema>;
 
-export const authoringRevisionResponseSchema = z.object({
+export const authoringVersionResponseSchema = z.object({
   rowVersion: z.number().int().positive(),
-  revisionId: z.string(),
+  versionId: z.string(),
 });
-export type AuthoringRevisionResponse = z.infer<typeof authoringRevisionResponseSchema>;
+export type AuthoringVersionResponse = z.infer<typeof authoringVersionResponseSchema>;
 
 export const uploadResponseSchema = z.object({
   kind: uploadKindSchema,
@@ -90,10 +91,10 @@ export type SubmitResponse = z.infer<typeof submitResponseSchema>;
 
 export const authorSubmissionSchema = z.object({
   id: z.string(),
-  revisionId: z.string(),
+  versionId: z.string(),
   status: z.enum(["pending", "checking", "approved", "rejected", "superseded"]),
   gate: z.string().nullable(),
-  checkerRevision: z.string().nullable(),
+  checkerVersion: z.string().nullable(),
   submittedAt: z.string(),
   resolvedAt: z.string().nullable(),
   withdrawnAt: z.string().nullable().default(null),
@@ -109,11 +110,10 @@ export type AuthorSubmission = z.infer<typeof authorSubmissionSchema>;
 export const authorProjectSchema = z.object({
   project: projectSummarySchema,
   rowVersion: z.number().int().positive(),
-  workingRevisionId: z.string().nullable(),
+  workingVersionId: z.string().nullable(),
   latestSubmission: authorSubmissionSchema.nullable(),
   authorNote: z.string().nullable().optional(),
-  precautions: z.string().nullable().optional(),
-  metadataFindings: z.string().nullable().optional(),
+  requirements: requirementsSchema.nullable().optional(),
 });
 export type AuthorProject = z.infer<typeof authorProjectSchema>;
 

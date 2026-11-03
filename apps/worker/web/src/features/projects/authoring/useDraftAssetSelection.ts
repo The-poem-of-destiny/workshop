@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { fileKey, loadRegexAsset, loadWorldbookAsset, type RegexAsset, type WorldbookAsset } from "./preview";
 
-export function useDraftAssetSelection(workingRevisionFrozen: boolean, onNotice: (message: string) => void) {
+export function useDraftAssetSelection(workingVersionFrozen: boolean, onNotice: (message: string) => void) {
   const [worldbook, setWorldbook] = useState<WorldbookAsset | null>(null);
   const [regexAssets, setRegexAssets] = useState<RegexAsset[]>([]);
   const [worldbookError, setWorldbookError] = useState<string | null>(null);
@@ -18,7 +18,7 @@ export function useDraftAssetSelection(workingRevisionFrozen: boolean, onNotice:
 
   function pickWorldbook(files: FileList): void {
     const file = files[0];
-    if (!file || workingRevisionFrozen) return;
+    if (!file || workingVersionFrozen) return;
     const generation = assetGeneration.current;
     const pick = worldbookPick.current + 1;
     worldbookPick.current = pick;
@@ -43,7 +43,7 @@ export function useDraftAssetSelection(workingRevisionFrozen: boolean, onNotice:
 
   function pickRegex(files: FileList): void {
     const incoming = Array.from(files);
-    if (incoming.length === 0 || workingRevisionFrozen) return;
+    if (incoming.length === 0 || workingVersionFrozen) return;
     const generation = assetGeneration.current;
     setParsingAssets((value) => value + 1);
     setRegexError(null);
