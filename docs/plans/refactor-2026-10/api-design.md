@@ -4,7 +4,7 @@
 
 2026-10-26 目标与实现以 [D-40～D-47](decisions.md#d-40-完整替代旧版与完整数据迁移) 为准：统一提交审核、按位置安装实例及完整迁移范围取代旧展示直写／单项目登记。当前实施与运行验收见 [state.md](state.md)，尚未执行完整迁移或正式切换；工作包见 [checklist.md](checklist.md#本轮工作包2026-10-26)。
 
-2026-10-29 缓存路径调整：本页缓存设计与 I01 以第 6 节为准，取代早期 epoch 网关方案；具体验证状态见 state.md。
+本页保留历史设计与决策背景；其中 Workers Cache、epoch 和 purge 方案已被用户批准的分类 TTL Cache API 方案取代。当前机制及风险以 [API 缓存设计](../../reference/cache-design.md) 和 [运行配置](../../reference/runtime-configuration.md) 为准；不得将历史方案视为当前部署状态。
 
 ## 1. 平台事实：Workers Cache 不是 Cache API
 

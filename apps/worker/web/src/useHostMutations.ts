@@ -60,7 +60,7 @@ export function useHostMutations({
     try {
       const payload = await api.acquisitions(project.id);
       const files: { worldbook?: string; regex?: string } = {};
-      for (const ticket of payload.tickets) files[ticket.kind] = await api.downloadTicketText(ticket.url);
+      for (const file of payload.downloads) files[file.kind] = await api.downloadText(file.url);
       if (!currentUser.current || currentUser.current.id !== me.id) return;
       setInstanceChoice(null);
       setInstallTarget({ title: project.title, intent: { action, instanceId, project: payload.project, files } });

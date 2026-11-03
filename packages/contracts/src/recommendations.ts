@@ -9,7 +9,7 @@ export const recommendationSchema = z.object({
     avatarUrl: z.string().nullable(),
   }),
   comment: z.string(),
-  reaction: z.string(),
+  projectVersionId: z.string(),
   project: projectSummarySchema,
 });
 

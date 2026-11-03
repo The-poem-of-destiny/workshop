@@ -4,10 +4,11 @@
  * seeds an author, member and owner, then exercises the full author -> review -> public flow.
  *
  * Usage: node tools/e2e-local.mjs
+ * HTTP-only smoke: node tools/e2e-local.mjs --http-only (does not verify browser journeys).
  * Requires: built apps/worker/web/dist and local D1 migrations.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -78,10 +79,10 @@ function chromiumExecutable() {
 }
 
 async function waitForWorker() {
-  const deadline = Date.now() + 45_000;
+  const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`${base}/api/v1/health`);
+      const response = await fetch(`${base}/api/v1/health`, { signal: AbortSignal.timeout(3_000) });
       if (response.ok) return;
     } catch {
       // not listening yet
@@ -106,11 +107,13 @@ async function main() {
   const logFile = path.join(tmp, "wrangler.log");
   const log = (await import("node:fs")).createWriteStream(logFile);
   server = spawn(
-    "pnpm",
+    process.execPath,
     [
-      "exec",
-      "wrangler",
+      path.join(workerDir, "node_modules/wrangler/bin/wrangler.js"),
       "dev",
+      "--local",
+      "--ip",
+      "127.0.0.1",
       "--config",
       "wrangler.jsonc",
       "--env",
@@ -120,7 +123,7 @@ async function main() {
       "--persist-to",
       stateDir,
       "--log-level",
-      "error",
+      process.env.E2E_DEBUG ? "info" : "error",
     ],
     {
       cwd: workerDir,
@@ -144,11 +147,12 @@ async function main() {
       stateDir,
       "--command",
       `
-      DELETE FROM download_events WHERE user_id IN ('e2e-author','e2e-owner','e2e-member');
-      DELETE FROM reviews WHERE reviewer_id IN ('e2e-author','e2e-owner');
+      DELETE FROM download_daily_stats WHERE user_id IN ('e2e-author','e2e-owner','e2e-member');
+      DELETE FROM manual_reviews WHERE submission_id IN (SELECT id FROM submissions WHERE submitted_by IN ('e2e-author','e2e-owner'));
+      DELETE FROM automated_reviews WHERE submission_id IN (SELECT id FROM submissions WHERE submitted_by IN ('e2e-author','e2e-owner'));
       DELETE FROM submissions WHERE submitted_by IN ('e2e-author','e2e-owner');
       DELETE FROM assets WHERE project_id IN (SELECT id FROM projects WHERE author_id = 'e2e-author');
-      DELETE FROM project_revisions WHERE project_id IN (SELECT id FROM projects WHERE author_id = 'e2e-author');
+      DELETE FROM project_versions WHERE project_id IN (SELECT id FROM projects WHERE author_id = 'e2e-author');
       DELETE FROM projects WHERE author_id = 'e2e-author';
       DELETE FROM sessions WHERE user_id IN ('e2e-author','e2e-owner','e2e-member');
       DELETE FROM users WHERE id IN ('e2e-author','e2e-owner','e2e-member');
@@ -193,10 +197,9 @@ async function main() {
       assert(first.response.status === 200 && Array.isArray(JSON.parse(first.body).items), "list shape");
       const second = await api("/api/v1/projects");
       assert(second.response.status === 200, `list status: ${second.response.status}`);
-      assert(
-        second.response.headers.get("cache-control") === "public, max-age=300, stale-if-error=0",
-        "public list cache policy",
-      );
+      const cacheControl = second.response.headers.get("cache-control") ?? "";
+      const maxAge = /^public, max-age=(\d+), stale-if-error=0$/.exec(cacheControl);
+      assert(maxAge && Number(maxAge[1]) > 0 && Number(maxAge[1]) <= 60, `public list cache policy: ${cacheControl}`);
     });
 
     let project;
@@ -212,7 +215,7 @@ async function main() {
       );
       assert(response.status === 201, `create ${response.status}: ${body}`);
       project = JSON.parse(body);
-      assert(project.project.id && project.workingRevisionId, "create shape");
+      assert(project.project.id && project.workingVersionId, "create shape");
       const afterCreate = await api("/api/v1/projects");
       assert(afterCreate.response.status === 200, `post-create list ${afterCreate.response.status}`);
     });
@@ -220,7 +223,7 @@ async function main() {
     await check("author uploads assets", async () => {
       const worldbook = '{"entries":[{"uid":1,"key":["e2e"],"content":"hello"}]}';
       const wb = await api(
-        `/api/v1/projects/${project.project.id}/revisions/${project.workingRevisionId}/files/worldbook`,
+        `/api/v1/projects/${project.project.id}/versions/${project.workingVersionId}/files/worldbook`,
         {
           method: "PUT",
           headers: {
@@ -240,7 +243,7 @@ async function main() {
         "base64",
       );
       const cover = await api(
-        `/api/v1/projects/${project.project.id}/revisions/${project.workingRevisionId}/files/cover`,
+        `/api/v1/projects/${project.project.id}/versions/${project.workingVersionId}/files/cover`,
         {
           method: "PUT",
           headers: {
@@ -263,7 +266,7 @@ async function main() {
       assert(draft.response.status === 200, `author draft ${draft.response.status}`);
     });
 
-    await check("author publishes and acquires through one ticket channel", async () => {
+    await check("author publishes and acquires through authorized file URLs", async () => {
       const visibility = await api(
         `/api/v1/projects/${project.project.id}/visibility`,
         {
@@ -276,7 +279,7 @@ async function main() {
       assert(visibility.response.status === 200, `visibility ${visibility.response.status}: ${visibility.body}`);
       project.rowVersion = JSON.parse(visibility.body).rowVersion;
       const submit = await api(
-        `/api/v1/projects/${project.project.id}/revisions/${project.workingRevisionId}/submit`,
+        `/api/v1/projects/${project.project.id}/versions/${project.workingVersionId}/submit`,
         {
           method: "POST",
           headers: { "content-type": "application/json", "if-match": String(project.rowVersion) },
@@ -299,7 +302,7 @@ async function main() {
       assert(indexed.response.status === 200, `entry index ${indexed.response.status}: ${indexed.body}`);
       const index = JSON.parse(indexed.body);
       assert(
-        index.revisionId === project.workingRevisionId &&
+        index.versionId === project.workingVersionId &&
           index.entries.length === 1 &&
           index.entries[0].entryKey === "uid:1" &&
           index.entries[0].contentHash === hash("hello") &&
@@ -307,12 +310,16 @@ async function main() {
           !("content" in index.entries[0]),
         "published index must match frozen content without returning bytes",
       );
-      const tickets = await api(`/api/v1/projects/${project.project.id}/downloads`, { method: "POST" }, authorToken);
-      assert(tickets.response.status === 201, `ticket issue ${tickets.response.status}: ${tickets.body}`);
-      const ticket = JSON.parse(tickets.body);
-      assert(ticket.revisionId === project.workingRevisionId && ticket.files.length === 1, "release ticket shape");
-      const file = await api(ticket.files[0].url, {}, authorToken);
-      assert(file.response.status === 200 && file.body.includes("hello"), "ticket bytes");
+      const downloads = await api(
+        `/api/v1/projects/${project.project.id}/downloads`,
+        { method: "POST", headers: { "Idempotency-Key": randomUUID() } },
+        authorToken,
+      );
+      assert(downloads.response.status === 201, `acquisition ${downloads.response.status}: ${downloads.body}`);
+      const release = JSON.parse(downloads.body);
+      assert(release.versionId === project.workingVersionId && release.files.length === 1, "release download shape");
+      const file = await api(release.files[0].url, {}, authorToken);
+      assert(file.response.status === 200 && file.body.includes("hello"), "authorized bytes");
       const cover = await fetch(`${base}${JSON.parse(detail.body).coverUrl}`);
       assert(cover.status === 200 && cover.headers.get("content-type")?.includes("image/png"), "public cover");
     });
@@ -332,7 +339,7 @@ async function main() {
       const second = JSON.parse(created.body);
       const worldbook = '{"entries":[{"uid":1,"key":["sort"],"content":"sort body"}]}';
       const upload = await api(
-        `/api/v1/projects/${second.project.id}/revisions/${second.workingRevisionId}/files/worldbook`,
+        `/api/v1/projects/${second.project.id}/versions/${second.workingVersionId}/files/worldbook`,
         {
           method: "PUT",
           headers: {
@@ -358,7 +365,7 @@ async function main() {
       assert(visibility.response.status === 200, `sort visibility ${visibility.response.status}: ${visibility.body}`);
       second.rowVersion = JSON.parse(visibility.body).rowVersion;
       const submit = await api(
-        `/api/v1/projects/${second.project.id}/revisions/${second.workingRevisionId}/submit`,
+        `/api/v1/projects/${second.project.id}/versions/${second.workingVersionId}/submit`,
         {
           method: "POST",
           headers: { "content-type": "application/json", "if-match": String(second.rowVersion) },
@@ -377,7 +384,7 @@ async function main() {
       const draft = await api(`/api/v1/projects/${project.project.id}/draft`, {}, authorToken);
       const rowVersion = JSON.parse(draft.body).rowVersion;
       const revision = await api(
-        `/api/v1/projects/${project.project.id}/revisions`,
+        `/api/v1/projects/${project.project.id}/versions`,
         {
           method: "POST",
           headers: { "content-type": "application/json", "if-match": String(rowVersion) },
@@ -404,7 +411,7 @@ async function main() {
         "saving draft metadata leaves public snapshot unchanged",
       );
       const frozen = await api(
-        `/api/v1/projects/${project.project.id}/revisions/${next.revisionId}/submit`,
+        `/api/v1/projects/${project.project.id}/versions/${next.versionId}/submit`,
         {
           method: "POST",
           headers: { "content-type": "application/json", "if-match": String(JSON.parse(patched.body).rowVersion) },
@@ -414,7 +421,7 @@ async function main() {
       );
       assert(frozen.response.status === 201, `metadata submit ${frozen.response.status}: ${frozen.body}`);
       let updated;
-      for (let attempt = 0; attempt < 40; attempt += 1) {
+      for (let attempt = 0; attempt < 300; attempt += 1) {
         updated = await api(`/api/v1/projects/${project.project.id}`);
         if (updated.response.status === 200 && JSON.parse(updated.body).description === "unified snapshot update")
           break;
@@ -444,31 +451,43 @@ async function main() {
       );
     });
 
-    await check("download tickets are idempotent and one-time", async () => {
-      const first = await api(`/api/v1/projects/${project.project.id}/downloads`, { method: "POST" }, authorToken);
-      const second = await api(`/api/v1/projects/${project.project.id}/downloads`, { method: "POST" }, authorToken);
+    await check("logical acquisitions are idempotent and file reads repeatable", async () => {
+      const options = { method: "POST", headers: { "Idempotency-Key": randomUUID() } };
+      const first = await api(`/api/v1/projects/${project.project.id}/downloads`, options, authorToken);
+      const second = await api(`/api/v1/projects/${project.project.id}/downloads`, options, authorToken);
       assert(first.response.status === 201 && second.response.status === 201, "download status");
-      const ticket = JSON.parse(first.body);
-      assert(ticket.files?.length === 1, "download ticket shape");
-      const file = await api(ticket.files[0].url, {}, authorToken);
-      assert(file.response.status === 200 && file.body.includes("hello"), "ticket download");
-      const replay = await api(ticket.files[0].url, {}, authorToken);
-      assert(replay.response.status === 404, "ticket replay");
+      const release = JSON.parse(first.body);
+      assert(release.files?.length === 1, "download file shape");
+      const file = await api(release.files[0].url, {}, authorToken);
+      assert(file.response.status === 200 && file.body.includes("hello"), "authorized download");
+      const replay = await api(release.files[0].url, {}, authorToken);
+      assert(replay.response.status === 200, "repeatable authorized read");
       const detail = await api(`/api/v1/projects/${project.project.id}`);
       assert(JSON.parse(detail.body).counts.downloads === 0, "author download does not increment public count");
       const memberIssue = await api(
         `/api/v1/projects/${project.project.id}/downloads`,
-        { method: "POST" },
+        { method: "POST", headers: { "Idempotency-Key": randomUUID() } },
         memberToken,
       );
-      assert(memberIssue.response.status === 201, `member ticket ${memberIssue.response.status}: ${memberIssue.body}`);
+      assert(
+        memberIssue.response.status === 201,
+        `member acquisition ${memberIssue.response.status}: ${memberIssue.body}`,
+      );
       const memberUrl = JSON.parse(memberIssue.body).files[0].url;
       const memberFile = await api(memberUrl, {}, memberToken);
-      assert(memberFile.response.status === 200 && memberFile.body.includes("hello"), "member ticket download");
+      assert(memberFile.response.status === 200 && memberFile.body.includes("hello"), "member authorized download");
       const memberReplay = await api(memberUrl, {}, memberToken);
-      assert(memberReplay.response.status === 404, "member ticket replay");
-      const counted = await api(`/api/v1/projects/${project.project.id}`);
-      assert(JSON.parse(counted.body).counts.downloads === 1, "member download counted exactly once");
+      assert(memberReplay.response.status === 200, "member repeatable read");
+      let counted;
+      for (let attempt = 0; attempt < 300; attempt += 1) {
+        counted = await api(`/api/v1/projects/${project.project.id}`);
+        if (counted.response.status === 200 && JSON.parse(counted.body).counts.downloads === 1) break;
+        await sleep(250);
+      }
+      assert(
+        counted?.response.status === 200 && JSON.parse(counted.body).counts.downloads === 1,
+        "member download counted exactly once",
+      );
     });
 
     await check("author subscribes to a public project", async () => {
@@ -495,7 +514,7 @@ async function main() {
       const project = JSON.parse(created.body);
       const worldbook = JSON.stringify({ entries: [{ uid: 1, key: [key], content: key }] });
       const upload = await api(
-        `/api/v1/projects/${project.project.id}/revisions/${project.workingRevisionId}/files/worldbook`,
+        `/api/v1/projects/${project.project.id}/versions/${project.workingVersionId}/files/worldbook`,
         {
           method: "PUT",
           headers: {
@@ -524,7 +543,7 @@ async function main() {
       );
       project.rowVersion = JSON.parse(visibility.body).rowVersion;
       const submit = await api(
-        `/api/v1/projects/${project.project.id}/revisions/${project.workingRevisionId}/submit`,
+        `/api/v1/projects/${project.project.id}/versions/${project.workingVersionId}/submit`,
         {
           method: "POST",
           headers: { "content-type": "application/json", "if-match": String(project.rowVersion) },
@@ -574,8 +593,9 @@ async function main() {
       assert(unpublished.response.status === 404, "withdrawn submission does not become public");
     });
 
-    const executablePath = chromiumExecutable();
-    if (executablePath) {
+    const httpOnly = process.argv.includes("--http-only");
+    const executablePath = httpOnly ? null : chromiumExecutable();
+    if (!httpOnly && executablePath) {
       const browser = await chromium.launch({ headless: true, executablePath });
       const browserDiagnostics = [];
       function observePage(page) {
@@ -661,12 +681,12 @@ async function main() {
           const sortRequest = (value) =>
             page.waitForResponse((response) => {
               const url = new URL(response.url());
-              return url.pathname === "/api/v1/projects" && (url.searchParams.get("sort") ?? "updated") === value;
+              return url.pathname === "/api/v1/projects" && (url.searchParams.get("sort") ?? "published") === value;
             });
           const sortButton = (label) => page.locator(".sorts").getByRole("button", { name: label, exact: true });
           for (const [sort, label, metric] of [
-            ["published", "发布时间", (item) => Date.parse(item.publishedAt)],
             ["updated", "最近更新", (item) => Date.parse(item.updatedAt)],
+            ["published", "发布时间", (item) => Date.parse(item.publishedAt)],
             ["downloads", "下载", (item) => item.counts.downloads],
             ["likes", "点赞", (item) => item.counts.likes],
           ]) {
@@ -895,7 +915,7 @@ async function main() {
           );
           const [revisionResponse] = await Promise.all([
             page.waitForResponse(
-              (response) => response.url().endsWith("/revisions") && response.request().method() === "POST",
+              (response) => response.url().endsWith("/versions") && response.request().method() === "POST",
             ),
             page.getByRole("button", { name: "新建版本" }).click(),
           ]);
@@ -971,7 +991,7 @@ async function main() {
       } finally {
         await browser.close();
       }
-    } else {
+    } else if (!httpOnly) {
       throw new Error(
         "Browser E2E requires cached Chromium or PLAYWRIGHT_CHROMIUM_EXECUTABLE; refusing to skip journeys",
       );

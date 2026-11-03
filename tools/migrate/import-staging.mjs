@@ -155,15 +155,15 @@ function sqlList(values) {
   return values.map((value) => `'${String(value).replaceAll("'", "''")}'`).join(",");
 }
 
-function snapshot(ids, assets, revisions, users) {
+function snapshot(ids, assets, versions, users) {
   const row = d1Rows(`SELECT
     (SELECT count(*) FROM projects) AS projects,
-    (SELECT count(*) FROM project_revisions) AS revisions,
+    (SELECT count(*) FROM project_versions) AS versions,
     (SELECT count(*) FROM assets) AS assets,
-    (SELECT count(*) FROM revision_entry_index) AS entries,
+    (SELECT COALESCE(sum(json_array_length(entry_index,'$.entries')),0) FROM project_versions) AS entries,
     (SELECT count(*) FROM users WHERE id IN (${sqlList(users)})) AS existing_users,
     (SELECT count(*) FROM projects WHERE id IN (${sqlList(ids)})) AS conflicting_projects,
-    (SELECT count(*) FROM project_revisions WHERE id IN (${sqlList(revisions)})) AS conflicting_revisions,
+    (SELECT count(*) FROM project_versions WHERE id IN (${sqlList(versions)})) AS conflicting_versions,
     (SELECT count(*) FROM assets WHERE id IN (${sqlList(assets)})) AS conflicting_assets;
   `)[0];
   return row;
@@ -179,14 +179,14 @@ if (!existsSync(packageDir)) fail(`package not found: ${packageDir}`);
 const { target, manifest, sourceDir, sqlPath } = sealImportPackage({ packageDir, isolatedCwd });
 
 const projectIds = target.tables.projects.map((row) => row.id);
-const revisionIds = target.tables.project_revisions.map((row) => row.id);
+const versionIds = target.tables.project_versions.map((row) => row.id);
 const assetIds = target.tables.assets.map((row) => row.id);
 if (projectIds.length !== 100) fail(`expected 100 projects, got ${projectIds.length}`);
 if (new Set(projectIds).size !== projectIds.length) fail("duplicate project IDs in package");
 
 const userIds = target.tables.users.map((row) => row.id);
 const beforeApiIds = await publicIds();
-const before = snapshot(projectIds, assetIds, revisionIds, userIds);
+const before = snapshot(projectIds, assetIds, versionIds, userIds);
 const bookmark = timeTravel();
 const beforeReceipt = {
   environment: "staging",
@@ -201,7 +201,7 @@ const beforeReceipt = {
   databaseCounts: before,
   timeTravel: bookmark,
 };
-if (before.conflicting_projects || before.conflicting_revisions || before.conflicting_assets)
+if (before.conflicting_projects || before.conflicting_versions || before.conflicting_assets)
   fail(`destination already contains package IDs: ${JSON.stringify(before)}`);
 
 if (!apply) {
@@ -244,18 +244,22 @@ try {
 
   const after = d1Rows(`SELECT
     (SELECT count(*) FROM projects) AS projects,
-    (SELECT count(*) FROM project_revisions) AS revisions,
+    (SELECT count(*) FROM project_versions) AS versions,
     (SELECT count(*) FROM assets) AS assets,
-    (SELECT count(*) FROM revision_entry_index) AS entries,
-    (SELECT count(*) FROM projects WHERE id IN (${sqlList(projectIds)}) AND published_revision_id IS NOT NULL) AS published_package_projects,
+    (SELECT COALESCE(sum(json_array_length(entry_index,'$.entries')),0) FROM project_versions) AS entries,
+    (SELECT count(*) FROM projects WHERE id IN (${sqlList(projectIds)}) AND published_version_id IS NOT NULL) AS published_package_projects,
     (SELECT count(*) FROM assets WHERE id IN (${sqlList(assetIds)})) AS package_assets,
-    (SELECT count(*) FROM revision_entry_index WHERE revision_id IN (${sqlList(revisionIds)})) AS package_entries;
+    (SELECT COALESCE(sum(json_array_length(entry_index,'$.entries')),0) FROM project_versions WHERE id IN (${sqlList(versionIds)})) AS package_entries;
   `)[0];
   if (after.projects !== before.projects + projectIds.length)
     fail(`project count did not increase by ${projectIds.length}: ${JSON.stringify(after)}`);
   if (after.published_package_projects !== projectIds.length) fail("not every imported project is published");
   if (after.package_assets !== assetIds.length) fail("missing imported asset rows");
-  if (after.package_entries !== target.tables.revision_entry_index.length) fail("missing imported index rows");
+  if (
+    after.package_entries !==
+    target.tables.project_versions.reduce((sum, version) => sum + JSON.parse(version.entry_index).entries.length, 0)
+  )
+    fail("missing imported index entries");
   writeFileSync(
     path.join(packageDir, "remote-post-sql.json"),
     `${JSON.stringify({ ...beforeReceipt, appliedAt: new Date().toISOString(), databaseCountsAfter: after, uploaded }, null, 2)}\n`,
@@ -273,9 +277,9 @@ try {
   const details = [];
   for (const project of target.tables.projects) {
     const { body: detail } = await getJson(`${baseUrl}/api/v1/projects/${project.id}`);
-    const revision = target.tables.project_revisions.find((row) => row.id === project.published_revision_id);
-    if (!revision) fail(`missing revision for ${project.id}`);
-    if (detail.entries?.worldbook !== revision.worldbook_count || detail.entries?.regex !== revision.regex_count)
+    const version = target.tables.project_versions.find((row) => row.id === project.published_version_id);
+    if (!version) fail(`missing version for ${project.id}`);
+    if (detail.entries?.worldbook !== version.worldbook_count || detail.entries?.regex !== version.regex_count)
       fail(`entry counts differ for ${project.id}`);
     if (!detail.coverUrl) fail(`missing cover URL for ${project.id}`);
     const coverBytes = await getBytes(`${baseUrl}${detail.coverUrl}`);

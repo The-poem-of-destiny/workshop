@@ -43,7 +43,7 @@ export const LINK_TRUST = Object.freeze({
 /** Where a link was found. */
 export const LINK_SOURCE = Object.freeze({
   DESCRIPTION: "description",
-  PRECAUTIONS: "precautions",
+  REQUIREMENTS: "requirements",
   DISCORD_THREAD: "discordThreadUrl",
   WORLDBOOK: "worldbook",
   REGEX: "regex",

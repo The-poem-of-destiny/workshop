@@ -5,7 +5,7 @@ import { jsonError, versionConflict } from "../http/errors.js";
 import { ifMatchVersion } from "../http/if-match.js";
 import { upsertStreamedAsset } from "../storage/authoring-assets.js";
 import { getAuthoringProject } from "../storage/authoring-model.js";
-import { getRevisionForProject } from "../storage/authoring-revisions.js";
+import { getVersionForProject } from "../storage/authoring-versions.js";
 import { uploadGalleryImage } from "../storage/project-gallery.js";
 import { type AuthenticatedSession, getSessionByToken } from "../storage/sessions.js";
 import type { DataEnv } from "./env.js";
@@ -59,19 +59,19 @@ files.use("*", async (c, next) => {
   await next();
 });
 
-files.get("/api/v1/projects/:id/revisions/:revisionId/files/:kind", async (c) => {
+files.get("/api/v1/projects/:id/versions/:versionId/files/:kind", async (c) => {
   const session = c.get("session");
   if (!session) return jsonError(c, "unauthorized", "Login required");
   const kind = uploadKindSchema.safeParse(c.req.param("kind"));
   if (!kind.success) return jsonError(c, "bad_request", "Unsupported file kind");
   const project = await getAuthoringProject(c.env.DB, c.req.param("id"), session);
   if (!project) return jsonError(c, "not_found", "Project not found");
-  const revision = await c.env.DB.prepare("SELECT id FROM project_revisions WHERE id = ? AND project_id = ?")
-    .bind(c.req.param("revisionId"), project.id)
+  const revision = await c.env.DB.prepare("SELECT id FROM project_versions WHERE id = ? AND project_id = ?")
+    .bind(c.req.param("versionId"), project.id)
     .first<{ id: string }>();
   if (!revision) return jsonError(c, "not_found", "Revision not found");
   const asset = await c.env.DB.prepare(
-    "SELECT r2_key, mime FROM assets WHERE project_id = ? AND revision_id = ? AND kind = ?",
+    "SELECT r2_key, mime FROM assets WHERE project_id = ? AND version_id = ? AND kind = ?",
   )
     .bind(project.id, revision.id, kind.data)
     .first<{ r2_key: string; mime: string }>();
@@ -83,7 +83,7 @@ files.get("/api/v1/projects/:id/revisions/:revisionId/files/:kind", async (c) =>
   });
 });
 
-files.put("/api/v1/projects/:id/revisions/:revisionId/files/:kind", async (c) => {
+files.put("/api/v1/projects/:id/versions/:versionId/files/:kind", async (c) => {
   const session = c.get("session");
   if (!session) return jsonError(c, "unauthorized", "Login required");
   const parsedKind = uploadKindSchema.safeParse(c.req.param("kind"));
@@ -94,7 +94,7 @@ files.put("/api/v1/projects/:id/revisions/:revisionId/files/:kind", async (c) =>
   if (!project) return jsonError(c, "not_found", "Project not found");
   if (expectedVersion !== project.row_version)
     return versionConflict(c, "project", expectedVersion, project.row_version);
-  const revision = await getRevisionForProject(c.env.DB, project.id, c.req.param("revisionId"), session);
+  const revision = await getVersionForProject(c.env.DB, project.id, c.req.param("versionId"), session);
   if (!revision) return jsonError(c, "not_found", "Revision not found");
   const validateUpload = () => {
     const declaredLength = Number(c.req.header("content-length"));
@@ -243,7 +243,6 @@ files.put("/api/v1/projects/:id/gallery/:slot", async (c) => {
       const metadata = await image.result;
       return await uploadGalleryImage(
         c.env.DB,
-        c.env.R2,
         session,
         project.id,
         Number(c.req.param("slot")),

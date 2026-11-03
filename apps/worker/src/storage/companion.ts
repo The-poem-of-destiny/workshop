@@ -2,6 +2,7 @@ import {
   type CompanionVersionInput,
   type CompanionVersionRecord,
   companionVersionRecordSchema,
+  serializeAuditDetail,
 } from "@workshop/contracts";
 
 export async function getCompanionVersion(
@@ -47,7 +48,15 @@ export async function publishCompanionVersion(
       .prepare(`INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
       SELECT ?, 'companion.publish', 'companion_script', ?, ?, ?, ?
       WHERE EXISTS (SELECT 1 FROM site_settings WHERE key = ? AND value = ?)`)
-      .bind(record.releaseId, scriptId, actorId, JSON.stringify({ version }), record.publishedAt, key, value),
+      .bind(
+        record.releaseId,
+        scriptId,
+        actorId,
+        serializeAuditDetail("companion.publish", { version }),
+        record.publishedAt,
+        key,
+        value,
+      ),
   ]);
   const stored = await getCompanionVersion(db, scriptId, version);
   if (!stored) throw new Error("Companion version registration missing after transaction");

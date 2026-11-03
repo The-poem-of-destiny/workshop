@@ -31,12 +31,12 @@ const HTTP_URL_PATTERN = /https?:\/\/[^\s<>"'`，。；：！？、（）【】�
  *
  * `discordThreadUrl` is the one deliberate exception. Its dedicated validator
  * proves the exact normalized URL *is* the project's community target, so
- * observations of that same URL in description/precautions are covered by that
+ * observations of that same URL in description/requirements notes are covered by that
  * proof rather than re-litigated.
  */
 export function collectProjectExternalLinks({
   description = "",
-  precautions = "",
+  requirements = null,
   discordThreadUrl = null,
   allowedGuildIds = [],
   worldbookEntries = [],
@@ -105,7 +105,7 @@ export function collectProjectExternalLinks({
   };
 
   addTextLinks(description, LINK_SOURCE.DESCRIPTION, LINK_USAGE.UNKNOWN);
-  addTextLinks(precautions, LINK_SOURCE.PRECAUTIONS, LINK_USAGE.UNKNOWN);
+  addTextLinks(requirements?.notes ?? "", LINK_SOURCE.REQUIREMENTS, LINK_USAGE.UNKNOWN);
 
   // The one authoritative identity. When the dedicated project field validator
   // accepts this exact normalized URL, that URL *is* the project's community

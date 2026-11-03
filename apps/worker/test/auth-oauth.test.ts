@@ -111,6 +111,19 @@ describe("OAuth flows", () => {
     const html = await done.text();
     const code = /"code":"([^"]+)"/.exec(html)?.[1];
     expect(code).toBeTruthy();
+    const stored = await bindings.DB.prepare("SELECT detail FROM oauth_flows WHERE id = ?")
+      .bind(flow.id)
+      .first<{ detail: string }>();
+    const evidence = JSON.parse(stored!.detail) as Record<string, unknown>;
+    expect(evidence).toEqual({
+      schemaVersion: 1,
+      guildId: GUILD,
+      eligibility: "member",
+      verifiedAt: expect.any(String),
+    });
+    expect(Number.isFinite(Date.parse(String(evidence.verifiedAt)))).toBe(true);
+    expect(stored!.detail).not.toContain("access-token");
+    expect(stored!.detail).not.toContain(verifier);
 
     const status = await request(`/api/v1/auth/flows/${flow.id}`, { headers: withBinding() });
     await expect(status.json()).resolves.toMatchObject({ status: "authorized" });
@@ -294,12 +307,20 @@ describe("OAuth flows", () => {
     });
     expect(disallowed.status).toBe(403);
 
-    const preflight = await request("/api/v1/projects", {
+    const preflight = await request("/api/v1/projects/public-project/acquisitions", {
       method: "OPTIONS",
-      headers: { origin: ORIGIN, "access-control-request-method": "GET" },
+      headers: {
+        origin: ORIGIN,
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "authorization,idempotency-key,x-client-version,x-client-channel",
+      },
     });
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get("access-control-allow-origin")).toBe(ORIGIN);
+    const allowedHeaders = preflight.headers.get("access-control-allow-headers")?.split(",") ?? [];
+    for (const name of ["authorization", "idempotency-key", "x-client-version", "x-client-channel"]) {
+      expect(allowedHeaders).toContain(name);
+    }
 
     const denied = await request("/api/v1/projects", {
       method: "OPTIONS",

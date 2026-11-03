@@ -76,7 +76,7 @@ export function useInstalledProjects(context: InstalledProjectsOptions, enabled:
     installedPending || Object.keys(installedFailed).length > 0
       ? null
       : installedItems.filter((item) =>
-          Boolean(item.project?.publishedRevisionId && item.instance.version !== item.project.publishedRevisionId),
+          Boolean(item.project?.publishedVersionId && item.instance.version !== item.project.publishedVersionId),
         ).length;
   function reloadInstalledProjects(): void {
     checkRequested.current = true;

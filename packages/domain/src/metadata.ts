@@ -4,7 +4,7 @@ export const METADATA_LIMITS = {
   title: 200,
   description: 100_000,
   authorNote: 100_000,
-  precautions: 2_000,
+  requirementsNotes: 2_000,
   versionLabel: 80,
   tags: 100,
   tagLength: 100,
@@ -16,7 +16,7 @@ export interface MetadataInput {
   title: string;
   description?: string | null;
   authorNote?: string | null;
-  precautions?: string | null;
+  requirements?: { notes: string } | null;
   versionLabel?: string | null;
   tags?: string[];
   coverPositionX?: number;
@@ -51,8 +51,8 @@ export function inspectProjectMetadata(input: MetadataInput): MetadataInspection
       add(findings, field, "block", "文本超过长度上限");
     }
   }
-  if (typeof input.precautions === "string" && input.precautions.length > METADATA_LIMITS.precautions) {
-    add(findings, "precautions", "block", "安装注意事项超过 2000 字符");
+  if (input.requirements && input.requirements.notes.length > METADATA_LIMITS.requirementsNotes) {
+    add(findings, "requirements", "block", "依赖与冲突说明超过 2000 字符");
   }
   if (typeof input.versionLabel === "string" && input.versionLabel.length > METADATA_LIMITS.versionLabel) {
     add(findings, "versionLabel", "block", "版本标签超过 80 字符");
@@ -61,7 +61,7 @@ export function inspectProjectMetadata(input: MetadataInput): MetadataInspection
     title: input.title,
     description: input.description,
     authorNote: input.authorNote,
-    precautions: input.precautions,
+    requirements: input.requirements?.notes,
     versionLabel: input.versionLabel,
   })) {
     if (typeof value === "string" && CONTROL_CHARACTERS.test(value)) {

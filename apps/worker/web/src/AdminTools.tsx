@@ -4,7 +4,6 @@ import { AdminConfirmations } from "./AdminConfirmations";
 import { AdminMembers } from "./AdminMembers";
 import { AdminProjects } from "./AdminProjects";
 import { AdminRecommendations } from "./AdminRecommendations";
-import { AdminReferences } from "./AdminReferences";
 import { AdminSite } from "./AdminSite";
 import { ConfirmDialog } from "./components/ui/confirm-dialog";
 import { useAdminAudit } from "./useAdminAudit";
@@ -18,7 +17,6 @@ const MANAGEMENT_SECTIONS = [
   { id: "projects", title: "项目索引", description: "搜索项目，查看发布状态、可见性与作者。" },
   { id: "members", title: "成员权限", description: "按角色查看成员，确认后调整权限。" },
   { id: "recommendations", title: "编辑精选", description: "搜索、添加、编辑和移除首页精选。" },
-  { id: "references", title: "角色基线", description: "维护参考集、基线内容和版本。" },
   { id: "audit", title: "审计日志", description: "按操作筛选日志，逐页查看详细记录。" },
 ] as const;
 
@@ -88,7 +86,6 @@ export function AdminTools({
   } = members;
   const {
     recommendations,
-    reaction,
     comment,
     editRecommendation,
     setRemoveTarget,
@@ -103,7 +100,6 @@ export function AdminTools({
     pickProject,
     recSearched,
     setComment,
-    setReaction,
     recBusy,
     saveRecommendation,
     removeTarget,
@@ -122,24 +118,6 @@ export function AdminTools({
     projects,
     projectSearch,
     setProjectSearch,
-    newSetName,
-    setNewSetName,
-    newSetVersion,
-    setNewSetVersion,
-    createSet,
-    setId,
-    selectSet,
-    sets,
-    setName,
-    setSetName,
-    setVersion,
-    setSetVersion,
-    setDescription,
-    setSetDescription,
-    setItems,
-    setSetItems,
-    saveSet,
-    createVersion,
   } = data;
   const { auditBusy, loadAudit, auditAction, changeAuditAction, audit, auditCursor, auditLoadingMore } = auditState;
   const loadInitial = useEffectEvent(() => {
@@ -243,7 +221,6 @@ export function AdminTools({
       {section === "recommendations" && !busy && !data.loadError ? (
         <AdminRecommendations
           recommendations={recommendations}
-          reaction={reaction}
           comment={comment}
           editRecommendation={editRecommendation}
           setRemoveTarget={setRemoveTarget}
@@ -259,55 +236,12 @@ export function AdminTools({
           pickProject={pickProject}
           recSearched={recSearched}
           setComment={setComment}
-          setReaction={setReaction}
           recBusy={recBusy}
           saveRecommendation={async () => {
             setPendingWrite({
               title: "保存编辑精选",
-              description: "保存后首页精选会采用当前项目、评语和反应。",
+              description: "保存对当前公开版本的推荐及评语。",
               run: saveRecommendation,
-            });
-          }}
-        />
-      ) : null}
-      {section === "references" && !busy && !data.loadError ? (
-        <AdminReferences
-          busy={busy}
-          refresh={refresh}
-          newSetName={newSetName}
-          setNewSetName={setNewSetName}
-          newSetVersion={newSetVersion}
-          setNewSetVersion={setNewSetVersion}
-          createSet={async () => {
-            setPendingWrite({
-              title: "创建参考集",
-              description: `创建「${newSetName.trim()}」及初始版本「${newSetVersion.trim()}」。`,
-              run: createSet,
-            });
-          }}
-          setId={setId}
-          selectSet={selectSet}
-          sets={sets}
-          setName={setName}
-          setSetName={setSetName}
-          setVersion={setVersion}
-          setSetVersion={setSetVersion}
-          setDescription={setDescription}
-          setSetDescription={setSetDescription}
-          setItems={setItems}
-          setSetItems={setSetItems}
-          saveSet={async () => {
-            setPendingWrite({
-              title: "保存角色基线",
-              description: "将保存名称与版本信息，并全量替换当前版本的 items。",
-              run: saveSet,
-            });
-          }}
-          createVersion={async () => {
-            setPendingWrite({
-              title: "新建基线版本",
-              description: `将为当前参考集创建版本「${setVersion.trim()}」。`,
-              run: createVersion,
             });
           }}
         />

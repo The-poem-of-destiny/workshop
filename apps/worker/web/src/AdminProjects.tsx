@@ -47,7 +47,7 @@ export function AdminProjects({
               <strong>{project.title}</strong>
               <small>
                 {project.author.name} · {project.visibility === "public" ? "公开" : "私有"} ·{" "}
-                {project.publishedRevisionId ? "已发布" : "未发布"}
+                {project.publishedVersionId ? "已发布" : "未发布"}
               </small>
             </span>
             <span className="status">{project.deletedAt ? "已删除" : (project.projectType ?? "未分类")}</span>

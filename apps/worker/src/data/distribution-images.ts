@@ -9,8 +9,8 @@ async function privateImageHash(request: Request, env: DataEnv, key: string, gal
     : null;
   if (!session) return null;
   const sql = gallery
-    ? `SELECT g.sha256 FROM project_gallery g JOIN projects p ON p.id = g.project_id WHERE g.r2_key = ? AND p.deleted_at IS NULL AND (p.author_id = ? OR ? = 'owner') LIMIT 1`
-    : `SELECT a.sha256 FROM assets a JOIN projects p ON p.id = a.project_id WHERE a.r2_key = ? AND a.kind = 'cover' AND p.deleted_at IS NULL AND (((p.author_id = ? OR ? = 'owner') AND (a.revision_id = p.working_revision_id OR a.id = p.published_cover_asset_id)) OR (? IN ('reviewer', 'owner') AND a.revision_id IS NOT NULL AND EXISTS (SELECT 1 FROM submissions s WHERE s.revision_id = a.revision_id AND s.status IN ('pending', 'checking')))) LIMIT 1`;
+    ? `SELECT g.sha256 FROM assets g JOIN projects p ON p.id = g.project_id WHERE g.r2_key = ? AND g.version_id IS NULL AND g.kind IN ('gallery_1','gallery_2') AND p.deleted_at IS NULL AND (p.author_id = ? OR ? = 'owner') LIMIT 1`
+    : `SELECT a.sha256 FROM assets a JOIN projects p ON p.id = a.project_id WHERE a.r2_key = ? AND a.kind = 'cover' AND p.deleted_at IS NULL AND (((p.author_id = ? OR ? = 'owner') AND (a.version_id = p.working_version_id OR a.id = p.published_cover_asset_id)) OR (? IN ('reviewer', 'owner') AND a.version_id IS NOT NULL AND EXISTS (SELECT 1 FROM submissions s WHERE s.version_id = a.version_id AND s.status IN ('pending', 'checking')))) LIMIT 1`;
   const statement = env.DB.prepare(sql);
   const association = await (gallery
     ? statement.bind(key, session.userId, session.role)
@@ -55,8 +55,8 @@ export async function distributionImage(request: Request, env: DataEnv, context?
   } else {
     const gallery = key.startsWith("gallery/");
     const publicSql = gallery
-      ? `SELECT g.sha256 FROM project_gallery g JOIN projects p ON p.id = g.project_id WHERE g.r2_key = ? AND p.deleted_at IS NULL AND p.visibility = 'public' AND p.published_revision_id IS NOT NULL LIMIT 1`
-      : `SELECT a.sha256 FROM assets a JOIN projects p ON p.id = a.project_id WHERE a.r2_key = ? AND a.kind = 'cover' AND p.deleted_at IS NULL AND p.visibility = 'public' AND p.published_revision_id IS NOT NULL AND ((a.id = p.published_cover_asset_id AND a.revision_id IS NULL) OR (p.published_cover_asset_id IS NULL AND a.revision_id = p.published_revision_id)) LIMIT 1`;
+      ? `SELECT g.sha256 FROM assets g JOIN projects p ON p.id = g.project_id WHERE g.r2_key = ? AND g.version_id IS NULL AND g.kind IN ('gallery_1','gallery_2') AND p.deleted_at IS NULL AND p.visibility = 'public' AND p.published_version_id IS NOT NULL LIMIT 1`
+      : `SELECT a.sha256 FROM assets a JOIN projects p ON p.id = a.project_id WHERE a.r2_key = ? AND a.kind = 'cover' AND p.deleted_at IS NULL AND p.visibility = 'public' AND p.published_version_id IS NOT NULL AND ((a.id = p.published_cover_asset_id AND a.version_id IS NULL) OR (p.published_cover_asset_id IS NULL AND a.version_id = p.published_version_id)) LIMIT 1`;
     const publicAssociation = await env.DB.prepare(publicSql).bind(key).first<{ sha256: string }>();
     if (!publicAssociation) {
       if (publicOnly) return missing();

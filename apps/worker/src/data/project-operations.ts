@@ -1,12 +1,13 @@
 import type { ProjectPreviewKind } from "@workshop/contracts";
-import { acquisitionResponseSchema, discoveryResponseSchema, downloadTicketResponseSchema } from "@workshop/contracts";
-import { WORKSHOP_LIMITS } from "@workshop/domain";
+import { acquisitionResponseSchema, discoveryResponseSchema, downloadResponseSchema } from "@workshop/contracts";
+import { deleteAdminRecommendation, updateAdminRecommendation } from "../storage/admin-recommendations.js";
 import { getClientChannel } from "../storage/client.js";
 import { getProjectEntryIndex, resolveProjectPreviewTarget } from "../storage/content-index.js";
-import { issueDownloadTickets } from "../storage/downloads.js";
+import { recordAcquisition, releaseDownloads } from "../storage/downloads.js";
 import { getDiscovery } from "../storage/home.js";
 import { getPublishedProject, isValidProjectListCursor, listPublishedProjects } from "../storage/projects.js";
 import { getRankings } from "../storage/rankings.js";
+import { recordProjectChange, recordRecommendationSignals } from "../storage/recommendation-signals.js";
 import { getReleaseAssets } from "../storage/releases.js";
 import { getSessionByToken } from "../storage/sessions.js";
 import type { DataEnv } from "./env";
@@ -28,6 +29,40 @@ export function projectEntries(env: DataEnv, projectId: string) {
   return getProjectEntryIndex(env.DB, projectId);
 }
 
+export async function projectRecommendation(
+  env: DataEnv,
+  token: string,
+  projectId: string,
+  input: { projectVersionId: string; comment?: string },
+  remove: boolean,
+) {
+  const session = await getSessionByToken(env.DB, token, env.SESSION_HASH_SECRET);
+  if (!session) return { kind: "unauthorized" as const };
+  return remove
+    ? deleteAdminRecommendation(env.DB, projectId, session.userId, input.projectVersionId)
+    : updateAdminRecommendation(env.DB, projectId, session.userId, input);
+}
+
+export async function projectSignals(
+  env: DataEnv,
+  token: string,
+  input: Parameters<typeof recordRecommendationSignals>[3],
+) {
+  const session = await getSessionByToken(env.DB, token, env.SESSION_HASH_SECRET);
+  if (!session) return { kind: "unauthorized" as const };
+  if (!env.SESSION_HASH_SECRET) throw new Error("Recommendation sampling requires SESSION_HASH_SECRET");
+  return recordRecommendationSignals(env.DB, session.userId, env.SESSION_HASH_SECRET, input);
+}
+export async function projectChangeSignal(
+  env: DataEnv,
+  token: string,
+  input: Parameters<typeof recordProjectChange>[2],
+) {
+  const session = await getSessionByToken(env.DB, token, env.SESSION_HASH_SECRET);
+  if (!session) return { kind: "unauthorized" as const };
+  return recordProjectChange(env.DB, session.userId, input);
+}
+
 export async function projectPreviewTarget(
   env: DataEnv,
   token: string,
@@ -41,29 +76,20 @@ export async function projectPreviewTarget(
   return target ? { ok: true as const, target } : { ok: false as const, error: "not_found" as const };
 }
 
-export async function projectTickets(env: DataEnv, token: string, projectId: string) {
+export async function projectDownloads(env: DataEnv, token: string, projectId: string, acquisitionId: string) {
   const session = await getSessionByToken(env.DB, token, env.SESSION_HASH_SECRET);
   if (!session) return { ok: false as const, error: "unauthorized" as const };
   const release = await getReleaseAssets(env.DB, projectId, null, session);
   if (!release) return { ok: false as const, error: "not_found" as const };
-  const tickets = await issueDownloadTickets(
-    env.DB,
-    projectId,
-    release.revisionId,
-    session.userId,
-    session.sessionVersion,
-    release.files,
-    WORKSHOP_LIMITS.downloadTicketTtlMs,
-  );
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(acquisitionId))
+    return { ok: false as const, error: "bad_request" as const };
+  const recorded = await recordAcquisition(env.DB, session, projectId, release.versionId, acquisitionId);
+  if (recorded !== "ok") return { ok: false as const, error: recorded };
   return {
     ok: true as const,
-    data: downloadTicketResponseSchema.parse({
-      revisionId: release.revisionId,
-      files: tickets.map((ticket) => ({
-        kind: ticket.kind,
-        url: `/api/v1/downloads/${ticket.token}`,
-        expiresAt: ticket.expiresAt,
-      })),
+    data: downloadResponseSchema.parse({
+      versionId: release.versionId,
+      files: releaseDownloads(projectId, release.versionId, release.files),
     }),
   };
 }
@@ -74,6 +100,7 @@ export async function projectAcquisition(
   projectId: string,
   clientVersion: string | undefined,
   clientChannel: string | undefined,
+  acquisitionId: string,
 ) {
   const session = await getSessionByToken(env.DB, token, env.SESSION_HASH_SECRET);
   if (!session) return { ok: false as const, error: "unauthorized" as const };
@@ -97,10 +124,11 @@ export async function projectAcquisition(
   const release = await getReleaseAssets(env.DB, projectId, null, session);
   if (!release) return { ok: false as const, error: "not_found" as const };
   const project = await env.DB.prepare(`
-    SELECT p.id, p.title, p.project_type, p.extension_type, p.updated_at, p.search_tags AS tags
-    FROM projects p WHERE p.id = ? AND p.published_revision_id = ?
+    SELECT p.id, r.title, r.project_type, r.extension_type, p.updated_at, r.tags
+    FROM projects p JOIN project_versions r ON r.id = p.published_version_id
+    WHERE p.id = ? AND p.published_version_id = ?
   `)
-    .bind(projectId, release.revisionId)
+    .bind(projectId, release.versionId)
     .first<{
       id: string;
       title: string;
@@ -110,15 +138,10 @@ export async function projectAcquisition(
       tags: string;
     }>();
   if (!project) return { ok: false as const, error: "not_found" as const };
-  const tickets = await issueDownloadTickets(
-    env.DB,
-    projectId,
-    release.revisionId,
-    session.userId,
-    session.sessionVersion,
-    release.files,
-    WORKSHOP_LIMITS.downloadTicketTtlMs,
-  );
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(acquisitionId))
+    return { ok: false as const, error: "bad_request" as const };
+  const recorded = await recordAcquisition(env.DB, session, projectId, release.versionId, acquisitionId);
+  if (recorded !== "ok") return { ok: false as const, error: recorded };
   return {
     ok: true as const,
     data: acquisitionResponseSchema.parse({
@@ -127,21 +150,17 @@ export async function projectAcquisition(
         title: project.title,
         projectType: project.project_type,
         extensionType: project.extension_type,
-        version: release.revisionId,
+        version: release.versionId,
         manifestHash: release.manifestHash,
         updatedAt: project.updated_at,
         tags: JSON.parse(project.tags) as unknown,
       },
       release: {
-        revisionId: release.revisionId,
+        versionId: release.versionId,
         manifestHash: release.manifestHash,
         files: release.files.map(({ kind, sha256, bytes, mime }) => ({ kind, sha256, bytes, mime })),
       },
-      tickets: tickets.map((ticket) => ({
-        kind: ticket.kind,
-        url: `/api/v1/downloads/${ticket.token}`,
-        expiresAt: ticket.expiresAt,
-      })),
+      downloads: releaseDownloads(projectId, release.versionId, release.files),
     }),
   };
 }

@@ -19,7 +19,7 @@
 | U-09 | `SESSION_HASH_SECRET` | session token HMAC | Worker secret | staging 已设置；生产需设置 |
 | U-10 | 生产发布使用的 `v*` tag | 允许 deploy-production 从 tag 进入 production environment | Git tag + GitHub Environment `production`（只允许 `v*`，1 名 reviewer） | 仅发布 production 时需要；当前无 tag，Actions 未运行 |
 | U-11 | 指定 Guild 的允许身份组 ID | 登录时额外校验身份组 | `DISCORD_GUILD_ROLE_IDS` | staging 已配置：类脑 `1134557553011998840` 需要“已验证”身份组 `1335363403870502912`；鸽子窝 `1417861565679669272` 仍只校验公会 |
-| U-12 | Discord OAuth2 Redirect URI | 授权后返回对应 Worker | Discord Developer Portal → Application → OAuth2 → Redirects | 需人工核对登记；代码只证明生成的地址，不能证明 Discord 后台已保存 |
+| U-12 | Discord OAuth2 Redirect URI | 授权后返回对应 Worker | Discord Developer Portal → Application → OAuth2 → Redirects | 用户已确认完成配置，且 staging 真实登录成功；production 登录未验收 |
 
 注意：凭据不得写入仓库、文档、测试或提交信息；只通过 `wrangler secret put` 或 GitHub Secrets 设置。
 
@@ -49,12 +49,12 @@ Q-06 已定：审核台拉 pending，checking 只显示计数；响应一次返�
 
 | ID | 旅程 | 前置条件 | 当前自动验证 |
 |---|---|---|---|
-| M-01 | Discord 登录：浏览器 / 嵌入 / 设备码 | U-01、U-02、U-03 已配置；需要一个真实 Discord 账号 | callback/redeem/device/state/TTL/guild 拒绝的本地负例已覆盖；真实授权尚未执行 |
+| M-01 | Discord 登录：浏览器 / 嵌入 / 设备码 | U-01、U-02、U-03 已配置；需要一个真实 Discord 账号 | 用户已实测 staging 登录成功；嵌入、设备码、刷新与退出的完整旅程仍待人工验收；本地负例已覆盖 |
 | M-02 | 公会准入正例 | U-03 的真实 Guild ID + 测试账号 | 公会拒绝路径已覆盖；正例待真实账号 |
 | M-07 | 身份组准入正例/负例 | U-11 的真实 Role ID + 测试账号 | 身份组命中/缺失/多 Guild 回退的本地负例已覆盖；真实账号待验收 |
 | M-03 | SillyTavern 安装世界书 + 正则 | 运行中的 ST、许可、测试角色 | 客户端纯逻辑与 build 已测；真实 ST 未跑 |
 | M-04 | 更新保留玩家改动、卸载、现有修复安装 | M-03 | 已实现路径待真实 ST 验收；逐条目选择 UI、独立修复中心与跨角色转移属于代码缺口，不作为人工验收前置条件 |
-| M-05 | 真实数据迁移彩排 | 目标环境授权、必要时停写窗口 | 9 个真实备份项目已完成本地彩排与 staging 导入；不代表生产迁移已验收 |
+| M-05 | 真实数据迁移彩排 | 目标环境授权、必要时停写窗口 | 已执行当前快照范围的隔离远端演练和 staging 更新，并已解除维护；后续审查发现发布字段投影与源对账缺口，线上修正及重新验收待办。既有线上公开读／私有资源拒绝和本地登录态预览／点赞／一次性下载证据保留，但不代表最终迁移验收；线上登录后写入及角色权限未实测 |
 | M-06 | 生产切换与回滚演练 | U-05、人工审批、停写窗口 | 生产未执行；备份可恢复性、迁移和回滚须作为发布门禁 |
 
 ## 4. C 类客户端缺口及原因
@@ -113,7 +113,7 @@ Q-06 已定：审核台拉 pending，checking 只显示计数；响应一次返�
 - [ ] 确认目标为 `workshop-prod` D1 和 `workshop-client-prod` R2，不是 staging；生产凭据的 S3 发布能力尚未在本次 staging 发布中得到证明。
 - [ ] 按 [部署 runbook](../../operations/deployment-safety.md) 验证备份与恢复、迁移影响、停写安排和回滚条件，再授权生产切换。生产备份上传仍是 Wrangler REST 路径，不能用客户端 S3 上传成功代替该路径的权限验证。
 - [ ] 选定已通过 CI／staging 的 main commit，明确同意发布后才创建受保护的 `v*` tag 并人工审批；不要为了检查凭据而创建发布 tag。
-- [ ] 发布后核对精确 Worker 版本、客户端渠道 revision／实际 SHA、登录和关键旅程。Workers Cache production 保持关闭；若以后开启，需另做 hosted HIT、隔离／失效等验证，依据 D-38，不再要求接受已被取代的 D-37。
+- [ ] 发布后核对精确 Worker 版本、客户端渠道 revision／实际 SHA、登录和关键旅程，并按 [缓存设计](../../reference/cache-design.md) 验证目标环境的 Cache API 行为及陈旧风险；当前 hosted 行为尚未验证，不假定全球 purge 或即时撤回。
 
 ## 7. 不应交给你“验收通过”的未实现项
 

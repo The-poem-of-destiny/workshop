@@ -44,7 +44,7 @@ export function ReviewTaskDialog({
       >
         <DialogHeader className="review-task-header">
           <DialogTitle>
-            {detail ? `审核 · ${detail.revision.title} · #${detail.revision.revisionNo}` : "审核任务"}
+            {detail ? `审核 · ${detail.version.title} · #${detail.version.versionNo}` : "审核任务"}
           </DialogTitle>
           <DialogDescription>队列与搜索保持原位；关闭后返回。决定完成后自动接续下一条。</DialogDescription>
         </DialogHeader>

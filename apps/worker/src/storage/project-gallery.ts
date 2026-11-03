@@ -6,16 +6,7 @@ type GalleryRow = { slot: number; r2_key: string; mime: string };
 const MIME_EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
 
 function galleryKey(projectId: string, slot: number, sha256: string, mime: string): string {
-  return `gallery/${projectId}/${slot}-${sha256}.${MIME_EXT[mime]!}`;
-}
-
-async function deleteIfUnreferenced(db: D1Database, r2: R2Bucket, r2Key: string): Promise<void> {
-  try {
-    const referenced = await db.prepare("SELECT 1 FROM project_gallery WHERE r2_key = ? LIMIT 1").bind(r2Key).first();
-    if (!referenced) await r2.delete(r2Key);
-  } catch {
-    // Preserve the object when D1 is unavailable; a later GC can verify references.
-  }
+  return `gallery/${projectId}/gallery_${slot + 1}-${sha256}.${MIME_EXT[mime]!}`;
 }
 
 function authorizedProjectSql(): string {
@@ -33,7 +24,9 @@ export async function getAuthorGallery(
     .first<{ row_version: number }>();
   if (!project) return null;
   const rows = await db
-    .prepare("SELECT slot, r2_key FROM project_gallery WHERE project_id = ? ORDER BY slot")
+    .prepare(
+      "SELECT CASE kind WHEN 'gallery_1' THEN 0 ELSE 1 END AS slot, r2_key FROM assets WHERE project_id = ? AND version_id IS NULL AND kind IN ('gallery_1', 'gallery_2') ORDER BY kind",
+    )
     .bind(projectId)
     .all<GalleryRow>();
   return {
@@ -45,14 +38,16 @@ export async function getAuthorGallery(
 export async function getPublicGallery(db: D1Database, projectId: string): Promise<GalleryRow[] | null> {
   const project = await db
     .prepare(
-      `SELECT p.id FROM projects p JOIN project_revisions r ON r.id = p.published_revision_id AND r.project_id = p.id
-       WHERE p.id = ? AND p.deleted_at IS NULL AND p.visibility = 'public' AND p.published_revision_id IS NOT NULL`,
+      `SELECT p.id FROM projects p JOIN project_versions r ON r.id = p.published_version_id AND r.project_id = p.id
+       WHERE p.id = ? AND p.deleted_at IS NULL AND p.visibility = 'public' AND p.published_version_id IS NOT NULL`,
     )
     .bind(projectId)
     .first<{ id: string }>();
   if (!project) return null;
   const rows = await db
-    .prepare("SELECT slot, r2_key, mime FROM project_gallery WHERE project_id = ? ORDER BY slot")
+    .prepare(
+      "SELECT CASE kind WHEN 'gallery_1' THEN 0 ELSE 1 END AS slot, r2_key, mime FROM assets WHERE project_id = ? AND version_id IS NULL AND kind IN ('gallery_1', 'gallery_2') ORDER BY kind",
+    )
     .bind(projectId)
     .all<GalleryRow>();
   return rows.results;
@@ -65,7 +60,6 @@ export type GalleryWriteResult =
 
 export async function uploadGalleryImage(
   db: D1Database,
-  r2: R2Bucket,
   session: Session,
   projectId: string,
   slot: number,
@@ -103,8 +97,8 @@ export async function uploadGalleryImage(
     results = await db.batch([
       db
         .prepare(
-          `UPDATE project_gallery SET r2_key = ?, sha256 = ?, bytes = ?, mime = ?, created_at = ?
-           WHERE project_id = ? AND slot = ? AND EXISTS (SELECT 1 FROM projects WHERE ${authorizedProjectSql()} AND row_version = ?)`,
+          `UPDATE assets SET r2_key = ?, sha256 = ?, bytes = ?, mime = ?, created_at = ?
+           WHERE project_id = ? AND kind = ? AND version_id IS NULL AND EXISTS (SELECT 1 FROM projects WHERE ${authorizedProjectSql()} AND row_version = ?)`,
         )
         .bind(
           r2Key,
@@ -113,7 +107,7 @@ export async function uploadGalleryImage(
           mime,
           now,
           projectId,
-          slot,
+          `gallery_${slot + 1}`,
           projectId,
           session.userId,
           session.role,
@@ -121,14 +115,15 @@ export async function uploadGalleryImage(
         ),
       db
         .prepare(
-          `INSERT INTO project_gallery (project_id, slot, r2_key, sha256, bytes, mime, created_at)
-           SELECT ?, ?, ?, ?, ?, ?, ?
+          `INSERT INTO assets (id, project_id, kind, r2_key, sha256, bytes, mime, created_at)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?
            WHERE EXISTS (SELECT 1 FROM projects WHERE ${authorizedProjectSql()} AND row_version = ?)
-             AND NOT EXISTS (SELECT 1 FROM project_gallery WHERE project_id = ? AND slot = ?)`,
+             AND NOT EXISTS (SELECT 1 FROM assets WHERE project_id = ? AND kind = ? AND version_id IS NULL)`,
         )
         .bind(
+          crypto.randomUUID(),
           projectId,
-          slot,
+          `gallery_${slot + 1}`,
           r2Key,
           sha256,
           body.bytes,
@@ -139,22 +134,21 @@ export async function uploadGalleryImage(
           session.role,
           expectedVersion,
           projectId,
-          slot,
+          `gallery_${slot + 1}`,
         ),
       db
         .prepare(
           `UPDATE projects SET row_version = row_version + 1, updated_at = ?
            WHERE ${authorizedProjectSql()} AND row_version = ?
-             AND EXISTS (SELECT 1 FROM project_gallery WHERE project_id = ? AND slot = ?)`,
+             AND EXISTS (SELECT 1 FROM assets WHERE project_id = ? AND kind = ? AND version_id IS NULL)`,
         )
-        .bind(now, projectId, session.userId, session.role, expectedVersion, projectId, slot),
+        .bind(now, projectId, session.userId, session.role, expectedVersion, projectId, `gallery_${slot + 1}`),
     ]);
   } catch {
-    await deleteIfUnreferenced(db, r2, r2Key);
+    // Immutable objects remain for a separately authorized orphan sweep.
     return { kind: "invalid", message: "Gallery update failed" };
   }
   if ((results[2]?.meta.changes ?? 0) === 0) {
-    await deleteIfUnreferenced(db, r2, r2Key);
     return { kind: "conflict" };
   }
   return { kind: "ok", rowVersion: expectedVersion + 1, sha256, bytes: body.bytes, mime, r2Key };
@@ -172,20 +166,20 @@ export async function deleteGalleryImage(
   const current = await db
     .prepare(
       `SELECT p.row_version
-       FROM projects p JOIN project_gallery g ON g.project_id = p.id AND g.slot = ?
+       FROM projects p JOIN assets g ON g.project_id = p.id AND g.kind = ? AND g.version_id IS NULL
        WHERE ${authorizedProjectSql()}`,
     )
-    .bind(slot, projectId, session.userId, session.role)
+    .bind(`gallery_${slot + 1}`, projectId, session.userId, session.role)
     .first<{ row_version: number }>();
   if (!current || current.row_version !== expectedVersion) return { kind: "conflict" };
   const now = new Date().toISOString();
   const results = await db.batch([
     db
       .prepare(
-        `DELETE FROM project_gallery
-         WHERE project_id = ? AND slot = ? AND EXISTS (SELECT 1 FROM projects WHERE ${authorizedProjectSql()} AND row_version = ?)`,
+        `DELETE FROM assets
+         WHERE project_id = ? AND kind = ? AND version_id IS NULL AND EXISTS (SELECT 1 FROM projects WHERE ${authorizedProjectSql()} AND row_version = ?)`,
       )
-      .bind(projectId, slot, projectId, session.userId, session.role, expectedVersion),
+      .bind(projectId, `gallery_${slot + 1}`, projectId, session.userId, session.role, expectedVersion),
     db
       .prepare(
         `UPDATE projects SET row_version = row_version + 1, updated_at = ?
