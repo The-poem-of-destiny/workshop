@@ -64,7 +64,8 @@ export async function getAuthoringProject(
     SELECT p.id, p.author_id, r.title, r.description, r.author_note, r.project_type, r.extension_type,
       r.tags AS search_tags, p.visibility, p.working_version_id, p.published_version_id, p.row_version,
       r.version_label, r.requirements, r.cover_position_x, r.cover_position_y, r.cover_zoom,
-      EXISTS (SELECT 1 FROM submissions s WHERE s.version_id = p.working_version_id) AS working_version_frozen
+      (COALESCE(p.published_version_id = p.working_version_id, 0)
+        OR EXISTS (SELECT 1 FROM submissions s WHERE s.version_id = p.working_version_id)) AS working_version_frozen
     FROM projects p JOIN project_versions r ON r.id = p.working_version_id
     WHERE p.id = ? AND p.deleted_at IS NULL AND (p.author_id = ? OR ? = 'owner')
   `)
@@ -90,7 +91,8 @@ export async function getWorkingVersion(
       r.cover_position_x AS version_cover_position_x, r.cover_position_y AS version_cover_position_y,
       r.cover_zoom AS version_cover_zoom,
       r.worldbook_count AS version_worldbook_count, r.regex_count AS version_regex_count,
-      EXISTS (SELECT 1 FROM submissions s WHERE s.version_id = p.working_version_id) AS working_version_frozen
+      (COALESCE(p.published_version_id = p.working_version_id, 0)
+        OR EXISTS (SELECT 1 FROM submissions s WHERE s.version_id = p.working_version_id)) AS working_version_frozen
     FROM projects p JOIN project_versions r ON r.id = p.working_version_id
     WHERE p.id = ? AND p.deleted_at IS NULL AND (p.author_id = ? OR ? = 'owner')
   `)

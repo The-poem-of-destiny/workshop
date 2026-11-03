@@ -5,3 +5,6 @@ ef805958f667cd5d7b16ca101dfab934b5caf4a2:apps/worker/test/authoring.test.ts:disc
 7c84fd7e9d9609b11fef739662166ad96e258cf1:cloudflare/src/utils/project-discord.ts:discord-client-secret:3
 # Asserted upstream source commit SHA, not an API key.
 84c6c4f67a7caeb633f2a39f658c6ebbd95a888b:cloudflare/tests/ejs-api-v2.mjs:generic-api-key:13
+# Synthetic public guild ID in imported authoring fixtures; not a credential.
+ccd05b2c351de9f4eb8b4520cb45a8a99106f88a:apps/worker/test/imported-authoring.test.ts:discord-client-id:92
+3b7c5268f91125c41cffdedb2f2ba9ea1b635886:apps/worker/test/imported-authoring.test.ts:discord-client-id:92

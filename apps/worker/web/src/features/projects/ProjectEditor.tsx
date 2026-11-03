@@ -40,7 +40,8 @@ export function ProjectEditor({
   const clearCover = cover.clear;
   const resetIdentity = useRef<{ projectId: string; versionId: string | null } | null>(null);
   const workingVersionFrozen = Boolean(
-    (entry.latestSubmission && entry.latestSubmission.versionId === workingVersionId) ||
+    (workingVersionId && entry.project.publishedVersionId === workingVersionId) ||
+      (entry.latestSubmission && entry.latestSubmission.versionId === workingVersionId) ||
       (workingVersionId && submittedVersionId === workingVersionId),
   );
   const {
@@ -381,7 +382,7 @@ export function ProjectEditor({
           id="cover-file"
           label="选择封面"
           uploadLabel={coverUrl ? "更新封面" : "上传封面"}
-          hint="JPEG、PNG 或 WebP，单张不超过 5 MiB，宽高不超过 4096 像素。选择后可以先预览再上传。"
+          hint="JPEG、PNG 或 WebP，单张不超过 1 MiB，宽高不超过 4096 像素。选择后可以先预览再上传。"
           disabled={busy || workingVersionFrozen}
           currentUrl={coverUrl}
           currentAlt="当前封面"
