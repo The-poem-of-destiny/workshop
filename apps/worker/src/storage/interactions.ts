@@ -27,7 +27,7 @@ export async function getInteractionState(
     WHERE p.id IN (${placeholders})
       AND p.deleted_at IS NULL
       AND p.visibility = 'public'
-      AND p.published_revision_id IS NOT NULL
+      AND p.published_version_id IS NOT NULL
   `)
     .bind(userId, userId, userId, userId, ...projectIds)
     .all<StateRow>();
@@ -53,7 +53,7 @@ export async function listSubscribedProjects(db: D1Database, userId: string): Pr
     SELECT s.project_id FROM project_subscriptions s
     JOIN projects p ON p.id = s.project_id
     WHERE s.user_id = ? AND p.deleted_at IS NULL
-      AND p.visibility = 'public' AND p.published_revision_id IS NOT NULL
+      AND p.visibility = 'public' AND p.published_version_id IS NOT NULL
     ORDER BY s.created_at DESC
   `)
     .bind(userId)
@@ -73,7 +73,7 @@ export async function interactionProjectExists(db: D1Database, projectId: string
     .prepare(
       `SELECT 1 AS present FROM projects
      WHERE id = ? AND deleted_at IS NULL
-       AND visibility = 'public' AND published_revision_id IS NOT NULL`,
+       AND visibility = 'public' AND published_version_id IS NOT NULL`,
     )
     .bind(projectId)
     .first<{ present: number }>();

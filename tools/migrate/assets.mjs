@@ -71,7 +71,7 @@ function validatedAssetContent(source, kind, projectId, skipped) {
   return content.ok ? content : { ok: false, reason: `${kind}_${content.reason}` };
 }
 
-export function assetRows(project, revision, sourceAssets, skipped) {
+export function assetRows(project, version, sourceAssets, skipped) {
   const byKind = new Map();
   for (const source of sourceAssets) {
     const kind = text(source.kind);
@@ -90,16 +90,16 @@ export function assetRows(project, revision, sourceAssets, skipped) {
     if (content.omitted) continue;
     if (!content.ok) return content;
     byKind.set(kind, {
-      id: generatedId("asset", `${project.id}:${revision.id}:${kind}`),
+      id: generatedId("asset", `${project.id}:${version.id}:${kind}`),
       project_id: project.id,
-      revision_id: revision.id,
+      version_id: version.id,
       kind,
       r2_key: kind === "cover" ? `covers/imported/${content.sha256}` : text(source.r2_key),
       source_key: text(source.r2_key),
       sha256: content.sha256,
       bytes: source.bytes,
       mime: text(source.mime || (kind === "cover" ? "application/octet-stream" : "application/json")),
-      created_at: revision.created_at,
+      created_at: version.created_at,
       entries: content.entries,
     });
   }

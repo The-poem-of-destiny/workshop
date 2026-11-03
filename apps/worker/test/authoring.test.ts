@@ -21,7 +21,7 @@ async function upsertAsset(
   db: D1Database,
   r2: R2Bucket,
   projectId: string,
-  revisionId: string,
+  versionId: string,
   expectedVersion: number,
   kind: Parameters<typeof upsertStreamedAsset>[4],
   body: ArrayBuffer,
@@ -33,7 +33,7 @@ async function upsertAsset(
   return upsertStreamedAsset(
     db,
     projectId,
-    revisionId,
+    versionId,
     expectedVersion,
     kind,
     sha256,
@@ -68,18 +68,15 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await bindings.DB.exec(`
-    DELETE FROM project_gallery;
     DELETE FROM audit_events;
-    DELETE FROM reference_items;
-    DELETE FROM reference_versions;
-    DELETE FROM reference_sets;
-    DELETE FROM reviews;
+    DELETE FROM manual_reviews;
+    DELETE FROM automated_reviews;
     DELETE FROM project_likes;
     DELETE FROM project_subscriptions;
     DELETE FROM project_ratings;
     DELETE FROM submissions;
     DELETE FROM assets;
-    DELETE FROM project_revisions;
+    DELETE FROM project_versions;
     DELETE FROM projects;
     DELETE FROM sessions;
     DELETE FROM users;
@@ -100,11 +97,11 @@ describe("authoring write paths", () => {
     const body = (await created.json()) as {
       project: { id: string; visibility: string };
       rowVersion: number;
-      workingRevisionId: string;
+      workingVersionId: string;
     };
     expect(body.project.visibility).toBe("private");
     expect(body.rowVersion).toBe(1);
-    expect(body.workingRevisionId).toBeTruthy();
+    expect(body.workingVersionId).toBeTruthy();
 
     const mismatch = await request(`/${body.project.id}`, {
       method: "PATCH",
@@ -141,9 +138,9 @@ describe("authoring write paths", () => {
 
   it("hides projects from non-authors and permits owners", async () => {
     const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Private" }) });
-    const { project, workingRevisionId } = (await created.json()) as {
+    const { project, workingVersionId } = (await created.json()) as {
       project: { id: string };
-      workingRevisionId: string;
+      workingVersionId: string;
     };
     const forbidden = await request(
       `/${project.id}`,
@@ -157,7 +154,7 @@ describe("authoring write paths", () => {
     await expect(draft.json()).resolves.toMatchObject({
       project: { id: project.id },
       rowVersion: 1,
-      workingRevisionId,
+      workingVersionId,
     });
     const allowed = await request(
       `/${project.id}`,
@@ -169,15 +166,15 @@ describe("authoring write paths", () => {
 
   it("keeps revision numbers immutable and uploads hashed assets", async () => {
     const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Versions" }) });
-    const first = (await created.json()) as { project: { id: string }; workingRevisionId: string };
-    const revision = await request(`/${first.project.id}/revisions`, {
+    const first = (await created.json()) as { project: { id: string }; workingVersionId: string };
+    const revision = await request(`/${first.project.id}/versions`, {
       method: "POST",
       headers: { "if-match": "1" },
       body: JSON.stringify({ title: "Second" }),
     });
     expect(revision.status).toBe(201);
-    const second = (await revision.json()) as { revisionId: string; rowVersion: number };
-    const upload = await request(`/${first.project.id}/revisions/${second.revisionId}/files/worldbook`, {
+    const second = (await revision.json()) as { versionId: string; rowVersion: number };
+    const upload = await request(`/${first.project.id}/versions/${second.versionId}/files/worldbook`, {
       method: "PUT",
       body: validWorldbook,
       headers: {
@@ -193,32 +190,26 @@ describe("authoring write paths", () => {
       mime: "application/json",
       rowVersion: 3,
     });
-    const inherited = await request(`/${first.project.id}/revisions`, {
+    const inherited = await request(`/${first.project.id}/versions`, {
       method: "POST",
       headers: { "if-match": "3" },
       body: JSON.stringify({ title: "Third" }),
     });
     expect(inherited.status).toBe(201);
-    const inheritedRevision = (await inherited.json()) as { revisionId: string };
+    const inheritedVersion = (await inherited.json()) as { versionId: string };
     await expect((await request(`/${first.project.id}/draft`)).json()).resolves.toMatchObject({
-      workingRevisionId: inheritedRevision.revisionId,
+      workingVersionId: inheritedVersion.versionId,
       project: { entries: { worldbook: 1, regex: 0 } },
     });
     expect(
-      await (await request(`/${first.project.id}/revisions/${inheritedRevision.revisionId}/files/worldbook`)).text(),
+      await (await request(`/${first.project.id}/versions/${inheritedVersion.versionId}/files/worldbook`)).text(),
     ).toBe(validWorldbook);
-    const listed = await bindings.R2.list({
-      prefix: `projects/${first.project.id}/revisions/${second.revisionId}/worldbook-`,
-    });
-    expect(listed.objects).toHaveLength(1);
-    const object = await bindings.R2.get(listed.objects[0]!.key);
-    await expect(object?.text()).resolves.toBe(validWorldbook);
     const rows = await bindings.DB.prepare(
-      "SELECT revision_no FROM project_revisions WHERE project_id = ? ORDER BY revision_no",
+      "SELECT version_no FROM project_versions WHERE project_id = ? ORDER BY version_no",
     )
       .bind(first.project.id)
-      .all<{ revision_no: number }>();
-    expect(rows.results.map((row) => row.revision_no)).toEqual([1, 2, 3]);
+      .all<{ version_no: number }>();
+    expect(rows.results.map((row) => row.version_no)).toEqual([1, 2, 3]);
   });
 
   it("supports two gallery slots with real image validation and CAS", async () => {
@@ -235,7 +226,9 @@ describe("authoring write paths", () => {
       headers: { "content-type": "image/png", "content-length": String(png.byteLength), "if-match": "1" },
     });
     expect(upload.status).toBe(200);
-    const stored = await bindings.DB.prepare("SELECT r2_key FROM project_gallery WHERE project_id = ? AND slot = 0")
+    const stored = await bindings.DB.prepare(
+      "SELECT r2_key FROM assets WHERE project_id = ? AND version_id IS NULL AND kind = 'gallery_1'",
+    )
       .bind(project.id)
       .first<{ r2_key: string }>();
     await bindings.DB.prepare(`
@@ -286,7 +279,7 @@ describe("authoring write paths", () => {
 
   it("deletes one entry into a new revision without touching the old asset", async () => {
     const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Entries" }) });
-    const first = (await created.json()) as { project: { id: string }; workingRevisionId: string };
+    const first = (await created.json()) as { project: { id: string }; workingVersionId: string };
     const twoEntries = JSON.stringify({
       entries: [
         { uid: 1, name: "One", content: "a" },
@@ -294,13 +287,13 @@ describe("authoring write paths", () => {
       ],
     });
     const bytes = new TextEncoder().encode(twoEntries).byteLength;
-    const initialUpload = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`, {
+    const initialUpload = await request(`/${first.project.id}/versions/${first.workingVersionId}/files/worldbook`, {
       method: "PUT",
       body: twoEntries,
       headers: { "content-type": "application/json", "content-length": String(bytes), "if-match": "1" },
     });
     const uploadedWorldbook = (await initialUpload.json()) as { rowVersion: number };
-    const savedPath = `/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`;
+    const savedPath = `/${first.project.id}/versions/${first.workingVersionId}/files/worldbook`;
     const saved = await request(savedPath);
     expect(saved.status).toBe(200);
     expect(saved.headers.get("cache-control")).toBe("private, no-store");
@@ -311,14 +304,14 @@ describe("authoring write paths", () => {
     const unrelated = await request("/", { method: "POST", body: JSON.stringify({ title: "Other project" }) });
     const otherProject = (await unrelated.json()) as { project: { id: string } };
     expect(
-      (await request(`/${otherProject.project.id}/revisions/${first.workingRevisionId}/files/worldbook`)).status,
+      (await request(`/${otherProject.project.id}/versions/${first.workingVersionId}/files/worldbook`)).status,
     ).toBe(404);
     const cover = new TextEncoder().encode("cover-bytes").buffer;
     const uploadedCover = await upsertAsset(
       bindings.DB,
       bindings.R2,
       first.project.id,
-      first.workingRevisionId,
+      first.workingVersionId,
       uploadedWorldbook.rowVersion,
       "cover",
       cover,
@@ -331,63 +324,61 @@ describe("authoring write paths", () => {
       bindings.DB,
       bindings.R2,
       first.project.id,
-      first.workingRevisionId,
+      first.workingVersionId,
       uploadedCover!.rowVersion,
       "regex",
       regex,
       "application/json",
       1,
     );
-    const oldCover = await bindings.DB.prepare("SELECT r2_key FROM assets WHERE revision_id = ? AND kind = 'cover'")
-      .bind(first.workingRevisionId)
+    const oldCover = await bindings.DB.prepare("SELECT r2_key FROM assets WHERE version_id = ? AND kind = 'cover'")
+      .bind(first.workingVersionId)
       .first<{ r2_key: string }>();
     expect(oldCover).not.toBeNull();
     const staleDelete = await request(
-      `/${first.project.id}/revisions/${first.workingRevisionId}/entries/worldbook/${encodeURIComponent("uid:1")}`,
+      `/${first.project.id}/versions/${first.workingVersionId}/entries/worldbook/${encodeURIComponent("uid:1")}`,
       { method: "DELETE", headers: { "if-match": "1" } },
     );
     expect(staleDelete.status).toBe(409);
 
     const deleted = await request(
-      `/${first.project.id}/revisions/${first.workingRevisionId}/entries/worldbook/${encodeURIComponent("uid:1")}`,
+      `/${first.project.id}/versions/${first.workingVersionId}/entries/worldbook/${encodeURIComponent("uid:1")}`,
       { method: "DELETE", headers: { "if-match": String(uploadedRegex!.rowVersion) } },
     );
     expect(deleted.status).toBe(200);
-    const result = (await deleted.json()) as { rowVersion: number; revisionId: string; entryCount: number };
+    const result = (await deleted.json()) as { rowVersion: number; versionId: string; entryCount: number };
     expect(result.rowVersion).toBe(5);
     expect(result.entryCount).toBe(1);
-    expect(result.revisionId).not.toBe(first.workingRevisionId);
+    expect(result.versionId).not.toBe(first.workingVersionId);
     const draft = await request(`/${first.project.id}/draft`);
-    await expect(draft.json()).resolves.toMatchObject({ workingRevisionId: result.revisionId, rowVersion: 5 });
-    const asset = await bindings.DB.prepare("SELECT r2_key FROM assets WHERE revision_id = ? AND kind = 'worldbook'")
-      .bind(result.revisionId)
+    await expect(draft.json()).resolves.toMatchObject({ workingVersionId: result.versionId, rowVersion: 5 });
+    const asset = await bindings.DB.prepare("SELECT r2_key FROM assets WHERE version_id = ? AND kind = 'worldbook'")
+      .bind(result.versionId)
       .first<{ r2_key: string }>();
-    const worldbookCount = await bindings.DB.prepare("SELECT worldbook_count FROM project_revisions WHERE id = ?")
-      .bind(result.revisionId)
+    const worldbookCount = await bindings.DB.prepare("SELECT worldbook_count FROM project_versions WHERE id = ?")
+      .bind(result.versionId)
       .first<{ worldbook_count: number }>();
     expect(worldbookCount?.worldbook_count).toBe(1);
     const text = await (await bindings.R2.get(asset!.r2_key))?.text();
     expect(JSON.parse(text ?? "{}").entries).toEqual([{ uid: 2, name: "Two", content: "b" }]);
-    const oldAsset = await bindings.DB.prepare("SELECT r2_key FROM assets WHERE revision_id = ? AND kind = 'worldbook'")
-      .bind(first.workingRevisionId)
+    const oldAsset = await bindings.DB.prepare("SELECT r2_key FROM assets WHERE version_id = ? AND kind = 'worldbook'")
+      .bind(first.workingVersionId)
       .first<{ r2_key: string }>();
     expect(oldAsset?.r2_key).not.toBe(asset?.r2_key);
     await expect((await bindings.R2.get(oldAsset!.r2_key))?.text()).resolves.toBe(twoEntries);
-    const published = await bindings.DB.prepare("SELECT published_revision_id FROM projects WHERE id = ?")
+    const published = await bindings.DB.prepare("SELECT published_version_id FROM projects WHERE id = ?")
       .bind(first.project.id)
-      .first<{ published_revision_id: string | null }>();
-    expect(published?.published_revision_id).toBeNull();
+      .first<{ published_version_id: string | null }>();
+    expect(published?.published_version_id).toBeNull();
 
-    const retainedCover = await bindings.DB.prepare(
-      "SELECT r2_key FROM assets WHERE revision_id = ? AND kind = 'cover'",
-    )
-      .bind(result.revisionId)
+    const retainedCover = await bindings.DB.prepare("SELECT r2_key FROM assets WHERE version_id = ? AND kind = 'cover'")
+      .bind(result.versionId)
       .first<{ r2_key: string }>();
     expect(retainedCover?.r2_key).toBe(oldCover?.r2_key);
     const retainedObject = await bindings.R2.get(retainedCover!.r2_key);
     await expect(retainedObject?.text()).resolves.toBe("cover-bytes");
-    const counts = await bindings.DB.prepare("SELECT worldbook_count, regex_count FROM project_revisions WHERE id = ?")
-      .bind(result.revisionId)
+    const counts = await bindings.DB.prepare("SELECT worldbook_count, regex_count FROM project_versions WHERE id = ?")
+      .bind(result.versionId)
       .first<{ worldbook_count: number; regex_count: number }>();
     expect(counts).toEqual({ worldbook_count: 1, regex_count: 1 });
   });
@@ -396,14 +387,14 @@ describe("authoring write paths", () => {
       method: "POST",
       body: JSON.stringify({ title: "Published entries", projectType: "角色" }),
     });
-    const first = (await created.json()) as { project: { id: string }; workingRevisionId: string };
+    const first = (await created.json()) as { project: { id: string }; workingVersionId: string };
     const text = JSON.stringify({
       entries: [
         { uid: 1, content: "one" },
         { uid: 2, content: "two" },
       ],
     });
-    const uploaded = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`, {
+    const uploaded = await request(`/${first.project.id}/versions/${first.workingVersionId}/files/worldbook`, {
       method: "PUT",
       body: text,
       headers: {
@@ -414,27 +405,27 @@ describe("authoring write paths", () => {
     });
     const upload = (await uploaded.json()) as { rowVersion: number };
     await bindings.DB.prepare(
-      "UPDATE projects SET published_revision_id = ?, visibility = 'public', published_at = ? WHERE id = ?",
+      "UPDATE projects SET published_version_id = ?, visibility = 'public', published_at = ? WHERE id = ?",
     )
-      .bind(first.workingRevisionId, now, first.project.id)
+      .bind(first.workingVersionId, now, first.project.id)
       .run();
-    const revision = await request(`/${first.project.id}/revisions`, {
+    const revision = await request(`/${first.project.id}/versions`, {
       method: "POST",
       headers: { "if-match": String(upload.rowVersion) },
       body: JSON.stringify({ title: "Draft" }),
     });
-    const draft = (await revision.json()) as { revisionId: string; rowVersion: number };
+    const draft = (await revision.json()) as { versionId: string; rowVersion: number };
     const deleted = await request(
-      `/${first.project.id}/revisions/${draft.revisionId}/entries/worldbook/${encodeURIComponent("uid:1")}`,
+      `/${first.project.id}/versions/${draft.versionId}/entries/worldbook/${encodeURIComponent("uid:1")}`,
       {
         method: "DELETE",
         headers: { "if-match": String(draft.rowVersion) },
       },
     );
     expect(deleted.status).toBe(200);
-    const successor = (await deleted.json()) as { revisionId: string; rowVersion: number };
+    const successor = (await deleted.json()) as { versionId: string; rowVersion: number };
     const finalDelete = await request(
-      `/${first.project.id}/revisions/${successor.revisionId}/entries/worldbook/${encodeURIComponent("uid:2")}`,
+      `/${first.project.id}/versions/${successor.versionId}/entries/worldbook/${encodeURIComponent("uid:2")}`,
       {
         method: "DELETE",
         headers: { "if-match": String(successor.rowVersion) },
@@ -442,29 +433,29 @@ describe("authoring write paths", () => {
     );
     expect(finalDelete.status).toBe(409);
     const state = await bindings.DB.prepare(
-      "SELECT published_revision_id, working_revision_id, row_version FROM projects WHERE id = ?",
+      "SELECT published_version_id, working_version_id, row_version FROM projects WHERE id = ?",
     )
       .bind(first.project.id)
       .first();
     expect(state).toMatchObject({
-      published_revision_id: first.workingRevisionId,
-      working_revision_id: successor.revisionId,
+      published_version_id: first.workingVersionId,
+      working_version_id: successor.versionId,
       row_version: successor.rowVersion,
     });
-    const original = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`);
+    const original = await request(`/${first.project.id}/versions/${first.workingVersionId}/files/worldbook`);
     expect(await original.text()).toBe(text);
   });
 
   it("leaves the working revision unchanged when a retained asset is missing", async () => {
     const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Missing retained" }) });
-    const first = (await created.json()) as { project: { id: string }; workingRevisionId: string };
+    const first = (await created.json()) as { project: { id: string }; workingVersionId: string };
     const entries = JSON.stringify({
       entries: [
         { uid: 1, name: "One", content: "a" },
         { uid: 2, name: "Two", content: "b" },
       ],
     });
-    const initialUpload = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`, {
+    const initialUpload = await request(`/${first.project.id}/versions/${first.workingVersionId}/files/worldbook`, {
       method: "PUT",
       body: entries,
       headers: {
@@ -479,7 +470,7 @@ describe("authoring write paths", () => {
       bindings.DB,
       bindings.R2,
       first.project.id,
-      first.workingRevisionId,
+      first.workingVersionId,
       uploadedWorldbook.rowVersion,
       "cover",
       cover,
@@ -488,15 +479,15 @@ describe("authoring write paths", () => {
     await bindings.R2.delete(uploaded!.r2Key);
 
     const deleted = await request(
-      `/${first.project.id}/revisions/${first.workingRevisionId}/entries/worldbook/${encodeURIComponent("uid:1")}`,
+      `/${first.project.id}/versions/${first.workingVersionId}/entries/worldbook/${encodeURIComponent("uid:1")}`,
       { method: "DELETE", headers: { "if-match": String(uploaded!.rowVersion) } },
     );
     expect(deleted.status).toBe(500);
-    const project = await bindings.DB.prepare("SELECT working_revision_id, row_version FROM projects WHERE id = ?")
+    const project = await bindings.DB.prepare("SELECT working_version_id, row_version FROM projects WHERE id = ?")
       .bind(first.project.id)
-      .first<{ working_revision_id: string; row_version: number }>();
-    expect(project).toEqual({ working_revision_id: first.workingRevisionId, row_version: 3 });
-    const count = await bindings.DB.prepare("SELECT COUNT(*) AS count FROM project_revisions WHERE project_id = ?")
+      .first<{ working_version_id: string; row_version: number }>();
+    expect(project).toEqual({ working_version_id: first.workingVersionId, row_version: 3 });
+    const count = await bindings.DB.prepare("SELECT COUNT(*) AS count FROM project_versions WHERE project_id = ?")
       .bind(first.project.id)
       .first<{ count: number }>();
     expect(count?.count).toBe(1);
@@ -504,43 +495,43 @@ describe("authoring write paths", () => {
 
   it("supersedes pending submissions and rejects unsupported/oversized uploads", async () => {
     const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Submit" }) });
-    const first = (await created.json()) as { project: { id: string }; workingRevisionId: string };
-    const upload = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`, {
+    const first = (await created.json()) as { project: { id: string }; workingVersionId: string };
+    const upload = await request(`/${first.project.id}/versions/${first.workingVersionId}/files/worldbook`, {
       method: "PUT",
       body: validWorldbook,
       headers: { "content-type": "application/json", "content-length": String(validWorldbookBytes), "if-match": "1" },
     });
     expect(upload.status).toBe(200);
     const uploaded = (await upload.json()) as { rowVersion: number };
-    const submit = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/submit`, {
+    const submit = await request(`/${first.project.id}/versions/${first.workingVersionId}/submit`, {
       method: "POST",
       headers: { "if-match": String(uploaded.rowVersion) },
-      body: JSON.stringify({ gate: "block", checkerRevision: "c1" }),
+      body: JSON.stringify({ gate: "block", checkerVersion: "c1" }),
     });
     expect(submit.status).toBe(201);
     const current = await bindings.DB.prepare("SELECT row_version FROM projects WHERE id = ?")
       .bind(first.project.id)
       .first<{ row_version: number }>();
     const frozenDelete = await request(
-      `/${first.project.id}/revisions/${first.workingRevisionId}/entries/worldbook/${encodeURIComponent("uid:1")}`,
+      `/${first.project.id}/versions/${first.workingVersionId}/entries/worldbook/${encodeURIComponent("uid:1")}`,
       { method: "DELETE", headers: { "if-match": String(current!.row_version) } },
     );
     expect(frozenDelete.status).toBe(409);
     const firstSubmission = (await submit.json()) as { rowVersion: number };
 
     // A submitted revision cannot be submitted or uploaded again.
-    const resubmit = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/submit`, {
+    const resubmit = await request(`/${first.project.id}/versions/${first.workingVersionId}/submit`, {
       method: "POST",
       headers: { "if-match": String(current!.row_version) },
-      body: JSON.stringify({ gate: "warn", checkerRevision: "c1" }),
+      body: JSON.stringify({ gate: "warn", checkerVersion: "c1" }),
     });
     expect(resubmit.status).toBe(409);
-    const forbidden = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/nope`, {
+    const forbidden = await request(`/${first.project.id}/versions/${first.workingVersionId}/files/nope`, {
       method: "PUT",
       body: "x",
     });
     expect(forbidden.status).toBe(400);
-    const frozen = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`, {
+    const frozen = await request(`/${first.project.id}/versions/${first.workingVersionId}/files/worldbook`, {
       method: "PUT",
       body: validWorldbook,
       headers: {
@@ -556,7 +547,7 @@ describe("authoring write paths", () => {
       bindings.DB,
       bindings.R2,
       first.project.id,
-      first.workingRevisionId,
+      first.workingVersionId,
       firstSubmission.rowVersion,
       "worldbook",
       new TextEncoder().encode(validWorldbook).buffer,
@@ -564,20 +555,20 @@ describe("authoring write paths", () => {
       1,
     );
     expect(raced).toBeNull();
-    const manifest = await bindings.DB.prepare("SELECT manifest_hash FROM project_revisions WHERE id = ?")
-      .bind(first.workingRevisionId)
+    const manifest = await bindings.DB.prepare("SELECT manifest_hash FROM project_versions WHERE id = ?")
+      .bind(first.workingVersionId)
       .first<{ manifest_hash: string | null }>();
     expect(manifest?.manifest_hash).toMatch(/^[0-9a-f]{64}$/);
 
     // A successor submission supersedes the earlier unresolved submission.
-    const next = await request(`/${first.project.id}/revisions`, {
+    const next = await request(`/${first.project.id}/versions`, {
       method: "POST",
       headers: { "if-match": String(firstSubmission.rowVersion) },
       body: JSON.stringify({ title: "Third" }),
     });
     expect(next.status).toBe(201);
-    const third = (await next.json()) as { revisionId: string; rowVersion: number };
-    const successorUpload = await request(`/${first.project.id}/revisions/${third.revisionId}/files/worldbook`, {
+    const third = (await next.json()) as { versionId: string; rowVersion: number };
+    const successorUpload = await request(`/${first.project.id}/versions/${third.versionId}/files/worldbook`, {
       method: "PUT",
       body: validWorldbook,
       headers: {
@@ -587,28 +578,31 @@ describe("authoring write paths", () => {
       },
     });
     const successorAsset = (await successorUpload.json()) as { rowVersion: number };
-    const successorSubmit = await request(`/${first.project.id}/revisions/${third.revisionId}/submit`, {
+    const successorSubmit = await request(`/${first.project.id}/versions/${third.versionId}/submit`, {
       method: "POST",
       headers: { "if-match": String(successorAsset.rowVersion) },
-      body: JSON.stringify({ gate: "block", checkerRevision: "c1" }),
+      body: JSON.stringify({ gate: "block", checkerVersion: "c1" }),
     });
     expect(successorSubmit.status).toBe(201);
     const successor = (await successorSubmit.json()) as { submissionId: string };
     // Stage the queued successor without starting submit's background checker.
     await bindings.DB.prepare(`
-      UPDATE submissions SET client_gate = 'warn', status = 'checking', check_status = 'queued'
-      WHERE id = ?
+      UPDATE automated_reviews SET client_gate = 'warn', status = 'queued'
+      WHERE submission_id = ?
     `)
       .bind(successor.submissionId)
       .run();
-    const statuses = await bindings.DB.prepare("SELECT revision_id, status FROM submissions WHERE project_id = ?")
+    await bindings.DB.prepare("UPDATE submissions SET status = 'checking' WHERE id = ?")
+      .bind(successor.submissionId)
+      .run();
+    const statuses = await bindings.DB.prepare("SELECT version_id, status FROM submissions WHERE project_id = ?")
       .bind(first.project.id)
-      .all<{ revision_id: string; status: string }>();
+      .all<{ version_id: string; status: string }>();
     expect(statuses.results).toHaveLength(2);
     expect(statuses.results).toEqual(
       expect.arrayContaining([
-        { revision_id: first.workingRevisionId, status: "superseded" },
-        { revision_id: third.revisionId, status: "checking" },
+        { version_id: first.workingVersionId, status: "superseded" },
+        { version_id: third.versionId, status: "checking" },
       ]),
     );
 
@@ -618,8 +612,8 @@ describe("authoring write paths", () => {
       body: JSON.stringify({ title: "Upload limit" }),
     });
     expect(fresh.status).toBe(201);
-    const fourth = (await fresh.json()) as { project: { id: string }; workingRevisionId: string; rowVersion: number };
-    const oversized = await request(`/${fourth.project.id}/revisions/${fourth.workingRevisionId}/files/cover`, {
+    const fourth = (await fresh.json()) as { project: { id: string }; workingVersionId: string; rowVersion: number };
+    const oversized = await request(`/${fourth.project.id}/versions/${fourth.workingVersionId}/files/cover`, {
       method: "PUT",
       body: "x",
       headers: {
@@ -636,14 +630,14 @@ describe("authoring write paths", () => {
       method: "POST",
       body: JSON.stringify({ title: "Submitted snapshot", projectType: "角色" }),
     });
-    const first = (await created.json()) as { project: { id: string }; workingRevisionId: string };
-    const upload = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/files/worldbook`, {
+    const first = (await created.json()) as { project: { id: string }; workingVersionId: string };
+    const upload = await request(`/${first.project.id}/versions/${first.workingVersionId}/files/worldbook`, {
       method: "PUT",
       body: validWorldbook,
       headers: { "content-type": "application/json", "content-length": String(validWorldbookBytes), "if-match": "1" },
     });
     const uploaded = (await upload.json()) as { rowVersion: number };
-    const submission = await request(`/${first.project.id}/revisions/${first.workingRevisionId}/submit`, {
+    const submission = await request(`/${first.project.id}/versions/${first.workingVersionId}/submit`, {
       method: "POST",
       headers: { "if-match": String(uploaded.rowVersion) },
       body: JSON.stringify({}),
@@ -651,8 +645,8 @@ describe("authoring write paths", () => {
     expect(submission.status).toBe(201);
     await submission.json();
 
-    await bindings.DB.prepare("UPDATE projects SET published_revision_id = ? WHERE id = ?")
-      .bind(first.workingRevisionId, first.project.id)
+    await bindings.DB.prepare("UPDATE projects SET published_version_id = ? WHERE id = ?")
+      .bind(first.workingVersionId, first.project.id)
       .run();
     const current = await bindings.DB.prepare("SELECT row_version FROM projects WHERE id = ?")
       .bind(first.project.id)
@@ -663,46 +657,10 @@ describe("authoring write paths", () => {
       body: JSON.stringify({ title: "Changed after submit", projectType: "扩展", tags: ["规则"] }),
     });
     expect(edited.status).toBe(409);
-    const snapshot = await bindings.DB.prepare("SELECT title, project_type, tags FROM project_revisions WHERE id = ?")
-      .bind(first.workingRevisionId)
+    const snapshot = await bindings.DB.prepare("SELECT title, project_type, tags FROM project_versions WHERE id = ?")
+      .bind(first.workingVersionId)
       .first<{ title: string; project_type: string; tags: string }>();
     expect(snapshot).toEqual({ title: "Submitted snapshot", project_type: "角色", tags: "[]" });
-  });
-
-  it("rejects a submission containing an entry identical to an official baseline item", async () => {
-    const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Baseline" }) });
-    const project = (await created.json()) as { project: { id: string }; workingRevisionId: string };
-    const upload = await request(`/${project.project.id}/revisions/${project.workingRevisionId}/files/worldbook`, {
-      method: "PUT",
-      body: validWorldbook,
-      headers: { "content-type": "application/json", "content-length": String(validWorldbookBytes), "if-match": "1" },
-    });
-    expect(upload.status).toBe(200);
-    const uploaded = (await upload.json()) as { rowVersion: number };
-    const digest = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(JSON.stringify({ name: "Entry", content: "Text" })),
-    );
-    const fingerprint = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-    await bindings.DB.prepare(`
-      INSERT INTO reference_sets (id, name, created_by) VALUES ('rs1', 'Baseline', 'author');
-      INSERT INTO reference_versions (id, reference_set_id, version_label, version_ordinal, grace_until, created_by)
-        VALUES ('rv1', 'rs1', 'v1', 1, '2099-01-01T00:00:00.000Z', 'author');
-      INSERT INTO reference_items (id, reference_version_id, kind, display_name, exact_hash, normalized_content_hash, name_hash, structure_hash)
-        VALUES ('ri1', 'rv1', 'worldbook', 'Official', ?, 'n', 'h', 's');
-    `)
-      .bind(fingerprint)
-      .run();
-    const submitted = await request(`/${project.project.id}/revisions/${project.workingRevisionId}/submit`, {
-      method: "POST",
-      headers: { "if-match": String(uploaded.rowVersion) },
-      body: JSON.stringify({ gate: "pass" }),
-    });
-    expect(submitted.status).toBe(400);
-    const count = await bindings.DB.prepare("SELECT COUNT(*) AS count FROM submissions WHERE project_id = ?")
-      .bind(project.project.id)
-      .first<{ count: number }>();
-    expect(count?.count).toBe(0);
   });
 
   it("rate limits rapid metadata writes", async () => {
@@ -745,36 +703,40 @@ describe("authoring write paths", () => {
       method: "POST",
       body: JSON.stringify({ title: "Metadata", versionLabel: "v1" }),
     });
-    const project = (await created.json()) as { project: { id: string }; workingRevisionId: string };
-    await bindings.DB.prepare("UPDATE projects SET published_revision_id = ?, published_at = ? WHERE id = ?")
-      .bind(project.workingRevisionId, now, project.project.id)
+    const project = (await created.json()) as { project: { id: string }; workingVersionId: string };
+    await bindings.DB.prepare("UPDATE projects SET published_version_id = ?, published_at = ? WHERE id = ?")
+      .bind(project.workingVersionId, now, project.project.id)
       .run();
-    await bindings.DB.prepare("UPDATE project_revisions SET manifest_hash = ? WHERE id = ?")
-      .bind("manifest-hash", project.workingRevisionId)
+    await bindings.DB.prepare("UPDATE project_versions SET manifest_hash = ? WHERE id = ?")
+      .bind("manifest-hash", project.workingVersionId)
       .run();
 
     const patched = await request(`/${project.project.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json", "if-match": "1" },
-      body: JSON.stringify({ title: "Metadata v2", versionLabel: "v2", precautions: "注意" }),
+      body: JSON.stringify({
+        title: "Metadata v2",
+        versionLabel: "v2",
+        requirements: { schemaVersion: 1, dependencies: [], conflicts: [], notes: "注意" },
+      }),
     });
     expect(patched.status).toBe(200);
     await expect(patched.json()).resolves.toMatchObject({
-      revisionId: project.workingRevisionId,
+      versionId: project.workingVersionId,
       rowVersion: 2,
     });
     const revision = await bindings.DB.prepare(
-      "SELECT title, version_label, precautions, manifest_hash FROM project_revisions WHERE id = ?",
+      "SELECT title, version_label, requirements, manifest_hash FROM project_versions WHERE id = ?",
     )
-      .bind(project.workingRevisionId)
+      .bind(project.workingVersionId)
       .first<Record<string, unknown>>();
     expect(revision).toMatchObject({
       title: "Metadata v2",
       version_label: "v2",
-      precautions: "注意",
+      requirements: JSON.stringify({ schemaVersion: 1, dependencies: [], conflicts: [], notes: "注意" }),
       manifest_hash: "manifest-hash",
     });
-    const count = await bindings.DB.prepare("SELECT COUNT(*) AS count FROM project_revisions WHERE project_id = ?")
+    const count = await bindings.DB.prepare("SELECT COUNT(*) AS count FROM project_versions WHERE project_id = ?")
       .bind(project.project.id)
       .first<{ count: number }>();
     expect(count?.count).toBe(1);
@@ -786,8 +748,8 @@ describe("authoring write paths", () => {
     };
     const mine = await listAuthorProjects(bindings.DB, session);
     expect(mine.find((item) => item.project.id === project.project.id)).toMatchObject({
-      project: { publishedRevisionId: project.workingRevisionId },
-      precautions: "注意",
+      project: { publishedVersionId: project.workingVersionId },
+      requirements: { schemaVersion: 1, dependencies: [], conflicts: [], notes: "注意" },
       authorNote: null,
     });
 
@@ -804,47 +766,51 @@ describe("authoring write paths", () => {
       method: "POST",
       body: JSON.stringify({ title: "Published title", versionLabel: "v1" }),
     });
-    const first = (await created.json()) as { project: { id: string }; workingRevisionId: string };
-    await bindings.DB.prepare("UPDATE projects SET published_revision_id = ?, published_at = ? WHERE id = ?")
-      .bind(first.workingRevisionId, now, first.project.id)
+    const first = (await created.json()) as { project: { id: string }; workingVersionId: string };
+    await bindings.DB.prepare("UPDATE projects SET published_version_id = ?, published_at = ? WHERE id = ?")
+      .bind(first.workingVersionId, now, first.project.id)
       .run();
     const before = await bindings.DB.prepare("SELECT updated_at FROM projects WHERE id = ?")
       .bind(first.project.id)
       .first<{ updated_at: string }>();
 
-    const next = await request(`/${first.project.id}/revisions`, {
+    const next = await request(`/${first.project.id}/versions`, {
       method: "POST",
       headers: { "if-match": "1" },
       body: JSON.stringify({ title: "Draft title" }),
     });
     expect(next.status).toBe(201);
-    const draft = (await next.json()) as { revisionId: string; rowVersion: number };
+    const draft = (await next.json()) as { versionId: string; rowVersion: number };
 
     const patched = await request(`/${first.project.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json", "if-match": String(draft.rowVersion) },
-      body: JSON.stringify({ title: "Draft title v2", versionLabel: "v2", precautions: "draft only" }),
+      body: JSON.stringify({
+        title: "Draft title v2",
+        versionLabel: "v2",
+        requirements: { schemaVersion: 1, dependencies: [], conflicts: [], notes: "draft only" },
+      }),
     });
     expect(patched.status).toBe(200);
 
     const rows = await bindings.DB.prepare(
-      "SELECT id, title, version_label, precautions FROM project_revisions WHERE project_id = ? ORDER BY revision_no",
+      "SELECT id, title, version_label, requirements FROM project_versions WHERE project_id = ? ORDER BY version_no",
     )
       .bind(first.project.id)
-      .all<{ id: string; title: string; version_label: string; precautions: string | null }>();
+      .all<{ id: string; title: string; version_label: string; requirements: string | null }>();
     expect(rows.results).toEqual([
-      { id: first.workingRevisionId, title: "Published title", version_label: "v1", precautions: null },
-      { id: draft.revisionId, title: "Draft title v2", version_label: "v2", precautions: "draft only" },
+      { id: first.workingVersionId, title: "Published title", version_label: "v1", requirements: null },
+      {
+        id: draft.versionId,
+        title: "Draft title v2",
+        version_label: "v2",
+        requirements: JSON.stringify({ schemaVersion: 1, dependencies: [], conflicts: [], notes: "draft only" }),
+      },
     ]);
-    const projectRow = await bindings.DB.prepare(
-      "SELECT title, version_label, precautions, updated_at FROM projects WHERE id = ?",
-    )
+    const projectRow = await bindings.DB.prepare("SELECT updated_at FROM projects WHERE id = ?")
       .bind(first.project.id)
       .first<Record<string, unknown>>();
     expect(projectRow).toEqual({
-      title: "Published title",
-      version_label: "v1",
-      precautions: null,
       updated_at: before?.updated_at,
     });
   });
@@ -854,21 +820,21 @@ describe("authoring write paths", () => {
       method: "POST",
       body: JSON.stringify({ title: "Missing gate", projectType: "角色" }),
     });
-    const project = (await created.json()) as { project: { id: string }; workingRevisionId: string };
-    const upload = await request(`/${project.project.id}/revisions/${project.workingRevisionId}/files/worldbook`, {
+    const project = (await created.json()) as { project: { id: string }; workingVersionId: string };
+    const upload = await request(`/${project.project.id}/versions/${project.workingVersionId}/files/worldbook`, {
       method: "PUT",
       body: validWorldbook,
       headers: { "content-type": "application/json", "content-length": String(validWorldbookBytes), "if-match": "1" },
     });
     const uploaded = (await upload.json()) as { rowVersion: number };
-    const submitted = await request(`/${project.project.id}/revisions/${project.workingRevisionId}/submit`, {
+    const submitted = await request(`/${project.project.id}/versions/${project.workingVersionId}/submit`, {
       method: "POST",
       headers: { "if-match": String(uploaded.rowVersion) },
       body: JSON.stringify({}),
     });
     expect(submitted.status).toBe(201);
     const row = await bindings.DB.prepare(
-      "SELECT status, client_gate, check_status FROM submissions WHERE project_id = ?",
+      "SELECT s.status, ar.client_gate, ar.status AS check_status FROM submissions s JOIN automated_reviews ar ON ar.submission_id = s.id WHERE s.project_id = ?",
     )
       .bind(project.project.id)
       .first<Record<string, unknown>>();
@@ -895,7 +861,7 @@ describe("authoring write paths", () => {
     const valid = await create("https://www.discord.com/channels/123456789012345678/223456789012345678?foo=1");
     expect(valid.status).toBe(201);
     const body = (await valid.json()) as { project: { id: string } };
-    const revision = await bindings.DB.prepare("SELECT discord_thread_url FROM project_revisions WHERE project_id = ?")
+    const revision = await bindings.DB.prepare("SELECT discord_thread_url FROM project_versions WHERE project_id = ?")
       .bind(body.project.id)
       .first<{ discord_thread_url: string }>();
     expect(revision?.discord_thread_url).toBe("https://discord.com/channels/123456789012345678/223456789012345678");
@@ -906,10 +872,10 @@ describe("authoring write paths", () => {
       method: "POST",
       body: JSON.stringify({ title: "Validation", projectType: "角色" }),
     });
-    const project = (await created.json()) as { project: { id: string }; workingRevisionId: string };
+    const project = (await created.json()) as { project: { id: string }; workingVersionId: string };
     let rowVersion = 1;
     const upload = async (kind: string, body: string, mime = "application/json") => {
-      const response = await request(`/${project.project.id}/revisions/${project.workingRevisionId}/files/${kind}`, {
+      const response = await request(`/${project.project.id}/versions/${project.workingVersionId}/files/${kind}`, {
         method: "PUT",
         body,
         headers: {
@@ -929,7 +895,7 @@ describe("authoring write paths", () => {
     expect((await upload("worldbook", JSON.stringify({ entries: [] }))).status).toBe(400);
     expect((await upload("regex", validWorldbook)).status).toBe(400);
 
-    const emptySubmit = await request(`/${project.project.id}/revisions/${project.workingRevisionId}/submit`, {
+    const emptySubmit = await request(`/${project.project.id}/versions/${project.workingVersionId}/submit`, {
       method: "POST",
       headers: { "if-match": String(rowVersion) },
       body: JSON.stringify({ gate: "pass" }),
@@ -942,7 +908,7 @@ describe("authoring write paths", () => {
 
     const regex = JSON.stringify({ scriptName: "Test", findRegex: "/a/g", replaceString: "b" });
     expect((await upload("regex", regex)).status).toBe(200);
-    const roleWithoutWorldbook = await request(`/${project.project.id}/revisions/${project.workingRevisionId}/submit`, {
+    const roleWithoutWorldbook = await request(`/${project.project.id}/versions/${project.workingVersionId}/submit`, {
       method: "POST",
       headers: { "if-match": String(rowVersion) },
       body: JSON.stringify({ gate: "warn" }),
@@ -950,7 +916,7 @@ describe("authoring write paths", () => {
     expect(roleWithoutWorldbook.status).toBe(400);
 
     expect((await upload("worldbook", validWorldbook)).status).toBe(200);
-    const validSubmit = await request(`/${project.project.id}/revisions/${project.workingRevisionId}/submit`, {
+    const validSubmit = await request(`/${project.project.id}/versions/${project.workingVersionId}/submit`, {
       method: "POST",
       headers: { "if-match": String(rowVersion) },
       body: JSON.stringify({ gate: "warn" }),

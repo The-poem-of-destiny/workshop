@@ -39,11 +39,18 @@ projectsRoutes.get("/:id", async (c) => {
 });
 
 projectsRoutes.post("/:id/downloads", async (c) => {
-  const result = await c.executionCtx.exports.DataService.projectTickets(sessionToken(c), c.req.param("id"));
-  if (!result.ok)
+  const result = await c.executionCtx.exports.DataService.projectDownloads(
+    sessionToken(c),
+    c.req.param("id"),
+    c.req.header("Idempotency-Key") ?? "",
+  );
+  if (!result.ok) {
+    if (result.error === "bad_request") return jsonError(c, "bad_request", "Idempotency-Key must be a UUID v4");
+    else if (result.error === "rate_limited") return jsonError(c, "rate_limited", "Daily acquisition limit reached");
     return result.error === "unauthorized"
       ? jsonError(c, "unauthorized", "Login required")
       : jsonError(c, "not_found", "Release not found");
+  }
   return c.json(result.data, 201);
 });
 
@@ -67,7 +74,7 @@ projectsRoutes.get("/:id/preview/:kind", async (c) => {
   if (!result.ok) return jsonError(c, "not_found", "Project preview not found");
   if (!result.target.r2Key)
     return c.json(
-      projectPreviewSchema.parse({ revisionId: result.target.revisionId, kind: result.target.kind, entries: [] }),
+      projectPreviewSchema.parse({ versionId: result.target.versionId, kind: result.target.kind, entries: [] }),
     );
   const response = await fetchProjectPreview(c.executionCtx, result.target);
   if (response.status === 404) return jsonError(c, "not_found", "Project preview not found");
@@ -81,8 +88,11 @@ projectsRoutes.post("/:id/acquisitions", async (c) => {
     c.req.param("id"),
     c.req.header("x-client-version")?.trim(),
     c.req.header("x-client-channel")?.trim(),
+    c.req.header("Idempotency-Key") ?? "",
   );
   if (!result.ok) {
+    if (result.error === "bad_request") return jsonError(c, "bad_request", "Idempotency-Key must be a UUID v4");
+    if (result.error === "rate_limited") return jsonError(c, "rate_limited", "Daily acquisition limit reached");
     if (result.error === "unauthorized") return jsonError(c, "unauthorized", "Login required");
     if (result.error === "upgrade_required") return jsonError(c, "upgrade_required", result.message, result.details);
     return jsonError(c, "not_found", "Release not found");

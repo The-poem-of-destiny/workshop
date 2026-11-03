@@ -46,11 +46,11 @@ export function ProjectSourcePreview({
       return;
     }
     setPreviewLoading(true);
-    const key = JSON.stringify([project.id, project.publishedRevisionId, previewKind]);
+    const key = JSON.stringify([project.id, project.publishedVersionId, previewKind]);
     let pending = previews.current[key];
     if (!pending) {
       pending = api.projectPreview(project.id, previewKind).then((value) => {
-        if (project.publishedRevisionId && value.revisionId !== project.publishedRevisionId) {
+        if (project.publishedVersionId && value.versionId !== project.publishedVersionId) {
           throw new Error("项目版本已更新，请重新打开项目详情。");
         }
         return value;
@@ -75,7 +75,7 @@ export function ProjectSourcePreview({
     return () => {
       active = false;
     };
-  }, [previewKind, previewReload, project.id, project.publishedRevisionId, loggedIn, previewRequested]);
+  }, [previewKind, previewReload, project.id, project.publishedVersionId, loggedIn, previewRequested]);
   const previewEntries = (previewData?.entries ?? []).filter((entry) => {
     const query = previewSearch.trim().toLocaleLowerCase();
     return !query || `${entry.name} ${entry.key}`.toLocaleLowerCase().includes(query);
@@ -180,7 +180,7 @@ export function ProjectSourcePreview({
                       {project.title} · {previewKind === "worldbook" ? "世界书阅读" : "正则阅读"}
                     </DialogTitle>
                     <DialogDescription id="reader-description">
-                      已发布版本 {versionLabel ?? previewData?.revisionId} · 纯文本阅读
+                      已发布版本 {versionLabel ?? previewData?.versionId} · 纯文本阅读
                     </DialogDescription>
                   </div>
                   <button type="button" onClick={() => setPreviewReading(false)}>

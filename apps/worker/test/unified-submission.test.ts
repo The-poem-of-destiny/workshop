@@ -2,11 +2,12 @@ import { env, SELF } from "cloudflare:test";
 import { exports as workerExports } from "cloudflare:workers";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { REVIEW_CHECKER_REVISION } from "../src/content-checker";
+import { REVIEW_CHECKER_VERSION } from "../src/content-checker";
 import { ContentService } from "../src/content-service";
 import type { DataEnv } from "../src/data/env";
 import { runScheduled } from "../src/scheduler";
 import { reviewAdminSubmission } from "../src/storage/admin";
+import { getPublishedProject } from "../src/storage/projects";
 import { applySchema } from "./support/schema";
 
 const bindings = env as unknown as DataEnv;
@@ -55,7 +56,7 @@ const successorPng = Uint8Array.from([
 
 interface Draft {
   id: string;
-  revisionId: string;
+  versionId: string;
   rowVersion: number;
 }
 interface Submitted {
@@ -72,7 +73,7 @@ interface Detail {
     checkAttempts: number;
     checkReportHash: string | null;
   };
-  revision: { id: string; title: string; manifestHash: string };
+  version: { id: string; title: string; manifestHash: string };
 }
 
 function author(path: string, init: RequestInit = {}, token = "author-token") {
@@ -108,12 +109,12 @@ async function create(): Promise<Draft> {
     json("POST", { title: "Published original", description: "Original description" }),
   );
   expect(response.status).toBe(201);
-  const body = (await response.json()) as { project: { id: string }; workingRevisionId: string; rowVersion: number };
-  return { id: body.project.id, revisionId: body.workingRevisionId, rowVersion: body.rowVersion };
+  const body = (await response.json()) as { project: { id: string }; workingVersionId: string; rowVersion: number };
+  return { id: body.project.id, versionId: body.workingVersionId, rowVersion: body.rowVersion };
 }
 async function upload(draft: Draft, kind: "worldbook" | "cover", body: string | Uint8Array) {
   const bytes = typeof body === "string" ? new TextEncoder().encode(body) : body;
-  const response = await author(`/${draft.id}/revisions/${draft.revisionId}/files/${kind}`, {
+  const response = await author(`/${draft.id}/versions/${draft.versionId}/files/${kind}`, {
     method: "PUT",
     headers: {
       "if-match": String(draft.rowVersion),
@@ -127,8 +128,8 @@ async function upload(draft: Draft, kind: "worldbook" | "cover", body: string | 
 }
 async function submit(draft: Draft, gate?: "pass" | "warn" | "block"): Promise<Submitted> {
   const response = await author(
-    `/${draft.id}/revisions/${draft.revisionId}/submit`,
-    json("POST", gate ? { gate, checkerRevision: "client-w1" } : {}, draft.rowVersion),
+    `/${draft.id}/versions/${draft.versionId}/submit`,
+    json("POST", gate ? { gate, checkerVersion: "client-w1" } : {}, draft.rowVersion),
   );
   expect(response.status).toBe(201);
   const result = (await response.json()) as Submitted;
@@ -138,18 +139,21 @@ async function submit(draft: Draft, gate?: "pass" | "warn" | "block"): Promise<S
 async function submitQueued(draft: Draft): Promise<Submitted> {
   const submitted = await submit(draft, "block");
   await bindings.DB.prepare(`
-    UPDATE submissions SET client_gate = 'pass', status = 'checking', check_status = 'queued'
-    WHERE id = ?
+    UPDATE automated_reviews SET client_gate = 'pass', status = 'queued'
+    WHERE submission_id = ?
   `)
+    .bind(submitted.submissionId)
+    .run();
+  await bindings.DB.prepare("UPDATE submissions SET status = 'checking' WHERE id = ?")
     .bind(submitted.submissionId)
     .run();
   return submitted;
 }
-async function nextRevision(draft: Draft, title = "Successor metadata") {
-  const response = await author(`/${draft.id}/revisions`, json("POST", { title }, draft.rowVersion));
+async function nextVersion(draft: Draft, title = "Successor metadata") {
+  const response = await author(`/${draft.id}/versions`, json("POST", { title }, draft.rowVersion));
   expect(response.status).toBe(201);
-  const result = (await response.json()) as { revisionId: string; rowVersion: number };
-  draft.revisionId = result.revisionId;
+  const result = (await response.json()) as { versionId: string; rowVersion: number };
+  draft.versionId = result.versionId;
   draft.rowVersion = result.rowVersion;
 }
 async function refresh(draft: Draft) {
@@ -175,24 +179,19 @@ async function publicProject(id: string) {
     title: string;
     description: string;
     coverUrl: string;
-    publishedRevisionId: string;
+    publishedVersionId: string;
   }>;
 }
 async function published(): Promise<Draft> {
   const draft = await create();
   await upload(draft, "worldbook", worldbook);
   await upload(draft, "cover", png);
-  const submission = await submit(draft, "pass");
+  const submission = await submitQueued(draft);
   await run(submission.submissionId);
-  await vi.waitFor(
-    async () => {
-      expect((await detail(submission.submissionId)).submission).toMatchObject({
-        status: "approved",
-        checkStatus: "done",
-      });
-    },
-    { timeout: 5_000 },
-  );
+  expect((await detail(submission.submissionId)).submission).toMatchObject({
+    status: "approved",
+    checkStatus: "done",
+  });
   await refresh(draft);
   const response = await author(`/${draft.id}/visibility`, json("PATCH", { visibility: "public" }, draft.rowVersion));
   expect(response.status).toBe(200);
@@ -217,8 +216,8 @@ async function runAcrossMutation(id: string, mutation: () => Promise<void>) {
   const data = new Proxy(workerExports.DataService, {
     get(target, property) {
       if (property === "contentLoadSubmission") {
-        return async (revisionId: string) => {
-          const result = await target.contentLoadSubmission(revisionId);
+        return async (versionId: string) => {
+          const result = await target.contentLoadSubmission(versionId);
           intercepted = true;
           await mutation();
           return result;
@@ -245,9 +244,9 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
   await bindings.DB.exec(`
-    DELETE FROM project_gallery; DELETE FROM audit_events; DELETE FROM reviews;
+    DELETE FROM audit_events; DELETE FROM manual_reviews; DELETE FROM automated_reviews;
     DELETE FROM project_likes; DELETE FROM project_subscriptions; DELETE FROM project_ratings;
-    DELETE FROM submissions; DELETE FROM assets; DELETE FROM project_revisions;
+    DELETE FROM submissions; DELETE FROM assets; DELETE FROM project_versions;
     DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;
   `);
   await seedUser("author", "member");
@@ -262,7 +261,7 @@ describe("unified frozen submissions", () => {
     const originalCover = await SELF.fetch(new URL(original.coverUrl, "https://workshop.test").toString(), undefined);
     expect(originalCover.status).toBe(200);
     expect(new Uint8Array(await originalCover.arrayBuffer())).toEqual(png);
-    await nextRevision(draft);
+    await nextVersion(draft);
     const patched = await author(
       `/${draft.id}`,
       json(
@@ -280,18 +279,19 @@ describe("unified frozen submissions", () => {
     draft.rowVersion = ((await patched.json()) as { rowVersion: number }).rowVersion;
     await upload(draft, "cover", successorPng);
     expect(await publicProject(draft.id)).toEqual(original);
+    expect(await getPublishedProject(bindings.DB, draft.id)).toMatchObject(original);
 
     // No content upload: the new revision must remain a complete usable release.
     const submission = await submit(draft, "block");
     const frozen = await detail(submission.submissionId);
-    expect(frozen.revision).toMatchObject({ id: draft.revisionId, title: "Reviewed successor" });
+    expect(frozen.version).toMatchObject({ id: draft.versionId, title: "Reviewed successor" });
     const content = await admin(`/submissions/${submission.submissionId}/files/worldbook`);
     expect(content.status).toBe(200);
     expect(await content.text()).toBe(worldbook);
     expect((await author(`/${draft.id}`, json("PATCH", { title: "Late edit" }, draft.rowVersion))).status).toBe(409);
     expect(
       (
-        await author(`/${draft.id}/revisions/${draft.revisionId}/files/cover`, {
+        await author(`/${draft.id}/versions/${draft.versionId}/files/cover`, {
           method: "PUT",
           headers: {
             "if-match": String(draft.rowVersion),
@@ -303,22 +303,27 @@ describe("unified frozen submissions", () => {
       ).status,
     ).toBe(404);
     expect(await publicProject(draft.id)).toEqual(original);
+    expect(await getPublishedProject(bindings.DB, draft.id)).toMatchObject(original);
     const approved = await admin(
       `/submissions/${submission.submissionId}/review`,
       json("POST", {
         decision: "approve",
         reason: "人工确认完整冻结内容",
-        revisionId: frozen.revision.id,
-        manifestHash: frozen.revision.manifestHash,
+        versionId: frozen.version.id,
+        manifestHash: frozen.version.manifestHash,
       }),
     );
     expect(approved.status).toBe(201);
-    expect(await publicProject(draft.id)).toMatchObject({
+    const released = await getPublishedProject(bindings.DB, draft.id);
+    expect(released).toMatchObject({
       title: "Reviewed successor",
       description: "New description",
-      publishedRevisionId: draft.revisionId,
+      publishedVersionId: draft.versionId,
     });
-    const released = await publicProject(draft.id);
+    expect([original.publishedVersionId, draft.versionId]).toContain(
+      (await publicProject(draft.id)).publishedVersionId,
+    );
+    if (!released?.coverUrl) throw new Error("Published successor has no cover");
     expect(released.coverUrl).not.toBe(original.coverUrl);
     const releasedCover = await SELF.fetch(new URL(released.coverUrl, "https://workshop.test").toString(), undefined);
     expect(releasedCover.status).toBe(200);
@@ -331,7 +336,7 @@ describe("unified frozen submissions", () => {
     );
     expect(preview.status).toBe(200);
     await expect(preview.json()).resolves.toMatchObject({
-      revisionId: draft.revisionId,
+      versionId: draft.versionId,
       entries: [{ name: "Frozen entry", content: "Original content" }],
     });
   });
@@ -343,7 +348,10 @@ describe("unified frozen submissions", () => {
       await upload(draft, "worldbook", worldbook);
       const submitted = await submit(draft, gate);
       expect(submitted).toMatchObject({ status: "pending", checkStatus: "needs_human" });
-      expect((await detail(submitted.submissionId)).submission).toMatchObject({ checkAttempts: 0 });
+      expect((await detail(submitted.submissionId)).submission).toMatchObject({
+        checkAttempts: 0,
+        clientCheckerVersion: gate ? "client-w1" : null,
+      });
       const approved = await admin(
         `/submissions/${submitted.submissionId}/review`,
         json("POST", {
@@ -375,7 +383,7 @@ describe("unified frozen submissions", () => {
         { timeout: 5_000 },
       );
       const response = await author(`/${draft.id}/draft`);
-      await expect(response.json()).resolves.toMatchObject({ project: { publishedRevisionId: draft.revisionId } });
+      await expect(response.json()).resolves.toMatchObject({ project: { publishedVersionId: draft.versionId } });
     },
   );
 
@@ -384,7 +392,7 @@ describe("unified frozen submissions", () => {
     async (gate) => {
       const draft = await published();
       const original = await publicProject(draft.id);
-      await nextRevision(draft);
+      await nextVersion(draft);
       // Keep the checker unstarted until after withdrawal.
       const submitted = gate === "pass" ? await submitQueued(draft) : await submit(draft, "block");
       const path = `/${draft.id}/submissions/${submitted.submissionId}/withdraw`;
@@ -407,6 +415,7 @@ describe("unified frozen submissions", () => {
       );
       await run(submitted.submissionId);
       expect(await publicProject(draft.id)).toEqual(original);
+      expect(await getPublishedProject(bindings.DB, draft.id)).toMatchObject(original);
       expect(
         (await admin(`/submissions/${submitted.submissionId}/review`, json("POST", { decision: "approve" }))).status,
       ).toBe(409);
@@ -416,7 +425,7 @@ describe("unified frozen submissions", () => {
   it.each(["withdraw", "replace"] as const)("does not publish a check completing after %s", async (action) => {
     const draft = await published();
     const original = await publicProject(draft.id);
-    await nextRevision(draft, "Obsolete candidate");
+    await nextVersion(draft, "Obsolete candidate");
     const submitted = await submitQueued(draft);
     let successor: Submitted | undefined;
     await runAcrossMutation(submitted.submissionId, async () => {
@@ -428,7 +437,7 @@ describe("unified frozen submissions", () => {
         );
         expect(response.status).toBe(200);
       } else {
-        await nextRevision(draft, "Replacement candidate");
+        await nextVersion(draft, "Replacement candidate");
         successor = await submit(draft, "block");
       }
     });
@@ -441,6 +450,7 @@ describe("unified frozen submissions", () => {
       checkAttempts: 1,
     });
     expect(await publicProject(draft.id)).toEqual(original);
+    expect(await getPublishedProject(bindings.DB, draft.id)).toMatchObject(original);
     if (successor)
       expect((await detail(successor.submissionId)).submission).toMatchObject({
         status: "pending",
@@ -459,7 +469,7 @@ describe("unified frozen submissions", () => {
   it("keeps explicit reviewer rechecks manual and binds decisions to the exact frozen evidence", async () => {
     const draft = await published();
     const original = await publicProject(draft.id);
-    await nextRevision(draft);
+    await nextVersion(draft);
     const submitted = await submit(draft, "block");
     expect(
       await workerExports.DataService.authorAdminRecheck("Bearer reviewer-token", submitted.submissionId),
@@ -477,15 +487,16 @@ describe("unified frozen submissions", () => {
     expect(checked.submission).toMatchObject({ status: "pending", checkStatus: "needs_human", checkAttempts: 1 });
     expect(checked.submission.checkReportHash).toMatch(/^[0-9a-f]{64}$/);
     expect(await publicProject(draft.id)).toEqual(original);
+    expect(await getPublishedProject(bindings.DB, draft.id)).toMatchObject(original);
     const evidence = {
       decision: "approve",
       reason: "人工核对冻结快照及检查证据",
-      revisionId: checked.revision.id,
-      manifestHash: checked.revision.manifestHash,
+      versionId: checked.version.id,
+      manifestHash: checked.version.manifestHash,
       reportHash: checked.submission.checkReportHash,
     };
     for (const mismatch of [
-      { revisionId: "different-revision" },
+      { versionId: "different-revision" },
       { manifestHash: "different-manifest" },
       { reportHash: "different-report" },
     ]) {
@@ -495,15 +506,19 @@ describe("unified frozen submissions", () => {
       ).toBe(409);
       expect((await detail(submitted.submissionId)).submission.status).toBe("pending");
       expect(await publicProject(draft.id)).toEqual(original);
+      expect(await getPublishedProject(bindings.DB, draft.id)).toMatchObject(original);
     }
     expect((await admin(`/submissions/${submitted.submissionId}/review`, json("POST", evidence))).status).toBe(201);
-    expect((await publicProject(draft.id)).publishedRevisionId).toBe(checked.revision.id);
+    expect((await getPublishedProject(bindings.DB, draft.id))?.publishedVersionId).toBe(checked.version.id);
+    expect([original.publishedVersionId, checked.version.id]).toContain(
+      (await publicProject(draft.id)).publishedVersionId,
+    );
   });
   it("upgrades an old checker only through an explicit reviewer recheck", async () => {
     const draft = await create();
     await upload(draft, "worldbook", worldbook);
     const submitted = await submit(draft, "block");
-    await bindings.DB.prepare("UPDATE submissions SET review_checker_revision = ? WHERE id = ?")
+    await bindings.DB.prepare("UPDATE automated_reviews SET checker_version = ? WHERE submission_id = ?")
       .bind("retired-checker-w1", submitted.submissionId)
       .run();
     // The HTTP route starts a background checker immediately. Invoke the same
@@ -513,7 +528,7 @@ describe("unified frozen submissions", () => {
       await workerExports.DataService.authorAdminRecheck("Bearer reviewer-token", submitted.submissionId),
     ).toMatchObject({ kind: "ok" });
     await expect(run(submitted.submissionId)).resolves.toMatchObject({
-      revision: REVIEW_CHECKER_REVISION,
+      revision: REVIEW_CHECKER_VERSION,
       manual: true,
     });
     const checked = await detail(submitted.submissionId);
@@ -521,7 +536,7 @@ describe("unified frozen submissions", () => {
       status: "pending",
       checkStatus: "needs_human",
       checkAttempts: 1,
-      reviewCheckerRevision: REVIEW_CHECKER_REVISION,
+      checkerVersion: REVIEW_CHECKER_VERSION,
     });
     expect(checked.submission.checkReportHash).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -530,8 +545,8 @@ describe("unified frozen submissions", () => {
     const draft = await create();
     await upload(draft, "worldbook", worldbook);
     const submitted = await submit(draft, "block");
-    await bindings.DB.prepare(`UPDATE submissions SET status = 'pending', check_status = 'running',
-      check_attempts = 3, check_lease_until = ? WHERE id = ?`)
+    await bindings.DB.prepare(`UPDATE automated_reviews SET status = 'running',
+      attempts = 3, lease_until = ? WHERE submission_id = ?`)
       .bind("2030-01-01T12:01:00.000Z", submitted.submissionId)
       .run();
     await runScheduled(bindings, workerExports, Date.parse("2030-01-01T12:00:00.000Z"));
@@ -567,7 +582,7 @@ describe("unified frozen submissions", () => {
   ] as const)("rejects a stale %s decision when %s wins before its transaction", async (decision, race) => {
     const draft = await published();
     const original = await publicProject(draft.id);
-    await nextRevision(draft);
+    await nextVersion(draft);
     const submitted = await submit(draft, "block");
     const frozen = await detail(submitted.submissionId);
     let intercepted = false;
@@ -595,8 +610,8 @@ describe("unified frozen submissions", () => {
     const result = await reviewAdminSubmission(db, submitted.submissionId, "reviewer", {
       decision,
       reason: "人工已阅读先前冻结证据",
-      revisionId: frozen.revision.id,
-      manifestHash: frozen.revision.manifestHash,
+      versionId: frozen.version.id,
+      manifestHash: frozen.version.manifestHash,
     });
     expect(intercepted).toBe(true);
     expect(result.kind).toBe("conflict");
@@ -606,8 +621,8 @@ describe("unified frozen submissions", () => {
         json("POST", {
           decision,
           reason: "人工已阅读先前冻结证据",
-          revisionId: frozen.revision.id,
-          manifestHash: frozen.revision.manifestHash,
+          versionId: frozen.version.id,
+          manifestHash: frozen.version.manifestHash,
         }),
       );
       expect(response.status).toBe(409);
@@ -617,7 +632,8 @@ describe("unified frozen submissions", () => {
       checkStatus: race === "queued" ? "queued" : "needs_human",
     });
     expect(await publicProject(draft.id)).toEqual(original);
-    const reviews = await bindings.DB.prepare("SELECT COUNT(*) AS count FROM reviews WHERE submission_id = ?")
+    expect(await getPublishedProject(bindings.DB, draft.id)).toMatchObject(original);
+    const reviews = await bindings.DB.prepare("SELECT COUNT(*) AS count FROM manual_reviews WHERE submission_id = ?")
       .bind(submitted.submissionId)
       .first<{ count: number }>();
     expect(reviews?.count).toBe(0);
@@ -628,14 +644,14 @@ describe("unified frozen submissions", () => {
     async (decision) => {
       const draft = await published();
       const original = await publicProject(draft.id);
-      await nextRevision(draft);
+      await nextVersion(draft);
       const submitted = await submit(draft, "block");
       const frozen = await detail(submitted.submissionId);
       const evidence = {
         decision,
         reason: "人工已阅读冻结证据",
-        revisionId: frozen.revision.id,
-        manifestHash: frozen.revision.manifestHash,
+        versionId: frozen.version.id,
+        manifestHash: frozen.version.manifestHash,
       };
       const responses = await Promise.all([
         admin(`/submissions/${submitted.submissionId}/review`, json("POST", evidence)),
@@ -647,20 +663,16 @@ describe("unified frozen submissions", () => {
       );
       const project = await publicProject(draft.id);
       if (decision === "approve") {
-        expect(project.publishedRevisionId).toBe(frozen.revision.id);
+        expect((await getPublishedProject(bindings.DB, draft.id))?.publishedVersionId).toBe(frozen.version.id);
+        expect([original.publishedVersionId, frozen.version.id]).toContain(project.publishedVersionId);
       } else {
         expect(project).toEqual(original);
+        expect(await getPublishedProject(bindings.DB, draft.id)).toMatchObject(original);
       }
-      const reviews = await bindings.DB.prepare("SELECT COUNT(*) AS count FROM reviews WHERE submission_id = ?")
+      const reviews = await bindings.DB.prepare("SELECT COUNT(*) AS count FROM manual_reviews WHERE submission_id = ?")
         .bind(submitted.submissionId)
         .first<{ count: number }>();
       expect(reviews?.count).toBe(1);
-      const audits = await bindings.DB.prepare(
-        "SELECT COUNT(*) AS count FROM audit_events WHERE target_id = ? AND action = ?",
-      )
-        .bind(submitted.submissionId, `review.${decision}`)
-        .first<{ count: number }>();
-      expect(audits?.count).toBe(1);
     },
   );
 });

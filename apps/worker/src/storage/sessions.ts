@@ -35,15 +35,17 @@ export async function getSessionByToken(
 
   if (!row || row.revoked_at) return null;
   const now = Date.now();
-  if (Date.parse(row.expires_at) <= now) return null;
+  if (!Number.isFinite(Date.parse(row.expires_at)) || Date.parse(row.expires_at) <= now) return null;
 
   let expiresAt = row.expires_at;
   if (now - Date.parse(row.last_seen_at) >= TOUCH_INTERVAL_MS) {
     expiresAt = new Date(now + SESSION_TTL_MS).toISOString();
-    await db
-      .prepare("UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE token_hash = ?")
-      .bind(new Date(now).toISOString(), expiresAt, tokenHash)
+    const touched = await db
+      .prepare(`UPDATE sessions SET last_seen_at = ?, expires_at = ?
+        WHERE token_hash = ? AND session_version = ? AND revoked_at IS NULL AND expires_at > ?`)
+      .bind(new Date(now).toISOString(), expiresAt, tokenHash, row.session_version, new Date(now).toISOString())
       .run();
+    if (!touched.meta.changes) return null;
   }
   return {
     tokenHash,

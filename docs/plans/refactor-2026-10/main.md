@@ -6,6 +6,8 @@
 
 2026-10-26：当前产品目标与范围以 [D-40～D-47](decisions.md#d-40-完整替代旧版与完整数据迁移) 为准；下文旧摘要中的公开作品限定迁移、旧发现接口保留等冲突描述已被替代，不得据其缩小范围。待实施顺序及新验收门槛见 [本轮工作包](checklist.md#本轮工作包2026-10-26)。本次仅更新决策与计划，未宣称新逻辑已实现。
 
+缓存相关历史方案已由 [D-49](decisions.md#d-49-分类-ttl-cache-api) 取代；当前机制与部署状态以 [缓存设计](../../reference/cache-design.md) 为准，下面的旧缓存比较与实施步骤仅保留历史背景。
+
 复核方式：A/B 的关键指控都回到代码验过；另外补查了三处会影响裁决的事实——`visibility` 的实际过滤位置、FTS 搜索的真实调用、排行相关表的引用范围（见 §1.3、§12）。
 
 ---
@@ -20,7 +22,7 @@
 4. **单一 Worker + Static Assets**，不用 Pages；**Free 套餐下保留一个 `ContentService` DO**（Worker 10ms / DO 30s），删除正则分发器与不必要的读路径转发；KV 新系统不用。
 5. **完整接替与完整业务数据迁移**按 D-40；新模型不照搬旧 schema，实际迁移在逻辑完成后进行。
 6. **一次性切换**：停写屏障必须覆盖旧文件 GET 计数与 OAuth 写路径；开放写入后不承诺无损回切旧库。
-7. **缓存分两步走**：切换时所有动态 API `no-store`；验收后按 D-28 对公开与个人 GET 开 Workers Cache。
+7. **缓存分类 TTL**：公开匿名投影使用 Cache API，私有响应 no-store，权限和计数实时；详见 D-49。
 8. **保留中文搜索与互动能力**；全项目排序及时间口径按 D-44；发现逻辑以后重做，不要求保留旧接口；抽签继续暂缓。
 9. **删除源码正则测试**，重建为 domain 单测 + workerd 集成 + 契约测试 + 少量真实 E2E。
 10. **产物不入库**；用不可变 CI artifact + 精确 SHA 部署，客户端产物上传 R2。
@@ -114,7 +116,7 @@ Free 套餐的资源预算与实现约束见 D-25；前端方向（单屏列表�
 
 ## 3. 运行时
 
-- **一个 Worker**（D-19，不存在 Pages）：`/api/*` 由 Hono 处理；`/`、Web 的 `/assets/*` 交给 Static Assets；未匹配 `/api` 返回 JSON 404，不能被 SPA fallback 吞掉。`/client/*` 由 Worker 代理 R2，由 Workers Cache 缓存（D-22）；不使用 zone 缓存。
+- **一个 Worker**（D-19，不存在 Pages）：`/api/*` 由 Hono 处理；`/`、Web 的 `/assets/*` 交给 Static Assets；未匹配 `/api` 返回 JSON 404，不能被 SPA fallback 吞掉。`/client/*` 由 Worker 代理 R2；版本化资源按 D-49 缓存。
 - **DO：保留一个。** Free 套餐的 Worker 每请求 10ms，而 DO 每请求 30s；解析 10MB 世界书、服务端 checker 复核必须留在 DO。删除 `contentServiceKey` 正则分发器，由 Hono 显式 `getByName()`。列表/详情是否移出 DO，用真实数据测 CPU 后决定。
 - **KV：新系统不用。** OAuth flow、session 全落 D1，可审计、可原子消费。
 - **认证**：opaque session token（32 字节随机，库中只存 HMAC），30 天滑动过期；每请求查 `sessions → users.role`，撤销即时生效。
@@ -181,17 +183,9 @@ Free 套餐的资源预算与实现约束见 D-25；前端方向（单屏列表�
 
 ## 6. 缓存
 
-| 阶段 | 策略 |
-|---|---|
-| 切换时 | 静态资产内容哈希 + `immutable`；HTML/manifest `no-cache`；**所有动态 API `private, no-store`**；草稿、审核、`/me/*`、计数文件不缓存 |
-| 验收后 | 按 D-28：公开 GET 走 `Public` 共享缓存；个人 GET 经网关 + `ctx.props` 按用户缓存；`Cache-Tag` 做发布/下架 purge |
-| 永不 | 计数下载的写请求、草稿/审核、未鉴权的内部响应、所有写操作 |
+当前采用 [D-49](decisions.md#d-49-分类-ttl-cache-api)：公开匿名投影使用分类 TTL Cache API；草稿、审核、个人状态、下载票据及写操作保持 no-store，权限和计数实时。获准的预览和不可变对象仅在每次实时鉴权后内部复用。
 
-理由：A 假设“边缘会尊重 `s-maxage`”，但没有启用 Workers Cache 时该头没有消费者；B 的首版全不缓存安全但不给开启路径。分两步既满足“现在需要缓存”，又避免在下架/隐藏语义未测试时引入缓存泄漏。
-
-删除 `caches.default` 三处与客户端全部 TTL Map；客户端只保留请求期 in-flight 去重。已批准项目的文件下载也要求登录（D-29）；可安装文件不进入公开缓存。
-
-Workers Cache 的键、头、失效、并发、身份、测量与额度模型，以及开启门禁，见 D-24；公开展示数据共享缓存、个人状态经网关 + `ctx.props` 按用户缓存，见 D-28。
+不使用全球主动 purge 或 epoch。各 PoP、浏览器和在途请求可能延长陈旧，TTL 不是撤回时限。完整默认值、配置及风险见 [缓存设计](../../reference/cache-design.md) 和 [运行配置](../../reference/runtime-configuration.md)；hosted 行为未验证，部署须另获用户授权。
 
 ---
 
@@ -242,7 +236,7 @@ Workers Cache 的键、头、失效、并发、身份、测量与额度模型，
 - Vite 构 Web；esbuild 构 TH 单文件；Wrangler 构 Worker。产物不提交（客户端 release 产物按发布流程单独处理）。
 - 发布：PR 跑 typecheck/test/build/契约；`main` 对精确 SHA 构建一次，上传不可变 artifact；staging 部署同一 artifact，审批后提升生产；发布账本记录 SHA、artifact hash、Worker version、migrations。
 - 部署只走 CI，不依赖机器本地 profile；删除全部 PowerShell 部署器。
-- 客户端分发（D-22）：R2 上 `v/<sha>/index.js`（immutable）+ `stable`/`staging` 指针，由 Worker 代理并被 Workers Cache 缓存；发布脚本更新 D1 版本记录并 purge `client:stable`；不依赖 `@main`；`test-dist` shim 在下架窗口后删除。
+- 客户端分发：R2 上 `v/<sha>/index.js`（默认 immutable）+ `stable`/`staging` 指针，由 Worker 代理；缓存按 D-49，发布脚本的可选 zone purge 不构成全球失效保证；不依赖 `@main`。
 
 ---
 

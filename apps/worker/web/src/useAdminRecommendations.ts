@@ -12,7 +12,6 @@ export function useAdminRecommendations({ onError, onNotice }: AdminRecommendati
   const [selectedProject, setSelectedProject] = useState<AdminProject | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [comment, setComment] = useState("");
-  const [reaction, setReaction] = useState("");
   const [recBusy, setRecBusy] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<Recommendation | null>(null);
   /** Same guard for recommendation project searches, which can overlap with form resets. */
@@ -43,7 +42,6 @@ export function useAdminRecommendations({ onError, onNotice }: AdminRecommendati
     setSelectedProject(project);
     setEditingId(null);
     setComment(existing?.comment ?? "");
-    setReaction(existing?.reaction ?? "");
   }
 
   function editRecommendation(item: Recommendation): void {
@@ -52,7 +50,6 @@ export function useAdminRecommendations({ onError, onNotice }: AdminRecommendati
     setSelectedProject(null);
     setEditingId(item.project.id);
     setComment(item.comment);
-    setReaction(item.reaction);
   }
 
   function clearRecommendationForm(): void {
@@ -61,7 +58,6 @@ export function useAdminRecommendations({ onError, onNotice }: AdminRecommendati
     setSelectedProject(null);
     setEditingId(null);
     setComment("");
-    setReaction("");
   }
 
   async function saveRecommendation(): Promise<void> {
@@ -70,7 +66,9 @@ export function useAdminRecommendations({ onError, onNotice }: AdminRecommendati
     recBusyRef.current = true;
     setRecBusy(true);
     try {
-      await api.updateRecommendation(projectId, { comment, reaction });
+      const project = await api.project(projectId);
+      if (!project.publishedVersionId) throw new Error("项目没有公开版本");
+      await api.updateRecommendation(projectId, { comment, projectVersionId: project.publishedVersionId });
       const list = await api.recommendations();
       setRecommendations(list.items);
       clearRecommendationForm();
@@ -105,7 +103,6 @@ export function useAdminRecommendations({ onError, onNotice }: AdminRecommendati
   }
   return {
     recommendations,
-    reaction,
     comment,
     editRecommendation,
     setRemoveTarget,
@@ -121,7 +118,6 @@ export function useAdminRecommendations({ onError, onNotice }: AdminRecommendati
     pickProject,
     recSearched,
     setComment,
-    setReaction,
     recBusy,
     saveRecommendation,
     removeTarget,

@@ -6,8 +6,8 @@ import {
   validateProjectContentPolicy,
 } from "@workshop/domain";
 import { z } from "zod";
-import { getWorkingRevision, parseTags, revisionValues } from "./authoring-model.js";
-import { addRevision, type RevisionAssetInput } from "./authoring-revisions.js";
+import { getWorkingVersion, parseTags, versionValues } from "./authoring-model.js";
+import { addVersion, type VersionAssetInput } from "./authoring-versions.js";
 
 export interface UploadResult {
   kind: "worldbook" | "regex" | "cover";
@@ -72,23 +72,23 @@ export async function deleteProjectEntry(
   r2: R2Bucket,
   session: Session,
   projectId: string,
-  revisionId: string,
+  versionId: string,
   kind: ProjectEntryKind,
   entryKey: string,
   expectedVersion: number,
-): Promise<{ rowVersion: number; revisionId: string; entryCount: number } | null> {
-  const current = await getWorkingRevision(db, projectId, session);
-  if (!current || current.row_version !== expectedVersion || current.working_revision_id !== revisionId) return null;
+): Promise<{ rowVersion: number; versionId: string; entryCount: number } | null> {
+  const current = await getWorkingVersion(db, projectId, session);
+  if (!current || current.row_version !== expectedVersion || current.working_version_id !== versionId) return null;
   const submitted = await db
-    .prepare("SELECT 1 AS present FROM submissions WHERE revision_id = ?")
-    .bind(revisionId)
+    .prepare("SELECT 1 AS present FROM submissions WHERE version_id = ?")
+    .bind(versionId)
     .first<{ present: number }>();
   if (submitted) return null;
   const asset = await db
     .prepare(`
-    SELECT r2_key, mime FROM assets WHERE revision_id = ? AND kind = ?
+    SELECT r2_key, mime FROM assets WHERE version_id = ? AND kind = ?
   `)
-    .bind(revisionId, kind)
+    .bind(versionId, kind)
     .first<{ r2_key: string; mime: string }>();
   if (!asset) return null;
   const object = await r2.get(asset.r2_key);
@@ -104,8 +104,8 @@ export async function deleteProjectEntry(
   if (removed.entryCount === 0) {
     const otherKind = kind === "worldbook" ? "regex" : "worldbook";
     const other = await db
-      .prepare("SELECT 1 AS present FROM assets WHERE revision_id = ? AND kind = ? LIMIT 1")
-      .bind(revisionId, otherKind)
+      .prepare("SELECT 1 AS present FROM assets WHERE version_id = ? AND kind = ? LIMIT 1")
+      .bind(versionId, otherKind)
       .first<{ present: number }>();
     const policy = validateProjectContentPolicy(
       { projectType: current.project_type, tags: parseTags(current.search_tags) },
@@ -118,58 +118,49 @@ export async function deleteProjectEntry(
   }
 
   const sourceCounts = await db
-    .prepare("SELECT worldbook_count, regex_count FROM project_revisions WHERE id = ?")
-    .bind(revisionId)
+    .prepare("SELECT worldbook_count, regex_count FROM project_versions WHERE id = ?")
+    .bind(versionId)
     .first<{ worldbook_count: number; regex_count: number }>();
   if (!sourceCounts) return null;
   const retained = await db
     .prepare(`
     SELECT kind, r2_key, sha256, bytes, mime FROM assets
-    WHERE revision_id = ? AND kind <> ?
+    WHERE version_id = ? AND kind <> ?
   `)
-    .bind(revisionId, kind)
+    .bind(versionId, kind)
     .all<RetainedAssetRow>();
 
-  const nextRevisionId = crypto.randomUUID();
+  const nextVersionId = crypto.randomUUID();
   const body = new TextEncoder().encode(removed.text).buffer;
   const sha256 = await sha256Hex(body);
-  const contentKey = assetKey(projectId, nextRevisionId, kind, sha256, asset.mime);
-  const assets: RevisionAssetInput[] = [];
-  const writtenKeys: string[] = [];
-  try {
-    for (const retainedAsset of retained.results) {
-      // R2 objects are immutable and content-addressed; reuse the same object
-      // instead of copying every retained asset into a new revision prefix.
-      if (!(await r2.head(retainedAsset.r2_key))) throw new Error(`Retained asset is missing: ${retainedAsset.r2_key}`);
-      assets.push({
-        kind: retainedAsset.kind,
-        r2Key: retainedAsset.r2_key,
-        sha256: retainedAsset.sha256,
-        bytes: retainedAsset.bytes,
-        mime: retainedAsset.mime,
-      });
-    }
-    await r2.put(contentKey, body, { httpMetadata: { contentType: asset.mime } });
-    writtenKeys.push(contentKey);
-    assets.push({ kind, r2Key: contentKey, sha256, bytes: body.byteLength, mime: asset.mime });
-
-    const revision = await addRevision(db, session, current, expectedVersion, revisionValues(current, {}), {
-      revisionId: nextRevisionId,
-      counts: {
-        worldbook: kind === "worldbook" ? removed.entryCount : sourceCounts.worldbook_count,
-        regex: kind === "regex" ? removed.entryCount : sourceCounts.regex_count,
-      },
-      assets,
+  const contentKey = assetKey(projectId, kind, sha256, asset.mime);
+  const assets: VersionAssetInput[] = [];
+  for (const retainedAsset of retained.results) {
+    // R2 objects are immutable and content-addressed; reuse the same object
+    // instead of copying every retained asset into a new revision prefix.
+    if (!(await r2.head(retainedAsset.r2_key))) throw new Error(`Retained asset is missing: ${retainedAsset.r2_key}`);
+    assets.push({
+      kind: retainedAsset.kind,
+      r2Key: retainedAsset.r2_key,
+      sha256: retainedAsset.sha256,
+      bytes: retainedAsset.bytes,
+      mime: retainedAsset.mime,
     });
-    if (!revision) {
-      if (writtenKeys.length > 0) await r2.delete(writtenKeys);
-      return null;
-    }
-    return { ...revision, entryCount: removed.entryCount };
-  } catch (error) {
-    if (writtenKeys.length > 0) await r2.delete(writtenKeys).catch(() => undefined);
-    throw error;
   }
+  await r2.put(contentKey, body, { httpMetadata: { contentType: asset.mime } });
+  assets.push({ kind, r2Key: contentKey, sha256, bytes: body.byteLength, mime: asset.mime });
+
+  const revision = await addVersion(db, session, current, expectedVersion, versionValues(current, {}), {
+    versionId: nextVersionId,
+    counts: {
+      worldbook: kind === "worldbook" ? removed.entryCount : sourceCounts.worldbook_count,
+      regex: kind === "regex" ? removed.entryCount : sourceCounts.regex_count,
+    },
+    assets,
+  });
+  // Failed CAS leaves an immutable orphan; never delete a key another version may share.
+  if (!revision) return null;
+  return { ...revision, entryCount: removed.entryCount };
 }
 
 interface RetainedAssetRow {
@@ -180,11 +171,9 @@ interface RetainedAssetRow {
   mime: string;
 }
 
-function assetKey(projectId: string, revisionId: string, kind: string, sha256: string, mime: string): string {
+function assetKey(projectId: string, kind: string, sha256: string, mime: string): string {
   const ext = extensionForMime(mime);
-  return kind === "cover"
-    ? `covers/${projectId}/${revisionId}-${sha256}.${ext}`
-    : `projects/${projectId}/revisions/${revisionId}/${kind}-${sha256}.${ext}`;
+  return kind === "cover" ? `covers/${projectId}/${sha256}.${ext}` : `projects/${projectId}/${kind}-${sha256}.${ext}`;
 }
 
 async function sha256Hex(body: ArrayBuffer): Promise<string> {
@@ -195,7 +184,7 @@ async function sha256Hex(body: ArrayBuffer): Promise<string> {
 export async function upsertStreamedAsset(
   db: D1Database,
   projectId: string,
-  revisionId: string,
+  versionId: string,
   expectedVersion: number,
   kind: UploadResult["kind"],
   sha256: string,
@@ -204,15 +193,15 @@ export async function upsertStreamedAsset(
   entryCount: number | undefined,
   copyTo: (key: string, options?: R2PutOptions) => Promise<void>,
 ): Promise<UploadResult | null> {
-  const r2Key = assetKey(projectId, revisionId, kind, sha256, mime);
+  const r2Key = assetKey(projectId, kind, sha256, mime);
   await copyTo(r2Key, { httpMetadata: { contentType: mime } });
-  return registerAsset(db, projectId, revisionId, expectedVersion, kind, sha256, r2Key, bytes, mime, entryCount);
+  return registerAsset(db, projectId, versionId, expectedVersion, kind, sha256, r2Key, bytes, mime, entryCount);
 }
 
 async function registerAsset(
   db: D1Database,
   projectId: string,
-  revisionId: string,
+  versionId: string,
   expectedVersion: number,
   kind: UploadResult["kind"],
   sha256: string,
@@ -229,20 +218,20 @@ async function registerAsset(
   const now = new Date().toISOString();
   const statements = [
     db
-      .prepare(`INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
+      .prepare(`INSERT INTO assets (id, project_id, version_id, kind, r2_key, sha256, bytes, mime, created_at)
       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
       WHERE EXISTS (
         SELECT 1 FROM projects
-        WHERE id = ? AND deleted_at IS NULL AND working_revision_id = ? AND row_version = ?
-          AND NOT EXISTS (SELECT 1 FROM submissions WHERE revision_id = ?)
+        WHERE id = ? AND deleted_at IS NULL AND working_version_id = ? AND row_version = ?
+          AND NOT EXISTS (SELECT 1 FROM submissions WHERE version_id = ?)
       )
-      ON CONFLICT(revision_id, kind) DO UPDATE SET
+      ON CONFLICT(version_id, kind) DO UPDATE SET
         id = excluded.id, r2_key = excluded.r2_key, sha256 = excluded.sha256,
         bytes = excluded.bytes, mime = excluded.mime, created_at = excluded.created_at`)
       .bind(
         assetId,
         projectId,
-        revisionId,
+        versionId,
         kind,
         r2Key,
         sha256,
@@ -250,9 +239,9 @@ async function registerAsset(
         mime,
         now,
         projectId,
-        revisionId,
+        versionId,
         expectedVersion,
-        revisionId,
+        versionId,
       ),
   ];
 
@@ -260,11 +249,11 @@ async function registerAsset(
     const column = kind === "worldbook" ? "worldbook_count" : "regex_count";
     statements.push(
       db
-        .prepare(`UPDATE project_revisions SET ${column} = ?
+        .prepare(`UPDATE project_versions SET ${column} = ?
         WHERE id = ? AND EXISTS (
-          SELECT 1 FROM assets WHERE id = ? AND project_id = ? AND revision_id = ? AND kind = ?
+          SELECT 1 FROM assets WHERE id = ? AND project_id = ? AND version_id = ? AND kind = ?
         )`)
-        .bind(entryCount, revisionId, assetId, projectId, revisionId, kind),
+        .bind(entryCount, versionId, assetId, projectId, versionId, kind),
     );
   }
 
@@ -272,9 +261,9 @@ async function registerAsset(
     db
       .prepare(`UPDATE projects SET row_version = row_version + 1, updated_at = ?
       WHERE id = ? AND EXISTS (
-        SELECT 1 FROM assets WHERE id = ? AND project_id = ? AND revision_id = ? AND kind = ?
+        SELECT 1 FROM assets WHERE id = ? AND project_id = ? AND version_id = ? AND kind = ?
       )`)
-      .bind(now, projectId, assetId, projectId, revisionId, kind),
+      .bind(now, projectId, assetId, projectId, versionId, kind),
   );
   const results = await db.batch(statements);
   if ((results.at(-1)?.meta.changes ?? 0) === 0) return null;

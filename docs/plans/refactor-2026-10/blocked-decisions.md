@@ -16,7 +16,7 @@
 
 - 审核台缓存列表与详情/diff，预取下一条。
 - 审核成功后本地移除并切到下一条，不重新拉整页。
-- 管理端队列保持 `private, no-store`；Workers Cache 只用于公开读。
+- 管理端队列保持 `private, no-store`；公开读缓存以 [D-49](decisions.md#d-49-分类-ttl-cache-api) 为准。
 
 ## Q-10 每日抽签是否保留（产品，暂缓）
 

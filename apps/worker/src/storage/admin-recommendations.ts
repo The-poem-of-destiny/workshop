@@ -2,65 +2,77 @@ export async function updateAdminRecommendation(
   db: D1Database,
   projectId: string,
   actorId: string,
-  update: { comment?: string; reaction?: string },
+  update: { projectVersionId: string; comment?: string },
 ) {
-  const project = await db.prepare("SELECT id FROM projects WHERE id = ?").bind(projectId).first<{ id: string }>();
-  if (!project) return { kind: "not_found" as const };
-  const existing = await db
-    .prepare("SELECT comment, reaction FROM recommendations WHERE curator_id = ? AND project_id = ?")
-    .bind(actorId, projectId)
-    .first<{ comment: string; reaction: string }>();
-  const comment = update.comment ?? existing?.comment ?? "";
-  const reaction = update.reaction ?? existing?.reaction ?? "";
   const now = new Date().toISOString();
-  const recommendationId = crypto.randomUUID();
-  await db.batch([
+  const id = crypto.randomUUID();
+  const results = await db.batch([
     db
-      .prepare(`
-      INSERT INTO recommendations (id, curator_id, project_id, comment, reaction, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(curator_id, project_id) DO UPDATE SET
-        comment = excluded.comment, reaction = excluded.reaction, updated_at = excluded.updated_at
-    `)
-      .bind(recommendationId, actorId, projectId, comment, reaction, now, now),
-    db
-      .prepare(`
-      INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
-      VALUES (?, 'recommendation.update', 'project', ?, ?, ?, ?)
-    `)
+      .prepare(`INSERT INTO audit_events(id,action,target_type,target_id,actor_id,detail,created_at)
+      SELECT ?, 'recommendation.update', 'project', p.id, u.id,
+        json_object('before',json((SELECT json_object('projectVersionId',project_version_id,'comment',comment)
+          FROM recommendations WHERE curator_id=u.id AND project_version_id=?)),
+          'after',json_object('projectVersionId',?,'comment',COALESCE(?,
+            (SELECT comment FROM recommendations WHERE curator_id=u.id AND project_version_id=?),''))), ?
+      FROM projects p JOIN users u ON u.id=?
+      WHERE p.id=? AND p.published_version_id=? AND p.visibility='public' AND p.deleted_at IS NULL`)
       .bind(
         crypto.randomUUID(),
-        projectId,
-        actorId,
-        JSON.stringify({
-          before: existing ? { comment: existing.comment, reaction: existing.reaction } : null,
-          after: { comment, reaction },
-        }),
+        update.projectVersionId,
+        update.projectVersionId,
+        update.comment ?? null,
+        update.projectVersionId,
         now,
+        actorId,
+        projectId,
+        update.projectVersionId,
       ),
+    db
+      .prepare(`INSERT INTO recommendations(id,curator_id,project_id,project_version_id,comment,created_at,updated_at)
+    SELECT ?,?,?,?, COALESCE(?,(SELECT comment FROM recommendations WHERE curator_id=? AND project_version_id=?),''),?,? FROM projects p JOIN users u ON u.id=?
+    WHERE p.id=? AND p.published_version_id=? AND p.visibility='public' AND p.deleted_at IS NULL
+    ON CONFLICT(curator_id,project_version_id) DO UPDATE SET comment=excluded.comment,
+      updated_at=CASE WHEN recommendations.comment=excluded.comment THEN recommendations.updated_at ELSE excluded.updated_at END`)
+      .bind(
+        id,
+        actorId,
+        projectId,
+        update.projectVersionId,
+        update.comment ?? null,
+        actorId,
+        update.projectVersionId,
+        now,
+        now,
+        actorId,
+        projectId,
+        update.projectVersionId,
+      ),
+    db
+      .prepare("SELECT id,comment FROM recommendations WHERE curator_id=? AND project_version_id=?")
+      .bind(actorId, update.projectVersionId),
   ]);
-  const row = await db
-    .prepare("SELECT id, comment, reaction FROM recommendations WHERE curator_id = ? AND project_id = ?")
-    .bind(actorId, projectId)
-    .first<{ id: string; comment: string; reaction: string }>();
-  return { kind: "ok" as const, id: row?.id ?? recommendationId, comment, reaction };
+  if (!results[1]!.meta.changes) return { kind: "not_found" as const };
+  const row = results[2]!.results[0] as { id: string; comment: string } | undefined;
+  if (!row) throw new Error("Recommendation mutation did not retain its result");
+  return { kind: "ok" as const, id: row.id, projectVersionId: update.projectVersionId, comment: row.comment };
 }
 
-export async function deleteAdminRecommendation(db: D1Database, projectId: string, actorId: string) {
-  const existing = await db
-    .prepare("SELECT id, comment, reaction FROM recommendations WHERE curator_id = ? AND project_id = ?")
-    .bind(actorId, projectId)
-    .first<{ id: string; comment: string; reaction: string }>();
-  if (!existing) return { kind: "not_found" as const };
-  const now = new Date().toISOString();
-  await db.batch([
-    db.prepare("DELETE FROM recommendations WHERE id = ?").bind(existing.id),
+export async function deleteAdminRecommendation(
+  db: D1Database,
+  projectId: string,
+  actorId: string,
+  projectVersionId?: string,
+) {
+  const condition = projectVersionId ? " AND project_version_id=?" : "";
+  const values = projectVersionId ? [projectId, actorId, projectVersionId] : [projectId, actorId];
+  const results = await db.batch([
     db
-      .prepare(`
-      INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
-      VALUES (?, 'recommendation.delete', 'project', ?, ?, ?, ?)
-    `)
-      .bind(crypto.randomUUID(), projectId, actorId, JSON.stringify({ before: existing }), now),
+      .prepare(`INSERT INTO audit_events(id,action,target_type,target_id,actor_id,detail,created_at)
+      SELECT lower(hex(randomblob(16))), 'recommendation.delete', 'project', project_id, curator_id,
+      json_object('before',json_object('projectVersionId',project_version_id,'comment',comment)), ?
+      FROM recommendations WHERE project_id=? AND curator_id=?${condition}`)
+      .bind(new Date().toISOString(), ...values),
+    db.prepare(`DELETE FROM recommendations WHERE project_id=? AND curator_id=?${condition}`).bind(...values),
   ]);
-  return { kind: "ok" as const };
+  return { kind: results[1]!.meta.changes ? ("ok" as const) : ("not_found" as const) };
 }

@@ -72,7 +72,7 @@ export function useHostConnection({ embedded, me, login, setError, setNotice }: 
     const instances =
       context?.installationScan?.instances.filter((instance) => instance.projectId === project.id) ?? [];
     if (!instances.length) return "notInstalled";
-    if (instances.some((instance) => project.publishedRevisionId && instance.version !== project.publishedRevisionId))
+    if (instances.some((instance) => project.publishedVersionId && instance.version !== project.publishedVersionId))
       return "updateAvailable";
     if (instances.some((instance) => instance.state === "localChanged")) return "localChanged";
     if (

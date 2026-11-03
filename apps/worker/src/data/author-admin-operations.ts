@@ -1,3 +1,4 @@
+import { type AuditAction, projectEntryIndexDocumentSchema } from "@workshop/contracts";
 import { inspectProjectMetadata } from "@workshop/domain";
 import { fetchImmutableObject } from "../data-client.js";
 import {
@@ -13,16 +14,11 @@ import {
   listAdminProjects,
 } from "../storage/admin-directory.js";
 import { deleteAdminRecommendation, updateAdminRecommendation } from "../storage/admin-recommendations.js";
-import {
-  createAdminReferenceSet,
-  createAdminReferenceVersion,
-  updateAdminReferenceSet,
-} from "../storage/admin-references.js";
 import { createProject, getProjectSummary, softDeleteProject, updateVisibility } from "../storage/authoring.js";
 import { deleteProjectEntry } from "../storage/authoring-assets.js";
-import { getAuthoringProject } from "../storage/authoring-model.js";
-import { createRevision, patchProject } from "../storage/authoring-revisions.js";
-import { submitRevision, withdrawSubmission } from "../storage/authoring-submissions.js";
+import { getAuthoringProject, parseRequirements } from "../storage/authoring-model.js";
+import { submitVersion, withdrawSubmission } from "../storage/authoring-submissions.js";
+import { createVersion, patchProject } from "../storage/authoring-versions.js";
 import { getSubmissionDiff } from "../storage/diff.js";
 import { deleteGalleryImage, getAuthorGallery } from "../storage/project-gallery.js";
 import { getSessionByToken } from "../storage/sessions.js";
@@ -67,7 +63,7 @@ export async function authorAdminListAuditEvents(
   authorization: string | undefined,
   limit: number,
   cursor: string | undefined,
-  action: string | undefined,
+  action: AuditAction | undefined,
 ) {
   const auth = await reviewer(env, authorization);
   if (auth.kind !== "ok") return auth;
@@ -98,7 +94,7 @@ export async function authorAdminListSubmissions(
 export async function authorAdminGetSubmission(env: DataEnv, authorization: string | undefined, id: string) {
   const auth = await reviewer(env, authorization);
   if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await getAdminSubmission(env.DB, id) };
+  return { kind: "ok" as const, data: await getAdminSubmission(env.DB, env.R2, id) };
 }
 
 export async function authorAdminGetDiff(env: DataEnv, authorization: string | undefined, id: string) {
@@ -135,67 +131,27 @@ export async function authorAdminDeleteRecommendation(env: DataEnv, authorizatio
   return { kind: "ok" as const, data: await deleteAdminRecommendation(env.DB, id, auth.session.userId) };
 }
 
-export async function authorAdminCreateReferenceSet(
-  env: DataEnv,
-  authorization: string | undefined,
-  input: Parameters<typeof createAdminReferenceSet>[2],
-) {
-  const auth = await reviewer(env, authorization, true);
-  if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await createAdminReferenceSet(env.DB, auth.session.userId, input) };
-}
-
-export async function authorAdminCreateReferenceVersion(
-  env: DataEnv,
-  authorization: string | undefined,
-  id: string,
-  input: Parameters<typeof createAdminReferenceVersion>[3],
-) {
-  const auth = await reviewer(env, authorization, true);
-  if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await createAdminReferenceVersion(env.DB, auth.session.userId, id, input) };
-}
-
-export async function authorAdminUpdateReferenceSet(
-  env: DataEnv,
-  authorization: string | undefined,
-  id: string,
-  input: Parameters<typeof updateAdminReferenceSet>[3],
-) {
-  const auth = await reviewer(env, authorization, true);
-  if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await updateAdminReferenceSet(env.DB, id, auth.session.userId, input) };
-}
-
 export async function authorAdminRecheck(env: DataEnv, authorization: string | undefined, id: string) {
   const auth = await reviewer(env, authorization);
   if (auth.kind !== "ok") return auth;
   const target = await env.DB.prepare(`
-    SELECT status, check_status, review_checker_revision FROM submissions WHERE id = ?
+    SELECT s.status, ar.status AS check_status, ar.checker_version AS checker_version
+    FROM submissions s JOIN automated_reviews ar ON ar.submission_id = s.id WHERE s.id = ?
   `)
     .bind(id)
-    .first<{ status: string; check_status: string; review_checker_revision: string | null }>();
+    .first<{ status: string; check_status: string; checker_version: string | null }>();
   if (!target) return { kind: "not_found" as const };
   if (target.status !== "pending" && target.status !== "checking") return { kind: "resolved" as const };
   if (target.check_status === "queued" || target.check_status === "running") return { kind: "running" as const };
-  const now = new Date().toISOString();
   await env.DB.batch([
     env.DB.prepare(`
-      UPDATE submissions
-      SET status = 'pending', check_status = 'queued', check_attempts = 0,
-          check_lease_until = NULL, check_error = NULL, review_checker_revision = NULL
-      WHERE id = ? AND status IN ('pending', 'checking') AND check_status NOT IN ('queued', 'running')
+      UPDATE automated_reviews SET status = 'queued', attempts = 0, lease_until = NULL, lease_token = NULL, error = NULL,
+        checker_version = NULL, route_gate = NULL, report_r2_key = NULL, report_hash = NULL, checked_at = NULL, duration_ms = NULL
+      WHERE submission_id = ? AND status NOT IN ('queued','running')
+        AND EXISTS(SELECT 1 FROM submissions s WHERE s.id = submission_id AND s.status IN ('pending','checking'))
     `).bind(id),
-    env.DB.prepare(`
-      INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
-      SELECT ?, 'checker.recheck', 'submission', ?, ?, ?, ?
-      WHERE EXISTS (SELECT 1 FROM submissions WHERE id = ? AND check_status = 'queued')
-    `).bind(
-      crypto.randomUUID(),
-      id,
-      auth.session.userId,
-      JSON.stringify({ reason: "explicit reviewer recheck", previousRevision: target.review_checker_revision }),
-      now,
+    env.DB.prepare(`UPDATE submissions SET status = 'pending' WHERE id = ? AND status IN ('pending','checking')
+      AND EXISTS(SELECT 1 FROM automated_reviews ar WHERE ar.submission_id = submissions.id AND ar.status = 'queued')`).bind(
       id,
     ),
   ]);
@@ -270,14 +226,15 @@ export async function authorAdminGetDraft(env: DataEnv, authorization: string | 
   const summary = await getProjectSummary(env.DB, project.id);
   if (!summary) return { kind: "not_found" as const };
   const latestSubmission = await env.DB.prepare(`
-    SELECT s.id, s.revision_id, s.status, s.check_status, s.resolved_at, r.decision, r.reason
-    FROM submissions s LEFT JOIN reviews r ON r.submission_id = s.id
+    SELECT s.id, s.version_id, s.status, ar.status AS check_status, s.resolved_at, r.decision, r.reason
+    FROM submissions s JOIN automated_reviews ar ON ar.submission_id = s.id
+    LEFT JOIN manual_reviews r ON r.submission_id = s.id
     WHERE s.project_id = ? ORDER BY s.submitted_at DESC LIMIT 1
   `)
     .bind(project.id)
     .first<{
       id: string;
-      revision_id: string;
+      version_id: string;
       status: string;
       check_status: string;
       resolved_at: string | null;
@@ -289,7 +246,7 @@ export async function authorAdminGetDraft(env: DataEnv, authorization: string | 
     data: {
       project: summary,
       rowVersion: project.row_version,
-      workingRevisionId: project.working_revision_id,
+      workingVersionId: project.working_version_id,
       latestSubmission: latestSubmission ?? null,
     },
   };
@@ -299,7 +256,7 @@ export async function authorAdminDeleteEntry(
   env: DataEnv,
   authorization: string | undefined,
   projectId: string,
-  revisionId: string,
+  versionId: string,
   kind: "worldbook" | "regex",
   entryKey: string,
   expectedVersion: number,
@@ -308,7 +265,7 @@ export async function authorAdminDeleteEntry(
   if (!session) return { kind: "unauthorized" as const };
   return {
     kind: "ok" as const,
-    data: await deleteProjectEntry(env.DB, env.R2, session, projectId, revisionId, kind, entryKey, expectedVersion),
+    data: await deleteProjectEntry(env.DB, env.R2, session, projectId, versionId, kind, entryKey, expectedVersion),
   };
 }
 
@@ -387,13 +344,13 @@ async function authorAdminEditMetadata(
   if (!project) return { kind: "not_found" as const };
   if (expectedVersion === null || expectedVersion !== project.row_version)
     return { kind: "version_conflict" as const, actual: project.row_version };
-  if (!revision && project.working_revision_frozen) return { kind: "frozen" as const };
+  if (!revision && project.working_version_frozen) return { kind: "frozen" as const };
   const cutoff = new Date(Date.now() - 60_000).toISOString();
   const count = await env.DB.prepare(`
     SELECT
       (SELECT COUNT(*) FROM audit_events WHERE target_id = ? AND actor_id = ?
         AND action IN ('project.patch', 'project.published_metadata.patch', 'project.published_cover.put') AND created_at > ?)
-      + (SELECT COUNT(*) FROM project_revisions WHERE project_id = ? AND created_by = ? AND created_at > ?) AS total
+      + (SELECT COUNT(*) FROM project_versions WHERE project_id = ? AND created_by = ? AND created_at > ?) AS total
   `)
     .bind(project.id, session.userId, cutoff, project.id, session.userId, cutoff)
     .first<{ total: number }>();
@@ -402,7 +359,7 @@ async function authorAdminEditMetadata(
     title: input.title ?? project.title,
     description: input.description !== undefined ? input.description : project.description,
     authorNote: input.authorNote !== undefined ? input.authorNote : project.author_note,
-    precautions: input.precautions !== undefined ? input.precautions : project.precautions,
+    requirements: input.requirements !== undefined ? input.requirements : parseRequirements(project.requirements),
     versionLabel: input.versionLabel !== undefined ? input.versionLabel : project.version_label,
     tags: input.tags,
     coverPositionX: input.coverPositionX ?? project.cover_position_x,
@@ -411,7 +368,7 @@ async function authorAdminEditMetadata(
   });
   if (metadata.gate === "block") return { kind: "invalid_metadata" as const, findings: metadata.findings };
   const result = revision
-    ? await createRevision(env.DB, session, project.id, expectedVersion, input)
+    ? await createVersion(env.DB, session, project.id, expectedVersion, input)
     : await patchProject(env.DB, session, project.id, expectedVersion, input);
   if (!result) return { kind: "cas_conflict" as const, actual: project.row_version };
   return { kind: "ok" as const, data: result };
@@ -427,7 +384,7 @@ export function authorAdminPatchProject(
   return authorAdminEditMetadata(env, authorization, projectId, expectedVersion, input, false);
 }
 
-export function authorAdminCreateRevision(
+export function authorAdminCreateVersion(
   env: DataEnv,
   authorization: string | undefined,
   projectId: string,
@@ -441,10 +398,10 @@ export async function authorAdminSubmit(
   env: DataEnv,
   authorization: string | undefined,
   projectId: string,
-  revisionId: string,
+  versionId: string,
   expectedVersion: number,
-  input: Parameters<typeof submitRevision>[6],
-  prevalidated: Parameters<typeof submitRevision>[7],
+  input: Parameters<typeof submitVersion>[6],
+  prevalidated: Parameters<typeof submitVersion>[7],
 ) {
   const session = await author(env, authorization);
   if (!session) return { kind: "unauthorized" as const };
@@ -452,17 +409,17 @@ export async function authorAdminSubmit(
   if (!project) return { kind: "not_found" as const, message: "Project not found" };
   if (expectedVersion !== project.row_version)
     return { kind: "version_conflict" as const, actual: project.row_version };
-  if (project.working_revision_id !== revisionId)
+  if (project.working_version_id !== versionId)
     return { kind: "not_found" as const, message: "Working revision not found" };
-  if (project.working_revision_frozen)
+  if (project.working_version_frozen)
     return { kind: "conflict" as const, message: "Revision is already submitted; create a new revision" };
-  const result = await submitRevision(
+  const result = await submitVersion(
     env.DB,
     session,
     project.id,
-    revisionId,
+    versionId,
     expectedVersion,
-    project.published_revision_id,
+    project.published_version_id,
     input,
     prevalidated,
   );
@@ -498,7 +455,7 @@ export async function authorAdminPrepareSubmission(
   env: DataEnv,
   authorization: string | undefined,
   projectId: string,
-  revisionId: string,
+  versionId: string,
   expectedVersion: number,
 ) {
   const session = await author(env, authorization);
@@ -507,9 +464,43 @@ export async function authorAdminPrepareSubmission(
   if (!project) return { kind: "not_found" as const, message: "Project not found" };
   if (expectedVersion !== project.row_version)
     return { kind: "version_conflict" as const, actual: project.row_version };
-  if (project.working_revision_id !== revisionId)
+  if (project.working_version_id !== versionId)
     return { kind: "not_found" as const, message: "Working revision not found" };
-  if (project.working_revision_frozen)
+  if (project.working_version_frozen)
     return { kind: "conflict" as const, message: "Revision is already submitted; create a new revision" };
   return { kind: "ok" as const };
+}
+
+export async function authorAdminChangeEvidence(
+  env: DataEnv,
+  authorization: string | undefined,
+  projectId: string,
+  versionId: string,
+) {
+  const session = await author(env, authorization);
+  if (!session) return { kind: "unauthorized" as const };
+  const project = await getAuthoringProject(env.DB, projectId, session);
+  if (
+    !project ||
+    project.author_id !== session.userId ||
+    project.working_version_id !== versionId ||
+    !project.published_version_id ||
+    project.published_version_id === versionId
+  )
+    return { kind: "not_found" as const };
+  const rows = await env.DB.prepare(
+    "SELECT id,manifest_hash,entry_index FROM project_versions WHERE project_id=? AND id IN (?,?)",
+  )
+    .bind(projectId, versionId, project.published_version_id)
+    .all<{ id: string; manifest_hash: string | null; entry_index: string | null }>();
+  const evidence = rows.results.map((row) => ({
+    versionId: row.id,
+    manifestHash: row.manifest_hash,
+    index: row.entry_index ? projectEntryIndexDocumentSchema.parse(JSON.parse(row.entry_index)) : null,
+  }));
+  const current = evidence.find((row) => row.versionId === versionId);
+  const previous = evidence.find((row) => row.versionId === project.published_version_id);
+  if (!current?.manifestHash || !previous?.manifestHash || !current.index || !previous.index)
+    return { kind: "not_found" as const };
+  return { kind: "ok" as const, data: { current, previous } };
 }
