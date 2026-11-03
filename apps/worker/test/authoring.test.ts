@@ -664,11 +664,21 @@ describe("authoring write paths", () => {
       body: "x",
       headers: {
         "content-type": "image/png",
-        "content-length": String(10 * 1024 * 1024 + 1),
+        "content-length": String(1024 * 1024 + 1),
         "if-match": String(fourth.rowVersion),
       },
     });
     expect(oversized.status).toBe(413);
+    const oversizedGallery = await request(`/${fourth.project.id}/gallery/1`, {
+      method: "PUT",
+      body: "x",
+      headers: {
+        "content-type": "image/png",
+        "content-length": String(1024 * 1024 + 1),
+        "if-match": String(fourth.rowVersion),
+      },
+    });
+    expect(oversizedGallery.status).toBe(413);
   });
 
   it("does not allow metadata edits to rewrite a submitted review snapshot", async () => {

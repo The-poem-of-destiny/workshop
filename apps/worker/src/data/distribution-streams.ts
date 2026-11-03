@@ -19,23 +19,28 @@ export async function distributionBannerUpload(request: Request, env: DataEnv): 
   if (!["image/png", "image/jpeg", "image/webp"].includes(mime))
     return error(415, "unsupported_media_type", "Unsupported content type");
   if (!request.body) return error(400, "bad_request", "Empty banner");
-  const image = streamImage(request.body, WORKSHOP_LIMITS.projectUploadBytes);
+  const image = streamImage(request.body, WORKSHOP_LIMITS.bannerUploadBytes);
   let staged: StagedStream;
   try {
     staged = await stageStream(
       env.R2,
       image.body,
-      WORKSHOP_LIMITS.projectUploadBytes,
+      WORKSHOP_LIMITS.bannerUploadBytes,
       Number(request.headers.get("content-length")),
     );
   } catch (cause) {
-    if (cause instanceof UploadLimitError) return error(413, "payload_too_large", "Banner is too large");
+    if (
+      cause instanceof UploadLimitError ||
+      (cause instanceof RangeError && cause.message === "Upload exceeds staging size")
+    )
+      return error(413, "payload_too_large", "Banner is too large");
     throw cause;
   }
   try {
     const { bytes, dimensions, sha256 } = await image.result;
     if (!bytes) return error(400, "bad_request", "Empty banner");
-    if (!dimensions) return error(400, "bad_request", "无法识别 Banner 图片尺寸");
+    if (!dimensions || dimensions.mime !== mime)
+      return error(400, "bad_request", "无法识别 Banner 图片格式或格式与类型不匹配");
     if (dimensions.width > WORKSHOP_LIMITS.coverMaxDimension || dimensions.height > WORKSHOP_LIMITS.coverMaxDimension)
       return error(413, "payload_too_large", "Banner 尺寸不能超过 4096×4096");
     const ext = mime === "image/png" ? "png" : mime === "image/jpeg" ? "jpg" : "webp";

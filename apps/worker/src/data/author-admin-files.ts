@@ -102,7 +102,7 @@ files.put("/api/v1/projects/:id/versions/:versionId/files/:kind", async (c) => {
       return jsonError(c, "bad_request", "Content-Length required");
     const maxBytes =
       parsedKind.data === "cover" ? WORKSHOP_LIMITS.projectImageUploadBytes : WORKSHOP_LIMITS.projectUploadBytes;
-    const sizeError = parsedKind.data === "cover" ? "File exceeds 5MiB limit" : "File exceeds 10 MiB limit";
+    const sizeError = parsedKind.data === "cover" ? "File exceeds 1MiB limit" : "File exceeds 10 MiB limit";
     if (declaredLength > maxBytes) return jsonError(c, "payload_too_large", sizeError);
     const mime = (c.req.header("content-type") ?? "").split(";", 1)[0]!.trim().toLowerCase();
     const allowedMime: Record<string, readonly string[]> = {
@@ -171,7 +171,11 @@ files.put("/api/v1/projects/:id/versions/:versionId/files/:kind", async (c) => {
     try {
       staged = await stageStream(c.env.R2, image.body, maxBytes, declaredLength);
     } catch (error) {
-      if (error instanceof UploadLimitError) return jsonError(c, "payload_too_large", sizeError);
+      if (
+        error instanceof UploadLimitError ||
+        (error instanceof RangeError && error.message === "Upload exceeds staging size")
+      )
+        return jsonError(c, "payload_too_large", sizeError);
       throw error;
     }
     try {
@@ -218,7 +222,7 @@ files.put("/api/v1/projects/:id/gallery/:slot", async (c) => {
   if (!Number.isFinite(declaredLength) || declaredLength <= 0)
     return jsonError(c, "bad_request", "Content-Length required");
   if (declaredLength > WORKSHOP_LIMITS.projectImageUploadBytes)
-    return jsonError(c, "payload_too_large", "Gallery image exceeds 5MiB limit");
+    return jsonError(c, "payload_too_large", "Gallery image exceeds 1MiB limit");
   const mime = (c.req.header("content-type") ?? "").split(";", 1)[0]!.trim().toLowerCase();
   if (!["image/png", "image/jpeg", "image/webp"].includes(mime))
     return jsonError(c, "unsupported_media_type", "Unsupported content type");
@@ -235,7 +239,11 @@ files.put("/api/v1/projects/:id/gallery/:slot", async (c) => {
   try {
     staged = await stageStream(c.env.R2, image.body, WORKSHOP_LIMITS.projectImageUploadBytes, declaredLength);
   } catch (error) {
-    if (error instanceof UploadLimitError) return jsonError(c, "payload_too_large", "Gallery image exceeds 5MiB limit");
+    if (
+      error instanceof UploadLimitError ||
+      (error instanceof RangeError && error.message === "Upload exceeds staging size")
+    )
+      return jsonError(c, "payload_too_large", "Gallery image exceeds 1MiB limit");
     throw error;
   }
   const result = await (async () => {

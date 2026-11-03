@@ -33,17 +33,19 @@ beforeAll(() => applySchema(bindings.DB));
 beforeEach(async () => {
   await bindings.DB.exec(`
     DELETE FROM audit_events; DELETE FROM recommendations; DELETE FROM site_settings;
-    DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;
+    UPDATE projects SET working_version_id = NULL, published_version_id = NULL, published_cover_asset_id = NULL;
+    DELETE FROM assets; DELETE FROM project_versions; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;
   `);
   const seedSql = `
     INSERT INTO users (id, username, global_name, role, created_at, updated_at) VALUES
       ('owner', 'owner', 'Owner', 'owner', '${now}', '${now}'),
       ('reviewer', 'reviewer', 'Reviewer', 'reviewer', '${now}', '${now}'),
       ('member', 'member', 'Member', 'member', '${now}', '${now}');
-    INSERT INTO projects (id, author_id, visibility, published_version_id, updated_at)
-      VALUES ('p1', 'member', 'public', 'r1', '${now}');
+    INSERT INTO projects (id, author_id, visibility, updated_at)
+      VALUES ('p1', 'member', 'public', '${now}');
     INSERT INTO project_versions(id,project_id,version_no,title,description,project_type,extension_type,created_by)
       VALUES('r1','p1',1,'Project','','角色','内容','member');
+    UPDATE projects SET published_version_id = 'r1' WHERE id = 'p1';
   `;
   for (const statement of splitSql(seedSql)) await bindings.DB.prepare(statement).run();
   await seedSession("owner-token", "owner");
@@ -118,6 +120,18 @@ describe("admin writes", () => {
     const asset = await SELF.fetch(new URL(body.banner.imageUrl, "https://workshop.test").toString(), undefined);
     expect(asset.status).toBe(200);
     expect(asset.headers.get("content-type")).toContain("image/png");
+    const mismatched = await request("/api/v1/site/banner", "owner-token", {
+      method: "POST",
+      body: png,
+      headers: { "content-type": "image/jpeg" },
+    });
+    expect(mismatched.status).toBe(400);
+    const oversized = await request("/api/v1/site/banner", "owner-token", {
+      method: "POST",
+      body: new Uint8Array(2 * 1024 * 1024 + 1),
+      headers: { "content-type": "image/png" },
+    });
+    expect(oversized.status).toBe(413);
   });
 
   it("upserts and deletes recommendations", async () => {

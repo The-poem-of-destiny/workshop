@@ -1,3 +1,4 @@
+import { WORKSHOP_LIMITS } from "@workshop/domain";
 import { useState } from "react";
 import { type AdminProject, api, type JsonValue, type SiteBanner, type SiteSettings } from "./api";
 import type { useAdminMembers } from "./useAdminMembers";
@@ -80,6 +81,10 @@ export function useAdminData({
 
   async function uploadBanner(file: File | undefined): Promise<void> {
     if (!file) return;
+    if (file.size > WORKSHOP_LIMITS.bannerUploadBytes) {
+      onError("Banner 不能超过 2 MiB。");
+      return;
+    }
     try {
       const result = await api.uploadBanner(file);
       setBanner(result.banner);

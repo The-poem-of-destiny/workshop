@@ -1,9 +1,10 @@
+import { WORKSHOP_LIMITS } from "@workshop/domain";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export type PendingImage = { file: File; url: string; width: number; height: number };
 
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const MAX_IMAGE_EDGE = 4096;
+const MAX_IMAGE_BYTES = WORKSHOP_LIMITS.projectImageUploadBytes;
+const MAX_IMAGE_EDGE = WORKSHOP_LIMITS.coverMaxDimension;
 export const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp";
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
@@ -12,7 +13,7 @@ export async function readImageInfo(
   file: File,
 ): Promise<{ ok: true; width: number; height: number } | { ok: false; error: string }> {
   if (!IMAGE_TYPES.has(file.type)) return { ok: false, error: "图片必须是 JPEG、PNG 或 WebP。" };
-  if (file.size > MAX_IMAGE_BYTES) return { ok: false, error: "图片不能超过 5 MiB。" };
+  if (file.size > MAX_IMAGE_BYTES) return { ok: false, error: "图片不能超过 1 MiB。" };
   try {
     const bitmap = await createImageBitmap(file);
     const { width, height } = bitmap;
