@@ -280,10 +280,10 @@ assert db.execute('SELECT count(*) FROM assets').fetchone()[0] == 3
 import sqlite3, sys
 db = sqlite3.connect(':memory:')
 db.executescript("""
-CREATE TABLE projects (id TEXT PRIMARY KEY, published_revision_id TEXT, published_at TEXT, updated_at TEXT);
-CREATE TABLE project_revisions (id TEXT PRIMARY KEY, created_at TEXT);
-CREATE TABLE submissions (revision_id TEXT, status TEXT, resolved_at TEXT);
-INSERT INTO project_revisions VALUES ('r1', '2020-01-01'), ('r2', '2020-02-01'), ('r3', '2020-03-01');
+CREATE TABLE projects (id TEXT PRIMARY KEY, published_version_id TEXT, published_at TEXT, updated_at TEXT);
+CREATE TABLE project_versions (id TEXT PRIMARY KEY, created_at TEXT);
+CREATE TABLE submissions (version_id TEXT, status TEXT, resolved_at TEXT);
+INSERT INTO project_versions VALUES ('r1', '2020-01-01'), ('r2', '2020-02-01'), ('r3', '2020-03-01');
 INSERT INTO projects VALUES ('history', 'r1', '2020-01-02', '2025-01-01'),
   ('published', 'r2', '2020-02-02', '2025-02-01'),
   ('revision', 'r3', NULL, '2025-03-01'), ('draft', NULL, NULL, '2025-04-01');
@@ -299,7 +299,7 @@ assert db.execute("SELECT id, published_updated_at FROM projects ORDER BY id").f
 assert db.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE '%cache_epoch%'").fetchall() == []
 `,
       fileURLToPath(new URL("../../apps/worker/migrations/0025_remove_public_cache_epoch.sql", import.meta.url)),
-      fileURLToPath(new URL("../../apps/worker/migrations/0026_published_updated_at.sql", import.meta.url)),
+      fileURLToPath(new URL("../../apps/worker/migrations/0040_published_updated_at.sql", import.meta.url)),
     ],
     { encoding: "utf8" },
   );
