@@ -83,7 +83,7 @@ When a process or organization rule changes, update the owning artifact (`AGENTS
 
 - Worker endpoints and bindings: `apps/worker/wrangler.jsonc`.
 - Client version and distribution paths: `apps/tavern-client/`.
-- New-database structure: `apps/worker/migrations/0001_initial.sql`. Existing databases evolve only through `apps/worker/migrations/`.
+- Canonical database structure: the complete ordered chain in `apps/worker/migrations/`, applied to both new and existing databases. `0001_initial.sql` is the historical baseline, not the current schema.
 - Project taxonomy, content policy and runtime limits: `packages/domain/src/`; ranking parameters: `apps/worker/src/storage/home.ts`.
 - Product and creator-facing wording: plain everyday Chinese, with no internal field or implementation names in the UI.
 

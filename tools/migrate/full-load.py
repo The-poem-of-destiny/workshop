@@ -681,21 +681,11 @@ def reconcile(data, snapshot):
         fk_count = sum(1 for _ in db.execute("PRAGMA foreign_key_check"))
         if fk_count:
             failures.append({"kind": "foreign_key_violations", "count": fk_count})
-        if {"projects", "project_versions"} <= schema:
-            for column in ("working_version_id", "published_version_id"):
-                count = db.execute(
-                    "SELECT count(*) FROM projects p WHERE p." + quote(column) +
-                    " IS NOT NULL AND NOT EXISTS (SELECT 1 FROM project_versions r WHERE r.id = p." +
-                    quote(column) + " AND r.project_id = p.id)").fetchone()[0]
-                if count:
-                    failures.append({"kind": "invalid_project_revision_pointer", "column": column, "count": count})
-        if {"projects", "assets"} <= schema:
-            count = db.execute(
-                "SELECT count(*) FROM projects p WHERE p.published_cover_asset_id IS NOT NULL "
-                "AND NOT EXISTS (SELECT 1 FROM assets a WHERE a.id = p.published_cover_asset_id "
-                "AND a.project_id = p.id AND a.version_id IS NULL AND a.kind = 'cover')").fetchone()[0]
-            if count:
-                failures.append({"kind": "invalid_project_cover_pointer", "count": count})
+        validator = load_validator()
+        integrity = validator.application_integrity(db, data)
+        failures.extend(integrity["failures"])
+        report["accepted_exceptions"] = integrity["accepted_exceptions"]
+        failures.extend(validator.stored_size_failures(db))
         report["ok"] = not failures and not data["diagnostics"]
         if data["diagnostics"]:
             failures.append({"kind": "preparation_diagnostics", "count": len(data["diagnostics"])})

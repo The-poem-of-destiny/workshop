@@ -13,9 +13,10 @@ Scope, commands, authorization, maintenance, import recovery and verification be
 
 - `full-transform.py`, `full_transform_history.py` and `full-transform-content.mjs` prepare current snapshots and explicit omissions.
 - `full-load.py` independently reconciles source data and original asset bytes, generates SQL and checks target rows; `full-validate.py` exercises the current schema locally.
-- `full-d1-import.py` owns target validation, durable import receipts and bookmark-only polling.
+- `multiday-plan.py` seals schema, source, utilities and bounded final-state SQL; `multiday-budget.py` reserves daily account capacity; `multiday-staging.py` resumes and verifies owned unbound candidates.
+- `full-d1-import.py` owns target validation, durable import receipts and bookmark-only polling; `d1-data.py` owns bounded typed snapshots.
 - `full-r2.mjs` verifies and conditionally creates staging objects.
-- `full-staging-rehearse.py`, `full-staging-load.py` and `full-staging-control.py` orchestrate isolated rehearsal, gated replacement, maintenance and anonymous read-only smoke.
+- `full-staging-control.py` owns separately authorized maintenance and anonymous read-only smoke. Obsolete in-place replacement and rehearsal entrypoints have been removed; candidate verification does not authorize binding changes.
 
 `test-full-import.py`, `test-full-source.py` and `test-full-index.py` cover import ambiguity, public/working snapshot separation and independently derived content indexes. They run through the root `pnpm check` gate.
 

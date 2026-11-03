@@ -80,20 +80,21 @@ python3 tools/migrate/full-validate.py /tmp/workshop-full-preparation.json --mig
 node tools/migrate/full-r2.mjs check legacy-snapshot-dir /tmp/workshop-full-preparation.json
 ```
 
-Source reconciliation requires explicit candidate lists for every source-backed target table, including empty lists. It independently checks published project metadata, tags and Discord links, references, audit records and retained recommendations against the snapshot. Index entries, content counts, readiness, manifest hashes and content exclusions are derived from the original integrity-checked backup bytes, not the candidate's own indexes or omission claims. Missing, extra or changed rows block loading. Staging-owned settings are checked against the preparation but remain preserved by the staging loader.
+Source reconciliation requires explicit candidate lists for every source-backed target table, including empty lists. It independently checks published project metadata, tags and Discord links, explicitly retained audit records and retained recommendations against the snapshot. Index entries, content counts, readiness, manifest hashes and content exclusions are derived from the original integrity-checked backup bytes, not the candidate's own indexes or omission claims. Missing, extra or changed rows block loading. Staging-owned settings are checked against the preparation but remain preserved by the staging loader.
 
 Only the explicitly reconciled target tables are accepted; authentication sessions, fabricated submission/review state and other extra candidate tables are rejected. Retained projects must remain undeleted. These checks do not elevate old member roles or restore legacy login credentials.
 
-`full-staging-load.py` targets staging only and requires an explicitly injected `STAGING_IMPORT_TOKEN` authorized for staging and `CLOUDFLARE_ACCOUNT_ID`. It loads SQL through the direct D1 REST client below, not Wrangler `--file`. The remaining Wrangler Time Travel command runs with an isolated home and working directory and an allowlisted environment; the loader does not use ambient `.env` files or stored Wrangler credentials. It also requires verified R2 objects, a stopped and drained set of staging writers, and a matching deployed migration chain. Its flags attest to those conditions; they do not establish them. It records a D1 Time Travel bookmark, snapshots tables locally, rehearses replacement and reconciles after loading. The SQLite snapshot is not a proven D1 restore artifact. Keep writers stopped after a failure until recovery is complete. Do not run the loader until the write barrier and its operational controls have been verified.
+### Candidate-only execution
 
-On a Wrangler nonzero exit, `wrangler-failure.json` in the private artifacts directory records the exit status and useful stdout/stderr, with the injected token, bearer credentials and URLs redacted. These private diagnostics can still contain SQL or application data; do not publish them.
+`multiday-plan.py` seals source, schema, utilities and bounded SQL. `multiday-budget.py` reserves shared account quotas. `multiday-staging.py` builds and independently verifies an owned **unbound candidate**; it never clears or replays active staging. The obsolete in-place `full-staging-load.py` and `full-staging-rehearse.py` commands have been removed. Archived copies are not current operational tools.
+
+Remote operations require separate explicit authorization, dedicated credentials and a reviewed frozen plan. Use `multiday-staging.py --help` for the `status`, `advance`, `watch` and `verify` interfaces. `--confirm-staging` is an operator attestation, not permission. Preserve journals, import receipts, quota observations and verification reports. A verified candidate does not switch Worker bindings or authorize deployment.
 
 ### Durable D1 import receipts
 
-`full-d1-import.py` implements Cloudflare's documented [`init` / upload / `ingest` / `poll` protocol](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/import/) and validates the live UUID/name using [`GET database`](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/get/) before import. The accepted targets are the fixed staging UUID `7500b5f6-21a0-4dfd-9e16-0d9a4f9de476` or a database named exactly `workshop-staging-import-rehearsal`; all others are rejected. These official API references were consulted on 2026-11-02; they do not display publication/update dates. Imports block the target database while running. A cached `init` response may already represent an import in progress or completed; the client does not submit another ingest in that case.
+`full-d1-import.py` implements the documented [D1 import protocol](https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/import/), validates live UUID/name identity and durably records every phase. The multiday controller supplies its exact owned candidate identity. This low-level transport does not authorize active-staging replacement. Resolve ambiguous imports from existing receipts; never guess or resubmit.
 
 ```sh
-python3 tools/migrate/full-d1-import.py execute --database-id 7500b5f6-21a0-4dfd-9e16-0d9a4f9de476 --file /private/load.sql --artifacts /private/new-import-receipts
 python3 tools/migrate/full-d1-import.py status --artifacts /private/new-import-receipts
 python3 tools/migrate/full-d1-import.py resume --artifacts /private/new-import-receipts
 ```
@@ -102,24 +103,15 @@ python3 tools/migrate/full-d1-import.py resume --artifacts /private/new-import-r
 
 `status` polls once; `resume` polls until a terminal result. Both use only the actual bookmark saved from the API response and never issue `init`, upload or `ingest`. A transport failure during ingest, or an interruption before a response bookmark was durably saved, can leave the outcome unknown. With no saved bookmark the client refuses to guess or resubmit: inspect private receipts and establish the remote outcome manually. Do not rerun the staging loader or start a new import to resolve ambiguity. The loader stores these receipts under its artifacts directory's `d1-import/` child. A recognized terminal API error returns `ok: false`; API codes and HTTP status are public, while detailed sanitized error messages remain private. Resuming polling does not rerun the loader's post-import snapshot/reconciliation; keep staging writers stopped until that reconciliation and recovery requirements are satisfied.
 
-The generated SQL keeps each statement below 100,000 UTF-8 bytes. Oversized text is reconstructed from chunks in a uniquely named ordinary table within the same import before the original row is inserted, so constraints and triggers see the complete value; oversized keys and unsupported values fail closed. The import creates the chunk table before modifying target data without `IF NOT EXISTS`, so a name collision aborts the import, and drops it after use. There is no permanent target schema change on success. A failed or interrupted import may leave the chunk table behind; inspect the retained `load.sql` and establish the remote outcome before recovery or retry. D1 separately limits a string, BLOB or table row to 2,000,000 bytes ([D1 limits](https://developers.cloudflare.com/d1/platform/limits/), updated 2026-10-30); arbitrary-length values cannot be stored in D1 without changing the storage design.
-
-### Complete remote rehearsal
-
-`full-staging-rehearse.py` accepts only the dedicated rehearsal database, never staging itself, and requires it to be empty. Create that database only under explicit staging-operation authorization. It first imports the supplied staging backup and verifies every logical row, then executes the full replacement and independently snapshots/reconciles the result. Schema, protected settings and foreign keys are checked; large-field reconstruction uses the same SQL generator and durable importer as the real replacement. Snapshot reads use row-size-bounded pages and preserve SQLite value types without JavaScript integer conversion.
+The multiday planner enforces bounded statements and batches and a conservative 2,000,000-byte stored-row allowance before remote work. Candidate verification compares exact schema, migration ledger, typed rows, search indexes and independently derived source evidence. Do not equate SQLite verification with hosted acceptance.
 
 ```sh
-python3 tools/migrate/full-staging-rehearse.py \
-  --database-id "$REHEARSAL_DATABASE_ID" \
-  --preparation /private/preparation.json --before /private/before.sqlite \
-  --source /private/legacy.sql --manifest /private/manifest.json \
-  --migrations apps/worker/migrations --artifacts /private/new-remote-rehearsal
 python3 tools/migrate/test-full-import.py
 python3 tools/migrate/test-full-source.py
 python3 tools/migrate/test-full-index.py
+python3 tools/migrate/test-multiday-plan.py
+python3 tools/migrate/test-multiday-staging.py
 ```
-
-The private artifacts retain both import journals, before/after snapshots, local rehearsal and reconciliation. Keep them through acceptance; delete the isolated cloud database after its terminal import state and verification are established. On any ambiguous response, inspect the corresponding journal and use its status/resume command rather than starting the rehearsal again.
 
 ## Staging maintenance and read-only smoke
 
@@ -138,7 +130,7 @@ python3 tools/migrate/full-staging-control.py open --token-file /private/mainten
 python3 tools/migrate/full-staging-control.py smoke --token-file /private/maintenance-token --preparation /tmp/workshop-full-preparation.json
 ```
 
-Smoke requires an already-open barrier and never changes it. Every smoke business request is an anonymous GET: the operator secret is not injected into application routes, and no synthetic login, draft, review, acquisition, ticket, download, like, or counter write is attempted. It checks health bindings; all home sections; site, discovery, and rankings; complete paginated public catalog membership against the preparation; sampled project details and exact persisted entry indexes; short/general search; reference sets; recommendations; sampled migrated public cover lengths and SHA-256 bytes; unauthenticated maintenance/member/admin/preview rejection; private project/index rejection; and denial of private covers and raw content keys through both asset routes. Every known public incomplete index is checked for the expected 404 rather than being misreported as complete. `--samples` defaults to 3 and accepts 1-10. Output contains only fixed diagnostic labels, HTTP/count totals, maintenance state, and coverage gaps, not response bodies, imported identities, titles, keys, or credentials.
+Smoke requires an already-open barrier and never changes it. Every smoke business request is an anonymous GET: the operator secret is not injected into application routes, and no synthetic login, draft, review, acquisition, ticket, download, like, or counter write is attempted. It checks health bindings; all home sections; site, discovery, and rankings; complete paginated public catalog membership against the preparation; sampled project details and exact persisted entry indexes; short/general search; recommendations; sampled migrated public cover lengths and SHA-256 bytes; unauthenticated maintenance/member/admin/preview rejection; private project/index rejection; and denial of private covers and raw content keys through both asset routes. Every known public incomplete index is checked for the expected 404 rather than being misreported as complete. `--samples` defaults to 3 and accepts 1-10. Output contains only fixed diagnostic labels, HTTP/count totals, maintenance state, and coverage gaps, not response bodies, imported identities, titles, keys, or credentials.
 
 Authenticated preview/download bytes and role-specific behavior still require a real normal login, not migration credentials or an auth bypass. Scheduled ranking/discovery rebuilds are not triggered; those feeds may initially be empty. This command is not an offline Worker-runtime rehearsal. A separate local rehearsal can run the normal Worker dev runtime against an isolated imported D1/R2 state, without remote bindings; existing `tools/e2e-local.mjs` is a synthetic-fixture workflow and does not prove that the full imported snapshot works. No local runtime acceptance should be inferred from SQLite reconciliation alone. Existing public response caches can temporarily show pre-import results; smoke fails on mismatched data and does not add a cache-bypass endpoint or silently accept stale content.
 

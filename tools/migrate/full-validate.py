@@ -12,6 +12,7 @@ or validate an R2 transfer or a production load.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sqlite3
 import sys
@@ -86,6 +87,79 @@ def stored_size_failures(db):
             failures.append({"kind": "stored_row_too_large", "table": name, "count": count,
                              "limit_bytes": MAX_STORED_ROW_BYTES})
     return failures
+
+def application_integrity(db, preparation):
+    failures, accepted = [], []
+    schema = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+
+    def check(kind, sql, **details):
+        count = db.execute(sql).fetchone()[0]
+        if count:
+            failures.append({"kind": kind, "count": count, **details})
+
+    if {"projects", "project_versions"} <= schema:
+        for column in ("working_version_id", "published_version_id"):
+            check("invalid_project_revision_pointer", "SELECT count(*) FROM projects p WHERE p." + quote(column) +
+                  " IS NOT NULL AND NOT EXISTS (SELECT 1 FROM project_versions v WHERE v.id = p." +
+                  quote(column) + " AND v.project_id = p.id)", column=column)
+        check("public_project_without_publication", "SELECT count(*) FROM projects WHERE visibility = 'public' AND published_version_id IS NULL")
+    if {"projects", "assets"} <= schema:
+        check("invalid_project_cover_pointer", "SELECT count(*) FROM projects p WHERE p.published_cover_asset_id IS NOT NULL "
+              "AND NOT EXISTS (SELECT 1 FROM assets a WHERE a.id = p.published_cover_asset_id "
+              "AND a.project_id = p.id AND a.version_id IS NULL AND a.kind = 'cover')")
+        extensions = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+        invalid = sum(key != f"gallery/{project}/{kind}-{digest}.{extensions.get(mime, '')}"
+                      for project, kind, key, digest, mime in db.execute(
+                          "SELECT project_id, kind, r2_key, sha256, mime FROM assets WHERE kind IN ('gallery_1', 'gallery_2')"))
+        if invalid:
+            failures.append({"kind": "invalid_gallery_project_association", "count": invalid})
+    if {"projects", "project_versions", "assets"} <= schema:
+        allowed = set()
+        omissions = preparation.get("omissions", [])
+        for item in omissions if isinstance(omissions, list) else []:
+            if (not isinstance(item, dict) or item.get("table") != "projects"
+                    or item.get("reason") != "content index unavailable: duplicate entry keys"
+                    or not isinstance(item.get("source"), dict)):
+                continue
+            source = item["source"]
+            if source.get("id") is None or source.get("kind") not in ("worldbook", "regex"):
+                continue
+            encoded = json.dumps([str(source["id"])], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            version = "legacy-revision-" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+            if db.execute("SELECT 1 FROM assets WHERE version_id = ? AND kind = ? AND sha256 = ?",
+                          (version, source["kind"], source.get("sha256"))).fetchone():
+                allowed.add(version)
+        for version, index, manifest, worldbook, regex in db.execute(
+                "SELECT v.id, v.entry_index, v.manifest_hash, v.worldbook_count, v.regex_count "
+                "FROM project_versions v WHERE EXISTS (SELECT 1 FROM projects p WHERE p.published_version_id = v.id)"):
+            if index is None:
+                if version in allowed and manifest is None and worldbook == 0 and regex == 0:
+                    accepted.append({"kind": "published_duplicate_entry_keys", "count": 1,
+                                     "source_verification_required": True})
+                else:
+                    failures.append({"kind": "published_revision_not_ready", "count": 1})
+                continue
+            try:
+                document = json.loads(index)
+                entries = document["entries"]
+                if not isinstance(document, dict) or set(document) != {"schemaVersion", "entries"} or document["schemaVersion"] != 1 or not isinstance(entries, list):
+                    raise ValueError("invalid index")
+                kinds = [entry["kind"] for entry in entries]
+                if any(kind not in ("worldbook", "regex") for kind in kinds):
+                    raise ValueError("invalid entry kind")
+            except (ValueError, TypeError, KeyError):
+                failures.append({"kind": "invalid_published_revision_readiness", "count": 1})
+                continue
+            assets = list(db.execute("SELECT kind, sha256 FROM assets WHERE version_id = ? ORDER BY kind, r2_key", (version,)))
+            asset_kinds = {kind for kind, _ in assets}
+            if any(kind not in asset_kinds for kind in kinds):
+                failures.append({"kind": "invalid_revision_entry_asset", "count": 1})
+            hashes = "\n".join(kind + ":" + digest for kind, digest in assets)
+            if (worldbook != kinds.count("worldbook") or regex != kinds.count("regex")
+                    or manifest != hashlib.sha256(hashes.encode("utf-8")).hexdigest()):
+                failures.append({"kind": "invalid_published_revision_readiness", "count": 1})
+    return {"failures": failures, "accepted_exceptions": accepted}
+
 
 def validate(preparation, directory):
     report = {"format": "workshop-full-migration-validation-v1", "ok": False,
@@ -187,26 +261,9 @@ def validate(preparation, directory):
 
         for table, _rowid, _parent, _fkid in db.execute("PRAGMA foreign_key_check"):
             fail("foreign_key_violation", table=table if table in schema else "unknown")
-        # These project pointers are intentionally not declared as SQL FKs.
-        if {"projects", "project_versions"} <= schema:
-            for column in ("working_version_id", "published_version_id"):
-                project_columns = {row[1] for row in db.execute("PRAGMA table_info(projects)")}
-                if column in project_columns:
-                    count = db.execute("SELECT count(*) FROM projects p WHERE p." + quote(column) +
-                        " IS NOT NULL AND NOT EXISTS (SELECT 1 FROM project_versions r WHERE r.id = p." +
-                        quote(column) + " AND r.project_id = p.id)").fetchone()[0]
-                    if count:
-                        fail("invalid_project_revision_pointer", column=column, count=count)
-        if {"projects", "assets"} <= schema:
-            project_columns = {row[1] for row in db.execute("PRAGMA table_info(projects)")}
-            if "published_cover_asset_id" in project_columns:
-                count = db.execute(
-                    "SELECT count(*) FROM projects p WHERE p.published_cover_asset_id IS NOT NULL "
-                    "AND NOT EXISTS (SELECT 1 FROM assets a WHERE a.id = p.published_cover_asset_id "
-                    "AND a.project_id = p.id AND a.version_id IS NULL AND a.kind = 'cover')"
-                ).fetchone()[0]
-                if count:
-                    fail("invalid_project_cover_pointer", count=count)
+        integrity = application_integrity(db, preparation)
+        failures.extend(integrity["failures"])
+        report["accepted_exceptions"] = integrity["accepted_exceptions"]
         failures.extend(stored_size_failures(db))
         db.rollback()
     except sqlite3.Error as exc:
