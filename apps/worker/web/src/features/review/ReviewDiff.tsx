@@ -42,6 +42,7 @@ function diffEntries(kind: SubmissionDiff["worldbook"]): Array<{
   ];
 }
 export function ReviewDiff({ diff }: { diff: ReturnType<typeof useReviewQueue>["diff"] }) {
+  const findings = diff?.findings;
   return (
     <section className="review-section">
       <div className="review-section-heading">
@@ -49,7 +50,7 @@ export function ReviewDiff({ diff }: { diff: ReturnType<typeof useReviewQueue>["
           <h3>变更证据</h3>
           <p>与本次提交冻结的公开基线比较；不会采用之后的新提交。</p>
         </div>
-        {diff ? (
+        {diff?.findings ? (
           <span className="review-diff-total">
             {diff.findings.added.length + diff.findings.changed.length + diff.findings.removed.length} 条检查差异
           </span>
@@ -65,20 +66,24 @@ export function ReviewDiff({ diff }: { diff: ReturnType<typeof useReviewQueue>["
               ? `${diff.findingBaseline.versionId} · 审核提交 ${diff.findingBaseline.submissionId}`
               : "无可用基线报告；以下新增仅表示本次报告包含，不表示新引入问题"}
           </p>
-          <div className="review-finding-summary">
-            <span>
-              未变 <b>{diff.findings.accepted.length}</b>
-            </span>
-            <span>
-              变更 <b>{diff.findings.changed.length}</b>
-            </span>
-            <span>
-              新增 <b>{diff.findings.added.length}</b>
-            </span>
-            <span>
-              移除 <b>{diff.findings.removed.length}</b>
-            </span>
-          </div>
+          {diff.findings ? (
+            <div className="review-finding-summary">
+              <span>
+                未变 <b>{diff.findings.accepted.length}</b>
+              </span>
+              <span>
+                变更 <b>{diff.findings.changed.length}</b>
+              </span>
+              <span>
+                新增 <b>{diff.findings.added.length}</b>
+              </span>
+              <span>
+                移除 <b>{diff.findings.removed.length}</b>
+              </span>
+            </div>
+          ) : (
+            <p className="review-muted">当前完整报告不可用，无法比较检查项。</p>
+          )}
           <div className="review-diff-grid">
             {(["worldbook", "regex"] as const).map((kind) => {
               const entries = diffEntries(diff[kind]);
@@ -120,38 +125,40 @@ export function ReviewDiff({ diff }: { diff: ReturnType<typeof useReviewQueue>["
               上一版本 {diff.cover.beforeSha256 ?? "无"} · 当前版本 {diff.cover.afterSha256 ?? "无"}
             </small>
           </div>
-          <div className="review-findings">
-            {(["accepted", "changed", "added", "removed"] as const).map((group) => (
-              <details key={group}>
-                <summary>
-                  {group === "accepted"
-                    ? "与基线一致的发现（不代表已认可）"
-                    : group === "changed"
-                      ? "规则有变化"
-                      : group === "added"
-                        ? "新增规则"
-                        : "移除规则"}{" "}
-                  ({diff.findings[group].length})
-                </summary>
-                {diff.findings[group].length ? (
-                  <ul>
-                    {keyedItems(diff.findings[group]).map(({ item: finding, key }) => (
-                      <li key={key}>
-                        <strong>{finding.severity}</strong>
-                        <span>{finding.message}</span>
-                        <small>
-                          {finding.file ?? "未标记文件"}
-                          {finding.line === null ? "" : `:${finding.line}`}
-                        </small>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="review-muted">没有记录。</p>
-                )}
-              </details>
-            ))}
-          </div>
+          {findings ? (
+            <div className="review-findings">
+              {(["accepted", "changed", "added", "removed"] as const).map((group) => (
+                <details key={group}>
+                  <summary>
+                    {group === "accepted"
+                      ? "与基线一致的发现（不代表已认可）"
+                      : group === "changed"
+                        ? "规则有变化"
+                        : group === "added"
+                          ? "新增规则"
+                          : "移除规则"}{" "}
+                    ({findings[group].length})
+                  </summary>
+                  {findings[group].length ? (
+                    <ul>
+                      {keyedItems(findings[group]).map(({ item: finding, key }) => (
+                        <li key={key}>
+                          <strong>{finding.severity}</strong>
+                          <span>{finding.message}</span>
+                          <small>
+                            {finding.file ?? "未标记文件"}
+                            {finding.line === null ? "" : `:${finding.line}`}
+                          </small>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="review-muted">没有记录。</p>
+                  )}
+                </details>
+              ))}
+            </div>
+          ) : null}
         </>
       ) : (
         <p className="review-muted">差异加载中或暂无差异。</p>

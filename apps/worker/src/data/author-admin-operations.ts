@@ -137,7 +137,7 @@ export async function authorAdminRecheck(env: DataEnv, authorization: string | u
   const [requeued] = await env.DB.batch([
     env.DB.prepare(`
       UPDATE automated_reviews SET status = 'queued', attempts = 0, lease_until = NULL, lease_token = NULL, error = NULL,
-        checker_version = NULL, route_gate = NULL, report_r2_key = NULL, report_hash = NULL, checked_at = NULL, duration_ms = NULL
+        checker_version = NULL, route_gate = NULL, report_r2_key = NULL, report_hash = NULL, report_cleaned_at = NULL, checked_at = NULL, duration_ms = NULL
       WHERE submission_id = ? AND status NOT IN ('queued','running')
         AND EXISTS(SELECT 1 FROM submissions s WHERE s.id = submission_id AND s.status IN ('pending','checking'))
     `).bind(id),

@@ -53,7 +53,7 @@ export function useReviewDecision({
     return parseCheckReport(detail.submission.checkReport);
   }, [detail]);
 
-  const routeGate = report?.routeGate ?? null;
+  const routeGate = detail?.submission.routeGate ?? report?.routeGate ?? null;
   const checkFailed = detail?.submission.checkStatus === "failed";
   const checking = detail
     ? detail.submission.checkStatus === "queued" || detail.submission.checkStatus === "running"

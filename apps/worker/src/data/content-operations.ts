@@ -91,7 +91,7 @@ export async function contentRecordRun(
   await env.R2.put(key, report, { httpMetadata: { contentType: "application/json" } });
   const result =
     await env.DB.prepare(`UPDATE automated_reviews SET checker_version = ?, route_gate = ?, report_r2_key = ?,
-    report_hash = ?, duration_ms = ?, checked_at = ? WHERE submission_id = ? AND status = 'running' AND lease_token = ?
+    report_hash = ?, report_cleaned_at = NULL, duration_ms = ?, checked_at = ? WHERE submission_id = ? AND status = 'running' AND lease_token = ?
     AND EXISTS(SELECT 1 FROM submissions s WHERE s.id = submission_id AND s.status IN ('checking','pending'))`)
       .bind(REVIEW_CHECKER_VERSION, route, key, hash, durationMs, checkedAt, submissionId, leaseToken)
       .run();
