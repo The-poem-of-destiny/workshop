@@ -76,7 +76,7 @@ export async function uploadGalleryImage(
     return { kind: "invalid", message: "Gallery slot must be 0 or 1" };
   if (!MIME_EXT[mime]) return { kind: "invalid", message: "Unsupported content type" };
   if (body.bytes === 0 || body.bytes > WORKSHOP_LIMITS.projectImageUploadBytes) {
-    return { kind: "invalid", message: "Gallery image exceeds 5MiB limit" };
+    return { kind: "invalid", message: "Gallery image exceeds 1MiB limit" };
   }
   const dimensions = body.dimensions;
   if (!dimensions || dimensions.mime !== mime)
