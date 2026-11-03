@@ -12,8 +12,24 @@ export function ProjectStatusBanner({
   onNewVersion: () => void;
 }) {
   const submission = entry.latestSubmission;
-  if (!submission) return null;
-  const frozen = submission.versionId === entry.workingVersionId;
+  const publishedWorking = Boolean(
+    entry.workingVersionId && entry.project.publishedVersionId === entry.workingVersionId,
+  );
+  if (!submission) {
+    if (!publishedWorking) return null;
+    return (
+      <div className="workspace-banner is-info" role="status">
+        <div>
+          <strong>当前版本已发布并冻结</strong>
+          <p>继续修改请新建版本，已发布内容保持不变。</p>
+        </div>
+        <button type="button" onClick={onNewVersion} disabled={busy}>
+          新建版本
+        </button>
+      </div>
+    );
+  }
+  const frozen = publishedWorking || submission.versionId === entry.workingVersionId;
   const underReview = submission.status === "pending" || submission.status === "checking";
   const rejected = submission.status === "rejected";
   if (!frozen && !underReview && !rejected) return null;
