@@ -79,11 +79,7 @@ export async function deleteProjectEntry(
 ): Promise<{ rowVersion: number; versionId: string; entryCount: number } | null> {
   const current = await getWorkingVersion(db, projectId, session);
   if (!current || current.row_version !== expectedVersion || current.working_version_id !== versionId) return null;
-  const submitted = await db
-    .prepare("SELECT 1 AS present FROM submissions WHERE version_id = ?")
-    .bind(versionId)
-    .first<{ present: number }>();
-  if (submitted) return null;
+  if (current.working_version_frozen) return null;
   const asset = await db
     .prepare(`
     SELECT r2_key, mime FROM assets WHERE version_id = ? AND kind = ?
@@ -223,6 +219,7 @@ async function registerAsset(
       WHERE EXISTS (
         SELECT 1 FROM projects
         WHERE id = ? AND deleted_at IS NULL AND working_version_id = ? AND row_version = ?
+          AND (published_version_id IS NULL OR published_version_id <> working_version_id)
           AND NOT EXISTS (SELECT 1 FROM submissions WHERE version_id = ?)
       )
       ON CONFLICT(version_id, kind) DO UPDATE SET

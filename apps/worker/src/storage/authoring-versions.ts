@@ -24,6 +24,7 @@ export async function patchProject(
     .prepare(`UPDATE projects SET row_version = row_version + 1,
       updated_at = CASE WHEN published_version_id IS NULL OR published_version_id = working_version_id THEN ? ELSE updated_at END
       WHERE id = ? AND row_version = ? AND working_version_id = ? AND deleted_at IS NULL
+        AND (published_version_id IS NULL OR published_version_id <> working_version_id)
         AND NOT EXISTS (SELECT 1 FROM submissions WHERE version_id = projects.working_version_id)`)
     .bind(now, projectId, expectedVersion, current.working_version_id);
   const [updated] = await db.batch([
@@ -96,20 +97,19 @@ export async function addVersion(
   const versionId = options.versionId ?? crypto.randomUUID();
   const counts = options.counts ?? { worldbook: 0, regex: 0 };
   const now = new Date().toISOString();
-  const nextNo = current.version_no + 1;
   const tags = JSON.stringify(values.tags);
   const statements: D1PreparedStatement[] = [
     db
       .prepare(`UPDATE projects SET working_version_id = ?, row_version = row_version + 1,
         updated_at = CASE WHEN published_version_id IS NULL OR published_version_id = ? THEN ? ELSE updated_at END
-      WHERE id = ? AND row_version = ? AND working_version_id = ?`)
+      WHERE id = ? AND row_version = ? AND working_version_id = ? AND deleted_at IS NULL`)
       .bind(versionId, versionId, now, current.id, expectedVersion, current.working_version_id),
     db
       .prepare(`INSERT INTO project_versions
       (id, project_id, version_no, title, description, author_note, project_type, extension_type,
        schema_version, version_label, requirements, cover_position_x, cover_position_y, cover_zoom,
        discord_thread_url, tags, worldbook_count, regex_count, created_by, created_at)
-      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      SELECT ?, ?, (SELECT COALESCE(MAX(version_no), 0) + 1 FROM project_versions WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       WHERE EXISTS (
         SELECT 1 FROM projects
         WHERE id = ? AND row_version = ? AND working_version_id = ?
@@ -117,7 +117,7 @@ export async function addVersion(
       .bind(
         versionId,
         current.id,
-        nextNo,
+        current.id,
         values.title,
         values.description,
         values.authorNote,
