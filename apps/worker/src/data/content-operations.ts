@@ -137,7 +137,6 @@ export async function contentLoadVersion(env: ContentEnv, versionId: string, pro
   return readFiles(env, assets.results);
 }
 
-
 export async function contentAutoPublish(env: ContentEnv, target: RunTarget, leaseToken: string) {
   const now = new Date().toISOString();
   const results = await env.DB.batch([

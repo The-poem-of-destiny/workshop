@@ -65,7 +65,6 @@ async function buildEntryIndex(
   return entries;
 }
 
-
 export class ContentService implements DurableObject {
   constructor(
     private readonly state: DurableObjectState,

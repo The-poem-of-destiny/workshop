@@ -709,7 +709,6 @@ describe("authoring write paths", () => {
     expect(snapshot).toEqual({ title: "Submitted snapshot", project_type: "角色", tags: "[]" });
   });
 
-
   it("rate limits rapid metadata writes", async () => {
     const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Rate" }) });
     const project = (await created.json()) as { project: { id: string } };
