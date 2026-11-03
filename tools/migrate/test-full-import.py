@@ -19,7 +19,7 @@ def module(name, filename):
 
 
 imp = module("full_import_regression", "full-d1-import.py")
-stage = module("full_snapshot_regression", "full-staging-load.py")
+stage = module("full_snapshot_regression", "d1-data.py")
 
 
 class Response:
@@ -140,11 +140,10 @@ class SnapshotFidelityTest(unittest.TestCase):
                       for i in range(620)]
             source.executemany("INSERT INTO example VALUES (?, ?, ?, ?)", values)
             source.row_factory = sqlite3.Row
-            def query(config, statement):
+            def query(statement):
                 return [dict(row) for row in source.execute(statement)]
             expected = stage.schema(source)
-            with patch.object(stage, "query", side_effect=query):
-                snapshot = stage.snapshot(root / "unused.json", migrations, root / "snapshot.sqlite", expected)
+            snapshot = stage.snapshot(query, migrations, root / "snapshot.sqlite", expected)
             try:
                 self.assertEqual(snapshot.execute("SELECT * FROM example ORDER BY rowid").fetchall(), values)
             finally:

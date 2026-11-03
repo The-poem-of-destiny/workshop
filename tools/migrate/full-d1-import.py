@@ -57,13 +57,6 @@ def sanitize(value, token):
     return value
 
 
-def outside_repository(path):
-    path = Path(path).resolve()
-    if path == ROOT or ROOT in path.parents:
-        raise ValueError("artifacts must be outside the repository")
-    return path
-
-
 def check_private(path, directory=False):
     info = path.lstat()
     expected = stat.S_ISDIR if directory else stat.S_ISREG
@@ -100,7 +93,7 @@ def atomic_json(path, value, replace=False):
 
 class Journal:
     def __init__(self, directory, token, create=False):
-        self.directory = outside_repository(directory)
+        self.directory = Path(directory).resolve()
         self.token = token
         self.state = {}
         self.sequence = 0
