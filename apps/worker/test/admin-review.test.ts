@@ -31,24 +31,24 @@ async function seed() {
       ('reviewer', 'reviewer', 'Reviewer', 'reviewer', '${now}', '${now}'),
       ('member', 'member', 'Member', 'member', '${now}', '${now}');
     INSERT INTO projects
-      (id, author_id, title, description, author_note, project_type, extension_type,
-       search_tags, visibility, working_revision_id, updated_at)
-    VALUES ('p1', 'member', 'Draft title', 'Draft description', 'Draft note', '角色', '内容',
-      '["draft"]', 'private', 'r1', '${now}');
-    INSERT INTO project_revisions
-      (id, project_id, revision_no, title, description, author_note, project_type, extension_type,
+      (id, author_id, visibility, working_version_id, updated_at)
+    VALUES ('p1', 'member', 'private', 'r1', '${now}');
+    INSERT INTO project_versions
+      (id, project_id, version_no, title, description, author_note, project_type, extension_type,
        tags, manifest_hash, created_by, created_at)
     VALUES ('r1', 'p1', 1, 'Submitted title', 'Submitted description', 'Submitted note', '事件', '规则',
       '["submitted"]', 'manifest-1', 'member', '${now}');
-    INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
+    INSERT INTO assets (id, project_id, version_id, kind, r2_key, sha256, bytes, mime, created_at)
     VALUES ('a1', 'p1', 'r1', 'worldbook', 'projects/p1/r1/worldbook.json', 'hash', 12,
       'application/json', '${now}');
-    INSERT INTO assets (id, project_id, revision_id, kind, r2_key, sha256, bytes, mime, created_at)
+    INSERT INTO assets (id, project_id, version_id, kind, r2_key, sha256, bytes, mime, created_at)
     VALUES ('a2', 'p1', 'r1', 'cover', 'covers/p1/r1-cover.webp', 'hash2', 3,
       'image/webp', '${now}');
     INSERT INTO submissions
-      (id, project_id, revision_id, status, client_gate, client_checker_revision, review_checker_revision, submitted_by, submitted_at)
-    VALUES ('s1', 'p1', 'r1', 'pending', 'warn', 'client-1', 'checker-1', 'member', '${now}');
+      (id, project_id, version_id, status, submitted_by, submitted_at)
+    VALUES ('s1', 'p1', 'r1', 'pending', 'member', '${now}');
+    INSERT INTO automated_reviews(submission_id,status,client_gate,client_checker_version,checker_version)
+    VALUES ('s1','needs_human','warn','client-1','checker-1');
   `);
   for (const statement of statements) await bindings.DB.prepare(statement).run();
   await bindings.R2.put("covers/p1/r1-cover.webp", new Uint8Array([1, 2, 3]));
@@ -74,7 +74,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await bindings.DB.exec(
-    "DELETE FROM audit_events; DELETE FROM reviews; DELETE FROM submissions; DELETE FROM assets; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;",
+    "DELETE FROM audit_events; DELETE FROM manual_reviews; DELETE FROM automated_reviews; DELETE FROM submissions; DELETE FROM assets; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;",
   );
   await seed();
 });
@@ -85,7 +85,7 @@ describe("admin review and publishing", () => {
     const response = await request("/submissions?status=pending");
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      items: [{ id: "s1", projectTitle: "Draft title", gate: "warn", checkerRevision: "client-1" }],
+      items: [{ id: "s1", projectTitle: "Submitted title", gate: "warn", checkerVersion: "client-1" }],
     });
   });
 
@@ -99,13 +99,15 @@ describe("admin review and publishing", () => {
 
   it("lists multiple statuses in one request and paginates with a keyset cursor", async () => {
     await bindings.DB.prepare(`
-      INSERT INTO projects (id, author_id, title, visibility, working_revision_id, updated_at)
-      VALUES ('p2', 'member', 'Second project', 'private', 'r2', '2026-10-21T00:00:01.000Z');
-      INSERT INTO project_revisions (id, project_id, revision_no, title, created_by)
+      INSERT INTO projects (id, author_id, visibility, working_version_id, updated_at)
+      VALUES ('p2', 'member', 'private', 'r2', '2026-10-21T00:00:01.000Z');
+      INSERT INTO project_versions (id, project_id, version_no, title, created_by)
       VALUES ('r2', 'p2', 1, 'Second project', 'member');
       INSERT INTO submissions
-        (id, project_id, revision_id, status, client_gate, client_checker_revision, submitted_by, submitted_at)
-      VALUES ('s2', 'p2', 'r2', 'checking', 'warn', 'checker-1', 'member', '2026-10-21T00:00:01.000Z');
+        (id, project_id, version_id, status, submitted_by, submitted_at)
+      VALUES ('s2', 'p2', 'r2', 'checking', 'member', '2026-10-21T00:00:01.000Z');
+      INSERT INTO automated_reviews(submission_id,status,client_gate,client_checker_version)
+      VALUES ('s2','queued','warn','checker-1');
     `).run();
 
     const defaultPage = await request("/submissions");
@@ -134,10 +136,10 @@ describe("admin review and publishing", () => {
     const response = await request("/submissions/s1");
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
-      revision: Record<string, unknown>;
+      version: Record<string, unknown>;
       assets: Array<Record<string, unknown>>;
     };
-    expect(body.revision).toMatchObject({ id: "r1", manifestHash: "manifest-1" });
+    expect(body.version).toMatchObject({ id: "r1", manifestHash: "manifest-1" });
     expect(body.assets).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: "worldbook", r2Key: "projects/p1/r1/worldbook.json" }),
@@ -163,16 +165,14 @@ describe("admin review and publishing", () => {
     });
     expect(response.status).toBe(201);
     const project = await bindings.DB.prepare(
-      "SELECT published_revision_id, title, search_tags, row_version FROM projects WHERE id = 'p1'",
+      "SELECT published_version_id, row_version FROM projects WHERE id = 'p1'",
     ).first<Record<string, unknown>>();
     expect(project).toMatchObject({
-      published_revision_id: "r1",
-      title: "Submitted title",
-      search_tags: '["submitted"]',
+      published_version_id: "r1",
       row_version: 2,
     });
     const review = await bindings.DB.prepare(
-      "SELECT manifest_hash, checker_version FROM reviews WHERE submission_id = 's1'",
+      "SELECT manifest_hash, checker_version FROM manual_reviews WHERE submission_id = 's1'",
     ).first<Record<string, unknown>>();
     expect(review).toMatchObject({ manifest_hash: "manifest-1", checker_version: "checker-1" });
   });
@@ -180,7 +180,7 @@ describe("admin review and publishing", () => {
   it("rejects a review bound to the wrong revision or hash without writing", async () => {
     const wrong = await request("/submissions/s1/review", "reviewer-token", {
       method: "POST",
-      body: JSON.stringify({ decision: "approve", revisionId: "other", manifestHash: "manifest-1" }),
+      body: JSON.stringify({ decision: "approve", versionId: "other", manifestHash: "manifest-1" }),
       headers: { "content-type": "application/json" },
     });
     expect(wrong.status).toBe(409);
@@ -190,20 +190,18 @@ describe("admin review and publishing", () => {
       headers: { "content-type": "application/json" },
     });
     expect(wrongHash.status).toBe(409);
-    const reviews = await bindings.DB.prepare("SELECT COUNT(*) AS n FROM reviews").first<{ n: number }>();
+    const reviews = await bindings.DB.prepare("SELECT COUNT(*) AS n FROM manual_reviews").first<{ n: number }>();
     expect(reviews?.n).toBe(0);
-    const project = await bindings.DB.prepare("SELECT published_revision_id FROM projects WHERE id = 'p1'").first<{
-      published_revision_id: string | null;
+    const project = await bindings.DB.prepare("SELECT published_version_id FROM projects WHERE id = 'p1'").first<{
+      published_version_id: string | null;
     }>();
-    expect(project?.published_revision_id).toBeNull();
+    expect(project?.published_version_id).toBeNull();
   });
 
   it("requires a reason when the server checker blocked even if the client gate passed", async () => {
-    await bindings.DB.prepare(`
-      UPDATE submissions SET check_report = ?, check_status = 'needs_human' WHERE id = 's1'
-    `)
-      .bind(JSON.stringify({ routeGate: "block", findings: [] }))
-      .run();
+    await bindings.DB.prepare(
+      `UPDATE automated_reviews SET route_gate = 'block', status = 'needs_human' WHERE submission_id = 's1'`,
+    ).run();
     const missing = await request("/submissions/s1/review", "reviewer-token", {
       method: "POST",
       body: JSON.stringify({ decision: "approve" }),
@@ -216,15 +214,15 @@ describe("admin review and publishing", () => {
       headers: { "content-type": "application/json" },
     });
     expect(approved.status).toBe(201);
-    const audit = await bindings.DB.prepare(
-      "SELECT detail FROM audit_events WHERE target_id = 's1' AND action = 'review.approve'",
-    ).first<{ detail: string }>();
-    expect(audit?.detail).toContain("人工复核通过");
+    const decision = await bindings.DB.prepare(
+      "SELECT decision, reason FROM manual_reviews WHERE submission_id = 's1'",
+    ).first<{ decision: string; reason: string }>();
+    expect(decision).toEqual({ decision: "approve", reason: "人工复核通过" });
   });
 
   it("stores the server review checker revision instead of the client value", async () => {
     await bindings.DB.prepare(
-      "UPDATE submissions SET review_checker_revision = 'server-review-1' WHERE id = 's1'",
+      "UPDATE automated_reviews SET checker_version = 'server-review-1' WHERE submission_id = 's1'",
     ).run();
     const response = await request("/submissions/s1/review", "reviewer-token", {
       method: "POST",
@@ -232,7 +230,9 @@ describe("admin review and publishing", () => {
       headers: { "content-type": "application/json" },
     });
     expect(response.status).toBe(201);
-    const review = await bindings.DB.prepare("SELECT checker_version FROM reviews WHERE submission_id = 's1'").first<{
+    const review = await bindings.DB.prepare(
+      "SELECT checker_version FROM manual_reviews WHERE submission_id = 's1'",
+    ).first<{
       checker_version: string;
     }>();
     expect(review?.checker_version).toBe("server-review-1");
@@ -245,7 +245,9 @@ describe("admin review and publishing", () => {
       headers: { "content-type": "application/json" },
     });
     expect(response.status).toBe(201);
-    const review = await bindings.DB.prepare("SELECT checker_version FROM reviews WHERE submission_id = 's1'").first<{
+    const review = await bindings.DB.prepare(
+      "SELECT checker_version FROM manual_reviews WHERE submission_id = 's1'",
+    ).first<{
       checker_version: string | null;
     }>();
     expect(review).toEqual({ checker_version: "checker-1" });
@@ -255,8 +257,8 @@ describe("admin review and publishing", () => {
     const diff = await request("/submissions/s1/diff");
     expect(diff.status).toBe(200);
     await expect(diff.json()).resolves.toMatchObject({
-      revisionId: "r1",
-      previousRevisionId: null,
+      versionId: "r1",
+      previousVersionId: null,
       worldbook: { added: [{ entryKey: expect.any(String) }], unchanged: 0 },
       findings: { accepted: [], changed: [], added: [], removed: [] },
     });
@@ -265,104 +267,104 @@ describe("admin review and publishing", () => {
     // its state can be inspected before any checker claims the submission.
     const recheck = await workerExports.DataService.authorAdminRecheck("Bearer reviewer-token", "s1");
     expect(recheck).toMatchObject({ kind: "ok" });
-    const row = await bindings.DB.prepare("SELECT status, check_status FROM submissions WHERE id = 's1'").first<
-      Record<string, unknown>
-    >();
+    const row = await bindings.DB.prepare(
+      "SELECT s.status, ar.status AS check_status FROM submissions s JOIN automated_reviews ar ON ar.submission_id = s.id WHERE s.id = 's1'",
+    ).first<Record<string, unknown>>();
     expect(row).toMatchObject({ status: "pending", check_status: "queued" });
-    const audit = await bindings.DB.prepare(
-      "SELECT action, detail FROM audit_events WHERE target_id = 's1' ORDER BY created_at DESC LIMIT 1",
-    ).first<{ action: string; detail: string }>();
-    expect(audit?.action).toBe("checker.recheck");
-    expect(audit?.detail).toContain("previousRevision");
   });
 
   it("maps checker findings to message and file and keeps distinct entries apart", async () => {
     const report = (findings: unknown[]) => JSON.stringify({ findings });
-    await bindings.DB.prepare(`INSERT INTO project_revisions
-      (id, project_id, revision_no, title, created_by) VALUES ('r0', 'p1', 0, 'Previous public version', 'member')`).run();
-    await bindings.DB.prepare("UPDATE submissions SET base_published_revision_id = 'r0' WHERE id = 's1'").run();
+    await bindings.DB.prepare(`INSERT INTO project_versions
+      (id, project_id, version_no, title, created_by) VALUES ('r0', 'p1', 0, 'Previous public version', 'member')`).run();
+    await bindings.DB.prepare("UPDATE submissions SET base_published_version_id = 'r0' WHERE id = 's1'").run();
     await bindings.DB.prepare(`
-      INSERT INTO submissions (id, project_id, revision_id, status, client_gate, client_checker_revision, submitted_by, submitted_at, check_report)
-      VALUES ('s0', 'p1', 'r0', 'approved', 'warn', 'checker-1', 'member', '2026-10-20T00:00:00.000Z', ?)
-    `)
-      .bind(
-        report([
-          {
-            ruleId: "L1",
-            severity: "high",
-            title: "未闭合的 EJS 标签",
-            detail: "旧 detail",
-            book: "worldbook.json",
-            entry: "序章",
-            entryId: "0:worldbook.json:1",
-            line: 1,
-          },
-          {
-            ruleId: "L2",
-            severity: "warn",
-            title: "旧标题",
-            detail: "旧说明",
-            book: "worldbook.json",
-            entry: "序章",
-            entryId: "0:worldbook.json:1",
-            line: 2,
-          },
-          {
-            ruleId: "L3",
-            severity: "warn",
-            title: "将被移除",
-            book: "worldbook.json",
-            entry: "附录",
-            entryId: "0:worldbook.json:2",
-            line: 3,
-          },
-        ]),
-      )
+      INSERT INTO submissions (id, project_id, version_id, status, submitted_by, submitted_at)
+      VALUES ('s0', 'p1', 'r0', 'approved', 'member', '2026-10-20T00:00:00.000Z')
+    `).run();
+    await bindings.DB.prepare(`INSERT INTO automated_reviews(submission_id,status,client_gate)
+      VALUES ('s0','done','warn')`).run();
+    const oldReport = report([
+      {
+        ruleId: "L1",
+        severity: "high",
+        title: "未闭合的 EJS 标签",
+        detail: "旧 detail",
+        book: "worldbook.json",
+        entry: "序章",
+        entryId: "0:worldbook.json:1",
+        line: 1,
+      },
+      {
+        ruleId: "L2",
+        severity: "warn",
+        title: "旧标题",
+        detail: "旧说明",
+        book: "worldbook.json",
+        entry: "序章",
+        entryId: "0:worldbook.json:1",
+        line: 2,
+      },
+      {
+        ruleId: "L3",
+        severity: "warn",
+        title: "将被移除",
+        book: "worldbook.json",
+        entry: "附录",
+        entryId: "0:worldbook.json:2",
+        line: 3,
+      },
+    ]);
+    const oldHash = await tokenHash(oldReport);
+    await bindings.R2.put(`reports/s0/${oldHash}.json`, oldReport);
+    await bindings.DB.prepare(`UPDATE automated_reviews SET report_r2_key=?,report_hash=? WHERE submission_id='s0'`)
+      .bind(`reports/s0/${oldHash}.json`, oldHash)
       .run();
-    await bindings.DB.prepare("UPDATE submissions SET check_report = ? WHERE id = 's1'")
-      .bind(
-        report([
-          {
-            ruleId: "L1",
-            severity: "high",
-            title: "未闭合的 EJS 标签",
-            detail: "旧 detail",
-            book: "worldbook.json",
-            entry: "序章",
-            entryId: "0:worldbook.json:1",
-            line: 1,
-          },
-          {
-            ruleId: "L2",
-            severity: "high",
-            title: "新标题",
-            detail: "新说明",
-            book: "worldbook.json",
-            entry: "序章",
-            entryId: "0:worldbook.json:1",
-            line: 2,
-          },
-          {
-            ruleId: "U1",
-            severity: "warn",
-            title: "外部资源需要确认",
-            detail: "https://cdn.example/x.png",
-            book: "worldbook.json",
-            entry: "终章",
-            entryId: "0:worldbook.json:3",
-            line: 4,
-          },
-          {
-            ruleId: "L1",
-            severity: "high",
-            title: "另一个条目的未闭合标签",
-            book: "worldbook.json",
-            entry: "外传",
-            entryId: "0:worldbook.json:4",
-            line: 1,
-          },
-        ]),
-      )
+    const newReport = report([
+      {
+        ruleId: "L1",
+        severity: "high",
+        title: "未闭合的 EJS 标签",
+        detail: "旧 detail",
+        book: "worldbook.json",
+        entry: "序章",
+        entryId: "0:worldbook.json:1",
+        line: 1,
+      },
+      {
+        ruleId: "L2",
+        severity: "high",
+        title: "新标题",
+        detail: "新说明",
+        book: "worldbook.json",
+        entry: "序章",
+        entryId: "0:worldbook.json:1",
+        line: 2,
+      },
+      {
+        ruleId: "U1",
+        severity: "warn",
+        title: "外部资源需要确认",
+        detail: "https://cdn.example/x.png",
+        book: "worldbook.json",
+        entry: "终章",
+        entryId: "0:worldbook.json:3",
+        line: 4,
+      },
+      {
+        ruleId: "L1",
+        severity: "high",
+        title: "另一个条目的未闭合标签",
+        book: "worldbook.json",
+        entry: "外传",
+        entryId: "0:worldbook.json:4",
+        line: 1,
+      },
+    ]);
+    const newHash = await tokenHash(newReport);
+    await bindings.R2.put(`reports/s1/${newHash}.json`, newReport);
+    await bindings.DB.prepare(`UPDATE automated_reviews SET report_r2_key=?,report_hash=? WHERE submission_id='s1'`)
+      .bind(`reports/s1/${newHash}.json`, newHash)
       .run();
     const diff = await request("/submissions/s1/diff");
     expect(diff.status).toBe(200);
@@ -450,10 +452,10 @@ describe("admin review and publishing", () => {
       headers: { "content-type": "application/json" },
     });
     expect(second.status).toBe(409);
-    const project = await bindings.DB.prepare("SELECT published_revision_id FROM projects WHERE id = 'p1'").first<{
-      published_revision_id: string | null;
+    const project = await bindings.DB.prepare("SELECT published_version_id FROM projects WHERE id = 'p1'").first<{
+      published_version_id: string | null;
     }>();
-    expect(project?.published_revision_id).toBeNull();
+    expect(project?.published_version_id).toBeNull();
   });
 
   it("invalidates changed member sessions and guards the last owner", async () => {

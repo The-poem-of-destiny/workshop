@@ -1,28 +1,28 @@
+import { type AuditAction, auditActionSchema } from "@workshop/contracts";
 import type { JsonValue } from "./api";
 
 import type { useAdminAudit } from "./useAdminAudit";
 
-/** Chinese labels for the action strings written by apps/worker/src (audit_events inserts). */
-const AUDIT_ACTION_LABELS: Record<string, string> = {
-  "checker.recheck": "重新校验",
-  "review.approve": "审核通过",
-  "review.reject": "审核拒绝",
-  "review.auto_publish": "自动发布",
-  "review.auto_publish_conflict": "自动发布冲突",
+const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   "project.patch": "编辑项目",
   "project.delete": "删除项目",
-  "project.published_metadata.patch": "编辑已发布信息",
-  "project.published_cover.put": "更新已发布封面",
   "member.role_change": "修改成员角色",
-  "recommendation.update": "更新编辑精选",
-  "recommendation.delete": "移除编辑精选",
-  "reference_set.create": "创建角色基线",
-  "reference_set.update": "更新角色基线",
-  "reference_version.create": "新建基线版本",
+  "recommendation.update": "更新玩家推荐",
+  "recommendation.delete": "撤回玩家推荐",
   "site.update": "更新站点设置",
+  "submission.withdraw": "撤回投稿",
+  "submission.cutover_supersede": "切换时替代投稿",
+  "companion.publish": "发布配套脚本",
+  "legacy.admin_added": "历史：添加管理员",
+  "legacy.admin_removed": "历史：移除管理员",
+  "legacy.character_reference_created": "历史：创建角色参考",
+  "legacy.character_reference_version_created": "历史：创建角色参考版本",
+  "legacy.editor_pick_removed": "历史：移除编辑精选",
+  "legacy.editor_pick_saved": "历史：保存编辑精选",
+  "legacy.current_schema_event": "历史：切换前操作",
 };
 
-const AUDIT_ACTION_OPTIONS = Object.keys(AUDIT_ACTION_LABELS);
+const AUDIT_ACTION_OPTIONS = auditActionSchema.options;
 
 function formatDateTime(value: string): string {
   const parsed = new Date(value);

@@ -29,7 +29,7 @@ function verifyExpectedProjects(target, projects, mismatches) {
   )
     mismatches.push({ check: "project_identity", expected: expectedIds, actual: projects.map((row) => row.id).sort() });
   const publishedProjectIds = projects
-    .filter((project) => project.published_revision_id)
+    .filter((project) => project.published_version_id)
     .map((project) => project.id)
     .sort();
   if (target?.meta?.expectedPublishedPointerCount !== publishedProjectIds.length)
@@ -45,48 +45,48 @@ function verifyExpectedProjects(target, projects, mismatches) {
     mismatches.push({ check: "published_project_identity", actual: publishedProjectIds });
 }
 
-function verifyIdentities({ users, projects, revisions, assets, indexes }, mismatches) {
+function verifyIdentities({ users, projects, versions, assets, indexes }, mismatches) {
   for (const [table, rows, key] of [
     ["users", users, (row) => row.id],
     ["projects", projects, (row) => row.id],
-    ["project_revisions", revisions, (row) => row.id],
+    ["project_versions", versions, (row) => row.id],
     ["assets", assets, (row) => row.id],
-    ["revision_entry_index", indexes, (row) => `${row.revision_id}:${row.kind}:${row.entry_key}`],
+    ["version_entry_index", indexes, (row) => `${row.version_id}:${row.kind}:${row.entry_key}`],
   ]) {
     const duplicate = duplicateValues(rows, key);
     if (duplicate.length) mismatches.push({ check: "duplicate_ids", table, ids: duplicate });
   }
 }
 
-function verifyProjectRelations({ users, projects, revisions, userIds, projectIds, revisionsById }, mismatches) {
-  const revisionCounts = new Map();
-  for (const revision of revisions)
-    revisionCounts.set(revision.project_id, (revisionCounts.get(revision.project_id) ?? 0) + 1);
+function verifyProjectRelations({ users, projects, versions, userIds, projectIds, versionsById }, mismatches) {
+  const versionCounts = new Map();
+  for (const version of versions)
+    versionCounts.set(version.project_id, (versionCounts.get(version.project_id) ?? 0) + 1);
   for (const user of users) if (user.role !== "member") mismatches.push({ check: "legacy_role", id: user.id });
   for (const project of projects) {
     if (project.visibility !== "public") mismatches.push({ check: "project_visibility", id: project.id });
     if (!userIds.has(project.author_id))
       mismatches.push({ check: "fk", table: "projects", id: project.id, field: "author_id" });
-    if (revisionCounts.get(project.id) !== 1) mismatches.push({ check: "current_revision_count", id: project.id });
-    for (const field of ["working_revision_id", "published_revision_id"]) {
-      const revision = revisionsById.get(project[field]);
-      if (!revision || revision.project_id !== project.id)
+    if (versionCounts.get(project.id) !== 1) mismatches.push({ check: "current_version_count", id: project.id });
+    for (const field of ["working_version_id", "published_version_id"]) {
+      const version = versionsById.get(project[field]);
+      if (!version || version.project_id !== project.id)
         mismatches.push({ check: "pointer_owner", table: "projects", id: project.id, field });
     }
   }
-  for (const revision of revisions) {
-    if (!projectIds.has(revision.project_id) || !userIds.has(revision.created_by))
-      mismatches.push({ check: "fk", table: "project_revisions", id: revision.id });
-    if (revision.entry_index_ready !== 1) mismatches.push({ check: "entry_index_ready", id: revision.id });
+  for (const version of versions) {
+    if (!projectIds.has(version.project_id) || !userIds.has(version.created_by))
+      mismatches.push({ check: "fk", table: "project_versions", id: version.id });
+    if (typeof version.entry_index !== "string") mismatches.push({ check: "missing_entry_index", id: version.id });
     for (const field of ["facets", "custom_tags", "metadata"])
-      if (field in revision) mismatches.push({ check: "dead_revision_field", id: revision.id, field });
+      if (field in version) mismatches.push({ check: "dead_version_field", id: version.id, field });
   }
 }
 
-function verifyAssetRelations(target, { assets, projectIds, revisionsById }, mismatches) {
+function verifyAssetRelations(target, { assets, projectIds, versionsById }, mismatches) {
   for (const asset of assets) {
-    const revision = revisionsById.get(asset.revision_id);
-    if (!projectIds.has(asset.project_id) || !revision || revision.project_id !== asset.project_id)
+    const version = versionsById.get(asset.version_id);
+    if (!projectIds.has(asset.project_id) || !version || version.project_id !== asset.project_id)
       mismatches.push({ check: "fk", table: "assets", id: asset.id });
     if (!["worldbook", "regex", "cover"].includes(asset.kind))
       mismatches.push({ check: "asset_kind", id: asset.id, kind: asset.kind });
@@ -104,44 +104,44 @@ function verifyAssetRelations(target, { assets, projectIds, revisionsById }, mis
         actual: asset.sha256,
       });
   }
-  const assetsByRevision = new Map();
+  const assetsByVersion = new Map();
   for (const asset of assets) {
-    const rows = assetsByRevision.get(asset.revision_id) ?? [];
+    const rows = assetsByVersion.get(asset.version_id) ?? [];
     rows.push(asset);
-    assetsByRevision.set(asset.revision_id, rows);
+    assetsByVersion.set(asset.version_id, rows);
   }
-  for (const [revisionId, revisionAssets] of assetsByRevision) {
-    const duplicateKinds = duplicateValues(revisionAssets, (asset) => asset.kind);
+  for (const [versionId, versionAssets] of assetsByVersion) {
+    const duplicateKinds = duplicateValues(versionAssets, (asset) => asset.kind);
     if (duplicateKinds.length)
-      mismatches.push({ check: "duplicate_asset_kind", revision_id: revisionId, kinds: duplicateKinds });
+      mismatches.push({ check: "duplicate_asset_kind", version_id: versionId, kinds: duplicateKinds });
   }
-  return assetsByRevision;
+  return assetsByVersion;
 }
 
-function verifyEntryIndexes({ indexes, revisions, revisionsById }, assetsByRevision, mismatches) {
+function verifyEntryIndexes({ indexes, versions, versionsById }, assetsByVersion, mismatches) {
   const indexCounts = new Map();
   for (const index of indexes) {
-    const revisionAssets = assetsByRevision.get(index.revision_id) ?? [];
-    if (!revisionsById.has(index.revision_id) || !["worldbook", "regex"].includes(index.kind))
-      mismatches.push({ check: "fk", table: "revision_entry_index", id: index.revision_id });
-    else if (!revisionAssets.some((asset) => asset.kind === index.kind))
-      mismatches.push({ check: "index_asset_kind", revision_id: index.revision_id, kind: index.kind });
-    const counts = indexCounts.get(index.revision_id) ?? { worldbook: 0, regex: 0 };
+    const versionAssets = assetsByVersion.get(index.version_id) ?? [];
+    if (!versionsById.has(index.version_id) || !["worldbook", "regex"].includes(index.kind))
+      mismatches.push({ check: "fk", table: "version_entry_index", id: index.version_id });
+    else if (!versionAssets.some((asset) => asset.kind === index.kind))
+      mismatches.push({ check: "index_asset_kind", version_id: index.version_id, kind: index.kind });
+    const counts = indexCounts.get(index.version_id) ?? { worldbook: 0, regex: 0 };
     if (index.kind === "worldbook" || index.kind === "regex") counts[index.kind] += 1;
-    indexCounts.set(index.revision_id, counts);
+    indexCounts.set(index.version_id, counts);
   }
-  for (const revision of revisions) {
-    const counts = indexCounts.get(revision.id) ?? { worldbook: 0, regex: 0 };
-    if (revision.worldbook_count !== counts.worldbook || revision.regex_count !== counts.regex)
-      mismatches.push({ check: "entry_counts", id: revision.id, expected: counts });
-    if (counts.worldbook + counts.regex === 0) mismatches.push({ check: "published_empty_content", id: revision.id });
-    const actualManifest = manifestHash(assetsByRevision.get(revision.id) ?? []);
-    if (revision.manifest_hash !== actualManifest)
+  for (const version of versions) {
+    const counts = indexCounts.get(version.id) ?? { worldbook: 0, regex: 0 };
+    if (version.worldbook_count !== counts.worldbook || version.regex_count !== counts.regex)
+      mismatches.push({ check: "entry_counts", id: version.id, expected: counts });
+    if (counts.worldbook + counts.regex === 0) mismatches.push({ check: "published_empty_content", id: version.id });
+    const actualManifest = manifestHash(assetsByVersion.get(version.id) ?? []);
+    if (version.manifest_hash !== actualManifest)
       mismatches.push({
         check: "manifest_hash",
-        id: revision.id,
+        id: version.id,
         expected: actualManifest,
-        actual: revision.manifest_hash,
+        actual: version.manifest_hash,
       });
   }
 }
@@ -151,19 +151,35 @@ export function verify(target) {
   const tables = target?.tables ?? {};
   verifyTables(tables, mismatches);
   const projects = Array.isArray(tables.projects) ? tables.projects : [];
-  const revisions = Array.isArray(tables.project_revisions) ? tables.project_revisions : [];
+  const versions = Array.isArray(tables.project_versions) ? tables.project_versions : [];
   const assets = Array.isArray(tables.assets) ? tables.assets : [];
-  const indexes = Array.isArray(tables.revision_entry_index) ? tables.revision_entry_index : [];
+  const indexes = versions.flatMap((version) => {
+    try {
+      const document = JSON.parse(version.entry_index);
+      if (document.schemaVersion !== 1 || !Array.isArray(document.entries)) throw new Error("Invalid index");
+      return document.entries.map((entry) => ({
+        version_id: version.id,
+        kind: entry.kind,
+        entry_key: entry.entryKey,
+        name: entry.name,
+        content_hash: entry.contentHash,
+        content_length: entry.contentLength,
+      }));
+    } catch {
+      mismatches.push({ check: "invalid_entry_index", id: version.id });
+      return [];
+    }
+  });
   const users = Array.isArray(tables.users) ? tables.users : [];
   const userIds = new Set(users.map((row) => row.id));
   const projectIds = new Set(projects.map((row) => row.id));
-  const revisionsById = new Map(revisions.map((row) => [row.id, row]));
-  const rows = { users, projects, revisions, assets, indexes, userIds, projectIds, revisionsById };
+  const versionsById = new Map(versions.map((row) => [row.id, row]));
+  const rows = { users, projects, versions, assets, indexes, userIds, projectIds, versionsById };
   verifyExpectedProjects(target, projects, mismatches);
   verifyIdentities(rows, mismatches);
   verifyProjectRelations(rows, mismatches);
-  const assetsByRevision = verifyAssetRelations(target, rows, mismatches);
-  verifyEntryIndexes(rows, assetsByRevision, mismatches);
+  const assetsByVersion = verifyAssetRelations(target, rows, mismatches);
+  verifyEntryIndexes(rows, assetsByVersion, mismatches);
   return {
     ok: mismatches.length === 0,
     checks: { projects: projects.length, assets: assets.length, indexedEntries: indexes.length },

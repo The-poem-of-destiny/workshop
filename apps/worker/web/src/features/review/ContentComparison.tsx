@@ -53,11 +53,11 @@ export function ContentComparison({ diff }: { diff: SubmissionDiff }) {
       <h3>冻结版本内容与前后差异</h3>
       <p className="review-baseline">
         之前：
-        {diff.previousRevisionId
-          ? `#${diff.previousRevisionNo ?? "?"} · ${diff.previousRevisionId}`
+        {diff.previousVersionId
+          ? `#${diff.previousVersionNo ?? "?"} · ${diff.previousVersionId}`
           : "无公开基线（首次提交）"}
         <br />
-        之后：#{diff.revisionNo} · {diff.revisionId}
+        之后：#{diff.versionNo} · {diff.versionId}
       </p>
       <details>
         <summary>完整资料与资料变化</summary>

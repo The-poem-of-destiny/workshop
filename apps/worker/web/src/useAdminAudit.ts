@@ -1,17 +1,18 @@
+import { type AuditAction, auditActionSchema } from "@workshop/contracts";
 import { useRef, useState } from "react";
 import { type AdminAuditEvent, api } from "./api";
 
 type AdminAuditOptions = { onError: (message: string) => void };
 export function useAdminAudit({ onError }: AdminAuditOptions) {
   const [audit, setAudit] = useState<AdminAuditEvent[]>([]);
-  const [auditAction, setAuditAction] = useState("");
+  const [auditAction, setAuditAction] = useState<AuditAction | "">("");
   const [auditCursor, setAuditCursor] = useState<string | null>(null);
   const [auditBusy, setAuditBusy] = useState(false);
   const [auditLoadingMore, setAuditLoadingMore] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
   /** Bumped by every audit load so a slower, older request cannot overwrite newer results or the cursor. */
   const auditGeneration = useRef(0);
-  async function loadAudit(action: string, cursor?: string): Promise<void> {
+  async function loadAudit(action: AuditAction | "", cursor?: string): Promise<void> {
     setAuditError(null);
     const generation = ++auditGeneration.current;
     if (cursor) {
@@ -40,8 +41,9 @@ export function useAdminAudit({ onError }: AdminAuditOptions) {
   }
 
   function changeAuditAction(action: string): void {
-    setAuditAction(action);
-    void loadAudit(action);
+    const parsed = action === "" ? "" : auditActionSchema.parse(action);
+    setAuditAction(parsed);
+    void loadAudit(parsed);
   }
   return { auditBusy, loadAudit, auditAction, changeAuditAction, audit, auditCursor, auditLoadingMore, auditError };
 }

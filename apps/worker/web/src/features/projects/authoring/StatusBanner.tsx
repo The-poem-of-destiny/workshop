@@ -5,15 +5,15 @@ import { CHECK_STATUS_LABELS, formatDateTime, SUBMISSION_STATUS_LABELS } from ".
 export function ProjectStatusBanner({
   entry,
   busy,
-  onNewRevision,
+  onNewVersion,
 }: {
   entry: AuthorProject;
   busy: boolean;
-  onNewRevision: () => void;
+  onNewVersion: () => void;
 }) {
   const submission = entry.latestSubmission;
   if (!submission) return null;
-  const frozen = submission.revisionId === entry.workingRevisionId;
+  const frozen = submission.versionId === entry.workingVersionId;
   const underReview = submission.status === "pending" || submission.status === "checking";
   const rejected = submission.status === "rejected";
   if (!frozen && !underReview && !rejected) return null;
@@ -39,7 +39,7 @@ export function ProjectStatusBanner({
         {rejected && submission.reason ? <p className="banner-reason">退回原因：{submission.reason}</p> : null}
       </div>
       {frozen ? (
-        <button type="button" onClick={onNewRevision} disabled={busy}>
+        <button type="button" onClick={onNewVersion} disabled={busy}>
           新建版本
         </button>
       ) : null}

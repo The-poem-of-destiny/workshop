@@ -15,7 +15,6 @@ import { homeRoutes } from "./http/routes/home";
 import { meRoutes } from "./http/routes/me";
 import { projectsRoutes } from "./http/routes/projects";
 import { recommendationRoutes } from "./http/routes/recommendations";
-import { referenceRoutes } from "./http/routes/references";
 import { siteRoutes } from "./http/routes/site";
 
 export const app = new Hono<{ Bindings: Env }>();
@@ -57,7 +56,8 @@ app.use("/api/*", async (c, next) => {
     return c.body(null, 204, {
       "access-control-allow-origin": allowedOrigin,
       "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-      "access-control-allow-headers": "authorization,content-type,if-match,x-client-version,x-client-channel",
+      "access-control-allow-headers":
+        "authorization,content-type,if-match,idempotency-key,x-client-version,x-client-channel",
       "access-control-max-age": "600",
       vary: "Origin",
     });
@@ -81,7 +81,6 @@ app.route("/api/v1/projects", projectsRoutes);
 app.route("/api/v1/downloads", downloadRoutes);
 app.route("/api/v1/home", homeRoutes);
 app.route("/api/v1/recommendations", recommendationRoutes);
-app.route("/api/v1/reference-sets", referenceRoutes);
 app.route("/api/v1/site", siteRoutes);
 app.route("/api/v1/companion-scripts", companionRoutes);
 

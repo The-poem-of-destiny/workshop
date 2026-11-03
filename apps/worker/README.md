@@ -7,6 +7,7 @@ This application contains the backend and its React site. The Web build is serve
 | Task | Entry points |
 | --- | --- |
 | Request dispatch, public-cache routing, scheduled work | [`src/index.ts`](src/index.ts), [`src/http/public-cache.ts`](src/http/public-cache.ts), [`src/scheduler.ts`](src/scheduler.ts) |
+| Maintenance admission, drain and storage guards | [`src/write-barrier.ts`](src/write-barrier.ts), [`src/data/storage-guard.ts`](src/data/storage-guard.ts); operator procedure in the [deployment safety runbook](../../docs/operations/deployment-safety.md#maintenance-barrier) |
 | API composition and HTTP handlers | [`src/app.ts`](src/app.ts) mounts [`src/http/routes/`](src/http/routes/); handlers use [`src/data-client.ts`](src/data-client.ts) to reach DataService or CachedReads, which own access to [`src/storage/`](src/storage/) |
 | Content validation and submission processing | [`src/content-service.ts`](src/content-service.ts), [`src/content-checker.ts`](src/content-checker.ts); checker implementation belongs to [`packages/content`](../../packages/content/) |
 | Database structure and runtime bindings | Numbered SQL in [`migrations/`](migrations/); bindings and asset routing in [`wrangler.jsonc`](wrangler.jsonc), binding types in [`src/env.ts`](src/env.ts) |

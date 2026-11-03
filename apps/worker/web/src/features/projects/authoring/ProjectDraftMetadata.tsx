@@ -1,11 +1,11 @@
 import type { Dispatch, SetStateAction } from "react";
 import { Input } from "../../../components/ui/input";
 import { Textarea } from "../../../components/ui/textarea";
-import { keyedItems } from "../../../lib/keyedItems";
 import { EXTENSION_TYPES, PROJECT_TYPES, type ProjectForm } from "../projectMetadata";
+import { RequirementsEditor } from "./RequirementsEditor";
 import { TagPicker } from "./TagPicker";
 
-type TextField = Exclude<keyof ProjectForm, "tags">;
+type TextField = Exclude<keyof ProjectForm, "tags" | "requirements">;
 
 export function ProjectDraftMetadata({
   form,
@@ -50,7 +50,11 @@ export function ProjectDraftMetadata({
         {input("title", "标题")}
         {input("description", "简介", true)}
         {input("authorNote", "作者说明", true)}
-        {input("precautions", "注意事项", true)}
+        <RequirementsEditor
+          value={form.requirements}
+          disabled={disabled}
+          onChange={(requirements) => setForm((previous) => ({ ...previous, requirements }))}
+        />
         <div className="form-grid">
           <label htmlFor="schemaVersion-field">
             适配 schema
@@ -115,30 +119,4 @@ export function ProjectDraftMetadata({
       </section>
     </>
   );
-}
-
-export function ProjectMetadataWarnings({ findings }: { findings: string | null | undefined }) {
-  let metadataWarnings: { field?: unknown; message?: unknown }[] = [];
-  if (findings) {
-    try {
-      const parsed: unknown = JSON.parse(findings);
-      if (Array.isArray(parsed)) metadataWarnings = parsed.filter((item) => item && typeof item === "object");
-    } catch {
-      metadataWarnings = [];
-    }
-  }
-
-  return metadataWarnings.length > 0 ? (
-    <div className="findings">
-      <strong>元数据提示</strong>
-      <ul>
-        {keyedItems(metadataWarnings).map(({ item, key }) => (
-          <li key={key}>
-            {typeof item.field === "string" ? `${item.field}：` : ""}
-            {typeof item.message === "string" ? item.message : ""}
-          </li>
-        ))}
-      </ul>
-    </div>
-  ) : null;
 }

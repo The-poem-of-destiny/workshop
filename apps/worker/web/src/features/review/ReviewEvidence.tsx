@@ -43,7 +43,6 @@ export function ReviewEvidence({
   exportMarkdown,
   routeGate,
   report,
-  latestRun,
   diff,
   downloadKind,
   download,
@@ -61,7 +60,6 @@ export function ReviewEvidence({
   exportMarkdown: ReturnType<typeof useReviewEvidence>["exportMarkdown"];
   routeGate: ReturnType<typeof useReviewDecision>["routeGate"];
   report: ReturnType<typeof useReviewDecision>["report"];
-  latestRun: ReturnType<typeof useReviewDecision>["latestRun"];
   diff: ReturnType<typeof useReviewQueue>["diff"];
   downloadKind: ReturnType<typeof useReviewEvidence>["downloadKind"];
   download: ReturnType<typeof useReviewEvidence>["download"];
@@ -96,13 +94,13 @@ export function ReviewEvidence({
 
           <section className="review-evidence-intro">
             <div>
-              <p className="review-eyebrow">SUBMISSION #{detail.revision.revisionNo}</p>
-              <h2>{detail.revision.title}</h2>
-              <p className="review-description">{detail.revision.description || "未提供项目描述。"}</p>
-              {detail.revision.authorNote ? (
+              <p className="review-eyebrow">SUBMISSION #{detail.version.versionNo}</p>
+              <h2>{detail.version.title}</h2>
+              <p className="review-description">{detail.version.description || "未提供项目描述。"}</p>
+              {detail.version.authorNote ? (
                 <div className="review-author-note">
                   <strong>作者备注</strong>
-                  <p>{detail.revision.authorNote}</p>
+                  <p>{detail.version.authorNote}</p>
                   <small>提交者提供，仅作参考。</small>
                 </div>
               ) : null}
@@ -151,8 +149,8 @@ export function ReviewEvidence({
               <dd>{formatDate(detail.submission.submittedAt)}</dd>
             </div>
             <div>
-              <dt>revision</dt>
-              <dd>#{detail.revision.revisionNo}</dd>
+              <dt>version</dt>
+              <dd>#{detail.version.versionNo}</dd>
             </div>
             <div>
               <dt>客户端 gate</dt>
@@ -175,7 +173,7 @@ export function ReviewEvidence({
             <div>
               <dt>manifest hash</dt>
               <dd>
-                <code>{detail.revision.manifestHash ?? "未记录"}</code>
+                <code>{detail.version.manifestHash ?? "未记录"}</code>
               </dd>
             </div>
             <div>
@@ -190,12 +188,12 @@ export function ReviewEvidence({
             key={detail.submission.id}
             submissionId={detail.submission.id}
             report={report}
-            raw={detail.submission.checkReport ?? latestRun?.report ?? null}
+            raw={detail.submission.checkReport}
             checkStatus={detail.submission.checkStatus}
             routeGate={routeGate}
             checkError={detail.submission.checkError}
-            checkedAt={latestRun ? formatDate(latestRun.createdAt) : null}
-            checkerRevision={latestRun?.reviewCheckerRevision ?? detail.submission.reviewCheckerRevision ?? null}
+            checkedAt={detail.submission.checkedAt ? formatDate(detail.submission.checkedAt) : null}
+            checkerVersion={detail.submission.checkerVersion}
           />
 
           {diff ? <ContentComparison diff={diff} /> : null}
