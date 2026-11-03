@@ -744,15 +744,12 @@ describe("authoring write paths", () => {
     expect((await request(`/${project.project.id}/draft`)).status).toBe(404);
   });
 
-  it("updates metadata in place without changing the content revision", async () => {
+  it("updates unsubmitted draft metadata without replacing its content", async () => {
     const created = await request("/", {
       method: "POST",
       body: JSON.stringify({ title: "Metadata", versionLabel: "v1" }),
     });
     const project = (await created.json()) as { project: { id: string }; workingVersionId: string };
-    await bindings.DB.prepare("UPDATE projects SET published_version_id = ?, published_at = ? WHERE id = ?")
-      .bind(project.workingVersionId, now, project.project.id)
-      .run();
     await bindings.DB.prepare("UPDATE project_versions SET manifest_hash = ? WHERE id = ?")
       .bind("manifest-hash", project.workingVersionId)
       .run();
@@ -794,7 +791,7 @@ describe("authoring write paths", () => {
     };
     const mine = await listAuthorProjects(bindings.DB, session);
     expect(mine.find((item) => item.project.id === project.project.id)).toMatchObject({
-      project: { publishedVersionId: project.workingVersionId },
+      project: { publishedVersionId: null },
       requirements: { schemaVersion: 1, dependencies: [], conflicts: [], notes: "注意" },
       authorNote: null,
     });

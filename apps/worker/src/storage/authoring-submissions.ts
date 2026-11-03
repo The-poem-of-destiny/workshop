@@ -134,6 +134,7 @@ export async function submitVersion(
       JOIN project_versions r ON r.id = ? AND r.project_id = p.id
       WHERE p.id = ? AND p.deleted_at IS NULL AND p.working_version_id = ? AND p.row_version = ?
         AND p.published_version_id IS ?
+        AND (p.published_version_id IS NULL OR p.published_version_id <> p.working_version_id)
         AND (p.author_id = ? OR ? = 'owner')
         AND NOT EXISTS (SELECT 1 FROM submissions WHERE version_id = ?)
         AND ${snapshot.sql}`)

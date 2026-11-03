@@ -132,6 +132,8 @@ curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "If-Match: $VERSION" -H '
 
 客户端检查器版本使用 `checkerVersion` 提交，持久化为 `automated_reviews.client_checker_version`；管理详情分别返回 `clientCheckerVersion` 与服务端 `checkerVersion`，不再接受旧 checker revision 字段。
 
+当前工作版本一旦成为已发布版本，即使历史导入没有重建提交／审核记录，也视为冻结：不能原地修改元数据、替换文件、删除条目或重复提交。先创建后继工作版本；新版本号按该项目全部历史版本的最大编号加一分配，并以项目行版本 CAS 阻止并发创建两个后继。未提交且未发布的草稿仍可原地修改元数据。
+
 ## 审核和管理
 
 路径前缀 `/api/v1/admin`。除标注 owner 的操作外，均需 reviewer 或 owner；未登录 401、角色不足 403。JSON 输入见 [admin.ts](../../packages/contracts/src/admin.ts)，响应见 [admin-dto.ts](../../packages/contracts/src/admin-dto.ts)。
