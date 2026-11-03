@@ -68,7 +68,7 @@ describe("submission metadata diff", () => {
       (id, project_id, version_id, base_published_version_id, status, submitted_by)
       VALUES ('diff-submission', 'diff-project', 'diff-new', 'diff-old', 'pending', 'diff-user')`).run();
     await bindings.DB.prepare(
-      "INSERT INTO automated_reviews (submission_id, status) VALUES ('diff-submission', 'queued')",
+      "INSERT INTO automated_reviews (submission_id, status, client_gate) VALUES ('diff-submission', 'queued', 'missing')",
     ).run();
     const diff = await getSubmissionDiff(bindings.DB, bindings.R2, "diff-submission");
     expect(diff?.metadata.before?.schema_version).toBe("1.0");
