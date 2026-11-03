@@ -74,12 +74,17 @@ export class ContentService implements DurableObject {
   async fetch(request: Request): Promise<Response> {
     if (request.method !== "POST") return Response.json({ error: "method_not_allowed" }, { status: 405 });
     const url = new URL(request.url);
-    if (url.pathname === "/validate-stream") {
+    if (url.pathname === "/validate-stream" || url.pathname === "/normalize-worldbook") {
       const kind = url.searchParams.get("kind");
-      if ((kind !== "worldbook" && kind !== "regex") || !request.body) {
+      if (
+        (kind !== "worldbook" && kind !== "regex") ||
+        !request.body ||
+        (url.pathname === "/normalize-worldbook" && kind !== "worldbook")
+      ) {
         return Response.json({ error: "bad_request" }, { status: 400 });
       }
-      return Response.json(await validateContentStream(request.body, kind));
+      const result = await validateContentStream(request.body, kind, url.pathname === "/normalize-worldbook");
+      return result instanceof Response ? result : Response.json(result);
     }
     let submissionId = "";
     let validateVersion = "";

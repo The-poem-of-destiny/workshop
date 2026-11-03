@@ -54,7 +54,7 @@ async function persistComplete(host: InstallHost, plan: Plan, fresh: Snapshot) {
   await host.saveRecords(records);
 }
 
-export async function applyPlan(host: InstallHost, plan: Plan) {
+export async function applyPlan(host: InstallHost, plan: Plan, checkCancelled: () => void) {
   const fresh = await capture(host);
   const signature = (s: Snapshot) => stable({ ...s, books: [...s.books] });
   if (signature(fresh) !== signature(plan.snapshot)) throw new Error("预览后内容或角色状态已改变，请重新查看 diff");
@@ -69,6 +69,7 @@ export async function applyPlan(host: InstallHost, plan: Plan) {
       throw new Error("角色或绑定已改变，请重新预览");
   };
   checkContext();
+  checkCancelled();
   try {
     await persistPending(host, plan, fresh);
     if (target && !fresh.names.includes(target)) {

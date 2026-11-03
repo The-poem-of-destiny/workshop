@@ -65,8 +65,14 @@ async function contextPayload() {
   };
 }
 
-function send(payload: Record<string, unknown>) {
-  activeFrame?.contentWindow?.postMessage(payload, workshopOrigin());
+function closeOverlay() {
+  installations.cancelAll();
+  activeFrame = null;
+  hostJQuery()(`#${OVERLAY_ID}`).remove();
+}
+
+function send(frame: HTMLIFrameElement, payload: Record<string, unknown>) {
+  if (activeFrame === frame) frame.contentWindow?.postMessage(payload, workshopOrigin());
 }
 
 function showOverlay() {
@@ -75,7 +81,7 @@ function showOverlay() {
   const host$ = hostWindow.$;
   if (typeof host$ !== "function") throw new Error("SillyTavern jQuery 未就绪");
 
-  host$(`#${OVERLAY_ID}`).remove();
+  closeOverlay();
   const $overlay = host$(`<div id="${OVERLAY_ID}">`).css({
     position: "fixed",
     inset: "0",
@@ -131,10 +137,7 @@ function showOverlay() {
   $overlay.append($card).appendTo(hostDocument.body);
   activeFrame = $frame[0];
 
-  const close = () => {
-    activeFrame = null;
-    $overlay.remove();
-  };
+  const close = () => closeOverlay();
   $close.on("click", close);
   $overlay.on("click", (event: Event) => {
     if (event.target === $overlay[0]) close();
@@ -156,6 +159,7 @@ function showOverlay() {
         compatible?: boolean;
         required?: string | null;
       };
+      if (activeFrame !== $frame[0]) return;
       if (version.bootstrap === true) {
         console.warn("[CreativeWorkshop] 当前渠道尚未发布客户端，已进入引导模式。");
       } else if (version.compatible === false) {
@@ -176,6 +180,7 @@ function showOverlay() {
     } catch {
       // Offline compatibility checks must not prevent opening the workshop.
     }
+    if (activeFrame !== $frame[0]) return;
     $frame.attr("src", target.toString());
   })();
 
@@ -194,16 +199,16 @@ function onMessage(
   if (event.origin !== workshopOrigin()) return;
   const data = event.data;
   if (!data || typeof data !== "object" || typeof data.type !== "string") return;
+  const frame = activeFrame;
 
   if (data.type === "cw:ready" || data.type === "cw:request-context") {
     void contextPayload()
-      .then((payload) => send({ type: "cw:context", ...payload }))
-      .catch((error) => send({ type: "cw:context", connected: false, error: String(error?.message ?? error) }));
+      .then((payload) => send(frame, { type: "cw:context", ...payload }))
+      .catch((error) => send(frame, { type: "cw:context", connected: false, error: String(error?.message ?? error) }));
     return;
   }
   if (data.type === "cw:close") {
-    $(`#${OVERLAY_ID}`).remove();
-    activeFrame = null;
+    closeOverlay();
     return;
   }
   const handlers: Record<string, () => unknown> = {
@@ -215,10 +220,13 @@ function onMessage(
   const handler = handlers[data.type];
   if (handler) {
     Promise.resolve()
-      .then(handler)
-      .then((result) => send({ type: `${data.type}-result`, requestId: data.requestId, ok: true, result }))
+      .then(() => {
+        if (activeFrame !== frame) throw new Error("会话已关闭");
+        return handler();
+      })
+      .then((result) => send(frame, { type: `${data.type}-result`, requestId: data.requestId, ok: true, result }))
       .catch((error) =>
-        send({
+        send(frame, {
           type: `${data.type}-result`,
           requestId: data.requestId,
           ok: false,

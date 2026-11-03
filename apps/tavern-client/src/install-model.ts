@@ -39,7 +39,13 @@ export type Snapshot = {
   records: Record<string, RecordSet>;
 };
 export type Group = { instance: InstallInstance; book: Row[]; regex: Row[]; invalid?: boolean };
-export type Discovery = { clearedPending: string[]; groups: Map<string, Group>; scan: InstallScan };
+export type Discovery = {
+  clearedPending: string[];
+  groups: Map<string, Group>;
+  scan: InstallScan;
+  ambiguousBooks: Set<string>;
+  ambiguousCharacter: boolean;
+};
 export type Plan = {
   snapshot: Snapshot;
   old: Group | null | undefined;
@@ -126,8 +132,7 @@ export function identity(row: Row): Identity | null {
     meta = values[0]!;
   }
   if (!meta.cw_project_id) {
-    if (meta.fate_project_name || /\[DLC\]|\[工坊\]/.test(String(row.name ?? row.comment ?? "")))
-      throw new Error("仅有旧名称，不能证明项目身份");
+    if (/\[WS\]/.test(String(row.name ?? row.comment ?? ""))) throw new Error("仅有工坊标记，不能证明项目身份");
     return null;
   }
   if (

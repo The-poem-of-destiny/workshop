@@ -88,6 +88,7 @@ export function App() {
     rescanInstalls,
     prepareInstall,
     requestUninstall,
+    requestUpdate,
     install,
     installTarget,
     setInstallTarget,
@@ -282,6 +283,7 @@ export function App() {
               project={selected}
               onClose={() => setSelected(null)}
               onInstall={install}
+              onUpdate={requestUpdate}
               onUninstall={requestUninstall}
               onAuthor={(value) => {
                 if (!setView("browse")) return;
@@ -317,7 +319,7 @@ export function App() {
           ) : null}
         </main>
       </div>
-      {installTarget && bridge ? (
+      {me && installTarget && bridge ? (
         <InstallDialog
           open
           projectTitle={installTarget.title}
@@ -330,7 +332,7 @@ export function App() {
         />
       ) : null}
       <InstallInstanceChoice
-        instanceChoice={instanceChoice}
+        instanceChoice={me ? instanceChoice : null}
         setInstanceChoice={setInstanceChoice}
         installing={installing}
         prepareInstall={prepareInstall}
