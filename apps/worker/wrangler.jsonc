@@ -97,7 +97,7 @@
         }
       ],
       "version_metadata": { "binding": "VERSION_METADATA" },
-      "triggers": { "crons": [] }
+      "triggers": { "crons": ["*/1 * * * *"] }
     },
     "production": {
       "name": "workshop",
