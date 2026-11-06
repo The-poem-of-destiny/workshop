@@ -64,3 +64,19 @@ python3 tools/migrate/offline.py staging verify --plan .local/tasks/multiday-sta
 ```
 
 A verified candidate is not automatically activated. Independently verify R2, application behavior, access controls and the operational cutover and rollback plan before any separately authorized binding change. The old public-sample importer is not an acceptance path. Backup export utility `from_d1_sql.py` remains available for its independent verification format.
+
+## Production preparation and acceptance gates
+
+The current remote CLI is staging-only. Do not rename a staging token, bypass target checks or substitute a production database ID to reuse it. Production execution requires a separately authorized, explicitly production-targeted entry point with equivalent identity, journal, quota and no-replay protections. Reuse the offline transformation, sealed-plan construction, receipt accounting and independent reconciliation rather than copying task-local recovery scripts into production.
+
+Before authorizing production writes:
+
+1. Inventory every Worker binding, scheduled writer and other account writer. Close admission and stop scheduled work before draining. A closed status alone is insufficient: exercise the actual admission path and confirm it rejects new tickets. Reconcile abandoned tickets only through a separately reviewed recovery procedure; an empty ticket set is not proof that uncertain historical operations never wrote.
+2. Capture and verify a fresh production source backup and object manifest. Review exclusions and source-to-target reconciliation. Do not reuse a staging checkpoint, candidate, maintenance password or stale snapshot for production. Freeze the authorized utility checkout and retain the original sealed utilities across any explicit policy adoption.
+3. Confirm the account's actual plan and current UTC-day usage. Ordinary index billing and FTS internal writes differ; use receipt-backed phase calibration, not a global bytes-to-writes multiplier. Account analytics lag, and the migration journal is not a lock on unrelated account writers. Preserve their usage in the budget and preserve unresolved charges.
+4. Use a new, positively identified candidate and a private durable journal. Retrying transport must never mean replaying an unknown D1 ingest. Exit 75 alone does not identify quota exhaustion: inspect the phase, checkpoint and budget reason; a command batch bound can be continued immediately when admission still permits it.
+5. Transfer objects with conditional creation and byte/SHA-256 verification. On interruption, resume matching objects instead of clearing the bucket again. Verify the entire final key set for both missing and unexpected objects; per-object success alone cannot detect extra objects. Bound transfer concurrency and diagnose direct versus proxy transport separately from application failures.
+6. Require full remote/source/schema/search reconciliation, not just counts, foreign-key checks or `quick_check`. Validate actual application permissions, private/public reads, downloads and controlled writes against the candidate before acceptance. Retain exact verification evidence and any historical uncertainty.
+7. Check every target binding against the verified candidate immediately before deployment. Deploy the real application with admission still closed and cron disabled; verify client/checker artifacts and maintenance authentication. Only reopen admission and restore cron after acceptance. Keep the old target and a documented binding rollback until rollback retirement is separately approved; do not use staging's authorized destructive reset as a production procedure.
+
+Keep raw migration receipts, private snapshots, transport evidence and recovery records in the task's private runtime directory. Record portable invariants in tools and regression tests; never put credentials, private source data or machine-specific recovery state in this runbook.
