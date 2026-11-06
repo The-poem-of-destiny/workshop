@@ -6,9 +6,8 @@ import urllib.error
 import urllib.request
 
 FREE_WRITES = 100_000
-ACCOUNT_WRITE_CEILING = 70_000
-MIGRATION_DAILY_CEILING = 50_000
-ACCOUNT_READ_CEILING = 4_000_000
+ACCOUNT_WRITE_CEILING = FREE_WRITES
+ACCOUNT_READ_CEILING = 5_000_000
 
 
 def utc_now():
@@ -65,30 +64,67 @@ def analytics(account, token, now=None, opener=None):
         raise RuntimeError("account usage could not be verified; no new database writes authorized") from error
 
 
-def charge_for(batch):
+def charge_for(batch, history=None):
     estimate = batch.get("estimated_rows_written")
     if isinstance(estimate, bool) or not isinstance(estimate, int) or estimate < 0:
         raise ValueError("batch has no valid write-cost estimate")
+    sample = (history or {}).get(batch.get("phase"))
+    if batch.get("phase") == "search" and sample:
+        numerator, denominator = sample.get("max_writes"), sample.get("max_estimate")
+        if numerator is not None or denominator is not None:
+            if (isinstance(numerator, bool) or not isinstance(numerator, int) or numerator < 0
+                    or isinstance(denominator, bool) or not isinstance(denominator, int) or denominator <= 0):
+                raise ValueError("invalid search write-cost history")
+            # Search costs vary with indexed content; retain the largest observed
+            # ratio to the sealed estimate proxy rather than averaging rows.
+            measured = (numerator * estimate * 5 + denominator * 4 - 1) // (denominator * 4)
+            return max(128, measured)
+        return max(128, estimate * 2)
+    rows = batch.get("data_rows", 0)
+    if sample and rows:
+        if (isinstance(rows, bool) or not isinstance(rows, int) or rows < 0
+                or any(isinstance(sample.get(key), bool) or not isinstance(sample.get(key), int)
+                       or sample[key] < 0 for key in ("rows", "writes", "samples"))):
+            raise ValueError("invalid phase write-cost history")
+        if sample["rows"] and sample["samples"]:
+            realistic = batch.get("realistic_rows_written", 0)
+            if isinstance(realistic, bool) or not isinstance(realistic, int) or realistic < 0:
+                raise ValueError("invalid realistic write-cost estimate")
+            # Integer arithmetic keeps the 25% margin exact even for large counts.
+            measured = (sample["writes"] * rows * 5 + sample["rows"] * 4 - 1) // (sample["rows"] * 4)
+            return max(128, realistic, measured)
+    # Old immutable plans have only the original conservative estimate.
     return max(128, estimate * 2)
 
 
 def observe(ledger, usage):
     entry = ledger.setdefault(usage["day"], {"charged": 0})
+    # For a legacy ledger, the first stored observation is the only available
+    # baseline; it may already contain local writes, so it can overcount them.
+    entry.setdefault("baseline_written", entry.get("observed_written", usage["rows_written"]))
     entry["observed_written"] = max(entry.get("observed_written", 0), usage["rows_written"])
     entry["observed_read"] = max(entry.get("observed_read", 0), usage["rows_read"])
 
 
 def decide(usage, ledger, reserved, now=None):
-    """Double-count local charges against delayed analytics rather than spend them twice."""
+    """Estimate shared use without double-counting local receipts.
+
+    Analytics can lag, and other clients can write after observation: this is
+    neither a global lock nor a guarantee that a reservation fits the quota.
+    """
     now = now or utc_now()
     day = day_key(now)
     if usage.get("day") != day:
         raise ValueError("account usage is from a different UTC day")
-    if reserved > MIGRATION_DAILY_CEILING:
-        raise ValueError("one indivisible batch exceeds the migration daily ceiling")
+    if isinstance(reserved, bool) or not isinstance(reserved, int) or reserved < 0:
+        raise ValueError("invalid reservation")
+    if reserved > ACCOUNT_WRITE_CEILING:
+        raise ValueError("one indivisible batch exceeds the account daily ceiling")
     entry = ledger.get(day, {})
     charged = entry.get("charged", 0)
     written = max(usage["rows_written"], entry.get("observed_written", 0))
+    baseline = entry.get("baseline_written", entry.get("observed_written", usage["rows_written"]))
+    accounted = baseline + max(written - baseline, charged)
     read = max(usage["rows_read"], entry.get("observed_read", 0))
     seconds_left = 86_400 - (now.hour * 3_600 + now.minute * 60 + now.second)
     reason = None
@@ -96,14 +132,12 @@ def decide(usage, ledger, reserved, now=None):
         reason = "utc_reset_window"
     elif read >= ACCOUNT_READ_CEILING:
         reason = "account_read_reserve"
-    elif written + charged + reserved > ACCOUNT_WRITE_CEILING:
+    elif accounted + reserved > ACCOUNT_WRITE_CEILING:
         reason = "account_write_reserve"
-    elif charged + reserved > MIGRATION_DAILY_CEILING:
-        reason = "migration_daily_ceiling"
     return {"allowed": reason is None, "reason": reason, "reserved": reserved,
             "observed_rows_written": written, "locally_charged": charged,
+            "baseline_rows_written": baseline, "accounted_rows_written": accounted,
             "account_write_ceiling": ACCOUNT_WRITE_CEILING,
-            "migration_daily_ceiling": MIGRATION_DAILY_CEILING,
             "next_attempt_at": None if reason is None else next_window(now),
             "analytics_is_delayed": True}
 

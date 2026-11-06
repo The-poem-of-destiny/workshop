@@ -341,9 +341,9 @@ def build(preparation_path, source_path, manifest_path, migrations_dir, output_d
                     if chunks:
                         lines.append("DROP TABLE " + quote(chunk_table) + ";")
                     chunk_count = sum(line.startswith("INSERT INTO " + quote(chunk_table)) for line in lines)
-                    # Includes row+all ordinary/unique indexes, schema/chunk writes,
-                    # chunk deletes and an allowance for SQLite B-tree maintenance.
-                    yield lines[1:], 1, 16 * (1 + indexes) + chunk_count * 8 + (64 if chunks else 0)
+                    # Ordinary D1 writes count the row and each index entry; chunk
+                    # handling remains conservatively estimated separately.
+                    yield lines[1:], 1, 1 + indexes + chunk_count * 8 + (64 if chunks else 0)
 
             emitter.groups("data:" + name, row_groups())
         def pointer_groups():
@@ -416,7 +416,7 @@ def artifact_path(root, relative):
     return path
 
 
-def validate_plan(plan_path):
+def validate_plan(plan_path, authorized_utilities=None):
     """Validate immutable execution inputs, utilities, batches and evidence seals."""
     plan_path = Path(plan_path)
     root = plan_path.resolve().parent
@@ -427,8 +427,23 @@ def validate_plan(plan_path):
     frozen = plan["inputs"]
     current = inputs(frozen["preparation"]["path"], frozen["source"]["path"], frozen["manifest"]["path"],
                      frozen["migrations_dir"])
-    if current != frozen:
-        raise ValueError("immutable input, utility, or migration chain changed")
+    if authorized_utilities is None:
+        if current != frozen:
+            raise ValueError("immutable input, utility, or migration chain changed")
+    else:
+        old_utilities = frozen["utilities"]
+        if any(pin(item["path"]) != item for item in old_utilities):
+            raise ValueError("original sealed utility changed")
+        if ({key: value for key, value in current.items() if key != "utilities"} !=
+                {key: value for key, value in frozen.items() if key != "utilities"}):
+            raise ValueError("immutable input or migration chain changed")
+        allowed = {"multiday-plan.py", "multiday-staging.py", "multiday-budget.py"}
+        old = {Path(item["path"]).name: item["sha256"] for item in old_utilities}
+        new = {Path(item["path"]).name: item["sha256"] for item in current["utilities"]}
+        if (len(old) != len(old_utilities) or len(new) != len(current["utilities"])
+                or old.keys() != new.keys() or current["utilities"] != authorized_utilities
+                or any(old[name] != new[name] for name in old if name not in allowed)):
+            raise ValueError("unauthorized utility change")
     if digest(plan["schema"]) != plan["schema_sha256"]:
         raise ValueError("canonical schema hash differs")
     for artifact in plan["artifacts"].values():

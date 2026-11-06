@@ -24,7 +24,7 @@ def main():
     objects.add_argument("--backup", type=Path, required=True)
     objects.add_argument("--preparation", type=Path, required=True)
     staging = commands.add_parser("staging", help="advance, inspect, or verify a staging candidate")
-    staging.add_argument("mode", choices=("advance", "watch", "verify", "status"))
+    staging.add_argument("mode", choices=("advance", "watch", "verify", "status", "adopt"))
     staging.add_argument("--plan", type=Path, required=True)
     staging.add_argument("--state-dir", type=Path, required=True)
     staging.add_argument("--prior-state", type=Path, action="append", default=[])

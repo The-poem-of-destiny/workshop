@@ -37,7 +37,25 @@ For a new plan on the same account, carry every known prior migration ledger bef
 python3 tools/migrate/offline.py staging advance --plan .local/tasks/multiday-staging-migration/plan/plan.json --state-dir .local/tasks/multiday-staging-migration/state --prior-state /absolute/path/to/prior/staging-state --confirm-staging
 ```
 
-Repeat `--prior-state` for independent histories. If a prior state already carries another, supply only the descendant; overlapping provenance is rejected. The initialized receipt records source paths, plan identities and receipt hashes; the source account and ledger must be verifiable. Do not run prior and new candidates concurrently or modify prior journals after carrying them: this is a snapshot, not an account-wide lock. Missing, unknown or external writers cannot be inferred from delayed analytics; stop and establish a conservative account-wide budget before proceeding. Unknown reservations remain charged. Analytics and local charges are intentionally double-counted, so capacity may be lower than actual usage. If an actual import receipt exceeds its reservation, the full actual charge is recorded and execution fails before further writes; investigate rather than replaying.
+Repeat `--prior-state` for independent histories. If a prior state already carries another, supply only the descendant; overlapping provenance is rejected. The initialized receipt records source paths, plan identities and receipt hashes; the source account and ledger must be verifiable. Do not run prior and new candidates concurrently or modify prior journals after carrying them: this is a snapshot, not an account-wide lock. Missing, unknown or external writers cannot be inferred from delayed analytics. Unknown reservations remain charged. If an actual import receipt exceeds its reservation, the full actual charge is recorded and execution fails before further writes; investigate rather than replaying.
+
+### Actual-use daily budget
+
+The admission target is the account's D1 Free allowance: 100,000 written rows and 5,000,000 read rows per UTC day, not an additional 50,000-row migration allowance or 70,000-row account cap. These are the [published D1 pricing limits](https://developers.cloudflare.com/d1/platform/pricing/); they do not prove this account's subscription tier. No paid overage is authorized. Complete atomic batches may leave unused capacity; do not manufacture writes to consume it.
+
+For ordinary inserts, estimate the row plus affected indexes rather than multiplying by a speculative B-tree factor. Successful authoritative import receipts calibrate reservations by phase and data-row count, with 25% headroom and a minimum reservation. Unobserved FTS, schema and chunk operations retain a conservative fallback until suitable observations exist. Estimates are admission forecasts, not guaranteed billing bounds. Keep the actual write count and reservation in the durable journal; missing accounting or an overrun stops further writes.
+
+Account accounting combines a persisted day's observed baseline with the larger of subsequent observed account growth and locally charged migration writes, avoiding wholesale double-counting of receipts already visible in analytics. Legacy ledgers without a baseline are adopted conservatively. Delayed analytics cannot reveal concurrent external writes immediately: stop uncontrolled writers and preserve unknown reservations. Refresh account analytics before each admission. A reset does not refund an operation whose execution day is uncertain.
+
+### Continuing a sealed plan after a policy correction
+
+Do not regenerate SQL, recreate the candidate or replay completed batches to change admission algorithms. With no pending operation or failed state, explicitly adopt the corrected executor:
+
+```sh
+python3 tools/migrate/offline.py staging adopt --plan .local/tasks/multiday-staging-migration/plan/plan.json --state-dir .local/tasks/multiday-staging-migration/state --confirm-staging
+```
+
+Adoption preserves the original plan bytes and candidate. It verifies the original utility files still match their seals, allows changes only to the planner/executor/budget policy utilities, and pins the replacement utilities, immutable SQL/data inputs, checkpoint receipt and completed receipt hashes. Resume from the corrected checkout with the same plan and state; retain the original checkout needed to validate the old seals. Changed SQL, missing completion evidence, a changed authorized utility or an unresolved operation fails closed. Receipt-derived phase costs are persisted and checked again on each continuation. Adoption is a local authorization record, not a database mutation or an assertion that partially imported data has passed final reconciliation.
 
 After all batches, the executor snapshots the actual candidate, independently reconciles source and target rows, compares schema and search indexes and writes verification evidence. Repeat explicitly if necessary:
 
