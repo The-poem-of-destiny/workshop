@@ -52,6 +52,81 @@ function context(exports: object = {}) {
 }
 
 describe("maintenance runtime boundaries", () => {
+  it("serves a standalone maintenance document while keeping APIs and controls protected", async () => {
+    const bindings = isolatedEnv();
+    expect((await control(bindings, "close")).status).toBe(200);
+    const { ctx, pending } = context();
+    const fetch = (path: string, init?: RequestInit) =>
+      worker.fetch(
+        new Request(`https://example.test${path}`, init) as Parameters<typeof worker.fetch>[0],
+        bindings,
+        ctx,
+      );
+
+    const document = await fetch("/", { headers: { accept: "text/html", "sec-fetch-dest": "document" } });
+    expect(document.status).toBe(503);
+    expect(document.headers.get("content-type")).toContain("text/html");
+    expect(document.headers.get("cache-control")).toContain("no-store");
+    const html = await document.text();
+    expect(html).toMatch(/维护/);
+    expect(html).toMatch(/稍后重试/);
+    expect(html).not.toMatch(/<script\b/i);
+
+    for (const path of ["/api/v1/home", "/api/v1/assets/private", "/client/stable/index.js"]) {
+      const response = await fetch(path, { headers: { accept: "text/html" } });
+      expect(response.status, path).toBe(503);
+      expect(response.headers.get("content-type"), path).toContain("application/json");
+      expect(await response.json(), path).toMatchObject({ error: { code: "maintenance" } });
+    }
+
+    const unauthorized = await fetch("/api/v1/maintenance");
+    expect(unauthorized.status).toBe(401);
+    const authorized = await fetch("/api/v1/maintenance", {
+      headers: { authorization: "Bearer test-operator-secret" },
+    });
+    expect(authorized.status).toBe(200);
+    expect(await authorized.json()).toMatchObject({ closed: true, drained: true });
+    await Promise.all(pending);
+  });
+
+  it("serves JavaScript assets without consulting the barrier or business handlers", async () => {
+    const bindings = isolatedEnv();
+    const assets = bindings.ASSETS!;
+    const assetUrl = "https://example.test/assets/fixture.js";
+
+    const guardedBindings = {
+      ...bindings,
+      WRITE_BARRIER: {
+        idFromName() {
+          throw new Error("Static assets must not consult the barrier");
+        },
+      } as unknown as Env["WRITE_BARRIER"],
+    };
+    route.mockClear();
+    const { ctx, pending } = context();
+    const response = await worker.fetch(
+      new Request(assetUrl) as Parameters<typeof worker.fetch>[0],
+      guardedBindings,
+      ctx,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toMatch(/(?:javascript|ecmascript)/i);
+    expect(response.headers.get("cache-control")).toContain("public");
+    expect(response.headers.get("cache-control")).toContain("max-age=31536000");
+    expect(response.headers.get("cache-control")).toContain("immutable");
+    const original = await assets.fetch(new Request(assetUrl));
+    expect(await response.text()).toBe(await original.text());
+    const missing = await worker.fetch(
+      new Request("https://example.test/assets/missing.js") as Parameters<typeof worker.fetch>[0],
+      guardedBindings,
+      ctx,
+    );
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get("cache-control") ?? "").not.toContain("immutable");
+    expect(route).not.toHaveBeenCalled();
+    await Promise.all(pending);
+  });
+
   it("drains only after the response stream and nested background work complete", async () => {
     const bindings = isolatedEnv();
     const first = deferred();

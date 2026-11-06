@@ -62,6 +62,23 @@ export function maintenanceUnavailable(): Response {
   );
 }
 
+export function maintenanceDocument(): Response {
+  return new Response(
+    `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>服务维护中</title></head>
+<body><main><h1>服务维护中</h1><p>创意工坊正在维护，暂时无法访问。请稍后重试。</p></main></body></html>`,
+    {
+      status: 503,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "private, no-store",
+        "retry-after": "30",
+        "x-content-type-options": "nosniff",
+      },
+    },
+  );
+}
+
 export async function withWriteBarrier<T>(
   env: Env,
   kind: string,
