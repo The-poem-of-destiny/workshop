@@ -12,8 +12,10 @@ import {
   type Plan,
   type Row,
   type Snapshot,
+  stable,
 } from "./install-model.js";
 import { entryKey, regexEntries, worldbookEntries } from "./lib.js";
+import { indexProject, isIndex, readIndex, updateIndex, writeEntry } from "./workshop-yaml.js";
 
 function incomingWorldbook(intent: InstallIntent, stamp: (key: string) => Row) {
   const book: Row[] = worldbookEntries(intent.files!.worldbook ? JSON.parse(intent.files!.worldbook) : null).map(
@@ -29,7 +31,11 @@ function incomingWorldbook(intent: InstallIntent, stamp: (key: string) => Row) {
         );
       }
       const metadata = stamp(entryKey(item, index));
-      return { ...item, extra: { ...item.extra, ...metadata } };
+      return writeEntry(item, {
+        projectId: String(metadata.cw_project_id),
+        version: String(metadata.cw_project_version),
+        key: String(metadata.cw_entry_key),
+      });
     },
   );
   if (intent.files!.worldbook && !book.length) throw new Error("世界书没有有效条目");
@@ -70,16 +76,7 @@ function incoming(host: InstallHost, intent: InstallIntent, old: Group | null | 
     cw_entry_key: key,
   });
   if (intent.action === "migrate") {
-    book = copy(old!.book).map((row) => ({
-      ...row,
-      extra: {
-        ...row.extra,
-        cw_project_id: old!.instance.projectId,
-        cw_project_version: old!.instance.version,
-        cw_entry_key: identity(row)!.key,
-        cw_instance_id: instanceId,
-      },
-    }));
+    book = copy(old!.book).map((row) => writeEntry(row, identity(row)!));
     regex = copy(old!.regex);
   }
   if (["install", "update"].includes(intent.action)) {
@@ -139,6 +136,35 @@ function validateTarget(
     throw new Error("操作位置含身份存疑内容，请先手动卸载并重新下载");
 }
 
+export function plannedBookRows(
+  snapshot: Snapshot,
+  old: Group | null | undefined,
+  intent: InstallIntent,
+  target: string | null,
+  book: Row[],
+  name: string,
+  rows: Row[],
+): Row[] {
+  const source = old?.instance.location.worldbook;
+  const oldRows = new Set((old?.book ?? []).map((row) => stable(row)));
+  let next = [
+    ...rows.filter((row) => !(name === source && oldRows.has(stable(row)))),
+    ...(name === target ? book : []),
+  ];
+  const projectId = intent.project?.id ?? old?.instance.projectId;
+  if (projectId) {
+    const prior =
+      readIndex(rows).find((item) => item.project_id === projectId) ??
+      (source ? readIndex(snapshot.books.get(source) ?? []).find((item) => item.project_id === projectId) : undefined);
+    const adding = name === target && book.length > 0;
+    const details = intent.project
+      ? indexProject(projectId, intent.project.version, intent.project)
+      : (prior ?? indexProject(projectId, old!.instance.version));
+    next = updateIndex(next, name === source ? projectId : null, adding ? details : null);
+  }
+  return next;
+}
+
 export async function preparePlan(host: InstallHost, intent: InstallIntent): Promise<Plan> {
   const snapshot = await capture(host);
   const found = discover(snapshot);
@@ -150,6 +176,14 @@ export async function preparePlan(host: InstallHost, intent: InstallIntent): Pro
     character: old?.instance.location.character ?? (intent.files?.regex ? snapshot.character : null),
   };
   validateTarget(intent, snapshot, found, old, target);
+  if (
+    target.worldbook &&
+    target.worldbook !== old?.instance.location.worldbook &&
+    readIndex(snapshot.books.get(target.worldbook) ?? []).some(
+      (item) => item.project_id === (project?.id ?? old?.instance.projectId),
+    )
+  )
+    throw new Error("目标世界书注册表已包含此项目");
   let { book, regex } = incoming(host, intent, old, instanceId);
   if (new Set(book.map((row) => identity(row)?.key)).size !== book.length) throw new Error("世界书条目身份重复");
   if (intent.action === "migrate" && (!target.worldbook || target.worldbook === old!.instance.location.worldbook))
@@ -180,6 +214,16 @@ export async function preparePlan(host: InstallHost, intent: InstallIntent): Pro
       : old
         ? [...differences("worldbook", [], old.book), ...differences("regex", [], old.regex)]
         : [];
+  const source = old?.instance.location.worldbook;
+  const touched = [...new Set([book.length ? target.worldbook : null, source].filter(Boolean))] as string[];
+  const registryChanges = touched.flatMap((name) => {
+    const rows = snapshot.books.get(name) ?? [];
+    const next = plannedBookRows(snapshot, old, intent, target.worldbook, book, name, rows);
+    return differences("worldbook", rows.filter(isIndex), next.filter(isIndex)).map((change) => ({
+      ...change,
+      key: `${name} / 注册表 / ${change.key}`,
+    }));
+  });
   const result: InstallPreview = {
     previewId: host.uuid(),
     instanceId,
@@ -187,7 +231,11 @@ export async function preparePlan(host: InstallHost, intent: InstallIntent): Pro
     instance: old?.instance ?? null,
     target,
     playerChanges,
-    changes: [...differences("worldbook", old?.book ?? [], book), ...differences("regex", old?.regex ?? [], regex)],
+    changes: [
+      ...differences("worldbook", old?.book ?? [], book),
+      ...registryChanges,
+      ...differences("regex", old?.regex ?? [], regex),
+    ],
   };
   return { snapshot, old, book, regex, intent: copy(intent), result };
 }

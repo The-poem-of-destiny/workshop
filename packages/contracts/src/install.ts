@@ -1,5 +1,13 @@
 export type InstallFileSet = { worldbook?: string; regex?: string };
-export type InstallProject = { id: string; title?: string; version: string; projectType?: string | null };
+export type InstallProject = {
+  id: string;
+  title?: string;
+  description?: string | null;
+  author?: { id: string; name: string } | null;
+  version: string;
+  versionLabel?: string | null;
+  projectType?: string | null;
+};
 export type InstallLocation = { worldbook: string | null; character: string | null };
 export type InstallInstance = {
   instanceId: string;
@@ -44,6 +52,7 @@ export type InstallPreview = {
 // Requests carry requestId; responses echo it, with ok/result or ok:false/message.
 export type InstallBridgeRequest =
   | { type: "cw:scan"; requestId: string }
+  | { type: "cw:convert-legacy"; requestId: string; worldbooks: string[] }
   | { type: "cw:preview-install"; requestId: string; intent: InstallIntent }
   | { type: "cw:confirm-install"; requestId: string; previewId: string }
   | { type: "cw:cancel-install"; requestId: string; previewId: string };

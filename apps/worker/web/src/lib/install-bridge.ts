@@ -3,6 +3,7 @@ import type { InstallIntent, InstallPreview, InstallScan } from "@workshop/contr
 export type InstallCompletion = { instanceId: string; action: InstallIntent["action"]; scan: InstallScan };
 export interface InstallBridge {
   scan(): Promise<InstallScan>;
+  convertLegacy(worldbooks: string[]): Promise<{ converted: number; skipped: number }>;
   preview(intent: InstallIntent): Promise<InstallPreview>;
   confirm(previewId: string): Promise<InstallCompletion>;
   cancel(previewId: string): Promise<{ cancelled: boolean }>;
@@ -55,8 +56,8 @@ export function createInstallBridge({
         pending.delete(requestId);
         reject(
           new Error(
-            type === "cw:confirm-install"
-              ? "等待安装结果超时；写入结果未知，请关闭并重新扫描，勿重复确认。"
+            type === "cw:confirm-install" || type === "cw:convert-legacy"
+              ? "等待宿主写入结果超时；结果未知，请重新扫描并检查世界书，勿立即重复操作。"
               : "等待宿主响应超时，请重试。",
           ),
         );
@@ -73,6 +74,7 @@ export function createInstallBridge({
   }
   return {
     scan: () => request<InstallScan>("cw:scan"),
+    convertLegacy: (worldbooks) => request<{ converted: number; skipped: number }>("cw:convert-legacy", { worldbooks }),
     preview: (intent) => request<InstallPreview>("cw:preview-install", { intent }),
     confirm: (previewId) => request<InstallCompletion>("cw:confirm-install", { previewId }),
     cancel: (previewId) => request<{ cancelled: boolean }>("cw:cancel-install", { previewId }),

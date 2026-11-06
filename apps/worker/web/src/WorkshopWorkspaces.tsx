@@ -73,6 +73,8 @@ export function WorkshopWorkspaces({
   installedPending,
   embedded,
   scanning,
+  converting,
+  convertLegacy,
   installing,
   rescanInstalls,
   reloadInstalledProjects,
@@ -99,6 +101,8 @@ export function WorkshopWorkspaces({
   installedPending: ReturnType<typeof useInstalledProjects>["installedPending"];
   embedded: boolean;
   scanning: ReturnType<typeof useHostConnection>["scanning"];
+  converting: boolean;
+  convertLegacy: (worldbooks: string[]) => Promise<void>;
   installing: ReturnType<typeof useHostConnection>["installing"];
   rescanInstalls: ReturnType<typeof useHostConnection>["rescanInstalls"];
   reloadInstalledProjects: ReturnType<typeof useInstalledProjects>["reloadInstalledProjects"];
@@ -181,6 +185,8 @@ export function WorkshopWorkspaces({
       scan={context?.installationScan ?? null}
       loading={installedLoading || installedPending || (embedded && context === null)}
       scanning={scanning}
+      converting={converting}
+      onConvertLegacy={convertLegacy}
       mutating={installing}
       onScan={rescanInstalls}
       onRetry={() => {
