@@ -157,6 +157,13 @@ jobs:
           set -euo pipefail
           sha256sum -c artifact.sha256
           jq -e --arg sha "$HEAD_SHA" '.sourceSha == $sha' artifact-manifest.json
+      - name: Configure staging maintenance secret
+        env:
+          MAINTENANCE_TOKEN: ${{ secrets.MAINTENANCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$MAINTENANCE_TOKEN" || { echo "::error::Missing staging MAINTENANCE_TOKEN"; exit 1; }
+          printf '%s' "$MAINTENANCE_TOKEN" | pnpm --filter @workshop/worker exec wrangler secret put MAINTENANCE_TOKEN --config wrangler.jsonc --env staging
       - name: Deploy staging worker
         run: pnpm --filter @workshop/worker exec wrangler deploy build/index.js --no-bundle --config wrangler.jsonc --env staging
       - name: Publish staging client

@@ -88,6 +88,90 @@ def checked_plan(path):
         raise ValueError('plan validator returned an invalid plan')
     return result
 
+def add_cost(history, batch, actual):
+    item = history.setdefault(batch['phase'], {'rows': 0, 'writes': 0, 'samples': 0})
+    item['rows'] += batch['data_rows']
+    item['writes'] += actual
+    item['samples'] += 1
+    if batch['phase'] == 'search':
+        estimate = batch['estimated_rows_written']
+        if 'max_estimate' not in item or actual * item['max_estimate'] > item['max_writes'] * estimate:
+            item['max_writes'], item['max_estimate'] = actual, estimate
+
+
+def measured_history(journal, plan):
+    history, receipts = {}, []
+    completed = sorted(journal.directory.glob('[0-9]*-batch-completed.json'))
+    if len(completed) != journal.state['next_batch']:
+        raise ValueError('completed batch receipts are missing or duplicated')
+    for index, path in enumerate(completed):
+        imp.check_private(path)
+        receipt = json.loads(path.read_text(encoding='utf-8'))
+        state, result, batch = receipt['state'], receipt['details'], plan['batches'][index]
+        actual = result.get('statistics', {}).get('rows_written')
+        if (receipt.get('event') != 'batch-completed' or state.get('next_batch') != index + 1
+                or state.get('pending') is not None or result.get('ok') is not True
+                or result.get('outcome') != 'complete'
+                or result.get('database_id') != journal.state['candidate_database_id']
+                or result.get('database_name') != journal.state['candidate_name']
+                or result.get('file', {}).get('sha256') != batch['sha256']
+                or isinstance(actual, bool) or not isinstance(actual, int) or actual < 0):
+            raise ValueError('completed batch receipt cannot be verified')
+        add_cost(history, batch, actual)
+        receipts.append({'file': path.name, 'sha256': digest(path)})
+    return history, receipts
+
+
+def authorized_plan(path, journal):
+    authorization = journal.state.get('utility_authorization')
+    if not authorization:
+        return checked_plan(path)
+    planner = module('multiday-plan')
+    plan = planner.validate_plan(Path(path).resolve(), authorization['to'])
+    if (authorization['plan_sha256'] != digest(path) or authorization['plan_id'] != plan['plan_id']
+            or authorization['from'] != plan['inputs']['utilities']
+            or authorization['candidate_database_id'] != journal.state.get('candidate_database_id')
+            or authorization['checkpoint'] > journal.state['next_batch']):
+        raise ValueError('execution utility authorization differs from sealed plan')
+    checkpoint = journal.directory / authorization['checkpoint_receipt']['file']
+    if digest(checkpoint) != authorization['checkpoint_receipt']['sha256']:
+        raise ValueError('adoption checkpoint receipt changed')
+    history, receipts = measured_history(journal, plan)
+    if (receipts[:authorization['checkpoint']] != authorization['receipts']
+            or history != journal.state.get('cost_history')):
+        raise ValueError('completed receipt history changed')
+    return plan
+
+
+def adopt(journal, path):
+    state = journal.state
+    if (state.get('utility_authorization') or state.get('pending') is not None
+            or state.get('phase') in ('failed', 'candidate_create_unknown') or state.get('failure')
+            or not state.get('candidate_database_id') or not isinstance(state.get('next_batch'), int)):
+        raise ValueError('execution is not eligible for utility adoption')
+    planner = module('multiday-plan')
+    raw = json.loads(Path(path).read_text(encoding='utf-8'))
+    frozen = raw['inputs']
+    current = planner.inputs(frozen['preparation']['path'], frozen['source']['path'],
+                             frozen['manifest']['path'], frozen['migrations_dir'])['utilities']
+    plan = planner.validate_plan(Path(path).resolve(), current)
+    if (state.get('plan_id') != plan['plan_id'] or state.get('plan_sha256') != digest(path)
+            or state.get('candidate_name') != plan['candidate_name']
+            or state.get('batch_count') != len(plan['batches'])
+            or not 0 <= state['next_batch'] <= len(plan['batches'])):
+        raise ValueError('execution identity differs from sealed plan')
+    imp.validate_identity(state['candidate_database_id'],
+                          {'uuid': state['candidate_database_id'], 'name': state['candidate_name']},
+                          plan['candidate_name'])
+    history, receipts = measured_history(journal, plan)
+    checkpoint = sorted(journal.directory.glob('[0-9]*-*.json'))[-1]
+    authorization = {'plan_id': plan['plan_id'], 'plan_sha256': digest(path),
+                     'from': frozen['utilities'], 'to': current, 'checkpoint': state['next_batch'],
+                     'candidate_database_id': state['candidate_database_id'], 'receipts': receipts,
+                     'checkpoint_receipt': {'file': checkpoint.name, 'sha256': digest(checkpoint)}}
+    journal.record('utility-adopted', utility_authorization=authorization, cost_history=history)
+    return plan
+
 
 def public_status(state):
     return {key: state.get(key) for key in (
@@ -127,12 +211,12 @@ def prior_ledgers(paths, account, token, destination):
                     valid_day = False
                 if not valid_day or not isinstance(entry, dict) or 'charged' not in entry:
                     raise ValueError('prior state ledger cannot be verified')
-                if any(key not in ('charged', 'observed_written', 'observed_read') or isinstance(value, bool)
+                if any(key not in ('charged', 'observed_written', 'observed_read', 'baseline_written') or isinstance(value, bool)
                        or not isinstance(value, int) or value < 0 for key, value in entry.items()):
                     raise ValueError('prior state ledger cannot be verified')
                 target = ledger.setdefault(day, {'charged': 0})
                 target['charged'] += entry['charged']
-                for key in ('observed_written', 'observed_read'):
+                for key in ('observed_written', 'observed_read', 'baseline_written'):
                     if key in entry:
                         target[key] = max(target.get(key, 0), entry[key])
             if (state.get('candidate_create_intent') or state.get('pending') or state.get('next_batch', 0)) and not state['ledger']:
@@ -224,7 +308,7 @@ def candidate(journal, cloud, plan):
     return database
 
 
-def finish_batch(journal, pending, result):
+def finish_batch(journal, pending, result, plan=None):
     if result.get('outcome') != 'complete' or result.get('ok') is not True:
         journal.record('batch-failed', phase='failed', failure='import_terminal_error')
         raise imp.ImportFailure('candidate batch failed; retained state is not automatically replayed')
@@ -236,9 +320,12 @@ def finish_batch(journal, pending, result):
         raise imp.ImportFailure('completed import lacks authoritative write accounting')
     budget.settle(ledger, pending['day'], pending['reserved'], actual)
     exceeded = actual > pending['reserved']
+    history = {phase: dict(item) for phase, item in journal.state.get('cost_history', {}).items()}
+    if plan is not None:
+        add_cost(history, plan['batches'][pending['index']], actual)
     journal.record('reservation-exceeded' if exceeded else 'batch-completed', result,
                    phase='failed' if exceeded else 'loading', next_batch=pending['index'] + 1,
-                   pending=None, ledger=ledger, next_attempt_at=None,
+                   pending=None, ledger=ledger, cost_history=history, next_attempt_at=None,
                    failure='actual_writes_exceeded_reservation' if exceeded else None)
     if exceeded:
         raise imp.ImportFailure('actual writes exceeded reservation; no further writes authorized')
@@ -287,7 +374,7 @@ def resume_pending(journal, plan):
                        ledger=ledger, attempts=attempts, failure=None)
         return
     result = imp.saved_status(receipts, resume=True)
-    finish_batch(journal, pending, result)
+    finish_batch(journal, pending, result, plan)
 
 
 def advance(journal, cloud, plan_path, plan, maximum):
@@ -304,7 +391,16 @@ def advance(journal, cloud, plan_path, plan, maximum):
             journal.record('loaded', phase='loaded', next_attempt_at=None)
             return True
         batch = plan['batches'][index]
-        charge = budget.charge_for(batch)
+        charge_batch = batch
+        if journal.state.get('utility_authorization') and batch['phase'].startswith('data:'):
+            inventory = json.loads((Path(plan_path).parent / 'inventory.json').read_text(encoding='utf-8'))
+            table = batch['phase'][5:]
+            sql_text = (Path(plan_path).parent / batch['file']).read_text(encoding='utf-8')
+            if table in inventory['tables'] and '_workshop_multiday_text_chunks' not in sql_text:
+                estimate = batch['data_rows'] * (1 + len(inventory['tables'][table]['indexes']))
+                charge_batch = dict(batch, estimated_rows_written=max(1, estimate),
+                                    realistic_rows_written=max(1, estimate))
+        charge = budget.charge_for(charge_batch, journal.state.get('cost_history', {}))
         if not allowance(journal, cloud.account, cloud.token, charge):
             return False
         ledger = dict(journal.state['ledger'])
@@ -317,7 +413,7 @@ def advance(journal, cloud, plan_path, plan, maximum):
                    'reserved': charge, 'receipts': str(journal.directory / f'batch-{index:05d}-attempt-{attempt:03d}')}
         journal.record('batch-requested', phase='batch_unknown', ledger=ledger, pending=pending)
         result = imp.execute(database, sql, pending['receipts'], candidate_name=plan['candidate_name'])
-        finish_batch(journal, pending, result)
+        finish_batch(journal, pending, result, plan)
     return journal.state['next_batch'] == len(plan['batches'])
 
 
@@ -385,7 +481,7 @@ def verify(journal, cloud, plan_path, plan):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('advance', 'watch', 'verify', 'status'))
+    parser.add_argument('command', choices=('advance', 'watch', 'verify', 'status', 'adopt'))
     parser.add_argument('--plan', type=Path, required=True)
     parser.add_argument('--state-dir', type=Path, required=True)
     parser.add_argument('--prior-state', type=Path, action='append', default=[],
@@ -397,11 +493,25 @@ def main():
         parser.error('--max-batches must be between1 and100')
     journal = None
     try:
-        plan = checked_plan(args.plan)
         account, token = imp.credentials()
         if args.command != 'status' and not args.confirm_staging:
             raise ValueError('explicit --confirm-staging required')
+        if args.command == 'adopt':
+            if args.prior_state or not args.state_dir.exists():
+                raise ValueError('adoption requires an existing execution state')
+            journal = imp.Journal(args.state_dir.resolve(), token)
+            if journal.state.get('account_id') != account:
+                raise ValueError('credential account differs from saved execution')
+            adopt(journal, args.plan.resolve())
+            print(json.dumps(public_status(journal.state), ensure_ascii=True))
+            return 0
+        journal = imp.Journal(args.state_dir.resolve(), token) if args.state_dir.exists() else None
+        plan = authorized_plan(args.plan, journal) if journal else checked_plan(args.plan)
+        if journal:
+            journal.close()
+            journal = None
         journal = open_journal(args.state_dir, args.plan, plan, account, token, args.prior_state)
+        plan = authorized_plan(args.plan, journal)
         cloud = Cloud(account, token, journal)
         if args.command == 'status':
             print(json.dumps(public_status(journal.state), ensure_ascii=True))
@@ -423,7 +533,7 @@ def main():
             print(json.dumps({'waiting_until': next_attempt, 'reason': 'daily_account_budget'}), flush=True)
             time.sleep(max(1, delay))
             # Revalidate every byte before the next day, not just at process startup.
-            plan = checked_plan(args.plan)
+            plan = authorized_plan(args.plan, journal)
     except (ValueError, RuntimeError, OSError, KeyError, sqlite3.Error) as error:
         print('multiday-staging: ' + imp.sanitize_text(str(error)), file=sys.stderr)
         return 1

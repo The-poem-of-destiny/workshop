@@ -23,28 +23,55 @@ def usage(written=0, read=0):
 
 
 class BudgetTest(unittest.TestCase):
-    def test_shared_account_usage_blocks_before_migration_writes(self):
-        result = budget.decide({'day': '2026-11-02', 'rows_written': 69_900, 'rows_read': 0}, {}, 128, NOW)
+    def test_available_shared_quota_above_old_caps_and_actual_ceiling(self):
+        self.assertTrue(budget.decide({'day': '2026-11-02', 'rows_written': 70_000, 'rows_read': 0}, {}, 25_000, NOW)['allowed'])
+        result = budget.decide({'day': '2026-11-02', 'rows_written': 99_900, 'rows_read': 0}, {}, 128, NOW)
         self.assertFalse(result['allowed'])
         self.assertEqual(result['reason'], 'account_write_reserve')
         self.assertEqual(result['next_attempt_at'], '2026-11-03T00:05:00+00:00')
 
     def test_lower_later_analytics_does_not_reopen_known_exhausted_budget(self):
         ledger = {}
-        budget.observe(ledger, {'day': '2026-11-02', 'rows_written': 69_900, 'rows_read': 0})
+        budget.observe(ledger, {'day': '2026-11-02', 'rows_written': 99_900, 'rows_read': 0})
         budget.observe(ledger, {'day': '2026-11-02', 'rows_written': 0, 'rows_read': 0})
         resumed = json.loads(json.dumps(ledger))
         self.assertFalse(budget.decide({'day': '2026-11-02', 'rows_written': 0, 'rows_read': 0}, resumed, 128, NOW)['allowed'])
-        budget.observe(resumed, {'day': '2026-11-02', 'rows_written': 0, 'rows_read': 4_000_000})
+        budget.observe(resumed, {'day': '2026-11-02', 'rows_written': 0, 'rows_read': 5_000_000})
         self.assertEqual(budget.decide({'day': '2026-11-02', 'rows_written': 0, 'rows_read': 0}, resumed, 0, NOW)['reason'], 'account_read_reserve')
 
-    def test_uncertain_write_reservation_survives_delayed_analytics(self):
+    def test_delayed_analytics_and_uncertain_reservation(self):
         ledger = {}
-        budget.reserve(ledger, 40_000, NOW)
-        result = budget.decide({'day': '2026-11-02', 'rows_written': 0, 'rows_read': 0}, ledger, 20_000, NOW)
-        self.assertFalse(result['allowed'])
-        budget.settle(ledger, '2026-11-02', 40_000, 8_000, NOW)
-        self.assertTrue(budget.decide({'day': '2026-11-02', 'rows_written': 8_000, 'rows_read': 0}, ledger, 20_000, NOW)['allowed'])
+        initial = {'day': '2026-11-02', 'rows_written': 10_000, 'rows_read': 0}
+        budget.observe(ledger, initial)
+        budget.reserve(ledger, 80_000, NOW)
+        delayed = budget.decide(initial, ledger, 10_001, NOW)
+        self.assertFalse(delayed['allowed'])
+        self.assertEqual(delayed['accounted_rows_written'], 90_000)
+        budget.settle(ledger, '2026-11-02', 80_000, 60_000, NOW)
+        updated = {'day': '2026-11-02', 'rows_written': 70_000, 'rows_read': 0}
+        budget.observe(ledger, updated)
+        result = budget.decide(updated, json.loads(json.dumps(ledger)), 30_000, NOW)
+        self.assertTrue(result['allowed'])
+        self.assertEqual(result['accounted_rows_written'], 70_000)
+        self.assertFalse(budget.decide(updated, ledger, 30_001, NOW)['allowed'])
+
+    def test_calibrates_only_matching_measured_phase(self):
+        batch = {'phase': 'data:subscriptions', 'data_rows': 250, 'estimated_rows_written': 24_000}
+        history = {'data:subscriptions': {'rows': 9_250, 'writes': 27_750, 'samples': 37}}
+        self.assertEqual(budget.charge_for(batch, history), 938)
+        self.assertEqual(budget.charge_for(batch), 48_000)
+        self.assertEqual(budget.charge_for({**batch, 'phase': 'data:other'}, history), 48_000)
+        self.assertEqual(budget.charge_for({**batch, 'data_rows': 0}, history), 48_000)
+        self.assertEqual(budget.charge_for({**batch, 'realistic_rows_written': 1_000}, history), 1_000)
+
+    def test_search_uses_largest_observed_cost_per_estimate_not_row_average(self):
+        batch = {'phase': 'search', 'data_rows': 2, 'estimated_rows_written': 4_000}
+        history = {'search': {'rows': 100, 'writes': 500, 'samples': 3,
+                              'max_writes': 300, 'max_estimate': 1_000}}
+        self.assertEqual(budget.charge_for(batch, history), 1_500)
+        del history['search']['max_writes']
+        del history['search']['max_estimate']
+        self.assertEqual(budget.charge_for(batch, history), 8_000)
 
     def test_utc_reset_is_not_a_refund_for_unknown_cross_day_execution(self):
         ledger = {}
@@ -60,7 +87,7 @@ class BudgetTest(unittest.TestCase):
         result = budget.decide({'day': '2026-11-02', 'rows_written': 0, 'rows_read': 0}, {}, 128, late)
         self.assertEqual(result['reason'], 'utc_reset_window')
         with self.assertRaises(ValueError):
-            budget.decide({'day': '2026-11-02', 'rows_written': 0, 'rows_read': 0}, {}, 50_001, NOW)
+            budget.decide({'day': '2026-11-02', 'rows_written': 0, 'rows_read': 0}, {}, 100_001, NOW)
 
 
 class CarryforwardTest(unittest.TestCase):
@@ -77,15 +104,15 @@ class CarryforwardTest(unittest.TestCase):
 
     def test_same_day_candidates_carry_unknown_reservations_and_exhaust_budget(self):
         first = self.create('first', '1')
-        day = budget.reserve(first.state['ledger'], 49_900)
-        first.record('unknown', ledger=first.state['ledger'], pending={'reserved': 49_900, 'day': day})
+        day = budget.reserve(first.state['ledger'], 99_900)
+        first.record('unknown', ledger=first.state['ledger'], pending={'reserved': 99_900, 'day': day})
         first.close()
         second = self.create('second', '2', [self.root / 'first'])
         try:
             with patch.object(budget, 'analytics', return_value=usage()):
                 self.assertFalse(run.allowance(second, ACCOUNT, FakeCloud.token, 128))
-            self.assertEqual(second.state['ledger'][day]['charged'], 49_900)
-            self.assertEqual(second.state['budget']['reason'], 'migration_daily_ceiling')
+            self.assertEqual(second.state['ledger'][day]['charged'], 99_900)
+            self.assertEqual(second.state['budget']['reason'], 'account_write_reserve')
             with self.assertRaisesRegex(ValueError, 'only be supplied'):
                 self.create('second', '2', [self.root / 'first'])
         finally:
@@ -143,7 +170,8 @@ class RecoveryTest(unittest.TestCase):
         for number in range(2):
             sql = self.root / f'{number}.sql'
             sql.write_text(f"INSERT INTO ledger VALUES ('{number}'); UPDATE counters SET n=n+1;")
-            self.plan['batches'].append({'id': str(number), 'file': sql.name, 'sha256': run.digest(sql), 'estimated_rows_written': 2})
+            self.plan['batches'].append({'id': str(number), 'file': sql.name, 'sha256': run.digest(sql),
+                                         'estimated_rows_written': 2, 'phase': 'data:ledger', 'data_rows': 1})
         self.plan_path = self.root / 'plan.json'
         self.plan_path.write_text(json.dumps(self.plan))
         self.journal = run.open_journal(self.root / 'state', self.plan_path, self.plan, ACCOUNT, FakeCloud.token)
@@ -185,6 +213,8 @@ class RecoveryTest(unittest.TestCase):
         self.assertEqual(self.database.execute('SELECT n FROM counters').fetchone()[0], 2)
         self.assertEqual(list(self.database.execute('SELECT id FROM ledger ORDER BY id')), [('0',), ('1',)])
         self.assertEqual(self.journal.state['next_batch'], 2)
+        self.assertEqual(self.journal.state['cost_history']['data:ledger'],
+                         {'rows': 2, 'writes': 4, 'samples': 2})
 
     def test_interruption_before_importer_prepared_receipt_can_resume_safely(self):
         ledger = {}
@@ -303,11 +333,88 @@ class RecoveryTest(unittest.TestCase):
         with self.assertRaisesRegex(imp.ImportFailure, 'without this execution owning'):
             run.candidate(self.journal, FakeCloud(), self.plan)
 
+    def test_adoption_rejects_pending_without_touching_candidate(self):
+        self.journal.record('unknown', phase='batch_unknown', pending={'index': 0})
+        with patch.object(imp, 'execute') as execute:
+            with self.assertRaisesRegex(ValueError, 'not eligible'):
+                run.adopt(self.journal, self.plan_path)
+        execute.assert_not_called()
+        self.assertEqual(self.journal.state['next_batch'], 0)
+        self.assertEqual(self.journal.state['candidate_database_id'], CANDIDATE)
+
     def test_active_staging_and_wrong_candidate_identity_are_rejected(self):
         with self.assertRaises(imp.ImportFailure):
             imp.validate_identity(imp.STAGING_DATABASE, {'uuid': imp.STAGING_DATABASE, 'name': NAME}, NAME)
         with self.assertRaises(imp.ImportFailure):
             imp.validate_identity(CANDIDATE, {'uuid': CANDIDATE, 'name': 'workshop-production'}, NAME)
+
+
+class SealedAdoptionTest(unittest.TestCase):
+    def test_adoption_preserves_checkpoint_and_rejects_changed_evidence(self):
+        spec = importlib.util.spec_from_file_location('plan_fixture', Path(__file__).with_name('test-multiday-plan.py'))
+        fixture_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fixture_module)
+        fixture = fixture_module.MultidayPlanTest('test_pauses_resume_without_counter_or_history_duplication_and_search_maps_ids')
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        root, plan = fixture.build()
+        planner = fixture_module.planner
+        originals = fixture.root / 'original-utilities'
+        originals.mkdir()
+        for utility in plan['inputs']['utilities']:
+            old = originals / Path(utility['path']).name
+            old.write_bytes(Path(utility['path']).read_bytes())
+            if old.name == 'multiday-staging.py':
+                old.write_bytes(old.read_bytes() + b'\n# old policy\n')
+            utility.update(planner.pin(old))
+        template = next(batch for batch in plan['batches'] if batch['phase'].startswith('data:'))
+        plan['batches'] = [dict(template, id=f'{index:06d}') for index in range(1, 83)]
+        plan['plan_id'] = planner.plan_digest(plan)
+        plan['candidate_name'] = 'workshop-staging-migrate-' + plan['plan_id'][:12]
+        path = root / 'plan.json'
+        path.write_text(json.dumps(plan))
+        journal = run.open_journal(fixture.root / 'state', path, plan, ACCOUNT, FakeCloud.token)
+        self.addCleanup(journal.close)
+        journal.record('owned', candidate_database_id=CANDIDATE, phase='loading')
+        batch = plan['batches'][0]
+        for index in range(81):
+            result = {'ok': True, 'outcome': 'complete', 'database_id': CANDIDATE,
+                      'database_name': plan['candidate_name'], 'file': {'sha256': batch['sha256']},
+                      'statistics': {'rows_written': 3}}
+            journal.record('batch-completed', result, next_batch=index + 1, pending=None)
+        with self.assertRaises(ValueError):
+            run.checked_plan(path)
+        run.adopt(journal, path)
+        self.assertEqual(journal.state['next_batch'], 81)
+        self.assertEqual(run.authorized_plan(path, journal)['plan_id'], plan['plan_id'])
+        sql = root / batch['file']
+        original = sql.read_bytes()
+        sql.write_bytes(original + b'\n-- tampered\n')
+        with self.assertRaisesRegex(ValueError, 'sealed batch SQL changed'):
+            run.authorized_plan(path, journal)
+        sql.write_bytes(original)
+        old = originals / 'multiday-staging.py'
+        old.write_bytes(old.read_bytes() + b'changed')
+        with self.assertRaisesRegex(ValueError, 'original sealed utility changed'):
+            run.authorized_plan(path, journal)
+        old.write_bytes(old.read_bytes()[:-7])
+        class ExistingCandidate:
+            account, token = ACCOUNT, FakeCloud.token
+
+            def identity(self, database, name):
+                imp.validate_identity(database, {'uuid': CANDIDATE, 'name': plan['candidate_name']}, name)
+
+        result = {'ok': True, 'outcome': 'complete', 'database_id': CANDIDATE,
+                  'database_name': plan['candidate_name'], 'file': {'sha256': batch['sha256']},
+                  'statistics': {'rows_written': 3}}
+        with patch.object(budget, 'analytics', return_value=usage()), patch.object(imp, 'execute', return_value=result) as execute:
+            self.assertTrue(run.advance(journal, ExistingCandidate(), path, plan, 1))
+        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(journal.state['next_batch'], 82)
+        self.assertEqual(run.authorized_plan(path, journal)['plan_id'], plan['plan_id'])
+
+
+
 
 
 if __name__ == '__main__':

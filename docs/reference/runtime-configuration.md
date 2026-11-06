@@ -29,6 +29,13 @@
 
 OAuth flow 的有效期为 10 分钟，使用 state、PKCE，并设置浏览器绑定 cookie；HTTPS 下 cookie 使用 Secure。device 和 embed 的状态查询、回调及兑换检查绑定；browser 模式的状态查询和回调不检查绑定 cookie，不应将该绑定保证推广到 browser。服务端保管 secret、授权码、会话令牌和 cookie，不应将其写入日志、文档或工单。Cloudflare 部署凭据与运行时 OAuth/session secret 是不同凭据；CI 使用专用凭据，不得复制个人 token。上述名称不证明远端 secret 存在或值正确。
 
+### Cloudflare 运维凭据来源
+
+- GitHub Actions 的 `staging`、`production` environment 均已配置专用 secret `CLOUDFLARE_API_TOKEN`（staging 于 2026-11-03 通过 secret 名称清单确认；production 由用户确认，未读取值）；对应部署工作流使用它，并从 environment variable `CLOUDFLARE_ACCOUNT_ID` 读取账号。该凭据可作为后续获授权的 Actions 运维流程的凭据来源，但不代表任意维护动作已有工作流实现，也不证明其权限始终足够。凭据存在不等于生产操作已授权；执行前核实目标环境、资源身份及实际权限。
+- 获用户明确授权后，本地 staging 导入、迁移和重建可直接从本地 `.env` 读取个人 `CLOUDFLARE_API_TOKEN`，仅在内存中传给明确目标的工具；不必为此新增 Actions 流程。不得打印、复制进其他文件、上传为 GitHub secret 或部署为 Worker secret；CI 继续使用其专用凭据。
+- 平台 API token 与应用 `MAINTENANCE_TOKEN` 分工不同。需要关写排空时，可用已授权的平台凭据设置独立随机的 staging 维护 secret，再调用维护接口并确认排空；不得把个人平台 token 本身设为应用维护 secret。GitHub secret 不能通过 API 读回值，本地操作也不依赖取回 Actions 凭据。
+- 本地 `.env` 分别使用 `STAGING_MAINTENANCE_TOKEN`、`PRODUCTION_MAINTENANCE_TOKEN` 保存不同的随机密码，不使用无环境前缀的 `MAINTENANCE_TOKEN`；文件权限为 `0600`，不得提交。GitHub 各 environment 中均使用 secret 名称 `MAINTENANCE_TOKEN`，Worker 内也使用同名 secret，由环境隔离。两个部署工作流在部署前通过 stdin 调用对应环境的 `wrangler secret put`，缺失密码时失败，不输出值；production 步骤仍在既有生产 schema 授权保护之后。仅更新 GitHub secret 不会立即改变已部署 Worker 的密码，必须显式同步或执行获授权的部署。
+
 会话沿用 30 天滑动有效期，每 24 小时最多续期一次；每次解析从当前 users 读取角色并检查撤销／过期，续期以原 session_version 和未撤销／未过期条件做原子更新，不复活已撤销会话。下载打开对象后再次鉴权。Discord 公会资格在 OAuth 登录时验证；当前不保存 provider access token，因此没有后台持续刷新资格的能力，用户离开公会不会自动触发本地撤销。管理员角色调整和本地会话撤销即时影响后续鉴权；重新登录重新验证公会。这个边界不是持续资格保证。
 
 ## 配置校验边界
