@@ -39,7 +39,7 @@ const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 const sha = createHash("sha256").update(body).digest("hex");
 if (sha !== manifest.revision) throw new Error("built manifest hash does not match dist/index.js");
 const bucket = env === "staging" ? "workshop-client-staging" : "workshop-client-prod";
-const database = env === "staging" ? "workshop-staging" : "workshop-prod";
+const database = "DB";
 const versionedKey = `client/v/${sha}/index.js`;
 const channelKey = `client/${channel}/index.js`;
 

@@ -34,7 +34,7 @@ const seed = spawnSync(
     "wrangler",
     "d1",
     "execute",
-    "workshop-staging",
+    "DB",
     "--local",
     "--persist-to",
     state,
