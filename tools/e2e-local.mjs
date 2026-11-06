@@ -97,7 +97,7 @@ async function main() {
     "d1",
     "migrations",
     "apply",
-    "workshop-staging",
+    "DB",
     "--local",
     "--persist-to",
     stateDir,
@@ -141,7 +141,7 @@ async function main() {
     wrangler([
       "d1",
       "execute",
-      "workshop-staging",
+      "DB",
       "--local",
       "--persist-to",
       stateDir,
