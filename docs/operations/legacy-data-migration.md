@@ -69,6 +69,8 @@ A verified candidate is not automatically activated. Independently verify R2, ap
 
 The current remote CLI is staging-only. Do not rename a staging token, bypass target checks or substitute a production database ID to reuse it. Production execution requires a separately authorized, explicitly production-targeted entry point with equivalent identity, journal, quota and no-replay protections. Reuse the offline transformation, sealed-plan construction, receipt accounting and independent reconciliation rather than copying task-local recovery scripts into production.
 
+Prepare real authenticated acceptance access before the cutover window. A configured `SESSION_HASH_SECRET` HMAC-signs session verifiers: a plain-SHA fixture that works locally will not authenticate remotely. Cloudflare management credentials and the maintenance password are not application sessions, and the secret-list API does not return secret values. Use an authorized real login/session; never rotate, remove or weaken the signing secret just to make smoke checks pass. If authenticated acceptance cannot proceed, close and drain admission and keep cron disabled rather than treating anonymous smoke as full acceptance.
+
 Before authorizing production writes:
 
 1. Inventory every Worker binding, scheduled writer and other account writer. Close admission and stop scheduled work before draining. A closed status alone is insufficient: exercise the actual admission path and confirm it rejects new tickets. Reconcile abandoned tickets only through a separately reviewed recovery procedure; an empty ticket set is not proof that uncertain historical operations never wrote.
