@@ -4,7 +4,7 @@ import type { Env } from "./env";
 import { canonicalPublicRequest } from "./http/public-cache";
 import { publicResponse } from "./http/public-response";
 import { runScheduled } from "./scheduler";
-import { barrierControl, maintenanceUnavailable, withWriteBarrier } from "./write-barrier";
+import { barrierControl, maintenanceDocument, maintenanceUnavailable, withWriteBarrier } from "./write-barrier";
 
 export { ContentService } from "./content-service";
 export { CachedReads } from "./data/cached-reads";
@@ -13,7 +13,22 @@ export { WriteBarrier } from "./write-barrier";
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
-    if (new URL(request.url).pathname === "/api/v1/maintenance") return barrierControl(request, env);
+    const pathname = new URL(request.url).pathname;
+    if (pathname === "/api/v1/maintenance") return barrierControl(request, env);
+    // Build assets are served exclusively by the static binding, never by R2.
+    if (pathname.startsWith("/assets/") && (request.method === "GET" || request.method === "HEAD")) {
+      return env.ASSETS ? env.ASSETS.fetch(request) : new Response("Not found", { status: 404 });
+    }
+    const unavailable = () => {
+      const isApplicationRoute =
+        pathname === "/api" ||
+        pathname.startsWith("/api/") ||
+        pathname === "/client" ||
+        pathname.startsWith("/client/");
+      const isDocument =
+        request.headers.get("sec-fetch-dest") === "document" || request.headers.get("accept")?.includes("text/html");
+      return !isApplicationRoute && isDocument ? maintenanceDocument() : maintenanceUnavailable();
+    };
     const pending: Promise<{ error?: unknown }>[] = [];
     const guardedContext = new Proxy(ctx, {
       get(target, property) {
@@ -48,11 +63,11 @@ export default {
       }
     }).then(
       (result) => {
-        if (!result.admitted) respond(maintenanceUnavailable());
+        if (!result.admitted) respond(unavailable());
       },
       (error: unknown) => {
         console.error("Maintenance barrier request failed", error);
-        respond(maintenanceUnavailable());
+        respond(unavailable());
       },
     );
     ctx.waitUntil(work);
@@ -105,6 +120,13 @@ function trackResponse(response: Response): { response: Response; finished: Prom
 }
 
 async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const pathname = new URL(request.url).pathname;
+  if (
+    (request.method === "GET" || request.method === "HEAD") &&
+    (pathname === "/" || pathname === "/index.html" || pathname === "/favicon.svg" || pathname === "/discord.svg")
+  ) {
+    return env.ASSETS ? env.ASSETS.fetch(request) : new Response("Not found", { status: 404 });
+  }
   const publicRequest = canonicalPublicRequest(request);
   if (publicRequest.kind === "invalid") {
     return Response.json(
