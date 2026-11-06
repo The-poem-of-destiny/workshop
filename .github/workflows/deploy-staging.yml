@@ -24,6 +24,8 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
       HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      # PR #80 records the independently accepted staging cutover; not an application deployment baseline.
+      ACCEPTED_SCHEMA_SHA: f2491599cfb97a6405b5f73ead73227387786478
     steps:
       - name: Detect deployable changes and freshness
         id: filter
@@ -51,13 +53,29 @@ jobs:
           fi
           base="$last"
 
+          # A separately accepted cutover can be newer than the last Actions deployment.
+          # Validate ancestry before excluding its already-reconciled schema changes.
+          accepted_status="$(gh api "repos/${{ github.repository }}/compare/${ACCEPTED_SCHEMA_SHA}...${HEAD_SHA}" --jq '.status')"
+          if [[ "$accepted_status" != ahead && "$accepted_status" != identical ]]; then
+            echo "::error::Accepted staging schema checkpoint is not an ancestor of this release."
+            exit 1
+          fi
+          schema_base="$ACCEPTED_SCHEMA_SHA"
+          deployment_status="$(gh api "repos/${{ github.repository }}/compare/${ACCEPTED_SCHEMA_SHA}...${last}" --jq '.status')"
+          case "$deployment_status" in
+            ahead|identical) schema_base="$last" ;;
+            behind) ;;
+            *) echo "::error::Staging deployment and accepted schema checkpoint have diverged."; exit 1 ;;
+          esac
+
           if [ "$base" = "$HEAD_SHA" ]; then
             echo "deploy=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           files="$(gh api --paginate "repos/${{ github.repository }}/compare/${base}...${HEAD_SHA}" --jq '.files[]? | .filename, .previous_filename // empty')"
-          if printf '%s\n' "$files" | grep -Eq '^apps/worker/migrations/'; then
+          schema_files="$(gh api --paginate "repos/${{ github.repository }}/compare/${schema_base}...${HEAD_SHA}" --jq '.files[]? | .filename, .previous_filename // empty')"
+          if printf '%s\n' "$schema_files" | grep -Eq '^apps/worker/migrations/'; then
             echo "::notice::Schema migrations changed; automatic deployment is paused. Complete the separately authorized data/report migration and target binding verification before deployment."
             echo "deploy=false" >> "$GITHUB_OUTPUT"
             exit 0

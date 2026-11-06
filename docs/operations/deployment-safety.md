@@ -12,7 +12,9 @@ This runbook covers staging and production releases, D1 migration safety, backup
 | Docs/agent/CI-only change | CI runs, staging build/deploy is skipped |
 | Backup verification | Manual `verify-production-backup` workflow, read-only |
 
-Automatic staging deployment never applies D1 migrations. A comparison containing `apps/worker/migrations/` pauses build/deployment with an explicit notice, including deletions and renames. A schema-changing merge therefore does not authorize or complete a remote cutover. Prepare and verify the separately authorized database/report migration, target binding and compatible application before resuming deployment through an approved release procedure; do not bypass the guard merely to make CI green.
+Automatic staging deployment never applies D1 migrations. Schema changes since the newer of the last successful Actions deployment and the explicitly accepted staging schema checkpoint pause build/deployment, including deletions and renames. Application changes still compare against the last successful Actions deployment, so recording a schema acceptance cannot silently skip unpublished UI/API changes. The workflow rejects a checkpoint outside the release ancestry or divergent deployment history.
+
+The current checkpoint is `f2491599cfb97a6405b5f73ead73227387786478` ([PR #80](https://github.com/The-poem-of-destiny/workshop/pull/80)): the separately authorized staging cutover completed 210/210 batches, independent source/remote/schema/search reconciliation, scoped authenticated acceptance and cron restoration. This records staging acceptance only, not production authorization or complete Discord/moderation acceptance. After a future schema-changing merge, prepare and independently verify the authorized database/report migration, target binding and compatible application; advance `ACCEPTED_SCHEMA_SHA` in a protected PR with the exact accepted commit and evidence. Do not advance it merely to make CI green or remove the migration guard.
 
 ## Dependency security updates
 
