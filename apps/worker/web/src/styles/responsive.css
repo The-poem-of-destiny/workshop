@@ -57,16 +57,7 @@
   }
 }
 
-@media (max-width: 1360px) {
-  .grid.catalogue-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 1180px) {
-  .grid.catalogue-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
   .workspace,
   .admin-layout {
     grid-template-columns: 1fr;
@@ -194,9 +185,9 @@
     background-position: var(--banner-mobile-x) var(--banner-mobile-y);
     background-size: var(--banner-mobile-size);
   }
-  .grid.catalogue-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
+  .grid.catalogue-grid:not(.catalogue-list) {
+    --catalogue-gap: 8px;
+    --catalogue-half-gap: 4px;
   }
   .card-body {
     min-height: 0;
