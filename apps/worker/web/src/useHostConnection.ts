@@ -20,6 +20,7 @@ type HostConnectionOptions = Feedback & { embedded: boolean; me: MeResponse["use
 export function useHostConnection({ embedded, me, login, setError, setNotice }: HostConnectionOptions) {
   const [context, setContext] = useState<HostContext | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [converting, setConverting] = useState(false);
   const [bridge, setBridge] = useState<InstallBridge | null>(null);
   const [hostOrigin] = useState(() => {
     try {
@@ -58,6 +59,30 @@ export function useHostConnection({ embedded, me, login, setError, setNotice }: 
       setScanning(false);
     }
   }
+  async function convertLegacy(worldbooks: string[]): Promise<void> {
+    if (!bridge || converting || scanning) return;
+    setConverting(true);
+    setError(null);
+    setNotice(null);
+    let conversionError: string | null = null;
+    try {
+      const result = await bridge.convertLegacy(worldbooks);
+      setNotice(`旧格式转换完成：转换 ${result.converted} 项，跳过 ${result.skipped} 项。请检查扫描结果和跳过的内容。`);
+    } catch (reason) {
+      conversionError = `旧格式转换失败，可能已有部分写入；请检查世界书和重新扫描结果：${String(reason)}`;
+      setError(conversionError);
+    } finally {
+      try {
+        const scan = await bridge.scan();
+        setContext((previous) => (previous ? { ...previous, installationScan: scan } : previous));
+      } catch (reason) {
+        setError(
+          `${conversionError ? `${conversionError}；` : ""}转换后重新扫描失败，请手动重新扫描并检查世界书：${String(reason)}`,
+        );
+      }
+      setConverting(false);
+    }
+  }
   useEffect(() => {
     if (!hostOrigin || window.parent === window) return;
     const connection = createInstallBridge({ origin: hostOrigin, source: window.parent });
@@ -92,6 +117,8 @@ export function useHostConnection({ embedded, me, login, setError, setNotice }: 
     postToHost,
     bridge,
     scanning,
+    converting,
+    convertLegacy,
     rescanInstalls,
     ...mutations,
   };

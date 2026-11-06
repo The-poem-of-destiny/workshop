@@ -84,6 +84,8 @@ export function App() {
     postToHost,
     bridge,
     scanning,
+    converting,
+    convertLegacy,
     installing,
     rescanInstalls,
     prepareInstall,
@@ -238,7 +240,9 @@ export function App() {
             installedPending={installedPending}
             embedded={embedded}
             scanning={scanning}
-            installing={installing || installTarget !== null}
+            converting={converting}
+            convertLegacy={convertLegacy}
+            installing={installing || installTarget !== null || converting}
             rescanInstalls={rescanInstalls}
             reloadInstalledProjects={reloadInstalledProjects}
             prepareInstall={prepareInstall}

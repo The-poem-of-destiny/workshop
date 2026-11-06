@@ -63,7 +63,21 @@ export function useHostMutations({
       for (const file of payload.downloads) files[file.kind] = await api.downloadText(file.url);
       if (!currentUser.current || currentUser.current.id !== me.id) return;
       setInstanceChoice(null);
-      setInstallTarget({ title: project.title, intent: { action, instanceId, project: payload.project, files } });
+      setInstallTarget({
+        title: project.title,
+        intent: {
+          action,
+          instanceId,
+          project: {
+            ...payload.project,
+            description: project.publishedVersionId === payload.project.version ? (project.description ?? null) : null,
+            author: { id: project.author.id, name: project.author.name },
+            versionLabel:
+              project.publishedVersionId === payload.project.version ? (project.versionLabel ?? null) : null,
+          },
+          files,
+        },
+      });
     } catch (reason) {
       setError(String(reason));
     } finally {

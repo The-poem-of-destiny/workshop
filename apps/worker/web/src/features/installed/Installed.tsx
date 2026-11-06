@@ -103,6 +103,8 @@ export function Installed({
   items,
   loading,
   scanning,
+  converting,
+  onConvertLegacy,
   mutating,
   error,
   onScan,
@@ -117,6 +119,8 @@ export function Installed({
   items: InstalledItem[];
   loading: boolean;
   scanning: boolean;
+  converting: boolean;
+  onConvertLegacy: (worldbooks: string[]) => Promise<void>;
   mutating: boolean;
   error?: string | null;
   onScan: () => void;
@@ -132,7 +136,7 @@ export function Installed({
       <header className="installed-head">
         <div>
           <h1 id="installed-title">已安装实例</h1>
-          <p className="installed-sub">同一项目可以安装多份；更新、迁移和卸载只针对你选择的实例。</p>
+          <p className="installed-sub">同一项目在每本世界书中最多安装一份；更新、迁移和卸载只针对你选择的实例。</p>
         </div>
         <Button type="button" size="sm" onClick={onScan} disabled={scanning || mutating}>
           <RefreshCcw aria-hidden="true" className={scanning ? "spin" : undefined} />
@@ -149,6 +153,26 @@ export function Installed({
           <h2>本次扫描范围</h2>
           <p>世界书：{scan.scope.worldbooks.join("、") || "无"}</p>
           <p>当前角色：{scan.scope.character ?? "未选择角色"}；正则仅扫描当前角色，其他角色未扫描，不代表没有安装。</p>
+          <p>
+            旧格式转换仅处理当前可见世界书中的工坊旧项目；有歧义或冲突的项目会跳过，不处理角色正则或其他世界书。请先备份世界书。
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={scanning || mutating || converting || scan.scope.worldbooks.length === 0}
+            onClick={() => {
+              const worldbooks = [...scan.scope.worldbooks];
+              if (
+                window.confirm(
+                  `将转换以下世界书中可安全识别的工坊旧格式：\n${worldbooks.join("、")}\n\n有歧义或冲突的项目会跳过。此操作会写入世界书，请先备份。继续吗？`,
+                )
+              ) {
+                void onConvertLegacy(worldbooks);
+              }
+            }}
+          >
+            {converting ? "转换中…" : "一键转换旧格式"}
+          </Button>
           {scan.failures.length ? (
             <>
               <h3>扫描失败（不能据此判断未安装）</h3>
