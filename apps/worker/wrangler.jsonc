@@ -48,8 +48,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "workshop-staging",
-      "database_id": "7500b5f6-21a0-4dfd-9e16-0d9a4f9de476",
+      "database_name": "workshop-staging-migrate-977ebb415bf6",
+      "database_id": "da75f6bf-1daa-40aa-b4ea-03293d8c6aac",
       "migrations_dir": "./migrations"
     }
   ],
@@ -85,8 +85,8 @@
       "d1_databases": [
         {
           "binding": "DB",
-          "database_name": "workshop-staging",
-          "database_id": "7500b5f6-21a0-4dfd-9e16-0d9a4f9de476",
+          "database_name": "workshop-staging-migrate-977ebb415bf6",
+          "database_id": "da75f6bf-1daa-40aa-b4ea-03293d8c6aac",
           "migrations_dir": "./migrations"
         }
       ],
@@ -96,7 +96,8 @@
           "bucket_name": "workshop-client-staging"
         }
       ],
-      "version_metadata": { "binding": "VERSION_METADATA" }
+      "version_metadata": { "binding": "VERSION_METADATA" },
+      "triggers": { "crons": [] }
     },
     "production": {
       "name": "workshop",
