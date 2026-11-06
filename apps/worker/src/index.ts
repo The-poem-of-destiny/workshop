@@ -17,7 +17,13 @@ export default {
     if (pathname === "/api/v1/maintenance") return barrierControl(request, env);
     // Build assets are served exclusively by the static binding, never by R2.
     if (pathname.startsWith("/assets/") && (request.method === "GET" || request.method === "HEAD")) {
-      return env.ASSETS ? env.ASSETS.fetch(request) : new Response("Not found", { status: 404 });
+      if (!env.ASSETS) return new Response("Not found", { status: 404 });
+      const response = await env.ASSETS.fetch(request);
+      if (!response.ok) return response;
+      const headers = new Headers(response.headers);
+      headers.set("cache-control", "public, max-age=31536000, immutable");
+      headers.set("x-content-type-options", "nosniff");
+      return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
     }
     const unavailable = () => {
       const isApplicationRoute =

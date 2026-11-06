@@ -89,13 +89,10 @@ describe("maintenance runtime boundaries", () => {
     await Promise.all(pending);
   });
 
-  it("serves built JavaScript without consulting the barrier or business handlers", async () => {
+  it("serves JavaScript assets without consulting the barrier or business handlers", async () => {
     const bindings = isolatedEnv();
     const assets = bindings.ASSETS!;
-    const shell = await assets.fetch(new Request("https://example.test/"));
-    const html = await shell.text();
-    const script = html.match(/<script[^>]+src="([^"]+\.js)"/i)?.[1];
-    expect(script).toBeDefined();
+    const assetUrl = "https://example.test/assets/fixture.js";
 
     const guardedBindings = {
       ...bindings,
@@ -108,14 +105,24 @@ describe("maintenance runtime boundaries", () => {
     route.mockClear();
     const { ctx, pending } = context();
     const response = await worker.fetch(
-      new Request(new URL(script!, "https://example.test")) as Parameters<typeof worker.fetch>[0],
+      new Request(assetUrl) as Parameters<typeof worker.fetch>[0],
       guardedBindings,
       ctx,
     );
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toMatch(/(?:javascript|ecmascript)/i);
-    const original = await assets.fetch(new Request(new URL(script!, "https://example.test")));
+    expect(response.headers.get("cache-control")).toContain("public");
+    expect(response.headers.get("cache-control")).toContain("max-age=31536000");
+    expect(response.headers.get("cache-control")).toContain("immutable");
+    const original = await assets.fetch(new Request(assetUrl));
     expect(await response.text()).toBe(await original.text());
+    const missing = await worker.fetch(
+      new Request("https://example.test/assets/missing.js") as Parameters<typeof worker.fetch>[0],
+      guardedBindings,
+      ctx,
+    );
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get("cache-control") ?? "").not.toContain("immutable");
     expect(route).not.toHaveBeenCalled();
     await Promise.all(pending);
   });
