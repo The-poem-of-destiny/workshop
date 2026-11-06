@@ -192,6 +192,7 @@ function onMessage(
     type?: string;
     intent: InstallIntent;
     previewId?: string;
+    worldbooks?: unknown;
     requestId?: string;
   } | null>,
 ) {
@@ -213,6 +214,7 @@ function onMessage(
   }
   const handlers: Record<string, () => unknown> = {
     "cw:scan": () => installations.scan(),
+    "cw:convert-legacy": () => installations.convertLegacy(data.worldbooks),
     "cw:preview-install": () => installations.preview(data.intent),
     "cw:confirm-install": () => installations.confirm(String(data.previewId ?? "")),
     "cw:cancel-install": () => installations.cancel(String(data.previewId ?? "")),

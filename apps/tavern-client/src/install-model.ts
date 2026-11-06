@@ -5,6 +5,7 @@ import type {
   InstallPreview,
   InstallScan,
 } from "../../../packages/contracts/src/install.js";
+import { entryIdentity } from "./workshop-yaml.js";
 export type Row = {
   [key: string]: unknown;
   uid?: number;
@@ -108,6 +109,27 @@ export function payload(row: Row): Row {
 }
 export function identity(row: Row): Identity | null {
   const content = String(row.content ?? "");
+  const yaml = entryIdentity(content);
+  if (yaml) {
+    for (const meta of [row.extra, row.extensions]) {
+      if (
+        meta?.cw_project_id &&
+        (meta.cw_project_id !== yaml.projectId ||
+          meta.cw_entry_key !== yaml.key ||
+          meta.cw_project_version !== yaml.version)
+      )
+        throw new Error("正文与原生身份冲突");
+    }
+    if (content.includes("poem-workshop-meta:")) {
+      const legacy = identity({
+        ...row,
+        content: content.replace(/<%#[\s\S]*?%>/g, (block) => (block.includes("workshop_entry") ? "" : block)),
+      });
+      if (!legacy || legacy.projectId !== yaml.projectId || legacy.key !== yaml.key || legacy.version !== yaml.version)
+        throw new Error("新旧正文身份冲突");
+    }
+    return yaml;
+  }
   let meta: Row = row.extensions?.cw_project_id ? row.extensions : (row.extra ?? row.extensions ?? {});
   if (content.includes("poem-workshop-meta:")) {
     const blocks = [...content.matchAll(/<%# poem-workshop-meta:v1-start\n([\s\S]*?)\npoem-workshop-meta:v1-end %>/g)];

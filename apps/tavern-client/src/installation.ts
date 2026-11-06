@@ -1,6 +1,7 @@
 import type { InstallInstance } from "../../../packages/contracts/src/install.js";
 import { capture, discover } from "./install-discovery.js";
 import { copy, type InstallHost, type Plan, type Row, type Snapshot, stable } from "./install-model.js";
+import { plannedBookRows } from "./install-preview.js";
 
 async function persistPending(host: InstallHost, plan: Plan, fresh: Snapshot) {
   const { old, intent, result, book, regex } = plan;
@@ -62,7 +63,6 @@ export async function applyPlan(host: InstallHost, plan: Plan, checkCancelled: (
   const source = old?.instance.location.worldbook;
   const target = result.target.worldbook;
   const expected = new Map(fresh.books);
-  const oldRows = new Set((old?.book ?? []).map((r: Row) => stable(r)));
   const oldRegex = new Set((old?.regex ?? []).map((r: Row) => stable(r)));
   const checkContext = () => {
     if (host.character() !== fresh.character || stable(host.bindings()) !== stable(fresh.bindings))
@@ -86,16 +86,12 @@ export async function applyPlan(host: InstallHost, plan: Plan, checkCancelled: (
       await host.updateBook(name, (rows) => {
         checkContext();
         if (stable(rows) !== stable(expected.get(name))) throw new Error("世界书已改变，请重新预览");
-        return [
-          ...rows.filter((row) => !(name === source && oldRows.has(stable(row)))),
-          ...(name === target ? book : []),
-        ];
+        const next = plannedBookRows(fresh, old, intent, target, book, name, rows);
+        expected.set(name, next);
+        return next;
       });
       const actual = await host.book(name);
-      const desired = [
-        ...(expected.get(name) ?? []).filter((row) => !(name === source && oldRows.has(stable(row)))),
-        ...(name === target ? book : []),
-      ];
+      const desired = expected.get(name);
       if (stable(actual) !== stable(desired)) throw new Error("状态未知：世界书写入后重读不一致，请重新扫描");
     }
     if ((old?.regex.length ?? 0) || regex.length) {

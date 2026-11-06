@@ -15,6 +15,7 @@ import {
   regexIdentity,
   type Snapshot,
 } from "./install-model.js";
+import { isIndex, readIndex } from "./workshop-yaml.js";
 
 export async function capture(host: InstallHost) {
   const names = [...host.names()].sort();
@@ -188,8 +189,17 @@ function instanceAssembler(
   const { character, records } = snapshot;
   const seenKeys = new Map<string, Set<string>>();
   function add(row: Row, id: Identity, location: InstallLocation, kind: "book" | "regex") {
+    const matchingRecords = Object.entries(records).filter(
+      ([, record]) =>
+        kind === "book" &&
+        record.instance.projectId === id.projectId &&
+        record.instance.location.worldbook === location.worldbook,
+    );
+    if (!id.instanceId && matchingRecords.length > 1)
+      suspect(location.worldbook!, "项目存在多个归属记录", { book: location.worldbook! });
     const instanceId =
       id.instanceId ??
+      (matchingRecords.length === 1 ? matchingRecords[0]![0] : undefined) ??
       `legacy:${encodeURIComponent(id.projectId)}:${kind}:${encodeURIComponent(location.worldbook ?? location.character ?? "")}`;
     let group = groups.get(instanceId);
     if (!group) {
@@ -224,6 +234,7 @@ function instanceAssembler(
         );
       }
       old.location = copy(remembered.location);
+      old.source = remembered.source;
     }
     const keySet = seenKeys.get(`${instanceId}:${kind}`) ?? new Set<string>();
     const duplicate = keySet.has(id.key);
@@ -248,6 +259,28 @@ function instanceAssembler(
   }
   return add;
 }
+function conflictingBookIdentities(row: Row): boolean {
+  // Keep legacy identity precedence for reading, but never rewrite a row whose
+  // independent identity carriers disagree: conversion removes old carriers.
+  const body = identity({ content: row.content });
+  const carriers = [
+    body && {
+      cw_project_id: body.projectId,
+      cw_project_version: body.version,
+      cw_entry_key: body.key,
+      cw_instance_id: body.instanceId,
+    },
+    row.extra,
+    row.extensions,
+  ].filter((carrier): carrier is Row => !!carrier);
+  for (const key of ["cw_project_id", "cw_project_version", "cw_entry_key", "cw_instance_id"] as const) {
+    const values = new Set(
+      carriers.map((carrier) => carrier[key]).filter((value) => value !== undefined && value !== null && value !== ""),
+    );
+    if (values.size > 1) return true;
+  }
+  return false;
+}
 export function discover(snapshot: Snapshot): Discovery {
   const { books, character } = snapshot;
   const ambiguous: InstallScan["ambiguous"] = [];
@@ -260,17 +293,38 @@ export function discover(snapshot: Snapshot): Discovery {
     ambiguous.push({ location, reason, guidance });
   };
   const add = instanceAssembler(snapshot, groups, suspect);
-  for (const [name, rows] of books)
+  for (const [name, rows] of books) {
+    try {
+      readIndex(rows);
+    } catch (error) {
+      suspect(name, String(error), { book: name });
+    }
     for (const [index, row] of rows.entries()) {
-      if (String(row.content ?? "").startsWith(MANIFEST)) continue;
+      if (isIndex(row) || String(row.content ?? "").startsWith(MANIFEST)) continue;
       try {
         const id = identity(row);
+        if (conflictingBookIdentities(row))
+          suspect(`${name} / ${row.uid ?? index}`, "条目的身份载体相互冲突", { book: name });
         if (id) add(row, id, { worldbook: name, character: null }, "book");
       } catch (error) {
         suspect(`${name} / ${row.uid ?? index}`, String(error), { book: name });
       }
     }
+  }
   discoverRegex(snapshot, add, suspect);
+  const bookProjects = new Map<string, string>();
+  for (const [id, group] of groups) {
+    const name = group.instance.location.worldbook;
+    if (!name || !group.book.length) continue;
+    const key = JSON.stringify([name, group.instance.projectId]);
+    const previous = bookProjects.get(key);
+    if (previous && previous !== id) {
+      group.invalid = true;
+      const other = groups.get(previous);
+      if (other) other.invalid = true;
+      suspect(name, "同一世界书中存在重复项目实例", { book: name });
+    } else bookProjects.set(key, id);
+  }
   const clearedPending = finalizeGroups(snapshot, groups, ambiguous, suspect);
   return {
     clearedPending,
