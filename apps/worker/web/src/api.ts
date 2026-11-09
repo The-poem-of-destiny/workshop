@@ -36,6 +36,7 @@ import type {
   UploadResponse,
 } from "@workshop/contracts";
 import { projectBatchQuerySchema, projectBatchResponseSchema } from "@workshop/contracts";
+import { newId } from "./lib/newId";
 
 export type {
   AdminAuditEvent,
@@ -411,7 +412,7 @@ export const api = {
     const params = new URLSearchParams(location.search);
     const version = params.get("clientVersion");
     const channel = params.get("clientChannel");
-    const headers: Record<string, string> = { "Idempotency-Key": crypto.randomUUID() };
+    const headers: Record<string, string> = { "Idempotency-Key": newId() };
     if (version) headers["x-client-version"] = version;
     if (channel === "stable" || channel === "staging") headers["x-client-channel"] = channel;
     return requestJson<AcquisitionPayload>(`/api/v1/projects/${encodeURIComponent(projectId)}/acquisitions`, {
@@ -427,7 +428,7 @@ export const api = {
   downloads: (projectId: string) =>
     requestJson<{ versionId: string; files: { kind: string; url: string }[] }>(
       `/api/v1/projects/${encodeURIComponent(projectId)}/downloads`,
-      { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } },
+      { method: "POST", headers: { "Idempotency-Key": newId() } },
     ),
   downloadFile: async (url: string) => {
     const response = await fetch(url, { headers: authHeaders() });
