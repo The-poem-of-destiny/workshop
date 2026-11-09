@@ -40,6 +40,14 @@ Work starts from refreshed `origin/main`, never from the local worktree HEAD alo
 - Generated output (`.wrangler/`, `web/dist/`, `tavern-client/dist/`, `data_backup/`) is excluded from Git and never maintained by hand.
 - Do not reintroduce the deleted legacy entry points (`cloudflare/`, old `src/`, `util/`, old `config/`, `test-dist/` or the old webpack chain).
 
+## Local Python tooling
+
+- Never install Python dependencies into the system, user-site or ambient assistant Python environment; do not use bare `pip`, `%pip` or automatic package-install helpers.
+- Use `uv` exclusively to create and manage a reusable local virtual environment at `.local/python/.venv`. Reuse it across tasks; create it only when absent, and install only dependencies needed for the current work.
+- Run Python tooling with that environment's interpreter. Install dependencies through `uv pip install --python .local/python/.venv/bin/python`; never fall back to an ambient installation if `uv` is unavailable.
+- Keep the entire tooling environment under the Git-ignored `.local/python/`, including installed packages, caches, dependency manifests (if needed), and lockfiles. None of these belong in Git. Set `UV_CACHE_DIR=.local/python/cache` for local `uv` operations.
+- This exclusion applies to local Python tooling only; retain the repository's existing tracked JavaScript package manifests and `pnpm-lock.yaml`.
+
 ## Build and verification
 
 Root (pnpm):
