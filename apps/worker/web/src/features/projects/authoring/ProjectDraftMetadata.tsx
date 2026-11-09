@@ -49,7 +49,6 @@ export function ProjectDraftMetadata({
         <h3>基本资料</h3>
         {input("title", "标题")}
         {input("description", "简介", true)}
-        {input("authorNote", "作者说明", true)}
         <RequirementsEditor
           value={form.requirements}
           disabled={disabled}

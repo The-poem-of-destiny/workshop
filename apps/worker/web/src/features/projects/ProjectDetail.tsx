@@ -300,12 +300,6 @@ export function ProjectDetail({
                   <p className="detail-description-empty">暂无项目介绍。</p>
                 )}
               </section>
-              {detail?.authorNote?.trim() ? (
-                <section className="detail-section">
-                  <h3>作者说明</h3>
-                  <Markdown text={detail.authorNote} />
-                </section>
-              ) : null}
               {detail?.requirements ? <ProjectRequirements value={detail.requirements} /> : null}
               {detail ? (
                 <ProjectSourcePreview

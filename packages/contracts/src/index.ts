@@ -9,6 +9,7 @@ export * from "./identity.js";
 export * from "./install.js";
 export * from "./projects.js";
 export * from "./recommendation-batches.js";
+export * from "./recommendation-metadata.js";
 export * from "./recommendations.js";
 export * from "./release.js";
 export * from "./requirements.js";

@@ -276,7 +276,7 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
 
 ### D-30 元数据检查
 
-- **范围**：创建/修改项目时，检查 title、description、version label、tags/taxonomy、`author_note`、Discord URL、兼容性备注、封面表现（位置/缩放）与封面文件本身。
+- **范围**：创建/修改项目时，检查 title、description、version label、tags/taxonomy、Discord URL、兼容性备注、封面表现（位置/缩放）与封面文件本身。
 - **位置**：Worker 内同步执行（元数据小，不进 DO）；封面只验 MIME、大小、尺寸，不解码大图。
 - **结果**：
   - `pass`：直接生效；
@@ -309,7 +309,7 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
 - “已安装/待更新”用 Tavern client 本地状态（D-29），无需登录。
 - 点作者名进入该作者的筛选列表，不做作者主页。
 - 我的项目/我的订阅从 header 用户菜单进入，复用列表组件。
-- 作者一句话介绍为项目级字段 `author_note`，卡片与详情复用；不设作者级 bio。
+- 卡片与详情展示项目简介；项目级作者备注已移除，不设作者级 bio。
 - 分页 24/页、顺序翻页，只显示 X–Y，不显示总数（D-27）。
 
 ### D-33 迁移、抽查与分发定稿

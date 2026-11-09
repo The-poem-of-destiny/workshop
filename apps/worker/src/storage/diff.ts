@@ -257,7 +257,6 @@ export async function getSubmissionDiff(
   for (const key of [
     "title",
     "description",
-    "author_note",
     "project_type",
     "extension_type",
     "tags",

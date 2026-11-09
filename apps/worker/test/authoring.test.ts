@@ -803,7 +803,6 @@ describe("authoring write paths", () => {
     expect(mine.find((item) => item.project.id === project.project.id)).toMatchObject({
       project: { publishedVersionId: null },
       requirements: { schemaVersion: 1, dependencies: [], conflicts: [], notes: "注意" },
-      authorNote: null,
     });
 
     const blocked = await request(`/${project.project.id}`, {
@@ -975,5 +974,43 @@ describe("authoring write paths", () => {
       body: JSON.stringify({ gate: "warn" }),
     });
     expect(validSubmit.status).toBe(201);
+  });
+  it("round-trips recommended pairings beside hard dependencies", async () => {
+    const requirements = {
+      schemaVersion: 1,
+      dependencies: [{ kind: "project", projectId: "core-set" }],
+      conflicts: [],
+      recommended: [
+        { target: { kind: "project", projectId: "art-pack" }, note: "封面与立绘来自这套" },
+        { target: { kind: "external", text: "任意第三方世界书美术包" } },
+      ],
+      notes: "",
+    };
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "建议搭配", requirements }),
+    });
+    expect(created.status).toBe(201);
+    const project = (await created.json()) as { project: { id: string } };
+    const session: Session = {
+      userId: "author",
+      role: "member",
+      sessionVersion: 1,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    };
+    const mine = await listAuthorProjects(bindings.DB, session);
+    expect(mine.find((item) => item.project.id === project.project.id)?.requirements).toEqual(requirements);
+
+    const tooLong = await request(`/${project.project.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "if-match": "1" },
+      body: JSON.stringify({
+        requirements: {
+          ...requirements,
+          recommended: [{ target: { kind: "external", text: "x" }, note: "y".repeat(301) }],
+        },
+      }),
+    });
+    expect(tooLong.status).toBe(400);
   });
 });

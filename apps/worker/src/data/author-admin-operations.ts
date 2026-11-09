@@ -354,7 +354,6 @@ async function authorAdminEditMetadata(
   const metadata = inspectProjectMetadata({
     title: input.title ?? project.title,
     description: input.description !== undefined ? input.description : project.description,
-    authorNote: input.authorNote !== undefined ? input.authorNote : project.author_note,
     requirements: input.requirements !== undefined ? input.requirements : parseRequirements(project.requirements),
     versionLabel: input.versionLabel !== undefined ? input.versionLabel : project.version_label,
     tags: input.tags,

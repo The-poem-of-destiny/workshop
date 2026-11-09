@@ -11,7 +11,6 @@ interface ProjectRow {
   id: string;
   title: string;
   description: string | null;
-  author_note: string | null;
   project_type: string | null;
   extension_type: string | null;
   visibility: "public" | "private";
@@ -43,7 +42,7 @@ const PUBLIC_UPDATED_AT = "COALESCE(p.published_updated_at, p.published_at, r.cr
 
 const SELECT_PROJECT = `
   SELECT
-    p.id, r.title, r.description, r.author_note, r.project_type, r.extension_type,
+    p.id, r.title, r.description, r.project_type, r.extension_type,
     p.visibility, p.published_at, ${PUBLIC_UPDATED_AT} AS updated_at, p.published_version_id,
     p.downloads_count, p.likes_count, p.subscriptions_count,
     u.id AS author_id,
@@ -139,7 +138,6 @@ function toSummary(row: ProjectRow): ProjectSummary {
       regex: row.regex_count,
     },
     schemaVersion: row.schema_version,
-    authorNote: row.author_note,
     discordThreadUrl: row.discord_thread_url,
     versionLabel: row.version_label,
     coverPositionX: row.cover_position_x,
@@ -162,7 +160,6 @@ function toSummary(row: ProjectRow): ProjectSummary {
 function toDetail(row: ProjectRow): ProjectDetail {
   return {
     ...toSummary(row),
-    authorNote: row.author_note,
     requirements: parseRequirements(row.requirements),
     discordThreadUrl: row.discord_thread_url,
   };

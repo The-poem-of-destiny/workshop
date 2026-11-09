@@ -97,13 +97,6 @@ export function ReviewEvidence({
               <p className="review-eyebrow">SUBMISSION #{detail.version.versionNo}</p>
               <h2>{detail.version.title}</h2>
               <p className="review-description">{detail.version.description || "未提供项目描述。"}</p>
-              {detail.version.authorNote ? (
-                <div className="review-author-note">
-                  <strong>作者备注</strong>
-                  <p>{detail.version.authorNote}</p>
-                  <small>提交者提供，仅作参考。</small>
-                </div>
-              ) : null}
             </div>
             <div className="review-submission-id">
               <span>提交 ID</span>

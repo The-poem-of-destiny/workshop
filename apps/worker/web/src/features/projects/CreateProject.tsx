@@ -10,7 +10,6 @@ import { EXTENSION_TYPES, metadataPayload, PROJECT_TYPES, type ProjectForm } fro
 const emptyForm: ProjectForm = {
   title: "",
   description: "",
-  authorNote: "",
   requirements: { schemaVersion: 1, dependencies: [], conflicts: [], notes: "" },
   versionLabel: "",
   projectType: "事件",
@@ -181,15 +180,6 @@ export function CreateProject({
             value={form.description}
             disabled={busy}
             onChange={(event) => update("description", event.target.value)}
-          />
-        </label>
-        <label htmlFor="create-author-note">
-          作者说明
-          <Textarea
-            id="create-author-note"
-            value={form.authorNote}
-            disabled={busy}
-            onChange={(event) => update("authorNote", event.target.value)}
           />
         </label>
         <RequirementsEditor

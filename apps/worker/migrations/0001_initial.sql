@@ -162,7 +162,6 @@ CREATE TABLE "project_versions" (
   version_no INTEGER NOT NULL,
   title TEXT NOT NULL,
   description TEXT,
-  author_note TEXT,
   project_type TEXT,
   extension_type TEXT,
   tags TEXT NOT NULL DEFAULT '[]',

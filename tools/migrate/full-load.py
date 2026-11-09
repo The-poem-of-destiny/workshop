@@ -83,7 +83,7 @@ def version_id(source_id):
 
 
 def source_metadata(row):
-    return (row.get("name"), row.get("description"), None, row.get("project_type"),
+    return (row.get("name"), row.get("description"), row.get("project_type"),
             row.get("extension_type"), row.get("version_label") or row.get("version"),
             stable({"schemaVersion": 1, "dependencies": [], "conflicts": [], "notes": row["precautions"]}) if row.get("precautions") is not None else None,
             row.get("cover_position_x"), row.get("cover_position_y"),
@@ -92,7 +92,7 @@ def source_metadata(row):
 
 def candidate_metadata(row):
     return tuple(row.get(field) for field in (
-        "title", "description", "author_note", "project_type", "extension_type", "version_label",
+        "title", "description", "project_type", "extension_type", "version_label",
         "requirements", "cover_position_x", "cover_position_y", "cover_zoom"))
 
 

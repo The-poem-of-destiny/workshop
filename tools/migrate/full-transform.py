@@ -287,7 +287,7 @@ def main():
             issue("projects", pub, "published timestamp is not present in source")
         mapped_tags = {str(v["id"]): project_tags(v) for v in ordered}
         def common(v):
-            return {"title": v["name"], "description": v.get("description"), "author_note": None,
+            return {"title": v["name"], "description": v.get("description"),
                     "project_type": v.get("project_type"), "extension_type": v.get("extension_type"),
                     "version_label": v.get("version_label") or v.get("version"),
                     "requirements": stable({"schemaVersion": 1, "dependencies": [], "conflicts": [], "notes": v["precautions"]}) if v.get("precautions") is not None else None,
