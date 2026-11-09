@@ -64,7 +64,7 @@ it("excludes self endorsements and stops displaying withdrawn comments immediate
   });
   let run = await readRecommendationBatch(bindings.DB, Date.parse(now));
   expect(run?.items[0]?.contributions.endorsements).toBe(0);
-  expect(run?.items[0]?.recommendationComment).toBeNull();
+  expect(run?.items[0]?.recommendations).toEqual([]);
   await request("player", "v1", "player comment");
   // Keep the fixture endorsement within the frozen calculation's freshness window.
   await bindings.DB.prepare("UPDATE recommendations SET updated_at=?").bind(now).run();
@@ -74,7 +74,13 @@ it("excludes self endorsements and stops displaying withdrawn comments immediate
   });
   run = await readRecommendationBatch(bindings.DB, Date.parse(now));
   expect(run?.items[0]?.contributions.endorsements).toBeGreaterThan(0);
-  expect(run?.items[0]?.recommendationComment).toBe("player comment");
+  expect(run?.items[0]?.recommendations).toEqual([
+    expect.objectContaining({
+      curator: { id: "player", name: "player", avatarUrl: null },
+      comment: "player comment",
+      projectVersionId: "v1",
+    }),
+  ]);
   await request("player", "v1", "", "DELETE");
-  expect((await readRecommendationBatch(bindings.DB, Date.parse(now)))?.items[0]?.recommendationComment).toBeNull();
+  expect((await readRecommendationBatch(bindings.DB, Date.parse(now)))?.items[0]?.recommendations).toEqual([]);
 });

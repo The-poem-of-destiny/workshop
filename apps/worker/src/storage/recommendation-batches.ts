@@ -1,4 +1,8 @@
-import { type RecommendationBatchResult, recommendationBatchResultSchema } from "@workshop/contracts";
+import {
+  type RecommendationBatchResult,
+  type RecommendationMetadata,
+  recommendationBatchResultSchema,
+} from "@workshop/contracts";
 import { type RecommendationCandidate, selectRecommendations } from "@workshop/domain";
 import { FIXED_TRAFFIC_PROFILE } from "../traffic-profile.js";
 import { getPublishedProjectsByIds } from "./projects.js";
@@ -26,13 +30,17 @@ interface EndorsementRow {
   curator_id: string;
   comment: string;
   updated_at: string;
+  curator_name: string;
+  curator_avatar: string | null;
 }
 async function endorsementSnapshot(db: D1Database, now: number, projectIds?: string[]) {
   if (projectIds?.length === 0) return new Map<string, EndorsementRow[]>();
   const scope = projectIds ? ` AND rec.project_id IN (${projectIds.map(() => "?").join(",")})` : "";
   const rows = await db
-    .prepare(`SELECT rec.id,rec.project_id,rec.project_version_id,rec.curator_id,rec.comment,rec.created_at AS updated_at
-    FROM recommendations rec JOIN projects p ON p.id=rec.project_id AND p.published_version_id=rec.project_version_id
+    .prepare(`SELECT rec.id,rec.project_id,rec.project_version_id,rec.curator_id,rec.comment,rec.created_at AS updated_at,
+    COALESCE(u.global_name,u.username) AS curator_name,u.avatar AS curator_avatar
+    FROM recommendations rec JOIN users u ON u.id=rec.curator_id
+    JOIN projects p ON p.id=rec.project_id AND p.published_version_id=rec.project_version_id
     WHERE p.visibility='public' AND p.deleted_at IS NULL AND rec.curator_id<>p.author_id AND rec.created_at>=?
     ${scope} ORDER BY rec.id LIMIT 50001`)
     .bind(new Date(now - 90 * DAY_MS).toISOString(), ...(projectIds ?? []))
@@ -230,14 +238,31 @@ export async function readRecommendationBatch(db: D1Database, now = Date.now()) 
     displayEndAt: row.display_end_at,
     items: result.items.flatMap((item) => {
       const project = projects.get(item.project_id);
-      const valid = (currentEndorsements.get(item.project_id) ?? []).filter(
-        (rec) => rec.project_version_id === item.project_version_id && rec.comment.trim(),
+      if (
+        project?.publishedVersionId !== item.project_version_id ||
+        eligibleVersions.get(item.project_id) !== item.project_version_id
+      )
+        return [];
+      const recommendations = (currentEndorsements.get(item.project_id) ?? []).flatMap(
+        (rec): RecommendationMetadata[] =>
+          rec.project_version_id === item.project_version_id && rec.comment.trim()
+            ? [
+                {
+                  id: rec.id,
+                  curator: {
+                    id: rec.curator_id,
+                    name: rec.curator_name,
+                    avatarUrl: rec.curator_avatar
+                      ? `https://cdn.discordapp.com/avatars/${rec.curator_id}/${rec.curator_avatar}.png`
+                      : null,
+                  },
+                  comment: rec.comment,
+                  projectVersionId: rec.project_version_id,
+                },
+              ]
+            : [],
       );
-      const comment = valid.length ? valid[Math.floor(Math.random() * valid.length)]!.comment : null;
-      return project?.publishedVersionId === item.project_version_id &&
-        eligibleVersions.get(item.project_id) === item.project_version_id
-        ? [{ ...item, project, recommendationComment: comment }]
-        : [];
+      return [{ ...item, project, recommendations }];
     }),
   };
 }

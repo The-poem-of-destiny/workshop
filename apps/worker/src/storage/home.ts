@@ -103,7 +103,7 @@ export async function getDiscovery(db: D1Database) {
   return {
     batchId: batch?.batchId ?? null,
     scheduledAt: batch?.scheduledAt ?? null,
-    items: batch?.items.map((item) => ({ ...item.project, recommendationComment: item.recommendationComment })) ?? [],
+    items: batch?.items.map((item) => ({ ...item.project, recommendations: item.recommendations })) ?? [],
   };
 }
 
