@@ -55,13 +55,13 @@ async function seedImported(workingNo = 7, publishedNo = workingNo) {
   const { project, workingVersionId } = (await created.json()) as { project: { id: string }; workingVersionId: string };
   const publishedId = workingNo === publishedNo ? workingVersionId : crypto.randomUUID();
   await bindings.DB.prepare(
-    "UPDATE project_versions SET version_no = ?, description = NULL, author_note = NULL, project_type = NULL, extension_type = NULL, version_label = NULL WHERE id = ?",
+    "UPDATE project_versions SET version_no = ?, description = NULL, project_type = NULL, extension_type = NULL, version_label = NULL WHERE id = ?",
   )
     .bind(workingNo, workingVersionId)
     .run();
   if (publishedId !== workingVersionId) {
-    await bindings.DB.prepare(`INSERT INTO project_versions (id, project_id, version_no, title, description, author_note, tags, created_by, created_at)
-      VALUES (?, ?, ?, 'Published', 'Published description', 'Published note', '[]', ?, ?)`)
+    await bindings.DB.prepare(`INSERT INTO project_versions (id, project_id, version_no, title, description, tags, created_by, created_at)
+      VALUES (?, ?, ?, 'Published', 'Published description', '[]', ?, ?)`)
       .bind(publishedId, project.id, publishedNo, session.userId, now)
       .run();
   }
@@ -111,7 +111,7 @@ describe("imported publication authoring", () => {
     const version = await bindings.DB.prepare("SELECT * FROM project_versions WHERE id = ?").bind(publishedId).first();
     const asset = await bindings.DB.prepare("SELECT * FROM assets WHERE version_id = ?").bind(publishedId).first();
     expect((await request(`/${projectId}`, metadata("PATCH", 1, { title: "Changed" }))).status).toBe(409);
-    await expect(patchProject(bindings.DB, session, projectId, 1, { authorNote: "Changed" })).resolves.toBeNull();
+    await expect(patchProject(bindings.DB, session, projectId, 1, { description: "Changed" })).resolves.toBeNull();
     expect(
       (await request(`/${projectId}/versions/${publishedId}/files/worldbook`, upload(replacement, 1))).status,
     ).toBe(404);
@@ -144,7 +144,9 @@ describe("imported publication authoring", () => {
     expect(created.status).toBe(201);
     const successor = (await created.json()) as { versionId: string; rowVersion: number };
     expect(successor.rowVersion).toBe(2);
-    expect((await request(`/${projectId}`, metadata("PATCH", 2, { authorNote: "Working note" }))).status).toBe(200);
+    expect((await request(`/${projectId}`, metadata("PATCH", 2, { description: "Working description" }))).status).toBe(
+      200,
+    );
     expect(
       (await request(`/${projectId}/versions/${successor.versionId}/files/worldbook`, upload(replacement, 3))).status,
     ).toBe(200);
@@ -183,7 +185,6 @@ describe("imported publication authoring", () => {
     const { projectId } = await seedImported(3, 9);
     const expected = {
       description: null,
-      authorNote: null,
       projectType: null,
       extensionType: null,
       versionLabel: null,

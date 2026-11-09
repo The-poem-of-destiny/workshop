@@ -107,7 +107,6 @@ export const adminSubmissionDetailSchema = z.object({
     versionNo: z.number().int(),
     title: z.string(),
     description: z.string().nullable(),
-    authorNote: z.string().nullable(),
     projectType: z.string().nullable(),
     extensionType: z.string().nullable(),
     searchTags: jsonValueSchema,

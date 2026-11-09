@@ -53,7 +53,7 @@ export function ProjectCard({
     event.currentTarget.removeAttribute("style");
   }
   const open = (event: MouseEvent<HTMLElement>): void => onOpen(project, event.currentTarget);
-  const preview = project.authorNote?.trim() || project.description?.trim() || "暂无文字简介";
+  const preview = project.description?.trim() || "暂无文字简介";
   const dateMeta = (
     <div className="card-dates">
       <span title="更新">

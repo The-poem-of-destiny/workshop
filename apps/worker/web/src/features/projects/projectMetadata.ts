@@ -6,7 +6,6 @@ export { EXTENSION_TYPES, PROJECT_TYPES } from "@workshop/domain";
 export interface ProjectForm {
   title: string;
   description: string;
-  authorNote: string;
   requirements: Requirements;
   versionLabel: string;
   projectType: string;
@@ -23,7 +22,6 @@ export function projectForm(project: ProjectSummary, entry?: AuthorProject): Pro
   return {
     title: project.title,
     description: project.description ?? "",
-    authorNote: entry?.authorNote ?? project.authorNote ?? "",
     requirements: entry?.requirements ?? { schemaVersion: 1, dependencies: [], conflicts: [], notes: "" },
     versionLabel: project.versionLabel ?? "",
     projectType: project.projectType ?? "",
@@ -41,7 +39,6 @@ export function metadataPayload(form: ProjectForm): Record<string, unknown> {
   return {
     title: form.title,
     description: form.description || null,
-    authorNote: form.authorNote || null,
     requirements: form.requirements,
     versionLabel: form.versionLabel || null,
     projectType: form.projectType || null,

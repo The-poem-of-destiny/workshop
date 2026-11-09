@@ -17,6 +17,7 @@ AGENTS.local.md
 .env
 .env.*
 !.env.example
+/tools/dev/load-legacy-fixture.local.json
 .dev.vars
 .dev.vars.*
 !.dev.vars.example

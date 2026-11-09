@@ -196,8 +196,7 @@ export function ProjectCommunity({
       ) : null}
       {loggedIn && interactionStatus === "unavailable" ? <p className="hint">此项目当前不可互动。</p> : null}
       <div className="rating-block">
-        <h4>我的私有评分</h4>
-        <p className="hint">评分与评论仅自己可见，不公开展示。</p>
+        <h4>我的评分备忘</h4>
         <fieldset className="rating-stars">
           <legend className="sr-only">项目评分</legend>
           {[1, 2, 3, 4, 5].map((value) => {
@@ -231,7 +230,7 @@ export function ProjectCommunity({
                 rows={3}
                 maxLength={2000}
                 value={ratingComment}
-                placeholder="可选私有评论（最多 2000 字；清空后保存会删除评论）"
+                placeholder="可写几句备注，留空保存会删除。"
                 onChange={(event) => {
                   setRatingComment(event.target.value);
                   setRatingSaved(false);

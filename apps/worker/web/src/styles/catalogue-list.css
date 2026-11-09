@@ -90,8 +90,6 @@
   margin: 12px 0;
 }
 .project-card--list .card-media-empty {
-  min-height: 0;
-  aspect-ratio: 16 / 10;
   background: var(--surface-muted);
 }
 .project-card--list .card-cover-button {

@@ -5,7 +5,6 @@ export interface ProjectAccessRow {
   author_id: string;
   title: string;
   description: string | null;
-  author_note: string | null;
   project_type: string | null;
   extension_type: string | null;
   search_tags: string;
@@ -25,7 +24,6 @@ export interface WorkingVersionRow extends ProjectAccessRow {
   version_no: number;
   version_title: string;
   version_description: string | null;
-  version_author_note: string | null;
   version_project_type: string | null;
   version_extension_type: string | null;
   version_tags: string;
@@ -61,7 +59,7 @@ export async function getAuthoringProject(
 ): Promise<ProjectAccessRow | null> {
   return db
     .prepare(`
-    SELECT p.id, p.author_id, r.title, r.description, r.author_note, r.project_type, r.extension_type,
+    SELECT p.id, p.author_id, r.title, r.description, r.project_type, r.extension_type,
       r.tags AS search_tags, p.visibility, p.working_version_id, p.published_version_id, p.row_version,
       r.version_label, r.requirements, r.cover_position_x, r.cover_position_y, r.cover_zoom,
       (COALESCE(p.published_version_id = p.working_version_id, 0)
@@ -80,11 +78,11 @@ export async function getWorkingVersion(
 ): Promise<WorkingVersionRow | null> {
   return db
     .prepare(`
-    SELECT p.id, p.author_id, r.title, r.description, r.author_note, r.project_type, r.extension_type,
+    SELECT p.id, p.author_id, r.title, r.description, r.project_type, r.extension_type,
       r.tags AS search_tags, p.visibility, p.working_version_id, p.published_version_id, p.row_version,
       r.version_label, r.requirements, r.cover_position_x, r.cover_position_y, r.cover_zoom,
       r.version_no, r.title AS version_title, r.description AS version_description,
-      r.author_note AS version_author_note, r.project_type AS version_project_type,
+      r.project_type AS version_project_type,
       r.extension_type AS version_extension_type, r.tags AS version_tags,
       r.schema_version AS version_schema_version, r.discord_thread_url AS version_discord_thread_url,
       r.version_label AS version_version_label, r.requirements AS version_requirements,
@@ -103,7 +101,6 @@ export async function getWorkingVersion(
 export interface VersionValues {
   title: string;
   description: string | null;
-  authorNote: string | null;
   projectType: string | null;
   extensionType: string | null;
   schemaVersion: string | null;
@@ -120,7 +117,6 @@ export function versionValues(current: WorkingVersionRow, patch: PatchProject): 
   return {
     title: patch.title ?? current.version_title,
     description: patch.description !== undefined ? patch.description : current.version_description,
-    authorNote: patch.authorNote !== undefined ? patch.authorNote : current.version_author_note,
     projectType: patch.projectType !== undefined ? patch.projectType : current.version_project_type,
     extensionType: patch.extensionType !== undefined ? patch.extensionType : current.version_extension_type,
     schemaVersion: patch.schemaVersion !== undefined ? patch.schemaVersion : current.version_schema_version,

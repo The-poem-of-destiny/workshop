@@ -7,7 +7,6 @@ interface ProjectRow {
   author_name: string;
   title: string;
   description: string | null;
-  author_note: string | null;
   project_type: string | null;
   extension_type: string | null;
   search_tags: string;
@@ -56,7 +55,7 @@ export async function listAdminProjects(
   const result = await db
     .prepare(`
     SELECT p.id, p.author_id, COALESCE(u.global_name, u.username) AS author_name,
-           v.title, v.description, v.author_note, v.project_type, v.extension_type,
+           v.title, v.description, v.project_type, v.extension_type,
            v.tags AS search_tags, p.visibility, p.working_version_id, p.published_version_id,
            p.published_at, p.downloads_count, p.likes_count, p.subscriptions_count,
            p.row_version, p.created_at, p.updated_at, p.deleted_at
@@ -73,7 +72,6 @@ export async function listAdminProjects(
       id: row.id,
       title: row.title,
       description: row.description,
-      authorNote: row.author_note,
       projectType: row.project_type,
       extensionType: row.extension_type,
       searchTags: parseJson(row.search_tags),

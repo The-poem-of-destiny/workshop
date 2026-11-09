@@ -48,9 +48,6 @@
 .card-media {
   position: relative;
 }
-.card-media-empty {
-  min-height: 82px;
-}
 .card-version {
   min-width: 0;
   flex: 1;
@@ -95,7 +92,7 @@
   position: relative;
   display: grid;
   width: 100%;
-  aspect-ratio: 16 / 10;
+  aspect-ratio: 16 / 9;
   place-items: center;
   overflow: hidden;
   color: var(--dim);

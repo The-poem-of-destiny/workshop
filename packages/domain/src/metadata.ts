@@ -3,7 +3,6 @@ export const METADATA_CHECKER_REVISION = "metadata-v1";
 export const METADATA_LIMITS = {
   title: 200,
   description: 100_000,
-  authorNote: 100_000,
   requirementsNotes: 2_000,
   versionLabel: 80,
   tags: 100,
@@ -15,7 +14,6 @@ export const METADATA_LIMITS = {
 export interface MetadataInput {
   title: string;
   description?: string | null;
-  authorNote?: string | null;
   requirements?: { notes: string } | null;
   versionLabel?: string | null;
   tags?: string[];
@@ -45,11 +43,8 @@ export function inspectProjectMetadata(input: MetadataInput): MetadataInspection
   const findings: MetadataFinding[] = [];
   if (!input.title.trim()) add(findings, "title", "block", "标题不能为空");
   if (input.title.length > METADATA_LIMITS.title) add(findings, "title", "block", "标题过长");
-  for (const field of ["description", "authorNote"] as const) {
-    const value = input[field];
-    if (typeof value === "string" && value.length > METADATA_LIMITS[field]) {
-      add(findings, field, "block", "文本超过长度上限");
-    }
+  if (typeof input.description === "string" && input.description.length > METADATA_LIMITS.description) {
+    add(findings, "description", "block", "文本超过长度上限");
   }
   if (input.requirements && input.requirements.notes.length > METADATA_LIMITS.requirementsNotes) {
     add(findings, "requirements", "block", "依赖与冲突说明超过 2000 字符");
@@ -60,7 +55,6 @@ export function inspectProjectMetadata(input: MetadataInput): MetadataInspection
   for (const [field, value] of Object.entries({
     title: input.title,
     description: input.description,
-    authorNote: input.authorNote,
     requirements: input.requirements?.notes,
     versionLabel: input.versionLabel,
   })) {

@@ -25,7 +25,6 @@ interface ContentAsset {
 interface Metadata {
   title: string;
   description: string | null;
-  author_note: string | null;
   requirements: string | null;
   version_label: string | null;
   tags: string;
@@ -71,7 +70,7 @@ export async function contentLoadSubmission(env: ContentEnv, versionId: string) 
     .bind(versionId)
     .all<ContentAsset>();
   const files = await readFiles(env, assets.results);
-  const metadata = await env.DB.prepare(`SELECT title, description, author_note, requirements, version_label, tags,
+  const metadata = await env.DB.prepare(`SELECT title, description, requirements, version_label, tags,
     cover_position_x, cover_position_y, cover_zoom FROM project_versions WHERE id = ?`)
     .bind(versionId)
     .first<Metadata>();

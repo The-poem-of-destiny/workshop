@@ -19,6 +19,13 @@ export const requirementTargetSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("external"), text: z.string().trim().min(1).max(2000) }).strict(),
 ]);
 
+export const recommendedTargetSchema = z
+  .object({
+    target: requirementTargetSchema,
+    note: z.string().trim().max(300).optional(),
+  })
+  .strict();
+
 export const requirementsSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -26,6 +33,8 @@ export const requirementsSchema = z
     conflicts: z
       .array(z.object({ target: requirementTargetSchema, mode: z.enum(["conflict", "override"]) }).strict())
       .max(100),
+    // Optional for existing records; recommendations never block installation.
+    recommended: z.array(recommendedTargetSchema).max(50).optional(),
     notes: z.string().max(2000),
   })
   .strict();

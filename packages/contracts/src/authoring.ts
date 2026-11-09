@@ -24,7 +24,6 @@ const tagsSchema = z.array(z.string().min(1).max(100)).max(100).optional();
 export const projectMetadataSchema = z.object({
   title: z.string().trim().min(1).max(200),
   description: optionalText,
-  authorNote: optionalText,
   projectType: projectTypeSchema.nullable().optional(),
   extensionType: extensionTypeSchema.nullable().optional(),
   schemaVersion: z.string().trim().max(32).nullable().optional(),
@@ -112,7 +111,6 @@ export const authorProjectSchema = z.object({
   rowVersion: z.number().int().positive(),
   workingVersionId: z.string().nullable(),
   latestSubmission: authorSubmissionSchema.nullable(),
-  authorNote: z.string().nullable().optional(),
   requirements: requirementsSchema.nullable().optional(),
 });
 export type AuthorProject = z.infer<typeof authorProjectSchema>;

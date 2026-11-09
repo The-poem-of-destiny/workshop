@@ -167,7 +167,6 @@ export class ContentService implements DurableObject {
     const metadataReport = inspectProjectMetadata({
       title: metadata.title,
       description: metadata.description,
-      authorNote: metadata.author_note,
       requirements: metadata.requirements === null ? null : requirementsSchema.parse(JSON.parse(metadata.requirements)),
       versionLabel: metadata.version_label,
       tags: JSON.parse(metadata.tags),

@@ -42,7 +42,6 @@ interface DetailSubmissionRow extends SubmissionTargetRow {
   version_no: number;
   version_title: string;
   version_description: string | null;
-  version_author_note: string | null;
   version_project_type: string | null;
   version_extension_type: string | null;
   version_tags: string;
@@ -207,7 +206,7 @@ export async function getAdminSubmission(db: D1Database, r2: R2Bucket, id: strin
            p.visibility AS project_visibility, p.author_id AS project_author_id,
            COALESCE(u.global_name, u.username) AS project_author_name,
            r.version_no, r.title AS version_title, r.description AS version_description,
-           r.author_note AS version_author_note, r.project_type AS version_project_type,
+           r.project_type AS version_project_type,
            r.extension_type AS version_extension_type, r.tags AS version_tags,
            r.manifest_hash AS version_manifest_hash,
            r.created_at AS version_created_at
@@ -255,7 +254,6 @@ export async function getAdminSubmission(db: D1Database, r2: R2Bucket, id: strin
       versionNo: row.version_no,
       title: row.version_title,
       description: row.version_description,
-      authorNote: row.version_author_note,
       projectType: row.version_project_type,
       extensionType: row.version_extension_type,
       searchTags: parseJson(row.version_tags),

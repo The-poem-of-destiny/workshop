@@ -28,9 +28,9 @@ export default defineConfig(({ command, mode }) => ({
     proxy:
       mode === "local-preview"
         ? {
-            "/api": "http://10.125.47.40:8800",
-            "/assets": "http://10.125.47.40:8800",
-            "/client": "http://10.125.47.40:8800",
+            "/api": process.env.PREVIEW_API_ORIGIN ?? "http://127.0.0.1:8800",
+            "/assets": process.env.PREVIEW_API_ORIGIN ?? "http://127.0.0.1:8800",
+            "/client": process.env.PREVIEW_API_ORIGIN ?? "http://127.0.0.1:8800",
           }
         : undefined,
   },

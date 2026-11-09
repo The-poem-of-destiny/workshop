@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { visibilitySchema } from "./identity.js";
+import { recommendationMetadataSchema } from "./recommendation-metadata.js";
 import { requirementsSchema } from "./requirements.js";
 
 export const projectTypeSchema = z.enum(["事件", "系统核心", "角色", "扩展"]);
@@ -31,7 +32,6 @@ export const projectSummarySchema = z.object({
     regex: z.number().int().nonnegative(),
   }),
   schemaVersion: z.string().nullable(),
-  authorNote: z.string().nullable().optional(),
   discordThreadUrl: z.string().nullable().optional(),
   versionLabel: z.string().nullable().optional(),
   coverPositionX: z.number().nullable().optional(),
@@ -56,7 +56,6 @@ export const projectSummarySchema = z.object({
 export type ProjectSummary = z.infer<typeof projectSummarySchema>;
 
 export const projectDetailSchema = projectSummarySchema.extend({
-  authorNote: z.string().nullable(),
   requirements: requirementsSchema.nullable().optional(),
   discordThreadUrl: z.string().nullable(),
 });
@@ -195,7 +194,7 @@ export type ProjectEntryIndex = z.infer<typeof projectEntryIndexSchema>;
 export const discoveryResponseSchema = z.object({
   batchId: z.string().nullable(),
   scheduledAt: z.string().nullable(),
-  items: z.array(projectSummarySchema.extend({ recommendationComment: z.string().nullable() })),
+  items: z.array(projectSummarySchema.extend({ recommendations: z.array(recommendationMetadataSchema) })),
 });
 
 export type DiscoveryResponse = z.infer<typeof discoveryResponseSchema>;

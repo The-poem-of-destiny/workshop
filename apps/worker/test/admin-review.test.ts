@@ -34,9 +34,9 @@ async function seed() {
       (id, author_id, visibility, updated_at)
     VALUES ('p1', 'member', 'private', '${now}');
     INSERT INTO project_versions
-      (id, project_id, version_no, title, description, author_note, project_type, extension_type,
+      (id, project_id, version_no, title, description, project_type, extension_type,
        tags, manifest_hash, created_by, created_at)
-    VALUES ('r1', 'p1', 1, 'Submitted title', 'Submitted description', 'Submitted note', '事件', '规则',
+    VALUES ('r1', 'p1', 1, 'Submitted title', 'Submitted description', '事件', '规则',
       '["submitted"]', 'manifest-1', 'member', '${now}');
     UPDATE projects SET working_version_id = 'r1' WHERE id = 'p1';
     INSERT INTO assets (id, project_id, version_id, kind, r2_key, sha256, bytes, mime, created_at)

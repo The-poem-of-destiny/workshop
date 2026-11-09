@@ -1,17 +1,8 @@
 import { z } from "zod";
 import { projectSummarySchema } from "./projects.js";
+import { recommendationMetadataSchema } from "./recommendation-metadata.js";
 
-export const recommendationSchema = z.object({
-  id: z.string(),
-  curator: z.object({
-    id: z.string(),
-    name: z.string(),
-    avatarUrl: z.string().nullable(),
-  }),
-  comment: z.string(),
-  projectVersionId: z.string(),
-  project: projectSummarySchema,
-});
+export const recommendationSchema = recommendationMetadataSchema.extend({ project: projectSummarySchema });
 
 export type Recommendation = z.infer<typeof recommendationSchema>;
 

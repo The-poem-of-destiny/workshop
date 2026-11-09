@@ -28,7 +28,6 @@ interface SummaryRow {
   worldbook_count: number;
   regex_count: number;
   schema_version: string | null;
-  author_note: string | null;
   discord_thread_url: string | null;
   version_label: string | null;
   cover_position_x: number;
@@ -77,7 +76,6 @@ function toSummary(row: SummaryRow): ProjectSummary {
     tags: parseTags(row.tags),
     entries: { worldbook: row.worldbook_count, regex: row.regex_count },
     schemaVersion: row.schema_version,
-    authorNote: row.author_note,
     discordThreadUrl: row.discord_thread_url,
     versionLabel: row.version_label,
     coverPositionX: row.cover_position_x,
@@ -99,7 +97,7 @@ const summarySql = `
     p.subscriptions_count, u.id AS author_id, COALESCE(u.global_name, u.username) AS author_name,
     u.avatar AS author_avatar, r.tags,
     r.worldbook_count, r.regex_count,
-    r.schema_version, r.author_note,
+    r.schema_version,
     r.discord_thread_url, r.version_label,
     r.cover_position_x, r.cover_position_y, r.cover_zoom,
     (SELECT a.r2_key FROM assets a WHERE a.version_id = p.working_version_id AND a.kind = 'cover' LIMIT 1) AS cover_key,
@@ -119,7 +117,6 @@ export async function getProjectSummary(db: D1Database, projectId: string): Prom
 }
 
 interface AuthorProjectRow extends SummaryRow {
-  author_note: string | null;
   requirements: string | null;
   row_version: number;
   working_version_id: string | null;
@@ -169,7 +166,7 @@ export async function listAuthorProjects(db: D1Database, session: Session): Prom
       p.subscriptions_count, u.id AS author_id, COALESCE(u.global_name, u.username) AS author_name,
       u.avatar AS author_avatar, r.tags,
       r.worldbook_count, r.regex_count,
-      r.schema_version, r.version_label, r.author_note, r.requirements,
+      r.schema_version, r.version_label, r.requirements,
       r.cover_position_x, r.cover_position_y, r.cover_zoom, r.discord_thread_url,
       (SELECT a.r2_key FROM assets a WHERE a.version_id = p.working_version_id AND a.kind = 'cover' LIMIT 1) AS cover_key,
       COALESCE(
@@ -202,7 +199,6 @@ export async function listAuthorProjects(db: D1Database, session: Session): Prom
     rowVersion: row.row_version,
     workingVersionId: row.working_version_id,
     latestSubmission: toAuthorSubmission(row),
-    authorNote: row.author_note ?? null,
     requirements: parseRequirements(row.requirements),
   }));
 }
@@ -270,7 +266,6 @@ export async function createProject(db: D1Database, session: Session, input: Cre
   const values: VersionValues = {
     title: input.title,
     description: input.description ?? null,
-    authorNote: input.authorNote ?? null,
     projectType: input.projectType ?? null,
     extensionType: input.extensionType ?? null,
     schemaVersion: input.schemaVersion ?? null,
@@ -290,16 +285,15 @@ export async function createProject(db: D1Database, session: Session, input: Cre
       .bind(projectId, session.userId, versionId, now, now),
     db
       .prepare(`INSERT INTO project_versions
-      (id, project_id, version_no, title, description, author_note, project_type, extension_type,
+      (id, project_id, version_no, title, description, project_type, extension_type,
        schema_version, version_label, requirements, cover_position_x, cover_position_y, cover_zoom,
        discord_thread_url, tags, created_by, created_at)
-      VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .bind(
         versionId,
         projectId,
         values.title,
         values.description,
-        values.authorNote,
         values.projectType,
         values.extensionType,
         values.schemaVersion,

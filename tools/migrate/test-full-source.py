@@ -160,7 +160,7 @@ class SourceReconciliationTest(unittest.TestCase):
         working = next(row for row in data["tables"]["project_versions"]
                        if row["id"] == project["working_version_id"])
         expected = {
-            "title": "Working title", "description": "Working description", "author_note": None,
+            "title": "Working title", "description": "Working description",
             "project_type": "extension", "extension_type": "working-extension",
             "version_label": "working-2", "requirements": json.dumps({"schemaVersion":1,"dependencies":[],"conflicts":[],"notes":"Working precautions"},sort_keys=True,separators=(",",":")),
             "cover_position_x": 0.7, "cover_position_y": 0.8, "cover_zoom": 2.1,

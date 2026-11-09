@@ -47,11 +47,11 @@ async function seed() {
 
   await bindings.DB.prepare(`
     INSERT INTO project_versions
-      (id, project_id, version_no, title, description, author_note, project_type, extension_type,
+      (id, project_id, version_no, title, description, project_type, extension_type,
        tags, worldbook_count, regex_count, schema_version, discord_thread_url, created_by, created_at)
-    VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, 12, 4, '4.3', 'https://discord.com/channels/1/2', ?, ?)
+    VALUES (?, ?, 1, ?, ?, ?, ?, ?, 12, 4, '4.3', 'https://discord.com/channels/1/2', ?, ?)
   `)
-    .bind("r1", "p1", "命定之诗测试项目", "公开描述", "作者一句话", "系统核心", "规则", '["奇幻","测试"]', "u1", now)
+    .bind("r1", "p1", "命定之诗测试项目", "公开描述", "系统核心", "规则", '["奇幻","测试"]', "u1", now)
     .run();
 
   await bindings.DB.prepare(`
@@ -561,7 +561,6 @@ describe("public read path", () => {
     expect(detail.status).toBe(200);
     await expect(detail.json()).resolves.toMatchObject({
       id: "p1",
-      authorNote: "作者一句话",
       discordThreadUrl: "https://discord.com/channels/1/2",
     });
 
