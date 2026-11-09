@@ -44,7 +44,7 @@
   display: grid;
   min-width: 0;
   min-height: 0;
-  aspect-ratio: 16 / 10;
+  aspect-ratio: 16 / 9;
   place-items: center;
   overflow: hidden;
   border: 1px solid var(--border);

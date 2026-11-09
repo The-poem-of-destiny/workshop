@@ -53,6 +53,7 @@ export function ProjectMedia({
               style={
                 activeMedia.cover
                   ? {
+                      objectFit: "cover",
                       objectPosition: `${project.coverPositionX ?? 50}% ${project.coverPositionY ?? 50}%`,
                       transform: `scale(${Math.max(1, project.coverZoom ?? 1)})`,
                     }
