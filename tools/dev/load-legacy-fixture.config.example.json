@@ -1,0 +1,9 @@
+{
+  "legacyDbPath": "path/to/legacy.sqlite",
+  "r2Source": "path/to/legacy-projects",
+  "d1Path": "path/to/preview-d1.sqlite",
+  "r2MetaPath": "path/to/preview-r2-metadata.sqlite",
+  "r2BlobDir": "path/to/preview-r2-blobs",
+  "coverMaxWidth": 960,
+  "projectLimit": 200
+}
