@@ -106,7 +106,7 @@ async function seedUser(id: string, role: string) {
 async function create(): Promise<Draft> {
   const response = await author(
     "/",
-    json("POST", { title: "Published original", description: "Original description" }),
+    json("POST", { title: "Published original", projectType: "角色", description: "Original description" }),
   );
   expect(response.status).toBe(201);
   const body = (await response.json()) as { project: { id: string }; workingVersionId: string; rowVersion: number };

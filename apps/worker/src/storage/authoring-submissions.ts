@@ -42,10 +42,7 @@ function assetSnapshotCondition(versionId: string, assets: readonly VersionAsset
   };
 }
 
-function validateSubmissionContent(
-  assets: readonly VersionAssetRow[],
-  prevalidated: PrevalidatedContent,
-) {
+function validateSubmissionContent(assets: readonly VersionAssetRow[], prevalidated: PrevalidatedContent) {
   const presence: Record<ProjectEntryKind, boolean> = { worldbook: false, regex: false };
   const counts: Record<ProjectEntryKind, number> = { worldbook: 0, regex: 0 };
   let validationError = prevalidated.error;

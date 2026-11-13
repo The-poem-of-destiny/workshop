@@ -50,6 +50,7 @@ beforeEach(async () => {
   for (const statement of splitSql(seedSql)) await bindings.DB.prepare(statement).run();
   await seedSession("owner-token", "owner");
   await seedSession("reviewer-token", "reviewer");
+  await seedSession("member-token", "member");
 });
 
 describe("admin writes", () => {

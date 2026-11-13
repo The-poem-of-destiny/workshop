@@ -1,5 +1,10 @@
 import { env, SELF } from "cloudflare:test";
-import { homeResponseSchema, projectListQuerySchema, projectPreviewSchema, siteSettingsSchema } from "@workshop/contracts";
+import {
+  homeResponseSchema,
+  projectListQuerySchema,
+  projectPreviewSchema,
+  siteSettingsSchema,
+} from "@workshop/contracts";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { download } from "../src/data/download";
 import type { DataEnv } from "../src/data/env";
@@ -470,10 +475,14 @@ describe("public read path", () => {
   it("keeps the public list within a bounded rows-read budget", async () => {
     await seed();
     const meta = { rows_read: Infinity, rows_written: Infinity };
-    const page = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ limit: 24, sort: "updated" }), (value) => {
-      meta.rows_read = value.rows_read;
-      meta.rows_written = value.rows_written;
-    });
+    const page = await listPublishedProjects(
+      bindings.DB,
+      projectListQuerySchema.parse({ limit: 24, sort: "updated" }),
+      (value) => {
+        meta.rows_read = value.rows_read;
+        meta.rows_written = value.rows_written;
+      },
+    );
     expect(page.items.length).toBeGreaterThan(0);
     expect(meta.rows_read).toBeLessThan(200);
     expect(meta.rows_written).toBe(0);
@@ -505,9 +514,10 @@ describe("public read path", () => {
     const first = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ limit: 2, sort: "updated" }));
     expect(first.items.map((item) => item.id)).toEqual(["p1", "p3"]);
     expect(first.nextCursor).toBeTruthy();
-    const second = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ limit: 2,
-    sort: "updated",
-    cursor: first.nextCursor!, }));
+    const second = await listPublishedProjects(
+      bindings.DB,
+      projectListQuerySchema.parse({ limit: 2, sort: "updated", cursor: first.nextCursor! }),
+    );
     expect(second.items.map((item) => item.id)).toEqual(["p4"]);
     expect(second.nextCursor).toBeNull();
   });

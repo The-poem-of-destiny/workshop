@@ -21,7 +21,12 @@ beforeEach(async () => {
 });
 afterEach(() => vi.useRealTimers());
 
-async function project(id: string, type: ProjectType = "角色", tags = '["奇幻"]', includedTypes: readonly ProjectType[] = []) {
+async function project(
+  id: string,
+  type: ProjectType = "角色",
+  tags = '["奇幻"]',
+  includedTypes: readonly ProjectType[] = [],
+) {
   await bindings.DB.prepare(`INSERT INTO projects
     (id, author_id, visibility, published_at, updated_at)
     VALUES (?, 'u', 'public', ?, ?)`)
@@ -68,17 +73,23 @@ describe("catalog net windows on real D1", () => {
     await project("event", "事件");
     await project("core", "系统核心", '["合集"]', ["角色", "玩法"]);
     await project("content", "内容扩展");
-    const selected = await SELF.fetch("https://workshop.test/api/v1/projects?projectType=事件&projectType=角色&projectType=角色");
+    const selected = await SELF.fetch(
+      "https://workshop.test/api/v1/projects?projectType=事件&projectType=角色&projectType=角色",
+    );
     expect(selected.status).toBe(200);
     const primary = projectListResponseSchema.parse(await selected.json());
     expect(primary.items.map((item) => item.id).sort()).toEqual(["event", "role"]);
-    const contained = await SELF.fetch("https://workshop.test/api/v1/projects?projectType=角色&projectType=事件&includeContained=true");
+    const contained = await SELF.fetch(
+      "https://workshop.test/api/v1/projects?projectType=角色&projectType=事件&includeContained=true",
+    );
     expect(contained.status).toBe(200);
     const combined = projectListResponseSchema.parse(await contained.json());
     expect(combined.total).toBe(3);
     expect(combined.items.map((item) => item.id).sort()).toEqual(["core", "event", "role"]);
     expect(combined.items.find((item) => item.id === "core")).toMatchObject({
-      projectType: "系统核心", includedTypes: ["角色", "玩法"], tags: ["合集"],
+      projectType: "系统核心",
+      includedTypes: ["角色", "玩法"],
+      tags: ["合集"],
     });
     const noFilter = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ includeContained: true }));
     expect(noFilter.total).toBe(4);
@@ -97,9 +108,13 @@ describe("catalog net windows on real D1", () => {
     const body = projectListResponseSchema.parse(await response.json());
     expect(body.total).toBe(2);
     expect(body.items.map((item) => item.id).sort()).toEqual(["elf", "human"]);
-    const combined = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({
-      projectType: ["玩法", "体验优化"], tag: ["战士", "人类", "精灵/半精灵", "自定义甲", "自定义乙"],
-    }));
+    const combined = await listPublishedProjects(
+      bindings.DB,
+      projectListQuerySchema.parse({
+        projectType: ["玩法", "体验优化"],
+        tag: ["战士", "人类", "精灵/半精灵", "自定义甲", "自定义乙"],
+      }),
+    );
     expect(combined.items.map((item) => item.id)).toEqual(["human"]);
   });
 
@@ -109,7 +124,10 @@ describe("catalog net windows on real D1", () => {
     const first = await listPublishedProjects(bindings.DB, query);
     expect(first.nextCursor).not.toBeNull();
     const equivalent = projectListQuerySchema.parse({
-      limit: 1, cursor: first.nextCursor!, projectType: ["角色", "玩法", "角色"], tag: ["人类", "战士", "人类"],
+      limit: 1,
+      cursor: first.nextCursor!,
+      projectType: ["角色", "玩法", "角色"],
+      tag: ["人类", "战士", "人类"],
     });
     expect(await isValidProjectListCursor(equivalent)).toBe(true);
     expect((await listPublishedProjects(bindings.DB, equivalent)).items.map((item) => item.id)).toEqual(["b"]);
@@ -122,7 +140,7 @@ describe("catalog net windows on real D1", () => {
   });
 
   it("paginates twelve maximum-length Unicode tags within the cursor request limit", async () => {
-    const tags = Array.from({ length: 12 }, (_, index) => `${index}${"签".repeat(99)}`);
+    const tags = Array.from({ length: 12 }, (_, index) => `${index.toString().padStart(2, "0")}${"签".repeat(98)}`);
     for (const id of ["a", "b"]) await project(id, "角色", JSON.stringify(tags));
     const parameters = new URLSearchParams({ limit: "1" });
     for (const tag of tags) parameters.append("tag", tag);
@@ -191,7 +209,10 @@ describe("catalog net windows on real D1", () => {
         ).first<{ net: number }>()
       )?.net,
     ).toBe(0);
-    const page = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ limit: 10, sort: "likes", period: "7d" }));
+    const page = await listPublishedProjects(
+      bindings.DB,
+      projectListQuerySchema.parse({ limit: 10, sort: "likes", period: "7d" }),
+    );
     expect(page.items.map((item) => item.id)).toEqual(["zero", "negative"]);
     expect(page.items[1]?.counts.likes).toBe(0);
   });
@@ -208,7 +229,10 @@ describe("catalog net windows on real D1", () => {
       await event("negative", -1, asOf);
       vi.useFakeTimers({ toFake: ["Date"] });
       vi.setSystemTime(new Date(asOf));
-      const page = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ limit: 10, sort: "likes", period: `${days}d` }));
+      const page = await listPublishedProjects(
+        bindings.DB,
+        projectListQuerySchema.parse({ limit: 10, sort: "likes", period: `${days}d` }),
+      );
       expect(page.items.map((item) => item.id)).toEqual(["inside", "outside", "negative"]);
       expect(page.total).toBe(3);
     });
@@ -244,14 +268,26 @@ describe("catalog net windows on real D1", () => {
       { search: "别的" },
       { authorId: "other" },
     ]) {
-      expect(await isValidProjectListCursor(projectListQuerySchema.parse({ ...query, ...change, cursor: first.nextCursor! }))).toBe(false);
+      expect(
+        await isValidProjectListCursor(
+          projectListQuerySchema.parse({ ...query, ...change, cursor: first.nextCursor! }),
+        ),
+      ).toBe(false);
     }
-    const second = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ ...query, cursor: first.nextCursor! }));
-    const third = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ ...query, cursor: second.nextCursor! }));
+    const second = await listPublishedProjects(
+      bindings.DB,
+      projectListQuerySchema.parse({ ...query, cursor: first.nextCursor! }),
+    );
+    const third = await listPublishedProjects(
+      bindings.DB,
+      projectListQuerySchema.parse({ ...query, cursor: second.nextCursor! }),
+    );
     expect([second.total, third.total]).toEqual([5, 5]);
     expect([...first.items, ...second.items, ...third.items].map((item) => item.id)).toEqual(["a", "e", "d", "b", "c"]);
     expect(third.nextCursor).toBeNull();
-    expect((await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ ...query, tag: "不存在" }))).total).toBe(0);
+    expect(
+      (await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ ...query, tag: "不存在" }))).total,
+    ).toBe(0);
     const invalid = await SELF.fetch(
       new URL(
         `/api/v1/projects?sort=likes&period=7d&cursor=${encodeURIComponent(first.nextCursor!)}`,
@@ -273,12 +309,21 @@ describe("catalog net windows on real D1", () => {
     // A draft edit newer than either approval must not move b ahead of a.
     await bindings.DB.prepare("UPDATE projects SET updated_at = '2099-12-31T00:00:00.000Z' WHERE id = 'b'").run();
     for (const sort of ["likes", "downloads", "updated"] as const) {
-      const page = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ limit: 10, sort, period: "all" }));
+      const page = await listPublishedProjects(
+        bindings.DB,
+        projectListQuerySchema.parse({ limit: 10, sort, period: "all" }),
+      );
       expect(page.items.map((item) => item.id)).toEqual(["a", "b"]);
     }
-    const published = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ limit: 10, sort: "published" }));
+    const published = await listPublishedProjects(
+      bindings.DB,
+      projectListQuerySchema.parse({ limit: 10, sort: "published" }),
+    );
     expect(published.items.map((item) => item.id)).toEqual(["b", "a"]);
-    const updated = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ limit: 10, sort: "updated" }));
+    const updated = await listPublishedProjects(
+      bindings.DB,
+      projectListQuerySchema.parse({ limit: 10, sort: "updated" }),
+    );
     expect(updated.items.map((item) => item.updatedAt)).toEqual([
       "2026-10-26T11:00:00.000Z",
       "2026-10-26T10:00:00.000Z",
@@ -303,10 +348,14 @@ describe("catalog net windows on real D1", () => {
     vi.setSystemTime(new Date(asOf));
     let reads = Infinity;
     let writes = Infinity;
-    const page = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ limit: 2, sort: "downloads", period: "7d" }), (meta) => {
-      reads = meta.rows_read;
-      writes = meta.rows_written;
-    });
+    const page = await listPublishedProjects(
+      bindings.DB,
+      projectListQuerySchema.parse({ limit: 2, sort: "downloads", period: "7d" }),
+      (meta) => {
+        reads = meta.rows_read;
+        writes = meta.rows_written;
+      },
+    );
     expect(page.items.map((item) => item.id)).toEqual(["inside", "outside"]);
     expect(page.total).toBe(3);
     expect(reads).toBeLessThan(200);

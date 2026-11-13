@@ -1,4 +1,9 @@
-import type { AdminReviewRequest, AdminSubmissionListQuery, AdminSubmissionStatus, ProjectType } from "@workshop/contracts";
+import type {
+  AdminReviewRequest,
+  AdminSubmissionListQuery,
+  AdminSubmissionStatus,
+  ProjectType,
+} from "@workshop/contracts";
 import { parseJson } from "./admin-values.js";
 import { parseIncludedTypes } from "./authoring-model.js";
 import { readFrozenReviewReport } from "./review-reports";

@@ -175,15 +175,17 @@ interface CatalogCursor {
 }
 
 function cursorScope(query: ProjectListQuery): Promise<string> {
-  return sha256Hex(JSON.stringify([
-    query.sort,
-    query.sort === "likes" || query.sort === "downloads" ? (query.period ?? "30d") : "all",
-    query.projectType,
-    query.includeContained,
-    query.authorId ?? null,
-    query.tag,
-    query.search ?? null,
-  ]));
+  return sha256Hex(
+    JSON.stringify([
+      query.sort,
+      query.sort === "likes" || query.sort === "downloads" ? (query.period ?? "30d") : "all",
+      query.projectType,
+      query.includeContained,
+      query.authorId ?? null,
+      query.tag,
+      query.search ?? null,
+    ]),
+  );
 }
 
 function encodeCursor(cursor: CatalogCursor): string {
@@ -269,9 +271,11 @@ export async function listPublishedProjects(
   if (query.projectType.length > 0) {
     const placeholders = query.projectType.map(() => "?").join(", ");
     const primary = `r.project_type IN (${placeholders})`;
-    where.push(query.includeContained
-      ? `(${primary} OR EXISTS (SELECT 1 FROM json_each(r.included_types) WHERE value IN (${placeholders})))`
-      : primary);
+    where.push(
+      query.includeContained
+        ? `(${primary} OR EXISTS (SELECT 1 FROM json_each(r.included_types) WHERE value IN (${placeholders})))`
+        : primary,
+    );
     bindings.push(...query.projectType);
     if (query.includeContained) bindings.push(...query.projectType);
   }
@@ -283,10 +287,13 @@ export async function listPublishedProjects(
   for (const tag of query.tag) {
     const group = presetTagGroup(tag);
     const key = group === null ? `custom:${tag}` : `preset:${group}`;
-    (tagGroups[key] ??= []).push(tag);
+    tagGroups[key] ??= [];
+    tagGroups[key].push(tag);
   }
   for (const tags of Object.values(tagGroups)) {
-    where.push(`EXISTS (SELECT 1 FROM project_search_tags WHERE project_id = p.id AND tag IN (${tags.map(() => "?").join(", ")}))`);
+    where.push(
+      `EXISTS (SELECT 1 FROM project_search_tags WHERE project_id = p.id AND tag IN (${tags.map(() => "?").join(", ")}))`,
+    );
     bindings.push(...tags);
   }
   if (query.search) {
@@ -342,9 +349,7 @@ export async function listPublishedProjects(
     items: rows.map(toSummary),
     total: totalRow.total,
     nextCursor:
-      hasMore && last
-        ? encodeCursor({ scope, asOf, value: sortValue(last, query.sort, periodic), id: last.id })
-        : null,
+      hasMore && last ? encodeCursor({ scope, asOf, value: sortValue(last, query.sort, periodic), id: last.id }) : null,
   });
 }
 

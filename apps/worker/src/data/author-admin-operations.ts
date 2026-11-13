@@ -1,4 +1,9 @@
-import { type AuditAction, type ProjectType, projectEntryIndexDocumentSchema, projectTaxonomySchema } from "@workshop/contracts";
+import {
+  type AuditAction,
+  type ProjectType,
+  projectEntryIndexDocumentSchema,
+  projectTaxonomySchema,
+} from "@workshop/contracts";
 import { inspectProjectMetadata } from "@workshop/domain";
 import { fetchImmutableObject } from "../data-client.js";
 import {
@@ -349,7 +354,9 @@ async function authorAdminEditMetadata(
     return {
       kind: "invalid_metadata" as const,
       findings: taxonomy.error.issues.map((issue) => ({
-        field: issue.path.join("."), severity: "block" as const, message: issue.message,
+        field: issue.path.join("."),
+        severity: "block" as const,
+        message: issue.message,
       })),
     };
   }

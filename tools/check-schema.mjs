@@ -58,7 +58,17 @@ db.prepare(`INSERT INTO projects
 
 db.prepare(`INSERT INTO project_versions
   (id, project_id, version_no, title, description, project_type, included_types, tags, created_by, created_at)
-  VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`).run("r1", "p1", "命定之诗测试项目", "描述", "系统核心", '["角色","玩法"]', '["合集","cbz"]', "u1", now);
+  VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`).run(
+  "r1",
+  "p1",
+  "命定之诗测试项目",
+  "描述",
+  "系统核心",
+  '["角色","玩法"]',
+  '["合集","cbz"]',
+  "u1",
+  now,
+);
 db.prepare("UPDATE projects SET published_version_id='r1', working_version_id='r1' WHERE id='p1'").run();
 
 db.prepare(`INSERT INTO assets (id, project_id, version_id, kind, r2_key, sha256, bytes, mime, created_at)
@@ -118,12 +128,38 @@ for (const projectType of ["系统核心", "角色", "内容扩展", "玩法", "
 for (const value of ["NULL", "''", "'扩展'", "'未知'"]) {
   rejects(`UPDATE project_versions SET project_type=${value} WHERE id='r2'`, `invalid primary ${value} accepted`);
 }
-for (const value of ["NULL", "'not-json'", "'{}'", "'[null]'", "'[1]'", "'[\"未知\"]'", "'[\"系统核心\"]'", "'[\"体验优化\"]'", "'[\"角色\",\"角色\"]'"]) {
-  rejects(`UPDATE project_versions SET included_types=${value} WHERE id='r2'`, `invalid included types ${value} accepted`);
+for (const value of [
+  "NULL",
+  "'not-json'",
+  "'{}'",
+  "'[null]'",
+  "'[1]'",
+  "'[\"未知\"]'",
+  "'[\"系统核心\"]'",
+  "'[\"体验优化\"]'",
+  '\'["角色","角色"]\'',
+]) {
+  rejects(
+    `UPDATE project_versions SET included_types=${value} WHERE id='r2'`,
+    `invalid included types ${value} accepted`,
+  );
 }
 db.prepare("UPDATE project_versions SET included_types = ? WHERE id = 'r2'").run('["角色","内容扩展","玩法","事件"]');
-rejects("UPDATE project_versions SET project_type='角色' WHERE id='r2'", "primary change accepted an existing self inclusion");
-for (const tags of ["not-json", "{}", "[null]", "[1]", '[" "]', '["trim "]', '["a","a"]', JSON.stringify(["x".repeat(101)]), JSON.stringify(Array.from({ length: 21 }, (_, index) => `tag${index}`))]) {
+rejects(
+  "UPDATE project_versions SET project_type='角色' WHERE id='r2'",
+  "primary change accepted an existing self inclusion",
+);
+for (const tags of [
+  "not-json",
+  "{}",
+  "[null]",
+  "[1]",
+  '[" "]',
+  '["trim "]',
+  '["a","a"]',
+  JSON.stringify(["x".repeat(101)]),
+  JSON.stringify(Array.from({ length: 21 }, (_, index) => `tag${index}`)),
+]) {
   rejects(`UPDATE project_versions SET tags='${tags}' WHERE id='r2'`, `invalid tags ${tags} accepted`);
 }
 const twentyTags = Array.from({ length: 20 }, (_, index) => `tag${index}`);
@@ -132,7 +168,9 @@ const indexedTags = db.prepare("SELECT tag FROM project_search_tags WHERE projec
 if (JSON.stringify(indexedTags.map((row) => row.tag)) !== JSON.stringify(["cbz", "合集"])) {
   throw new Error(`structured taxonomy leaked into ordinary tags: ${JSON.stringify(indexedTags)}`);
 }
-const includedSearch = db.prepare("SELECT rowid FROM project_search_short WHERE project_search_short MATCH ?").all("玩 法");
+const includedSearch = db
+  .prepare("SELECT rowid FROM project_search_short WHERE project_search_short MATCH ?")
+  .all("玩 法");
 if (includedSearch.length !== 1) throw new Error("included categories were not indexed as searchable metadata");
 for (const pointer of ["working_version_id", "published_version_id"]) {
   rejects(`UPDATE projects SET ${pointer}='r2' WHERE id='p1'`, `cross-project ${pointer} accepted`);
@@ -180,4 +218,6 @@ for (const table of ["project_versions", "submissions", "project_search_tags"]) 
   if (count !== 0) throw new Error(`${table} retained orphan rows (${count})`);
 }
 
-console.log(`schema ok: ${expectedTables.length} tables, six-category taxonomy + ordinary tag integrity, FTS + short search, protected asset references`);
+console.log(
+  `schema ok: ${expectedTables.length} tables, six-category taxonomy + ordinary tag integrity, FTS + short search, protected asset references`,
+);

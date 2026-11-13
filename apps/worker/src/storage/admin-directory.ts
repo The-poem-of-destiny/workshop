@@ -1,4 +1,10 @@
-import { type AuditAction, adminAuditEventSchema, auditActionSchema, type ProjectType, serializeAuditDetail } from "@workshop/contracts";
+import {
+  type AuditAction,
+  adminAuditEventSchema,
+  auditActionSchema,
+  type ProjectType,
+  serializeAuditDetail,
+} from "@workshop/contracts";
 import { decodeCursor, encodeCursor, parseJson } from "./admin-values.js";
 import { parseIncludedTypes } from "./authoring-model.js";
 

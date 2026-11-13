@@ -6,7 +6,13 @@ import type {
   Session,
   VisibilityUpdate,
 } from "@workshop/contracts";
-import { getAuthoringProject, parseIncludedTypes, parseRequirements, parseTags, type VersionValues } from "./authoring-model.js";
+import {
+  getAuthoringProject,
+  parseIncludedTypes,
+  parseRequirements,
+  parseTags,
+  type VersionValues,
+} from "./authoring-model.js";
 
 interface SummaryRow {
   id: string;

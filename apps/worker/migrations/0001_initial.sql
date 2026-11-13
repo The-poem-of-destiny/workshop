@@ -183,12 +183,17 @@ CREATE TABLE "project_versions" (
   UNIQUE (project_id, version_no)
 );
 
+-- Validate a NUL-free JSON projection: escaped NUL becomes U+0001, preserving
+-- code-point count and trim boundaries without SQLite length() truncation.
+-- Store and compare duplicates using the original values, never this projection.
+-- The explicit trim set matches JavaScript trim(), including BOM but not U+0085.
 CREATE TRIGGER project_versions_taxonomy_insert BEFORE INSERT ON project_versions
 WHEN EXISTS(SELECT 1 FROM json_each(NEW.included_types)
     WHERE type <> 'text' OR value NOT IN ('角色','内容扩展','玩法','事件','体验优化') OR value = NEW.project_type)
   OR (SELECT COUNT(*) FROM json_each(NEW.included_types)) <> (SELECT COUNT(DISTINCT value) FROM json_each(NEW.included_types))
-  OR EXISTS(SELECT 1 FROM json_each(NEW.tags)
-    WHERE type <> 'text' OR length(trim(value)) = 0 OR value <> trim(value) OR length(value) > 100)
+  OR EXISTS(SELECT 1 FROM json_each(replace(NEW.tags, '\u0000', '\u0001'))
+    WHERE type <> 'text' OR length(value) NOT BETWEEN 1 AND 100
+      OR value <> trim(value, char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)))
   OR (SELECT COUNT(*) FROM json_each(NEW.tags)) <> (SELECT COUNT(DISTINCT value) FROM json_each(NEW.tags))
 BEGIN SELECT RAISE(ABORT,'invalid project taxonomy or tags'); END;
 
@@ -196,8 +201,9 @@ CREATE TRIGGER project_versions_taxonomy_update BEFORE UPDATE OF project_type,in
 WHEN EXISTS(SELECT 1 FROM json_each(NEW.included_types)
     WHERE type <> 'text' OR value NOT IN ('角色','内容扩展','玩法','事件','体验优化') OR value = NEW.project_type)
   OR (SELECT COUNT(*) FROM json_each(NEW.included_types)) <> (SELECT COUNT(DISTINCT value) FROM json_each(NEW.included_types))
-  OR EXISTS(SELECT 1 FROM json_each(NEW.tags)
-    WHERE type <> 'text' OR length(trim(value)) = 0 OR value <> trim(value) OR length(value) > 100)
+  OR EXISTS(SELECT 1 FROM json_each(replace(NEW.tags, '\u0000', '\u0001'))
+    WHERE type <> 'text' OR length(value) NOT BETWEEN 1 AND 100
+      OR value <> trim(value, char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)))
   OR (SELECT COUNT(*) FROM json_each(NEW.tags)) <> (SELECT COUNT(DISTINCT value) FROM json_each(NEW.tags))
 BEGIN SELECT RAISE(ABORT,'invalid project taxonomy or tags'); END;
 

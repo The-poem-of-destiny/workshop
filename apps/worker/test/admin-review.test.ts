@@ -156,7 +156,11 @@ describe("admin review and publishing", () => {
       assets: Array<Record<string, unknown>>;
     };
     expect(body.version).toMatchObject({
-      id: "r1", manifestHash: "manifest-1", projectType: "事件", includedTypes: ["玩法"], searchTags: ["submitted"],
+      id: "r1",
+      manifestHash: "manifest-1",
+      projectType: "事件",
+      includedTypes: ["玩法"],
+      searchTags: ["submitted"],
     });
     expect(body.assets).toEqual(
       expect.arrayContaining([

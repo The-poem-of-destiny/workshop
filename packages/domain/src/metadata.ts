@@ -67,8 +67,22 @@ export function inspectProjectMetadata(input: MetadataInput): MetadataInspection
 
   const tags = input.tags ?? [];
   if (tags.length > METADATA_LIMITS.tags) add(findings, "tags", "block", "标签数量过多");
-  if (tags.some((tag) => !tag.trim() || tag !== tag.trim())) add(findings, "tags", "block", "标签不能为空或包含首尾空白");
-  if (tags.some((tag) => tag.length > METADATA_LIMITS.tagLength)) add(findings, "tags", "block", "单个标签过长");
+  if (tags.some((tag) => !tag.trim() || tag !== tag.trim()))
+    add(findings, "tags", "block", "标签不能为空或包含首尾空白");
+  if (
+    tags.some((tag) => {
+      if (tag.length <= METADATA_LIMITS.tagLength) return false;
+      let codePoints = 0;
+      for (let index = 0; index < tag.length; index += 1) {
+        codePoints += 1;
+        if (codePoints > METADATA_LIMITS.tagLength) return true;
+        if (tag.codePointAt(index)! > 0xffff) index += 1;
+      }
+      return false;
+    })
+  ) {
+    add(findings, "tags", "block", "单个标签过长");
+  }
   if (new Set(tags).size !== tags.length) add(findings, "tags", "block", "存在重复标签");
 
   for (const [field, value] of [

@@ -5,8 +5,8 @@ import {
   MAX_SELECTED_TAGS,
   orderedPresetTagGroups,
   PRESET_TAG_GROUPS,
-  presetTagGroup,
   PROJECT_TYPES,
+  presetTagGroup,
   validateProjectContentPresence,
 } from "../src/index.js";
 
@@ -37,8 +37,9 @@ describe("project taxonomy vocabulary", () => {
     for (const tag of ["cbz", "hnh", "1011", "尺度", "toString", "__proto__", "自定义"]) {
       expect(presetTagGroup(tag)).toBeNull();
     }
-    expect(new Set(PRESET_TAG_GROUPS.flatMap((group) => group.tags)).size)
-      .toBe(PRESET_TAG_GROUPS.reduce((total, group) => total + group.tags.length, 0));
+    expect(new Set(PRESET_TAG_GROUPS.flatMap((group) => group.tags)).size).toBe(
+      PRESET_TAG_GROUPS.reduce((total, group) => total + group.tags.length, 0),
+    );
   });
 
   it("orders selected-category groups before common groups and retains every other group", () => {
@@ -47,6 +48,10 @@ describe("project taxonomy vocabulary", () => {
     expect(groups.slice(5, 8).map((group) => group.name)).toEqual(["组织", "势力", "组成形式"]);
     expect(groups).toHaveLength(PRESET_TAG_GROUPS.length);
     expect(new Set(groups)).toEqual(new Set(PRESET_TAG_GROUPS));
-    expect(orderedPresetTagGroups([]).slice(0, 3).map((group) => group.name)).toEqual(["组织", "势力", "组成形式"]);
+    expect(
+      orderedPresetTagGroups([])
+        .slice(0, 3)
+        .map((group) => group.name),
+    ).toEqual(["组织", "势力", "组成形式"]);
   });
 });

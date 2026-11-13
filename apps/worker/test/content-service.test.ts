@@ -22,7 +22,12 @@ async function run(submissionId: string) {
   });
 }
 
-async function seedProject(id: string, content: string, kind: ProjectEntryKind = "worldbook", projectType: ProjectType = "角色") {
+async function seedProject(
+  id: string,
+  content: string,
+  kind: ProjectEntryKind = "worldbook",
+  projectType: ProjectType = "角色",
+) {
   await bindings.DB.prepare(
     "INSERT INTO users (id, username, role, created_at, updated_at) VALUES (?, ?, 'member', ?, ?)",
   )
@@ -158,7 +163,9 @@ describe("ContentService", () => {
     const response = await run("regex-only-submission");
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ routeGate: "pass", published: true });
-    expect(await bindings.DB.prepare("SELECT published_version_id FROM projects WHERE id='regex-only'").first()).toEqual({
+    expect(
+      await bindings.DB.prepare("SELECT published_version_id FROM projects WHERE id='regex-only'").first(),
+    ).toEqual({
       published_version_id: "r-regex-only",
     });
   });
@@ -176,7 +183,11 @@ describe("ContentService", () => {
     expect(await bindings.DB.prepare("SELECT published_version_id FROM projects WHERE id='invalid'").first()).toEqual({
       published_version_id: null,
     });
-    expect(await bindings.DB.prepare("SELECT status FROM automated_reviews WHERE submission_id='invalid-submission'").first()).toEqual({
+    expect(
+      await bindings.DB.prepare(
+        "SELECT status FROM automated_reviews WHERE submission_id='invalid-submission'",
+      ).first(),
+    ).toEqual({
       status: "queued",
     });
   });

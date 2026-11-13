@@ -4,8 +4,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import { CachedReads, type ReadProps } from "../src/data/cached-reads";
 import type { DataEnv } from "../src/data/env";
-import { publicResponse } from "../src/http/public-response";
 import { canonicalPublicRequest } from "../src/http/public-cache";
+import { publicResponse } from "../src/http/public-response";
 import { applySchema } from "./support/schema";
 
 const bindings = env as unknown as DataEnv;
@@ -28,7 +28,12 @@ beforeEach(async () => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-async function publishTitle(title: string, projectType: ProjectType = "角色", includedTypes: ProjectType[] = [], tags: string[] = []): Promise<void> {
+async function publishTitle(
+  title: string,
+  projectType: ProjectType = "角色",
+  includedTypes: ProjectType[] = [],
+  tags: string[] = [],
+): Promise<void> {
   const id = crypto.randomUUID();
   await bindings.DB.batch([
     bindings.DB.prepare(`INSERT INTO project_versions
@@ -109,11 +114,18 @@ describe("Cache API read behavior", () => {
 
   it("shares canonical repeated selections while separating contained-category cache identity", async () => {
     await publishTitle("Taxonomy original", "角色", ["玩法"], ["人类", "战士"]);
-    const first = canonicalPublicRequest(new Request("https://workshop.test/api/v1/projects?projectType=事件&projectType=角色&tag=战士&tag=人类"));
-    const equivalent = canonicalPublicRequest(new Request("https://workshop.test/api/v1/projects?tag=人类&tag=战士&tag=人类&projectType=角色&projectType=事件&projectType=角色&includeContained=false"));
+    const first = canonicalPublicRequest(
+      new Request("https://workshop.test/api/v1/projects?projectType=事件&projectType=角色&tag=战士&tag=人类"),
+    );
+    const equivalent = canonicalPublicRequest(
+      new Request(
+        "https://workshop.test/api/v1/projects?tag=人类&tag=战士&tag=人类&projectType=角色&projectType=事件&projectType=角色&includeContained=false",
+      ),
+    );
     expect(first.kind).toBe("public");
     expect(equivalent.kind).toBe("public");
-    if (first.kind !== "public" || equivalent.kind !== "public") throw new Error("Expected canonical public selections");
+    if (first.kind !== "public" || equivalent.kind !== "public")
+      throw new Error("Expected canonical public selections");
     const firstUrl = new URL(first.request.url);
     const equivalentUrl = new URL(equivalent.request.url);
     expect(equivalentUrl.search).toBe(firstUrl.search);
@@ -127,11 +139,14 @@ describe("Cache API read behavior", () => {
     const containedUrl = new URL(contained.request.url);
     expect(containedUrl.search).not.toBe(firstUrl.search);
     expect(await (await read(`/public/v1${containedUrl.pathname}${containedUrl.search}`)).json()).toMatchObject({
-      items: [{ title: "Taxonomy changed" }], total: 1,
+      items: [{ title: "Taxonomy changed" }],
+      total: 1,
     });
     const onlyContained = new URLSearchParams({ includeContained: "true", projectType: "玩法" });
     expect(await (await read(`/public/v1/api/v1/projects?${onlyContained}`)).json()).toMatchObject({ total: 1 });
-    expect(await (await read(`/public/v1/api/v1/projects?${new URLSearchParams({ projectType: "玩法" })}`)).json()).toMatchObject({ total: 0 });
+    expect(
+      await (await read(`/public/v1/api/v1/projects?${new URLSearchParams({ projectType: "玩法" })}`)).json(),
+    ).toMatchObject({ total: 0 });
   });
 
   it("shares complete GET representations with HEAD in both directions", async () => {

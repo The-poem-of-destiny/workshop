@@ -113,7 +113,14 @@ export async function getHome(db: D1Database): Promise<HomeResponse> {
       siteSettingsSchema.parse({ banner, siteContent }),
     ),
     getDiscovery(db),
-    listPublishedProjects(db, { limit: 25, sort: "updated", period: "all", projectType: [], tag: [], includeContained: false }),
+    listPublishedProjects(db, {
+      limit: 25,
+      sort: "updated",
+      period: "all",
+      projectType: [],
+      tag: [],
+      includeContained: false,
+    }),
   ]);
   function section<T>(result: PromiseSettledResult<T>, message: string) {
     return result.status === "fulfilled"
