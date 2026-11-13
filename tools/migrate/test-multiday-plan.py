@@ -102,11 +102,18 @@ class MultidayPlanTest(unittest.TestCase):
                 3 if offset == 0 else -1 if offset == 1 else 0))
         self.source.write_text("\n".join(db.iterdump()) + "\n", encoding="utf-8")
         db.close()
+        taxonomy = planner.module("taxonomy_plan_test", "taxonomy.py")
+        review_path = self.root / "review.json"
+        with taxonomy.snapshot(self.source) as (source_db, source_hash):
+            review = taxonomy.review_document(source_db, source_hash, "legacy")
+        for row in review["records"]:
+            row.update(projectType="角色", includedTypes=[], reviewed=True, tagsAcknowledged=True)
+        review_path.write_text(json.dumps(review), encoding="utf-8")
         self.manifest.write_text(json.dumps({"databases": [{"name": "creative_workshop",
             "sha256": hashlib.sha256(self.source.read_bytes()).hexdigest(), "table_counts": {}}],
             "buckets": {}}), encoding="utf-8")
         transformed = subprocess.run([sys.executable, str(Path(__file__).with_name("full-transform.py")),
-            str(self.source), str(self.manifest), str(self.preparation)], capture_output=True, text=True, check=False)
+            str(self.source), str(self.manifest), str(self.preparation), "--review", str(review_path)], capture_output=True, text=True, check=False)
         self.assertEqual(transformed.returncode, 0, "synthetic source preparation failed")
         self.assertEqual(json.loads(self.preparation.read_text(encoding="utf-8"))["diagnostics"], [])
 

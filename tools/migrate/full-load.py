@@ -23,6 +23,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from taxonomy import resolve_review
+
 
 def load_validator():
     path = Path(__file__).with_name("full-validate.py")
@@ -82,9 +84,9 @@ def version_id(source_id):
     return "legacy-revision-" + hashlib.sha256(stable([source_id]).encode()).hexdigest()
 
 
-def source_metadata(row):
-    return (row.get("name"), row.get("description"), row.get("project_type"),
-            row.get("extension_type"), row.get("version_label") or row.get("version"),
+def source_metadata(row, classification):
+    return (row.get("name"), row.get("description"), classification["project_type"],
+            classification["included_types"], row.get("version_label") or row.get("version"),
             stable({"schemaVersion": 1, "dependencies": [], "conflicts": [], "notes": row["precautions"]}) if row.get("precautions") is not None else None,
             row.get("cover_position_x"), row.get("cover_position_y"),
             row.get("cover_zoom"))
@@ -92,7 +94,7 @@ def source_metadata(row):
 
 def candidate_metadata(row):
     return tuple(row.get(field) for field in (
-        "title", "description", "project_type", "extension_type", "version_label",
+        "title", "description", "project_type", "included_types", "version_label",
         "requirements", "cover_position_x", "cover_position_y", "cover_zoom"))
 
 
@@ -111,12 +113,10 @@ def source_tags(row):
             groups = [value]
         for group in groups:
             for tag in group:
-                if not isinstance(tag, str) or not tag.strip():
+                if not isinstance(tag, str):
                     raise ValueError("invalid source tag")
                 if tag not in tags:
                     tags.append(tag)
-    if len(tags) > 20:
-        raise ValueError("source tags exceed current limit")
     return stable(tags)
 
 
@@ -151,6 +151,14 @@ def source_reconcile(data, dump, manifest_path):
         for name, count in counts.items():
             if name not in names or db.execute("SELECT count(*) FROM " + quote(name)).fetchone()[0] != count:
                 raise ValueError("source table count differs from manifest")
+        review = data.get("taxonomy_review")
+        classifications = resolve_review(db, hashlib.sha256(raw).hexdigest(), review, "legacy")
+        projects_by_id = {str(row["id"]): row for row in source["projects"]}
+        for decision in review["records"]:
+            # An independent flat projection also proves review accounting was lossless.
+            row = projects_by_id[decision["id"]]
+            if json.loads(source_tags(row)) != decision["tags"]["values"]:
+                raise ValueError("legacy tag accounting differs from independent source projection")
     finally:
         db.close()
 
@@ -221,7 +229,7 @@ def source_reconcile(data, dump, manifest_path):
         for pid in {draft, published} - {None}:
             current_ids.add(pid)
             expected_revisions.append((version_id(pid), root, str(projects[pid]["author_id"]),
-                                       *source_metadata(projects[pid]), source_tags(projects[pid]),
+                                       *source_metadata(projects[pid], classifications[pid]), classifications[pid]["tags"],
                                        projects[pid].get("discord_thread_url")))
     compare("users", ((str(row["id"]), row.get("username"), row.get("global_name"),
                        row.get("avatar"), "member", row.get("created_at"), row.get("updated_at"))

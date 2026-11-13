@@ -125,7 +125,7 @@ def inputs(preparation_path, source_path, manifest_path, migrations_dir):
     # Byte-pin the utilities used to interpret source, SQL and canonical integrity.
     helpers = ["multiday-plan.py", "multiday-staging.py", "multiday-budget.py",
                "full-load.py", "full-validate.py", "d1-data.py",
-               "full-d1-import.py", "full-transform-content.mjs"]
+               "full-d1-import.py", "full-transform-content.mjs", "taxonomy.py"]
     result["utilities"] = [pin(Path(__file__).with_name(name)) for name in helpers]
     result["utilities"].append(pin(Path(__file__).resolve().parents[2] / "pnpm-lock.yaml"))
     domain = Path(__file__).resolve().parents[2] / "packages/domain/src"
@@ -357,12 +357,10 @@ def build(preparation_path, source_path, manifest_path, migrations_dir, output_d
             sqls = canonical_search_statements(search_trigger, row["id"], project_columns)
             version = next((version for version in tables.get("project_versions", []) if version["id"] == row.get("published_version_id")), {})
             tags = {tag for tag in json.loads(version.get("tags", "[]")) if isinstance(tag, str) and tag}
-            if version.get("extension_type"):
-                tags.add(version["extension_type"])
             # FTS writes internal token B-trees as well as document rows. This is
             # deliberately pessimistic, not a promise about Cloudflare billing.
             search_bytes = sum(len(str(version.get(key) or "").encode("utf-8")) for key in
-                               ("title", "project_type", "extension_type", "tags"))
+                               ("title", "project_type", "included_types", "tags"))
             author = db.execute("SELECT username,global_name FROM users WHERE id=?", (row["author_id"],)).fetchone()
             search_bytes += sum(len((part or "").encode("utf-8")) for part in author)
             search_groups.append((sqls, len(tags) + 2, 256 + 32 * len(tags) + 16 * search_bytes))

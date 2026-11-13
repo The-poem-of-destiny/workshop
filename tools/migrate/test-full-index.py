@@ -10,6 +10,8 @@ import sys
 import tempfile
 import unittest
 
+import taxonomy
+
 LOADER = Path(__file__).with_name("full-load.py")
 REVISION = "legacy-revision-a49ba8bb2e513b949be40d114a144ced7ad3852164005c4ad1878e10049b787a"
 BUCKET = "creative-workshop-projects"
@@ -31,8 +33,8 @@ class SourceIndexTest(unittest.TestCase):
         db.executescript("""
             CREATE TABLE users (id TEXT, username TEXT, global_name TEXT, avatar TEXT, created_at TEXT, updated_at TEXT);
             INSERT INTO users VALUES ('u1', 'synthetic', NULL, NULL, 't1', 't2');
-            CREATE TABLE projects (id TEXT, author_id TEXT, name TEXT, description TEXT, status TEXT, is_published INTEGER, visibility INTEGER, download_url TEXT, created_at TEXT, updated_at TEXT);
-            INSERT INTO projects VALUES ('p1', 'u1', 'Example', 'Description', 'approved', 1, 1, 'projects/p1/worldbook.json', 't1', 't2');
+            CREATE TABLE projects (id TEXT, author_id TEXT, name TEXT, description TEXT, status TEXT, is_published INTEGER, visibility INTEGER, download_url TEXT, created_at TEXT, updated_at TEXT, project_type TEXT);
+            INSERT INTO projects VALUES ('p1', 'u1', 'Example', 'Description', 'approved', 1, 1, 'projects/p1/worldbook.json', 't1', 't2', '角色');
         """)
         for table in ("project_likes", "project_subscribes", "project_ratings", "project_metric_daily",
                       "daily_random_draw_state", "devteam_recommendations", "admins", "super_admins",
@@ -56,7 +58,7 @@ class SourceIndexTest(unittest.TestCase):
                                "downloads_count": 0, "likes_count": 0, "subscriptions_count": 0,
                                "created_at": "t1", "updated_at": "t2"}]
         tables["project_versions"] = [{"id": REVISION, "project_id": "p1", "created_by": "u1",
-                                        "title": "Example", "description": "Description", "tags": "[]",
+                                        "title": "Example", "description": "Description", "project_type": "角色", "included_types": "[]", "tags": "[]",
                                         "entry_index_ready": 1, "worldbook_count": 2, "regex_count": 1}]
         tables["version_entry_index"] = [
             {"version_id": REVISION, "kind": "worldbook", "entry_key": "uid:7", "name": "Named entry",
@@ -104,6 +106,10 @@ class SourceIndexTest(unittest.TestCase):
         }), encoding="utf-8")
         preparation = self.directory / "preparation.json"
         candidate = copy.deepcopy(self.data if data is None else data)
+        with taxonomy.snapshot(source) as (db, source_hash):
+            candidate["taxonomy_review"] = taxonomy.review_document(db, source_hash, "legacy")
+        for row in candidate["taxonomy_review"]["records"]:
+            row["tagsAcknowledged"] = True
         index_rows = candidate["tables"].pop("version_entry_index")
         for version in candidate["tables"]["project_versions"]:
             ready = version.pop("entry_index_ready")

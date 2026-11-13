@@ -16,6 +16,7 @@ import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { extractProjectEntries } from "../../packages/domain/src/project-content.ts";
+import { projectTagsSchema, projectTaxonomySchema } from "../../packages/contracts/src/projects.ts";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const configPath = resolve(root, process.argv[2] ?? "tools/dev/load-legacy-fixture.local.json");
@@ -32,6 +33,8 @@ const r2Source = configuredPath("r2Source");
 const d1Path = configuredPath("d1Path");
 const r2MetaPath = configuredPath("r2MetaPath");
 const r2BlobDir = configuredPath("r2BlobDir");
+const taxonomyReviewPath = configuredPath("taxonomyReviewPath");
+const pythonPath = configuredPath("pythonPath");
 function positiveInteger(key: string): number {
   const value = config[key];
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
@@ -58,9 +61,6 @@ type LegacyProject = {
   id: string;
   author_id: string;
   description: string | null;
-  project_type: string | null;
-  extension_type: string | null;
-  search_tags: string | null;
   published_revision_id: string;
   published_at: string | null;
   created_at: string;
@@ -70,7 +70,6 @@ type LegacyRevision = {
   id: string;
   title: string;
   description: string | null;
-  tags: string | null;
   manifest_hash: string | null;
   created_by: string;
   created_at: string;
@@ -87,17 +86,6 @@ type IndexEntry = {
   contentHash: string;
   contentLength: number;
 };
-
-function parseStringList(raw: string | null): string[] {
-  if (!raw) return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return [];
-  }
-  return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
-}
 
 function projectContentFile(projectId: string, kind: "worldbook" | "regex"): string {
   const prefix = kind === "worldbook" ? "project" : "regex";
@@ -200,17 +188,36 @@ function writeR2Object(meta: DatabaseSync, key: string, buffer: Buffer, contentT
   blobs.set(key, { blobId, version });
 }
 
-const PROJECT_TYPES = new Set<string>(["事件", "系统核心", "角色", "扩展"]);
-const EXTENSION_TYPES = new Set<string>(["规则", "内容"]);
 const ROLES = new Set<string>(["member", "reviewer", "owner"]);
 
-function primaryProjectType(value: string | null): string {
-  return value !== null && PROJECT_TYPES.has(value) ? value : "事件";
+// Use the same immutable-source decision resolver as the offline migration.
+// No title heuristic, old-extension fallback, or duplicate taxonomy convention.
+const reviewed = spawnSync(
+  pythonPath,
+  [join(root, "tools/migrate/offline.py"), "taxonomy", "resolve", "--source", legacyDbPath,
+    "--review", taxonomyReviewPath, "--source-kind", "preview"],
+  { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 },
+);
+if (reviewed.status !== 0) throw new Error("Taxonomy review is unresolved, stale, or invalid; preview is unchanged");
+const resolvedTaxonomy: unknown = JSON.parse(reviewed.stdout);
+if (!resolvedTaxonomy || typeof resolvedTaxonomy !== "object" || !("classifications" in resolvedTaxonomy)) {
+  throw new Error("Invalid reviewed taxonomy response");
 }
-
-function extensionTypeFor(value: string | null, projectType: string): string | null {
-  if (projectType !== "扩展") return null;
-  return value !== null && EXTENSION_TYPES.has(value) ? value : null;
+const classificationRows = resolvedTaxonomy.classifications;
+if (!classificationRows || typeof classificationRows !== "object" || Array.isArray(classificationRows)) {
+  throw new Error("Invalid reviewed taxonomy classifications");
+}
+const classifications = new Map<string, ReturnType<typeof projectTaxonomySchema.parse>>();
+const reviewedTags = new Map<string, string[]>();
+for (const [id, row] of Object.entries(classificationRows)) {
+  if (!row || typeof row !== "object" || !("project_type" in row) || !("included_types" in row)
+    || !("tags" in row) || typeof row.tags !== "string"
+    || typeof row.included_types !== "string") throw new Error("Invalid reviewed classification");
+  classifications.set(id, projectTaxonomySchema.parse({
+    projectType: row.project_type,
+    includedTypes: JSON.parse(row.included_types),
+  }));
+  reviewedTags.set(id, projectTagsSchema.parse(JSON.parse(row.tags)));
 }
 
 const legacy = new DatabaseSync(legacyDbPath, { readOnly: true });
@@ -220,7 +227,7 @@ const users = legacy
   .all() as LegacyUser[];
 const projects = legacy
   .prepare(
-    `SELECT id, author_id, description, project_type, extension_type, search_tags,
+    `SELECT id, author_id, description,
             published_revision_id, published_at, created_at, updated_at
      FROM projects
      WHERE deleted_at IS NULL AND visibility = 'public' AND published_revision_id IS NOT NULL
@@ -231,7 +238,7 @@ const projects = legacy
 const revisions = new Map<string, LegacyRevision>();
 for (const revision of legacy
   .prepare(
-    `SELECT id, title, description, tags, manifest_hash, created_by, created_at, version_label,
+    `SELECT id, title, description, manifest_hash, created_by, created_at, version_label,
             cover_position_x, cover_position_y, cover_zoom
      FROM project_revisions`,
   )
@@ -257,7 +264,7 @@ const insertUser = db.prepare(
 );
 const insertVersion = db.prepare(
   `INSERT INTO project_versions
-   (id, project_id, version_no, title, description, project_type, extension_type, tags, manifest_hash,
+   (id, project_id, version_no, title, description, project_type, included_types, tags, manifest_hash,
     worldbook_count, regex_count, schema_version, created_by, created_at, version_label,
     cover_position_x, cover_position_y, cover_zoom, entry_index, requirements)
    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL)`,
@@ -305,9 +312,10 @@ for (const project of projects) {
   const worldbookCount = entries.filter((entry) => entry.kind === "worldbook").length;
   const regexCount = entries.filter((entry) => entry.kind === "regex").length;
 
-  const projectType = primaryProjectType(project.project_type);
-  const extensionType = extensionTypeFor(project.extension_type, projectType);
-  const tags = parseStringList(revision.tags ?? project.search_tags);
+  const classification = classifications.get(revision.id);
+  if (!classification) throw new Error("Published revision has no reviewed taxonomy classification");
+  const tags = reviewedTags.get(revision.id);
+  if (!tags) throw new Error("Published revision has no reviewed tag accounting");
   const versionId = revision.id;
 
   // Replace atomically by hand: FTS tables are trigger-owned, and a REPLACE
@@ -322,8 +330,8 @@ for (const project of projects) {
     1,
     revision.title,
     revision.description ?? project.description,
-    projectType,
-    extensionType,
+    classification.projectType,
+    JSON.stringify(classification.includedTypes),
     JSON.stringify(tags),
     revision.manifest_hash,
     worldbookCount,
