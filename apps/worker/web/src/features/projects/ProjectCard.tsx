@@ -1,3 +1,4 @@
+import { MAX_DISPLAY_TAGS } from "@workshop/domain";
 import { Bookmark, BookOpen, Download, History, MoreHorizontal, ThumbsUp, Upload } from "lucide-react";
 import { type MouseEvent, type PointerEvent, useEffect, useRef, useState } from "react";
 import type { ProjectSummary } from "../../api";
@@ -54,6 +55,14 @@ export function ProjectCard({
   }
   const open = (event: MouseEvent<HTMLElement>): void => onOpen(project, event.currentTarget);
   const preview = project.description?.trim() || "暂无文字简介";
+  const cardTags = [...new Set(project.tags)]
+    .filter(
+      (tag) =>
+        tag !== project.projectType &&
+        tag !== project.extensionType &&
+        !(project.projectType === "系统核心" && tag === "系统"),
+    )
+    .slice(0, MAX_DISPLAY_TAGS - (project.extensionType ? 1 : 0));
   const dateMeta = (
     <div className="card-dates">
       <span title="更新">
@@ -169,11 +178,9 @@ export function ProjectCard({
             </span>
           ) : null}
           {project.extensionType ? <span>{project.extensionType}</span> : null}
-          {project.tags
-            .filter((tag) => tag !== project.projectType)
-            .map((tag) => (
-              <span key={tag}>{tag}</span>
-            ))}
+          {cardTags.map((tag) => (
+            <span key={tag}>{tag}</span>
+          ))}
         </div>
       </div>
       <div className="card-footer">
