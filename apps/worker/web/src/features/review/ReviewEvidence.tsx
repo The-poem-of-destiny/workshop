@@ -146,6 +146,18 @@ export function ReviewEvidence({
               <dd>#{detail.version.versionNo}</dd>
             </div>
             <div>
+              <dt>主要分类</dt>
+              <dd>{detail.version.projectType}</dd>
+            </div>
+            <div>
+              <dt>包含类型</dt>
+              <dd>{detail.version.includedTypes.join("、") || "无"}</dd>
+            </div>
+            <div>
+              <dt>普通标签</dt>
+              <dd>{detail.version.searchTags.join("、") || "无"}</dd>
+            </div>
+            <div>
               <dt>客户端 gate</dt>
               <dd>{detail.submission.clientGate ?? "missing"}</dd>
             </div>

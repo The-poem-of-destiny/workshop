@@ -1,7 +1,26 @@
+import type { ProjectType } from "@workshop/domain";
 import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from "react";
 import { api, type ProjectSummary } from "./api";
-import { type SORTS, useCatalogueFilters } from "./useCatalogueFilters";
+import { type CatalogueFilters, type CatalogueSort, useCatalogueFilters } from "./useCatalogueFilters";
 import type { HomeLoadState } from "./useWorkshopHome";
+
+export interface CatalogueState extends CatalogueFilters {
+  total: number;
+  period: "all" | "7d" | "30d" | "90d";
+  setPeriod: Dispatch<SetStateAction<CatalogueState["period"]>>;
+  pageTags: string[];
+  listLoading: boolean;
+  loadedQuery: string;
+  queryKey: string;
+  projects: ProjectSummary[];
+  pageIndex: number;
+  pageSize: number;
+  setListRetry: Dispatch<SetStateAction<number>>;
+  setPageSize: Dispatch<SetStateAction<number>>;
+  changePage: (index: number) => void;
+  nextCursor: string | null;
+}
+
 export function useCatalogue({
   enabled,
   setError,
@@ -10,11 +29,11 @@ export function useCatalogue({
   enabled: boolean;
   setError: (message: string | null) => void;
   home: HomeLoadState;
-}) {
+}): CatalogueState {
   const [listRetry, setListRetry] = useState(0);
   const [period, setPeriod] = useState<"all" | "7d" | "30d" | "90d">("30d");
   const filters = useCatalogueFilters();
-  const { search, sort, projectType, author, tag } = filters;
+  const { search, sort, projectTypes, includeContained, author, tags } = filters;
   const effectivePeriod = sort === "downloads" || sort === "likes" ? period : "all";
   const [pageSize, setPageSize] = useState(25);
   const [paging, setPaging] = useState<CataloguePaging>({
@@ -26,9 +45,10 @@ export function useCatalogue({
     search.trim(),
     sort,
     effectivePeriod,
-    projectType,
+    projectTypes,
+    includeContained,
     author?.id,
-    tag.trim(),
+    tags,
     pageSize,
   ]);
   const pageIndex = paging.key === queryKey ? paging.index : 0;
@@ -38,9 +58,10 @@ export function useCatalogue({
     !search.trim() &&
     sort === "published" &&
     effectivePeriod === "all" &&
-    !projectType &&
+    projectTypes.length === 0 &&
+    !includeContained &&
     !author &&
-    !tag.trim() &&
+    tags.length === 0 &&
     pageSize === 25 &&
     pageIndex === 0 &&
     !pageCursor &&
@@ -57,9 +78,10 @@ export function useCatalogue({
     search,
     sort,
     effectivePeriod,
-    projectType,
+    projectTypes,
+    includeContained,
     author,
-    tag,
+    tags,
     pageCursor,
     pageSize,
   });
@@ -107,9 +129,10 @@ function useCatalogueProjects({
   search,
   sort,
   effectivePeriod,
-  projectType,
+  projectTypes,
+  includeContained,
   author,
-  tag,
+  tags,
   pageCursor,
   pageSize,
 }: {
@@ -121,11 +144,12 @@ function useCatalogueProjects({
   queryKey: string;
   setPaging: Dispatch<SetStateAction<CataloguePaging>>;
   search: string;
-  sort: (typeof SORTS)[number][0];
+  sort: CatalogueSort;
   effectivePeriod: "all" | "7d" | "30d" | "90d";
-  projectType: string;
+  projectTypes: readonly ProjectType[];
+  includeContained: boolean;
   author: { id: string; name: string } | null;
-  tag: string;
+  tags: readonly string[];
   pageCursor: string | undefined;
   pageSize: number;
 }) {
@@ -172,9 +196,10 @@ function useCatalogueProjects({
           search: search.trim() || undefined,
           sort,
           period: effectivePeriod,
-          projectType: projectType || undefined,
+          projectTypes,
+          includeContained,
           authorId: author?.id,
-          tag: tag.trim() || undefined,
+          tags,
           cursor: pageCursor,
           limit: pageSize,
         })
@@ -203,9 +228,10 @@ function useCatalogueProjects({
     search,
     sort,
     effectivePeriod,
-    projectType,
+    projectTypes,
+    includeContained,
     author,
-    tag,
+    tags,
     pageCursor,
     pageSize,
     queryKey,

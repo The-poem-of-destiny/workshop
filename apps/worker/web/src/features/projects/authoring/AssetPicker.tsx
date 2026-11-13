@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { identifyOccurrences } from "../listIdentity";
-import { contentRequirementHint, fileKey, formatBytes, type RegexAsset, type WorldbookAsset } from "./preview";
+import { fileKey, formatBytes, type RegexAsset, type WorldbookAsset } from "./preview";
 
 function Dropzone({
   id,
@@ -64,7 +64,6 @@ export function AssetPicker({
   worldbookUploaded,
   regexUploaded,
   busy,
-  projectType,
   onPickWorldbook,
   onPickRegex,
   onRemoveWorldbook,
@@ -79,7 +78,6 @@ export function AssetPicker({
   worldbookUploaded: boolean;
   regexUploaded: boolean;
   busy: boolean;
-  projectType: string;
   onPickWorldbook: (files: FileList) => void;
   onPickRegex: (files: FileList) => void;
   onRemoveWorldbook: () => void;
@@ -87,12 +85,11 @@ export function AssetPicker({
   onUploadWorldbook: () => void;
   onUploadRegex: () => void;
 }) {
-  const hint = contentRequirementHint(projectType);
   const regexCount = regexAssets.reduce((total, asset) => total + asset.entries.length, 0);
   return (
     <section className="asset-picker">
       <div className="asset-picker-heading">
-        {hint ? <p className="field-hint">{hint}</p> : null}
+        <p className="field-hint">所有主要分类都需要至少一份有效且非空的世界书或正则内容。</p>
         <p className="field-hint">选择文件后先在本地解析预览，确认无误再点击上传。</p>
         <p className="field-hint">
           世界书条目名称会自动加上 [WS]；请按下方最终名称编写并检查引用，动态 EJS 无法完全自动检查。

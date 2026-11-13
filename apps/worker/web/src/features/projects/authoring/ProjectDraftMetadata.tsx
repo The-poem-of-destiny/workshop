@@ -1,11 +1,12 @@
 import type { Dispatch, SetStateAction } from "react";
 import { Input } from "../../../components/ui/input";
 import { Textarea } from "../../../components/ui/textarea";
-import { EXTENSION_TYPES, PROJECT_TYPES, type ProjectForm } from "../projectMetadata";
+import type { ProjectForm } from "../projectMetadata";
+import { ProjectClassification } from "./ProjectClassification";
 import { RequirementsEditor } from "./RequirementsEditor";
 import { TagPicker } from "./TagPicker";
 
-type TextField = Exclude<keyof ProjectForm, "tags" | "requirements">;
+type TextField = Exclude<keyof ProjectForm, "tags" | "requirements" | "projectType" | "includedTypes">;
 
 export function ProjectDraftMetadata({
   form,
@@ -69,35 +70,14 @@ export function ProjectDraftMetadata({
         </div>
         <div className="form-grid">
           {input("versionLabel", "版本号")}
-          <label htmlFor="projectType-field">
-            项目类型
-            <select
-              id="projectType-field"
-              disabled={disabled}
-              value={form.projectType}
-              onChange={(event) => update("projectType", event.target.value)}
-            >
-              <option value="">请选择</option>
-              {PROJECT_TYPES.map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </label>
-          <label htmlFor="extensionType-field">
-            扩展类型
-            <select
-              id="extensionType-field"
-              disabled={disabled}
-              value={form.extensionType}
-              onChange={(event) => update("extensionType", event.target.value)}
-            >
-              <option value="">不适用</option>
-              {EXTENSION_TYPES.map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </label>
         </div>
+        <ProjectClassification
+          idPrefix="project"
+          projectType={form.projectType}
+          includedTypes={form.includedTypes}
+          disabled={disabled}
+          onChange={(projectType, includedTypes) => setForm((previous) => ({ ...previous, projectType, includedTypes }))}
+        />
         <div className="form-grid">
           {input("coverPositionX", "封面横向位置（0–100）")}
           {input("coverPositionY", "封面纵向位置（0–100）")}
@@ -107,7 +87,7 @@ export function ProjectDraftMetadata({
 
       <section className="workspace-section authoring-section">
         <h3>分类与标签</h3>
-        <p className="field-hint">角色项目可以从官方标签组中挑选，也可以输入自定义关键词。</p>
+        <p className="field-hint">所有分类的标签组都可使用；主要分类相关的组优先展示，普通标签最多 20 个。</p>
         <TagPicker
           idPrefix="project"
           value={form.tags}

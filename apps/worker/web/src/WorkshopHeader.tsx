@@ -44,9 +44,7 @@ export function WorkshopHeader({
   login,
   drawerToggle,
   setSidebarOpen,
-  projectType,
-  tag,
-  author,
+  hasFilters,
   view,
   reviewer,
 }: {
@@ -71,9 +69,7 @@ export function WorkshopHeader({
   login: ReturnType<typeof useWorkshopSession>["login"];
   drawerToggle: ReturnType<typeof useWorkshopNavigation>["drawerToggle"];
   setSidebarOpen: ReturnType<typeof useWorkshopNavigation>["setSidebarOpen"];
-  projectType: ReturnType<typeof useCatalogue>["projectType"];
-  tag: ReturnType<typeof useCatalogue>["tag"];
-  author: ReturnType<typeof useCatalogue>["author"];
+  hasFilters: boolean;
   view: ReturnType<typeof useWorkshopNavigation>["view"];
   reviewer: boolean;
 }) {
@@ -164,7 +160,7 @@ export function WorkshopHeader({
           onClick={() => setSidebarOpen(true)}
         >
           <Menu aria-hidden="true" />
-          {projectType || tag.trim() || author ? <span className="drawer-toggle-dot" aria-hidden="true" /> : null}
+          {hasFilters ? <span className="drawer-toggle-dot" aria-hidden="true" /> : null}
         </button>
       </div>
       {me ? (

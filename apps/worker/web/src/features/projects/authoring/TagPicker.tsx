@@ -1,11 +1,6 @@
-import { CHARACTER_FACET_OPTIONS, type CharacterFacetKey, MAX_CUSTOM_TAGS } from "@workshop/domain";
+import { MAX_CUSTOM_TAGS, orderedPresetTagGroups, type ProjectType } from "@workshop/domain";
 import { useState } from "react";
 import { Input } from "../../../components/ui/input";
-
-const CHARACTER_FACET_GROUPS = (Object.keys(CHARACTER_FACET_OPTIONS) as CharacterFacetKey[]).map((key) => ({
-  label: key,
-  options: CHARACTER_FACET_OPTIONS[key],
-}));
 
 /** Chip picker for official taxonomy tags plus custom `tags: string[]` keywords. */
 export function TagPicker({
@@ -17,13 +12,13 @@ export function TagPicker({
 }: {
   idPrefix: string;
   value: readonly string[];
-  projectType: string;
+  projectType: ProjectType | "";
   disabled?: boolean;
   onChange: (tags: string[]) => void;
 }) {
   const [draft, setDraft] = useState("");
   const [limitMessage, setLimitMessage] = useState<string | null>(null);
-  const groups = projectType === "角色" ? CHARACTER_FACET_GROUPS : [];
+  const groups = orderedPresetTagGroups(projectType ? [projectType] : []);
   const atLimit = value.length >= MAX_CUSTOM_TAGS;
 
   function commit(raw: string): void {
@@ -78,11 +73,13 @@ export function TagPicker({
       <div className="tag-input-row">
         <Input
           id={`${idPrefix}-tag-input`}
+          aria-label="添加项目标签"
           value={draft}
           placeholder="输入自定义标签后按 Enter 或逗号添加"
           disabled={disabled}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
             if (event.key === "Enter" || event.key === "," || event.key === "，") {
               event.preventDefault();
               commit(draft);
@@ -109,20 +106,20 @@ export function TagPicker({
           {groups.map((group) => (
             <details
               className="tag-group"
-              key={group.label}
-              open={group.options.some((option) => value.includes(option))}
+              key={group.name}
+              open={group.tags.some((option) => value.includes(option))}
             >
               <summary>
-                {group.label}（{group.options.length}）
+                {group.name}（{group.tags.length}）
               </summary>
               <div className="tag-options">
-                {group.options.map((option) => (
+                {group.tags.map((option) => (
                   <button
                     type="button"
                     key={option}
                     className={`tag-option${value.includes(option) ? " is-selected" : ""}`}
                     aria-pressed={value.includes(option)}
-                    disabled={disabled}
+                    disabled={disabled || (atLimit && !value.includes(option))}
                     onClick={() => toggle(option)}
                   >
                     {option}
@@ -132,9 +129,7 @@ export function TagPicker({
             </details>
           ))}
         </div>
-      ) : (
-        <p className="field-hint">当前分类没有官方标签组，可直接添加自定义关键词。</p>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import type { ProjectSummary } from "./api";
 import { Button } from "./components/ui/button";
 import { Discovery } from "./features/projects/Discovery";
 import { ProjectCard } from "./features/projects/ProjectCard";
-import type { useCatalogue } from "./useCatalogue";
+import type { CatalogueState } from "./useCatalogue";
 import { SORTS } from "./useCatalogueFilters";
 import type { HomeLoadState } from "./useWorkshopHome";
 
@@ -16,12 +16,15 @@ export function WorkshopCatalogue({
   setPeriod,
   search,
   setSearch,
-  projectType,
-  setProjectType,
+  projectTypes,
+  setProjectTypes,
+  includeContained,
+  setIncludeContained,
   author,
   setAuthor,
-  tag,
-  setTag,
+  tags,
+  removeTag,
+  tagLimitMessage,
   clearFilters,
   detailOpener,
   setSelected,
@@ -44,32 +47,35 @@ export function WorkshopCatalogue({
   total: number;
   period: "all" | "7d" | "30d" | "90d";
   setPeriod: (period: "all" | "7d" | "30d" | "90d") => void;
-  hasFilters: ReturnType<typeof useCatalogue>["hasFilters"];
-  search: ReturnType<typeof useCatalogue>["search"];
-  setSearch: ReturnType<typeof useCatalogue>["setSearch"];
-  projectType: ReturnType<typeof useCatalogue>["projectType"];
-  setProjectType: ReturnType<typeof useCatalogue>["setProjectType"];
-  author: ReturnType<typeof useCatalogue>["author"];
-  setAuthor: ReturnType<typeof useCatalogue>["setAuthor"];
-  tag: ReturnType<typeof useCatalogue>["tag"];
-  setTag: ReturnType<typeof useCatalogue>["setTag"];
-  clearFilters: ReturnType<typeof useCatalogue>["clearFilters"];
+  hasFilters: CatalogueState["hasFilters"];
+  search: CatalogueState["search"];
+  setSearch: CatalogueState["setSearch"];
+  projectTypes: CatalogueState["projectTypes"];
+  setProjectTypes: CatalogueState["setProjectTypes"];
+  includeContained: CatalogueState["includeContained"];
+  setIncludeContained: CatalogueState["setIncludeContained"];
+  author: CatalogueState["author"];
+  setAuthor: CatalogueState["setAuthor"];
+  tags: CatalogueState["tags"];
+  removeTag: CatalogueState["removeTag"];
+  tagLimitMessage: CatalogueState["tagLimitMessage"];
+  clearFilters: CatalogueState["clearFilters"];
   detailOpener: RefObject<HTMLElement | null>;
   setSelected: (project: ProjectSummary | null) => void;
-  sort: ReturnType<typeof useCatalogue>["sort"];
-  setSort: ReturnType<typeof useCatalogue>["setSort"];
-  layout: ReturnType<typeof useCatalogue>["layout"];
-  setLayout: ReturnType<typeof useCatalogue>["setLayout"];
-  listLoading: ReturnType<typeof useCatalogue>["listLoading"];
-  loadedQuery: ReturnType<typeof useCatalogue>["loadedQuery"];
-  queryKey: ReturnType<typeof useCatalogue>["queryKey"];
-  projects: ReturnType<typeof useCatalogue>["projects"];
-  pageIndex: ReturnType<typeof useCatalogue>["pageIndex"];
-  pageSize: ReturnType<typeof useCatalogue>["pageSize"];
-  setListRetry: ReturnType<typeof useCatalogue>["setListRetry"];
-  setPageSize: ReturnType<typeof useCatalogue>["setPageSize"];
-  changePage: ReturnType<typeof useCatalogue>["changePage"];
-  nextCursor: ReturnType<typeof useCatalogue>["nextCursor"];
+  sort: CatalogueState["sort"];
+  setSort: CatalogueState["setSort"];
+  layout: CatalogueState["layout"];
+  setLayout: CatalogueState["setLayout"];
+  listLoading: CatalogueState["listLoading"];
+  loadedQuery: CatalogueState["loadedQuery"];
+  queryKey: CatalogueState["queryKey"];
+  projects: CatalogueState["projects"];
+  pageIndex: CatalogueState["pageIndex"];
+  pageSize: CatalogueState["pageSize"];
+  setListRetry: CatalogueState["setListRetry"];
+  setPageSize: CatalogueState["setPageSize"];
+  changePage: CatalogueState["changePage"];
+  nextCursor: CatalogueState["nextCursor"];
 }) {
   return (
     <>
@@ -82,15 +88,21 @@ export function WorkshopCatalogue({
               <X aria-hidden="true" />
             </button>
           ) : null}
-          {projectType ? (
+          {projectTypes.map((type) => (
             <button
+              key={type}
               type="button"
               className="filter-chip active"
-              onClick={() => setProjectType("")}
-              title="移除类型筛选"
+              onClick={() => setProjectTypes(projectTypes.filter((value) => value !== type))}
+              title={`移除主要分类 ${type}`}
             >
-              类型：{projectType}
+              主要分类：{type}
               <X aria-hidden="true" />
+            </button>
+          ))}
+          {includeContained ? (
+            <button type="button" className="filter-chip active" onClick={() => setIncludeContained(false)}>
+              包含类型也匹配<X aria-hidden="true" />
             </button>
           ) : null}
           {author ? (
@@ -99,17 +111,23 @@ export function WorkshopCatalogue({
               <X aria-hidden="true" />
             </button>
           ) : null}
-          {tag.trim() ? (
-            <button type="button" className="filter-chip active" onClick={() => setTag("")} title="移除标签筛选">
-              标签：{tag.trim()}
-              <X aria-hidden="true" />
+          {tags.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              className="filter-chip active"
+              onClick={() => removeTag(tag)}
+              title={`移除标签 ${tag}`}
+            >
+              标签：{tag}<X aria-hidden="true" />
             </button>
-          ) : null}
+          ))}
           <button type="button" className="active-filters-clear" onClick={clearFilters}>
             清除全部
           </button>
         </section>
       ) : null}
+      {tagLimitMessage ? <p className="catalogue-filter-message" role="status">{tagLimitMessage}</p> : null}
       {!hasFilters ? (
         <Discovery
           home={home}

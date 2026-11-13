@@ -161,14 +161,13 @@ export function ProjectCard({
         <p className="card-note">{preview}</p>
         <div
           className="tags"
-          title={[project.projectType, project.extensionType, ...project.tags].filter(Boolean).join("、")}
+          title={[project.projectType, ...project.tags].join("、")}
         >
           {project.projectType ? (
             <span className="project-type-tag" data-type={project.projectType}>
               {project.projectType}
             </span>
           ) : null}
-          {project.extensionType ? <span>{project.extensionType}</span> : null}
           {project.tags
             .filter((tag) => tag !== project.projectType)
             .map((tag) => (

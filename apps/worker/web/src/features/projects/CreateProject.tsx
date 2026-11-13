@@ -3,17 +3,18 @@ import { api } from "../../api";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import "../../styles/workspaces.css";
+import { ProjectClassification } from "./authoring/ProjectClassification";
 import { RequirementsEditor } from "./authoring/RequirementsEditor";
 import { TagPicker } from "./authoring/TagPicker";
-import { EXTENSION_TYPES, metadataPayload, PROJECT_TYPES, type ProjectForm } from "./projectMetadata";
+import { metadataPayload, type ProjectForm } from "./projectMetadata";
 
 const emptyForm: ProjectForm = {
   title: "",
   description: "",
   requirements: { schemaVersion: 1, dependencies: [], conflicts: [], notes: "" },
   versionLabel: "",
-  projectType: "事件",
-  extensionType: "",
+  projectType: "",
+  includedTypes: [],
   schemaVersion: "",
   discordThreadUrl: "",
   coverPositionX: "50",
@@ -56,11 +57,14 @@ export function CreateProject({
     onDirtyChange?.(false);
     onCancel();
   }
-  const update = (key: Exclude<keyof ProjectForm, "tags" | "requirements">, value: string): void =>
+  const update = (
+    key: Exclude<keyof ProjectForm, "tags" | "requirements" | "projectType" | "includedTypes">,
+    value: string,
+  ): void =>
     setForm((previous) => ({ ...previous, [key]: value }));
 
   async function create(): Promise<void> {
-    if (!form.title.trim() || busy) return;
+    if (!form.title.trim() || !form.projectType || busy) return;
     setBusy(true);
     try {
       const created = await api.createProject(metadataPayload({ ...form, title: form.title.trim() }));
@@ -108,33 +112,6 @@ export function CreateProject({
               onChange={(event) => update("versionLabel", event.target.value)}
             />
           </label>
-          <label htmlFor="create-project-type">
-            项目类型
-            <select
-              id="create-project-type"
-              value={form.projectType}
-              disabled={busy}
-              onChange={(event) => update("projectType", event.target.value)}
-            >
-              {PROJECT_TYPES.map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </label>
-          <label htmlFor="create-extension-type">
-            扩展类型
-            <select
-              id="create-extension-type"
-              value={form.extensionType}
-              disabled={busy}
-              onChange={(event) => update("extensionType", event.target.value)}
-            >
-              <option value="">不适用</option>
-              {EXTENSION_TYPES.map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </label>
           <label htmlFor="create-schema">
             适配 schema
             <Input
@@ -157,11 +134,18 @@ export function CreateProject({
             />
           </label>
         </div>
+        <ProjectClassification
+          idPrefix="create"
+          projectType={form.projectType}
+          includedTypes={form.includedTypes}
+          disabled={busy}
+          onChange={(projectType, includedTypes) => setForm((previous) => ({ ...previous, projectType, includedTypes }))}
+        />
       </section>
 
       <section className="authoring-section">
         <h3>分类与标签</h3>
-        <p className="field-hint">标签会显示在项目页上；角色项目还能从官方标签组中挑选。</p>
+        <p className="field-hint">所有分类都可选用下方标签；主要分类相关的标签组优先展示，普通标签最多 20 个。</p>
         <TagPicker
           idPrefix="create"
           value={form.tags}
@@ -197,7 +181,7 @@ export function CreateProject({
           type="button"
           className="workspace-primary"
           onClick={() => void create()}
-          disabled={busy || !form.title.trim()}
+          disabled={busy || !form.title.trim() || !form.projectType}
         >
           {busy ? "创建中…" : "创建草稿"}
         </button>
