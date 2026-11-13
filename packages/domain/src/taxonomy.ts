@@ -5,7 +5,7 @@ export const EXTENSION_TYPES = ["规则", "内容"] as const;
 export type ExtensionType = (typeof EXTENSION_TYPES)[number];
 
 export const MAX_CUSTOM_TAGS = 20;
-export const MAX_DISPLAY_TAGS = 5;
+export const MAX_DISPLAY_TAGS = 4;
 
 export const SYSTEM_SIGNAL_DISPLAY_POLICY = {
   ejs: { label: "EJS", card: false, detail: true },
