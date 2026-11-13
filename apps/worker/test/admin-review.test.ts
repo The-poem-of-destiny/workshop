@@ -34,9 +34,9 @@ async function seed() {
       (id, author_id, visibility, updated_at)
     VALUES ('p1', 'member', 'private', '${now}');
     INSERT INTO project_versions
-      (id, project_id, version_no, title, description, project_type, extension_type,
+      (id, project_id, version_no, title, description, project_type, included_types,
        tags, manifest_hash, created_by, created_at)
-    VALUES ('r1', 'p1', 1, 'Submitted title', 'Submitted description', '事件', '规则',
+    VALUES ('r1', 'p1', 1, 'Submitted title', 'Submitted description', '事件', '["玩法"]',
       '["submitted"]', 'manifest-1', 'member', '${now}');
     UPDATE projects SET working_version_id = 'r1' WHERE id = 'p1';
     INSERT INTO assets (id, project_id, version_id, kind, r2_key, sha256, bytes, mime, created_at)
@@ -115,8 +115,8 @@ describe("admin review and publishing", () => {
     const statements = splitSql(`
       INSERT INTO projects (id, author_id, visibility, updated_at)
       VALUES ('p2', 'member', 'private', '2026-10-21T00:00:01.000Z');
-      INSERT INTO project_versions (id, project_id, version_no, title, created_by)
-      VALUES ('r2', 'p2', 1, 'Second project', 'member');
+      INSERT INTO project_versions (id, project_id, version_no, title, project_type, created_by)
+      VALUES ('r2', 'p2', 1, 'Second project', '事件', 'member');
       UPDATE projects SET working_version_id = 'r2' WHERE id = 'p2';
       INSERT INTO submissions
         (id, project_id, version_id, status, submitted_by, submitted_at)
@@ -155,7 +155,9 @@ describe("admin review and publishing", () => {
       version: Record<string, unknown>;
       assets: Array<Record<string, unknown>>;
     };
-    expect(body.version).toMatchObject({ id: "r1", manifestHash: "manifest-1" });
+    expect(body.version).toMatchObject({
+      id: "r1", manifestHash: "manifest-1", projectType: "事件", includedTypes: ["玩法"], searchTags: ["submitted"],
+    });
     expect(body.assets).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: "worldbook", r2Key: "projects/p1/r1/worldbook.json" }),
@@ -296,7 +298,7 @@ describe("admin review and publishing", () => {
   it("maps checker findings to message and file and keeps distinct entries apart", async () => {
     const report = (findings: unknown[]) => JSON.stringify({ findings });
     await bindings.DB.prepare(`INSERT INTO project_versions
-      (id, project_id, version_no, title, created_by) VALUES ('r0', 'p1', 0, 'Previous public version', 'member')`).run();
+      (id, project_id, version_no, title, project_type, created_by) VALUES ('r0', 'p1', 0, 'Previous public version', '事件', 'member')`).run();
     await bindings.DB.prepare("UPDATE submissions SET base_published_version_id = 'r0' WHERE id = 's1'").run();
     await bindings.DB.prepare(`
       INSERT INTO submissions (id, project_id, version_id, status, submitted_by, submitted_at)

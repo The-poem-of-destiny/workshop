@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { includedTypesSchema, projectTagsSchema, projectTypeSchema } from "./projects.js";
 
 export const releaseFileSchema = z.object({
   kind: z.enum(["worldbook", "regex"]),
@@ -32,12 +33,12 @@ export type DownloadResponse = z.infer<typeof downloadResponseSchema>;
 export const acquisitionProjectSchema = z.object({
   id: z.string(),
   title: z.string(),
-  projectType: z.string().nullable(),
-  extensionType: z.string().nullable(),
+  projectType: projectTypeSchema,
+  includedTypes: includedTypesSchema,
   version: z.string(),
   manifestHash: z.string().nullable(),
   updatedAt: z.string(),
-  tags: z.array(z.string()),
+  tags: projectTagsSchema,
 });
 
 export const acquisitionResponseSchema = z.object({

@@ -1,4 +1,4 @@
-import { type AuditAction, projectEntryIndexDocumentSchema } from "@workshop/contracts";
+import { type AuditAction, type ProjectType, projectEntryIndexDocumentSchema, projectTaxonomySchema } from "@workshop/contracts";
 import { inspectProjectMetadata } from "@workshop/domain";
 import { fetchImmutableObject } from "../data-client.js";
 import {
@@ -16,7 +16,7 @@ import {
 import { deleteAdminRecommendation, updateAdminRecommendation } from "../storage/admin-recommendations.js";
 import { createProject, getProjectSummary, softDeleteProject, updateVisibility } from "../storage/authoring.js";
 import { deleteProjectEntry } from "../storage/authoring-assets.js";
-import { getAuthoringProject, parseRequirements } from "../storage/authoring-model.js";
+import { getAuthoringProject, parseIncludedTypes, parseRequirements, parseTags } from "../storage/authoring-model.js";
 import { submitVersion, withdrawSubmission } from "../storage/authoring-submissions.js";
 import { createVersion, patchProject } from "../storage/authoring-versions.js";
 import { getSubmissionDiff } from "../storage/diff.js";
@@ -40,7 +40,7 @@ export async function authorAdminListProjects(
   authorization: string | undefined,
   limit: number,
   cursor: string | undefined,
-  filters: { search?: string; projectType?: string; includeDeleted?: boolean },
+  filters: { search?: string; projectType?: ProjectType; includeDeleted?: boolean },
 ) {
   const auth = await reviewer(env, authorization);
   if (auth.kind !== "ok") return auth;
@@ -341,6 +341,18 @@ async function authorAdminEditMetadata(
   if (expectedVersion === null || expectedVersion !== project.row_version)
     return { kind: "version_conflict" as const, actual: project.row_version };
   if (!revision && project.working_version_frozen) return { kind: "frozen" as const };
+  const taxonomy = projectTaxonomySchema.safeParse({
+    projectType: input.projectType ?? project.project_type,
+    includedTypes: input.includedTypes ?? parseIncludedTypes(project.included_types),
+  });
+  if (!taxonomy.success) {
+    return {
+      kind: "invalid_metadata" as const,
+      findings: taxonomy.error.issues.map((issue) => ({
+        field: issue.path.join("."), severity: "block" as const, message: issue.message,
+      })),
+    };
+  }
   const cutoff = new Date(Date.now() - 60_000).toISOString();
   const count = await env.DB.prepare(`
     SELECT
@@ -356,7 +368,7 @@ async function authorAdminEditMetadata(
     description: input.description !== undefined ? input.description : project.description,
     requirements: input.requirements !== undefined ? input.requirements : parseRequirements(project.requirements),
     versionLabel: input.versionLabel !== undefined ? input.versionLabel : project.version_label,
-    tags: input.tags,
+    tags: input.tags ?? parseTags(project.search_tags),
     coverPositionX: input.coverPositionX ?? project.cover_position_x,
     coverPositionY: input.coverPositionY ?? project.cover_position_y,
     coverZoom: input.coverZoom ?? project.cover_zoom,

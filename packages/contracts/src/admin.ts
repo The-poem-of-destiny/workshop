@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { auditActionSchema } from "./audit.js";
 import { roleSchema } from "./identity.js";
+import { projectTypeSchema } from "./projects.js";
 
 export const adminSubmissionStatusSchema = z.enum(["pending", "checking", "approved", "rejected", "superseded"]);
 export type AdminSubmissionStatus = z.infer<typeof adminSubmissionStatusSchema>;
@@ -47,7 +48,7 @@ export const adminListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   cursor: z.string().max(512).optional(),
   search: z.string().trim().min(1).max(80).optional(),
-  projectType: z.string().max(40).optional(),
+  projectType: projectTypeSchema.optional(),
   includeDeleted: z.boolean().optional(),
 });
 export type AdminListQuery = z.infer<typeof adminListQuerySchema>;

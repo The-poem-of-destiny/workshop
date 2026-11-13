@@ -1,7 +1,13 @@
 import { parseDiscordThreadUrl } from "@workshop/domain";
 import { z } from "zod";
 import { visibilitySchema } from "./identity.js";
-import { extensionTypeSchema, projectSummarySchema, projectTypeSchema } from "./projects.js";
+import {
+  includedTypesSchema,
+  projectSummarySchema,
+  projectTagsSchema,
+  projectTaxonomySchema,
+  projectTypeSchema,
+} from "./projects.js";
 import { requirementsSchema } from "./requirements.js";
 
 const discordThreadUrlSchema = z
@@ -19,13 +25,12 @@ const discordThreadUrlSchema = z
   });
 
 const optionalText = z.string().max(100_000).nullable().optional();
-const tagsSchema = z.array(z.string().min(1).max(100)).max(100).optional();
 
-export const projectMetadataSchema = z.object({
+const projectMetadataFields = z.object({
   title: z.string().trim().min(1).max(200),
   description: optionalText,
-  projectType: projectTypeSchema.nullable().optional(),
-  extensionType: extensionTypeSchema.nullable().optional(),
+  projectType: projectTypeSchema,
+  includedTypes: includedTypesSchema.default([]),
   schemaVersion: z.string().trim().max(32).nullable().optional(),
   versionLabel: z.string().trim().max(80).nullable().optional(),
   requirements: requirementsSchema.nullable().optional(),
@@ -33,14 +38,26 @@ export const projectMetadataSchema = z.object({
   coverPositionY: z.number().min(0).max(100).optional(),
   coverZoom: z.number().min(1).max(3).optional(),
   discordThreadUrl: discordThreadUrlSchema,
-  tags: tagsSchema,
+  tags: projectTagsSchema.default([]),
+}).strict();
+
+export const projectMetadataSchema = projectMetadataFields.superRefine((value, ctx) => {
+  const taxonomy = projectTaxonomySchema.safeParse(value);
+  if (!taxonomy.success) for (const issue of taxonomy.error.issues) ctx.addIssue(issue);
 });
 export type ProjectMetadata = z.infer<typeof projectMetadataSchema>;
 
 export const createProjectSchema = projectMetadataSchema;
 export type CreateProject = z.infer<typeof createProjectSchema>;
 
-export const patchProjectSchema = projectMetadataSchema.partial();
+export const patchProjectSchema = projectMetadataFields.partial().extend({
+  includedTypes: includedTypesSchema.optional(),
+  tags: projectTagsSchema.optional(),
+}).superRefine((value, ctx) => {
+  if (value.projectType && value.includedTypes?.includes(value.projectType)) {
+    ctx.addIssue({ code: "custom", path: ["includedTypes"], message: "包含分类不能与主分类相同" });
+  }
+});
 export type PatchProject = z.infer<typeof patchProjectSchema>;
 
 export const visibilityUpdateSchema = z.object({ visibility: visibilitySchema });

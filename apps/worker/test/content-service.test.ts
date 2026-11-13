@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import { exports as workerExports } from "cloudflare:workers";
+import { PROJECT_TYPES, type ProjectEntryKind, type ProjectType } from "@workshop/domain";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { REVIEW_CHECKER_VERSION } from "../src/content-checker";
 import type { DataEnv } from "../src/data/env";
@@ -21,7 +22,7 @@ async function run(submissionId: string) {
   });
 }
 
-async function seedProject(id: string, content: string) {
+async function seedProject(id: string, content: string, kind: ProjectEntryKind = "worldbook", projectType: ProjectType = "角色") {
   await bindings.DB.prepare(
     "INSERT INTO users (id, username, role, created_at, updated_at) VALUES (?, ?, 'member', ?, ?)",
   )
@@ -35,18 +36,18 @@ async function seedProject(id: string, content: string) {
     .run();
   await bindings.DB.prepare(`
     INSERT INTO project_versions
-      (id, project_id, version_no, title, created_by, created_at)
-    VALUES (?, ?, 1, ?, ?, ?)
+      (id, project_id, version_no, title, project_type, created_by, created_at)
+    VALUES (?, ?, 1, ?, ?, ?, ?)
   `)
-    .bind(`r-${id}`, id, id, `u-${id}`, now)
+    .bind(`r-${id}`, id, id, projectType, `u-${id}`, now)
     .run();
   await bindings.DB.prepare("UPDATE projects SET working_version_id = ? WHERE id = ?").bind(`r-${id}`, id).run();
-  const key = `projects/${id}/versions/r-${id}/worldbook.json`;
+  const key = `projects/${id}/versions/r-${id}/${kind}.json`;
   await bindings.DB.prepare(`
     INSERT INTO assets (id, project_id, version_id, kind, r2_key, sha256, bytes, mime, created_at)
-    VALUES (?, ?, ?, 'worldbook', ?, ?, ?, 'application/json', ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'application/json', ?)
   `)
-    .bind(`a-${id}`, id, `r-${id}`, key, "hash", content.length, now)
+    .bind(`a-${id}`, id, `r-${id}`, kind, key, "hash", new TextEncoder().encode(content).byteLength, now)
     .run();
   await bindings.R2.put(key, content);
 }
@@ -148,6 +149,36 @@ describe("ContentService", () => {
     ).first<{ published_version_id: string | null; published_updated_at: string | null }>();
     expect(project?.published_version_id).toBe("r-p1");
     expect(project?.published_updated_at).toBe(submission?.auto_published_at);
+  });
+
+  it.each(PROJECT_TYPES)("checks and publishes a valid regex-only %s project", async (projectType) => {
+    const content = JSON.stringify({ scriptName: "Test", findRegex: "/a/g", replaceString: "b" });
+    await seedProject("regex-only", content, "regex", projectType);
+    await seedSubmission("regex-only-submission", "regex-only");
+    const response = await run("regex-only-submission");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ routeGate: "pass", published: true });
+    expect(await bindings.DB.prepare("SELECT published_version_id FROM projects WHERE id='regex-only'").first()).toEqual({
+      published_version_id: "r-regex-only",
+    });
+  });
+
+  it.each([
+    { kind: "worldbook" as const, content: JSON.stringify({ entries: [] }) },
+    { kind: "regex" as const, content: "[]" },
+    { kind: "regex" as const, content: "not json" },
+  ])("does not publish invalid or empty frozen $kind content", async ({ kind, content }) => {
+    await seedProject("invalid", content, kind, "内容扩展");
+    await seedSubmission("invalid-submission", "invalid");
+    const response = await run("invalid-submission");
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({ ok: false, error: expect.stringContaining("冻结文件无效") });
+    expect(await bindings.DB.prepare("SELECT published_version_id FROM projects WHERE id='invalid'").first()).toEqual({
+      published_version_id: null,
+    });
+    expect(await bindings.DB.prepare("SELECT status FROM automated_reviews WHERE submission_id='invalid-submission'").first()).toEqual({
+      status: "queued",
+    });
   });
 
   it("routes checker block to human review without publishing", async () => {

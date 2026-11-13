@@ -43,8 +43,8 @@ beforeEach(async () => {
       ('member', 'member', 'Member', 'member', '${now}', '${now}');
     INSERT INTO projects (id, author_id, visibility, updated_at)
       VALUES ('p1', 'member', 'public', '${now}');
-    INSERT INTO project_versions(id,project_id,version_no,title,description,project_type,extension_type,created_by)
-      VALUES('r1','p1',1,'Project','','角色','内容','member');
+    INSERT INTO project_versions(id,project_id,version_no,title,description,project_type,included_types,created_by)
+      VALUES('r1','p1',1,'Project','','角色','["内容扩展"]','member');
     UPDATE projects SET published_version_id = 'r1' WHERE id = 'p1';
   `;
   for (const statement of splitSql(seedSql)) await bindings.DB.prepare(statement).run();
@@ -132,6 +132,15 @@ describe("admin writes", () => {
       headers: { "content-type": "image/png" },
     });
     expect(oversized.status).toBe(413);
+  });
+
+  it("returns structured taxonomy in reviewer project lists without exposing author permissions", async () => {
+    const response = await request("/api/v1/admin/projects?projectType=角色", "reviewer-token");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      items: [{ id: "p1", projectType: "角色", includedTypes: ["内容扩展"] }],
+    });
+    expect((await request("/api/v1/admin/projects", "member-token")).status).toBe(403);
   });
 
   it("upserts and deletes recommendations", async () => {

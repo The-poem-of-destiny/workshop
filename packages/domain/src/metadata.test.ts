@@ -25,9 +25,19 @@ describe("project metadata", () => {
     expect(result.findings.map((item) => item.field).sort()).toEqual(["coverPositionX", "coverZoom", "title"]);
   });
 
-  it("warns on duplicate tags without blocking", () => {
+  it("blocks duplicate tags", () => {
     const result = inspectProjectMetadata({ title: "项目", tags: ["a", "a"] });
-    expect(result.gate).toBe("warn");
-    expect(result.findings[0]).toMatchObject({ field: "tags", severity: "warn" });
+    expect(result.gate).toBe("block");
+    expect(result.findings[0]).toMatchObject({ field: "tags", severity: "block" });
+  });
+
+  it("accepts twenty ordinary tags and blocks a twenty-first", () => {
+    const tags = Array.from({ length: 20 }, (_, index) => `标签${index}`);
+    expect(inspectProjectMetadata({ title: "项目", tags }).gate).toBe("pass");
+    expect(inspectProjectMetadata({ title: "项目", tags: [...tags, "第21个"] }).gate).toBe("block");
+  });
+
+  it.each(["", " ", " tag", "tag "])("blocks a noncanonical ordinary tag (%j)", (tag) => {
+    expect(inspectProjectMetadata({ title: "项目", tags: [tag] }).gate).toBe("block");
   });
 });

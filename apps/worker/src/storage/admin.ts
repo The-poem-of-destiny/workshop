@@ -1,5 +1,6 @@
-import type { AdminReviewRequest, AdminSubmissionListQuery, AdminSubmissionStatus } from "@workshop/contracts";
+import type { AdminReviewRequest, AdminSubmissionListQuery, AdminSubmissionStatus, ProjectType } from "@workshop/contracts";
 import { parseJson } from "./admin-values.js";
+import { parseIncludedTypes } from "./authoring-model.js";
 import { readFrozenReviewReport } from "./review-reports";
 
 interface SubmissionRow {
@@ -42,8 +43,8 @@ interface DetailSubmissionRow extends SubmissionTargetRow {
   version_no: number;
   version_title: string;
   version_description: string | null;
-  version_project_type: string | null;
-  version_extension_type: string | null;
+  version_project_type: ProjectType;
+  version_included_types: string;
   version_tags: string;
   version_manifest_hash: string | null;
   version_created_at: string;
@@ -207,7 +208,7 @@ export async function getAdminSubmission(db: D1Database, r2: R2Bucket, id: strin
            COALESCE(u.global_name, u.username) AS project_author_name,
            r.version_no, r.title AS version_title, r.description AS version_description,
            r.project_type AS version_project_type,
-           r.extension_type AS version_extension_type, r.tags AS version_tags,
+           r.included_types AS version_included_types, r.tags AS version_tags,
            r.manifest_hash AS version_manifest_hash,
            r.created_at AS version_created_at
     FROM submissions s
@@ -255,7 +256,7 @@ export async function getAdminSubmission(db: D1Database, r2: R2Bucket, id: strin
       title: row.version_title,
       description: row.version_description,
       projectType: row.version_project_type,
-      extensionType: row.version_extension_type,
+      includedTypes: parseIncludedTypes(row.version_included_types),
       searchTags: parseJson(row.version_tags),
       manifestHash: row.version_manifest_hash,
       createdAt: row.version_created_at,

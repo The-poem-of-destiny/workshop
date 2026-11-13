@@ -3,10 +3,10 @@ import {
   extractProjectEntries,
   getProjectEntryKey,
   type ProjectEntryKind,
-  validateProjectContentPolicy,
+  validateProjectContentPresence,
 } from "@workshop/domain";
 import { z } from "zod";
-import { getWorkingVersion, parseTags, versionValues } from "./authoring-model.js";
+import { getWorkingVersion, versionValues } from "./authoring-model.js";
 import { addVersion, type VersionAssetInput } from "./authoring-versions.js";
 
 export interface UploadResult {
@@ -100,17 +100,16 @@ export async function deleteProjectEntry(
   if (removed.entryCount === 0) {
     const otherKind = kind === "worldbook" ? "regex" : "worldbook";
     const other = await db
-      .prepare("SELECT 1 AS present FROM assets WHERE version_id = ? AND kind = ? LIMIT 1")
-      .bind(versionId, otherKind)
-      .first<{ present: number }>();
-    const policy = validateProjectContentPolicy(
-      { projectType: current.project_type, tags: parseTags(current.search_tags) },
-      {
-        worldbook: kind === "worldbook" ? false : Boolean(other?.present),
-        regex: kind === "regex" ? false : Boolean(other?.present),
-      },
-    );
-    if (!policy.valid) return null;
+      .prepare(`SELECT CASE WHEN ? = 'worldbook' THEN worldbook_count ELSE regex_count END AS count
+        FROM project_versions WHERE id = ?
+          AND EXISTS (SELECT 1 FROM assets WHERE version_id = ? AND kind = ?)`)
+      .bind(otherKind, versionId, versionId, otherKind)
+      .first<{ count: number }>();
+    const content = validateProjectContentPresence({
+      worldbook: kind === "worldbook" ? false : (other?.count ?? 0) > 0,
+      regex: kind === "regex" ? false : (other?.count ?? 0) > 0,
+    });
+    if (!content.valid) return null;
   }
 
   const sourceCounts = await db
@@ -127,9 +126,6 @@ export async function deleteProjectEntry(
     .all<RetainedAssetRow>();
 
   const nextVersionId = crypto.randomUUID();
-  const body = new TextEncoder().encode(removed.text).buffer;
-  const sha256 = await sha256Hex(body);
-  const contentKey = assetKey(projectId, kind, sha256, asset.mime);
   const assets: VersionAssetInput[] = [];
   for (const retainedAsset of retained.results) {
     // R2 objects are immutable and content-addressed; reuse the same object
@@ -143,8 +139,13 @@ export async function deleteProjectEntry(
       mime: retainedAsset.mime,
     });
   }
-  await r2.put(contentKey, body, { httpMetadata: { contentType: asset.mime } });
-  assets.push({ kind, r2Key: contentKey, sha256, bytes: body.byteLength, mime: asset.mime });
+  if (removed.entryCount > 0) {
+    const body = new TextEncoder().encode(removed.text).buffer;
+    const sha256 = await sha256Hex(body);
+    const contentKey = assetKey(projectId, kind, sha256, asset.mime);
+    await r2.put(contentKey, body, { httpMetadata: { contentType: asset.mime } });
+    assets.push({ kind, r2Key: contentKey, sha256, bytes: body.byteLength, mime: asset.mime });
+  }
 
   const revision = await addVersion(db, session, current, expectedVersion, versionValues(current, {}), {
     versionId: nextVersionId,

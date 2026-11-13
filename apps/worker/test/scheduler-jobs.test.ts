@@ -24,8 +24,8 @@ async function seedProject(id: string, downloads: number) {
     .bind(id, `u-${id}`, now, now, now)
     .run();
   await bindings.DB.prepare(`
-    INSERT INTO project_versions (id, project_id, version_no, title, created_by, created_at)
-    VALUES (?, ?, 1, ?, ?, ?)
+    INSERT INTO project_versions (id, project_id, version_no, title, project_type, created_by, created_at)
+    VALUES (?, ?, 1, ?, '角色', ?, ?)
   `)
     .bind(`r-${id}`, id, id, `u-${id}`, now)
     .run();
@@ -83,8 +83,8 @@ describe("scheduled jobs", () => {
     expect((await readRecommendationBatch(bindings.DB, Date.parse(now)))?.items.map((item) => item.project_id)).toEqual(
       ["p2"],
     );
-    await bindings.DB.prepare(`INSERT INTO project_versions (id,project_id,version_no,title,created_by,created_at)
-      VALUES ('r-p2-new','p2',2,'updated','u-p2',?)`)
+    await bindings.DB.prepare(`INSERT INTO project_versions (id,project_id,version_no,title,project_type,created_by,created_at)
+      VALUES ('r-p2-new','p2',2,'updated','角色','u-p2',?)`)
       .bind(now)
       .run();
     await bindings.DB.prepare("UPDATE projects SET published_version_id='r-p2-new' WHERE id='p2'").run();

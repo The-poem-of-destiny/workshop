@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { includedTypesSchema, projectTagsSchema, projectTypeSchema } from "./projects.js";
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
@@ -107,9 +108,9 @@ export const adminSubmissionDetailSchema = z.object({
     versionNo: z.number().int(),
     title: z.string(),
     description: z.string().nullable(),
-    projectType: z.string().nullable(),
-    extensionType: z.string().nullable(),
-    searchTags: jsonValueSchema,
+    projectType: projectTypeSchema,
+    includedTypes: includedTypesSchema,
+    searchTags: projectTagsSchema,
     manifestHash: z.string().nullable(),
     createdAt: z.string(),
   }),
@@ -161,7 +162,8 @@ export const adminProjectSchema = z.object({
   id: z.string(),
   title: z.string(),
   description: z.string().nullable(),
-  projectType: z.string().nullable(),
+  projectType: projectTypeSchema,
+  includedTypes: includedTypesSchema,
   visibility: z.enum(["public", "private"]),
   author: z.object({ id: z.string(), name: z.string() }),
   publishedVersionId: z.string().nullable(),

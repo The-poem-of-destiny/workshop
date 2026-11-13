@@ -1,5 +1,5 @@
 import { env, SELF } from "cloudflare:test";
-import { homeResponseSchema, projectPreviewSchema, siteSettingsSchema } from "@workshop/contracts";
+import { homeResponseSchema, projectListQuerySchema, projectPreviewSchema, siteSettingsSchema } from "@workshop/contracts";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { download } from "../src/data/download";
 import type { DataEnv } from "../src/data/env";
@@ -47,16 +47,16 @@ async function seed() {
 
   await bindings.DB.prepare(`
     INSERT INTO project_versions
-      (id, project_id, version_no, title, description, project_type, extension_type,
+      (id, project_id, version_no, title, description, project_type, included_types,
        tags, worldbook_count, regex_count, schema_version, discord_thread_url, created_by, created_at)
     VALUES (?, ?, 1, ?, ?, ?, ?, ?, 12, 4, '4.3', 'https://discord.com/channels/1/2', ?, ?)
   `)
-    .bind("r1", "p1", "命定之诗测试项目", "公开描述", "系统核心", "规则", '["奇幻","测试"]', "u1", now)
+    .bind("r1", "p1", "命定之诗测试项目", "公开描述", "系统核心", '["角色","玩法"]', '["奇幻","测试"]', "u1", now)
     .run();
 
   await bindings.DB.prepare(`
-    INSERT INTO project_versions (id, project_id, version_no, title, created_by, created_at)
-    VALUES ('r3', 'p1', 2, '草稿', 'u1', ?)
+    INSERT INTO project_versions (id, project_id, version_no, title, project_type, created_by, created_at)
+    VALUES ('r3', 'p1', 2, '草稿', '系统核心', 'u1', ?)
   `)
     .bind(now)
     .run();
@@ -119,8 +119,8 @@ async function seed() {
     .bind(now, now)
     .run();
   await bindings.DB.prepare(`
-    INSERT INTO project_versions (id, project_id, version_no, title, created_by, created_at)
-    VALUES ('r2', 'p2', 1, '私有项目', 'u1', ?)
+    INSERT INTO project_versions (id, project_id, version_no, title, project_type, created_by, created_at)
+    VALUES ('r2', 'p2', 1, '私有项目', '角色', 'u1', ?)
   `)
     .bind(now)
     .run();
@@ -170,6 +170,8 @@ describe("public read path", () => {
     expect(body.items[0]).toMatchObject({
       id: "p1",
       title: "命定之诗测试项目",
+      projectType: "系统核心",
+      includedTypes: ["角色", "玩法"],
       entries: { worldbook: 12, regex: 4 },
       schemaVersion: "4.3",
       counts: { downloads: 12, likes: 3, subscriptions: 2 },
@@ -468,7 +470,7 @@ describe("public read path", () => {
   it("keeps the public list within a bounded rows-read budget", async () => {
     await seed();
     const meta = { rows_read: Infinity, rows_written: Infinity };
-    const page = await listPublishedProjects(bindings.DB, { limit: 24, sort: "updated" }, (value) => {
+    const page = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ limit: 24, sort: "updated" }), (value) => {
       meta.rows_read = value.rows_read;
       meta.rows_written = value.rows_written;
     });
@@ -491,8 +493,8 @@ describe("public read path", () => {
         .bind(projectId, updatedAt, updatedAt)
         .run();
       await bindings.DB.prepare(`
-        INSERT INTO project_versions (id, project_id, version_no, title, created_by, created_at)
-        VALUES (?, ?, 1, ?, 'u1', ?)
+        INSERT INTO project_versions (id, project_id, version_no, title, project_type, created_by, created_at)
+        VALUES (?, ?, 1, ?, '角色', 'u1', ?)
       `)
         .bind(versionId, projectId, projectId, updatedAt)
         .run();
@@ -500,14 +502,12 @@ describe("public read path", () => {
         .bind(versionId, projectId)
         .run();
     }
-    const first = await listPublishedProjects(bindings.DB, { limit: 2, sort: "updated" });
+    const first = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ limit: 2, sort: "updated" }));
     expect(first.items.map((item) => item.id)).toEqual(["p1", "p3"]);
     expect(first.nextCursor).toBeTruthy();
-    const second = await listPublishedProjects(bindings.DB, {
-      limit: 2,
-      sort: "updated",
-      cursor: first.nextCursor!,
-    });
+    const second = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ limit: 2,
+    sort: "updated",
+    cursor: first.nextCursor!, }));
     expect(second.items.map((item) => item.id)).toEqual(["p4"]);
     expect(second.nextCursor).toBeNull();
   });

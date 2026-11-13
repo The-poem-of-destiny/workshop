@@ -12,7 +12,7 @@ import { getSessionByToken } from "../storage/sessions.js";
 import type { DataEnv } from "./env";
 
 export async function projectList(env: DataEnv, query: Parameters<typeof listPublishedProjects>[1]) {
-  if (!isValidProjectListCursor(query)) return { ok: false as const, error: "invalid_cursor" as const };
+  if (!(await isValidProjectListCursor(query))) return { ok: false as const, error: "invalid_cursor" as const };
   return { ok: true as const, data: await listPublishedProjects(env.DB, query) };
 }
 export async function projectDiscovery(env: DataEnv) {
@@ -110,7 +110,7 @@ export async function projectAcquisition(
   const release = await getReleaseAssets(env.DB, projectId, null, session);
   if (!release) return { ok: false as const, error: "not_found" as const };
   const project = await env.DB.prepare(`
-    SELECT p.id, r.title, r.project_type, r.extension_type, p.updated_at, r.tags
+    SELECT p.id, r.title, r.project_type, r.included_types, p.updated_at, r.tags
     FROM projects p JOIN project_versions r ON r.id = p.published_version_id
     WHERE p.id = ? AND p.published_version_id = ?
   `)
@@ -118,8 +118,8 @@ export async function projectAcquisition(
     .first<{
       id: string;
       title: string;
-      project_type: string | null;
-      extension_type: string | null;
+      project_type: string;
+      included_types: string;
       updated_at: string;
       tags: string;
     }>();
@@ -135,7 +135,7 @@ export async function projectAcquisition(
         id: project.id,
         title: project.title,
         projectType: project.project_type,
-        extensionType: project.extension_type,
+        includedTypes: JSON.parse(project.included_types) as unknown,
         version: release.versionId,
         manifestHash: release.manifestHash,
         updatedAt: project.updated_at,

@@ -1,8 +1,8 @@
 import { projectEntryIndexDocumentSchema, type Session, type SubmitProject } from "@workshop/contracts";
-import { type ProjectEntryKind, validateProjectContentPolicy } from "@workshop/domain";
+import { type ProjectEntryKind, validateProjectContentPresence } from "@workshop/domain";
 import { REVIEW_CHECKER_VERSION } from "../content-checker.js";
 import type { PrevalidatedContent } from "../data/contracts.js";
-import { getWorkingVersion, parseTags, type WorkingVersionRow } from "./authoring-model.js";
+import { getWorkingVersion } from "./authoring-model.js";
 
 export type SubmitVersionResult =
   | {
@@ -43,7 +43,6 @@ function assetSnapshotCondition(versionId: string, assets: readonly VersionAsset
 }
 
 function validateSubmissionContent(
-  current: WorkingVersionRow,
   assets: readonly VersionAssetRow[],
   prevalidated: PrevalidatedContent,
 ) {
@@ -56,17 +55,11 @@ function validateSubmissionContent(
       validationError = "内容在检查期间发生变化，请重新提交";
       break;
     }
-    presence[kind] = prevalidated.presence[kind];
+    presence[kind] = prevalidated.presence[kind] && prevalidated.counts[kind] > 0;
     counts[kind] = prevalidated.counts[kind];
   }
   if (!validationError) {
-    const policy = validateProjectContentPolicy(
-      {
-        projectType: current.version_project_type ?? current.project_type,
-        tags: parseTags(current.version_tags || current.search_tags),
-      },
-      presence,
-    );
+    const policy = validateProjectContentPresence(presence);
     if (!policy.valid) validationError = policy.error;
   }
   if (!validationError) {
@@ -106,7 +99,7 @@ export async function submitVersion(
     .prepare("SELECT kind, r2_key, sha256 FROM assets WHERE version_id = ? ORDER BY kind")
     .bind(versionId)
     .all<VersionAssetRow>();
-  const { counts, validationError } = validateSubmissionContent(current, assets.results, prevalidated);
+  const { counts, validationError } = validateSubmissionContent(assets.results, prevalidated);
   if (validationError) return { ok: false, code: "invalid_content", message: validationError };
   const entries = prevalidated.entries;
   const parsedIndex = projectEntryIndexDocumentSchema.safeParse({ schemaVersion: 1, entries });

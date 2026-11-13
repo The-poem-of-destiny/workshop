@@ -6,14 +6,14 @@ import type {
   Session,
   VisibilityUpdate,
 } from "@workshop/contracts";
-import { getAuthoringProject, parseRequirements, parseTags, type VersionValues } from "./authoring-model.js";
+import { getAuthoringProject, parseIncludedTypes, parseRequirements, parseTags, type VersionValues } from "./authoring-model.js";
 
 interface SummaryRow {
   id: string;
   title: string;
   description: string | null;
-  project_type: string | null;
-  extension_type: string | null;
+  project_type: ProjectSummary["projectType"];
+  included_types: string;
   visibility: "public" | "private";
   published_at: string | null;
   updated_at: string;
@@ -71,8 +71,8 @@ function toSummary(row: SummaryRow): ProjectSummary {
     title: row.title,
     description: row.description,
     author: { id: row.author_id, name: row.author_name, avatarUrl: avatarUrl(row.author_id, row.author_avatar) },
-    projectType: row.project_type as ProjectSummary["projectType"],
-    extensionType: row.extension_type as ProjectSummary["extensionType"],
+    projectType: row.project_type,
+    includedTypes: parseIncludedTypes(row.included_types),
     tags: parseTags(row.tags),
     entries: { worldbook: row.worldbook_count, regex: row.regex_count },
     schemaVersion: row.schema_version,
@@ -92,7 +92,7 @@ function toSummary(row: SummaryRow): ProjectSummary {
 }
 
 const summarySql = `
-  SELECT p.id, r.title, r.description, r.project_type, r.extension_type,
+  SELECT p.id, r.title, r.description, r.project_type, r.included_types,
     p.visibility, p.published_at, p.updated_at, p.published_version_id, p.downloads_count, p.likes_count,
     p.subscriptions_count, u.id AS author_id, COALESCE(u.global_name, u.username) AS author_name,
     u.avatar AS author_avatar, r.tags,
@@ -161,7 +161,7 @@ function toAuthorSubmission(row: AuthorProjectRow): AuthorSubmission | null {
 export async function listAuthorProjects(db: D1Database, session: Session): Promise<AuthorProject[]> {
   const result = await db
     .prepare(`
-    SELECT p.id, r.title, r.description, r.project_type, r.extension_type,
+    SELECT p.id, r.title, r.description, r.project_type, r.included_types,
       p.visibility, p.published_at, p.updated_at, p.published_version_id, p.downloads_count, p.likes_count,
       p.subscriptions_count, u.id AS author_id, COALESCE(u.global_name, u.username) AS author_name,
       u.avatar AS author_avatar, r.tags,
@@ -262,12 +262,12 @@ export async function createProject(db: D1Database, session: Session, input: Cre
   const projectId = crypto.randomUUID();
   const versionId = crypto.randomUUID();
   const now = new Date().toISOString();
-  const tags = JSON.stringify(input.tags ?? []);
+  const tags = JSON.stringify(input.tags);
   const values: VersionValues = {
     title: input.title,
     description: input.description ?? null,
-    projectType: input.projectType ?? null,
-    extensionType: input.extensionType ?? null,
+    projectType: input.projectType,
+    includedTypes: input.includedTypes,
     schemaVersion: input.schemaVersion ?? null,
     versionLabel: input.versionLabel ?? null,
     requirements: input.requirements == null ? null : JSON.stringify(input.requirements),
@@ -275,7 +275,7 @@ export async function createProject(db: D1Database, session: Session, input: Cre
     coverPositionY: input.coverPositionY ?? 50,
     coverZoom: input.coverZoom ?? 1,
     discordThreadUrl: input.discordThreadUrl ?? null,
-    tags: input.tags ?? [],
+    tags: input.tags,
   };
   await db.batch([
     db
@@ -285,7 +285,7 @@ export async function createProject(db: D1Database, session: Session, input: Cre
       .bind(projectId, session.userId, versionId, now, now),
     db
       .prepare(`INSERT INTO project_versions
-      (id, project_id, version_no, title, description, project_type, extension_type,
+      (id, project_id, version_no, title, description, project_type, included_types,
        schema_version, version_label, requirements, cover_position_x, cover_position_y, cover_zoom,
        discord_thread_url, tags, created_by, created_at)
       VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -295,7 +295,7 @@ export async function createProject(db: D1Database, session: Session, input: Cre
         values.title,
         values.description,
         values.projectType,
-        values.extensionType,
+        JSON.stringify(values.includedTypes),
         values.schemaVersion,
         values.versionLabel,
         values.requirements,

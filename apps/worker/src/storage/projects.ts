@@ -5,14 +5,16 @@ import {
   projectDetailSchema,
   projectListResponseSchema,
 } from "@workshop/contracts";
-import { parseRequirements } from "./authoring-model.js";
+import { presetTagGroup } from "@workshop/domain";
+import { parseIncludedTypes, parseRequirements } from "./authoring-model.js";
+import { sha256Hex } from "./identity.js";
 
 interface ProjectRow {
   id: string;
   title: string;
   description: string | null;
-  project_type: string | null;
-  extension_type: string | null;
+  project_type: ProjectSummary["projectType"];
+  included_types: string;
   visibility: "public" | "private";
   published_at: string | null;
   updated_at: string;
@@ -42,7 +44,7 @@ const PUBLIC_UPDATED_AT = "COALESCE(p.published_updated_at, p.published_at, r.cr
 
 const SELECT_PROJECT = `
   SELECT
-    p.id, r.title, r.description, r.project_type, r.extension_type,
+    p.id, r.title, r.description, r.project_type, r.included_types,
     p.visibility, p.published_at, ${PUBLIC_UPDATED_AT} AS updated_at, p.published_version_id,
     p.downloads_count, p.likes_count, p.subscriptions_count,
     u.id AS author_id,
@@ -130,8 +132,8 @@ function toSummary(row: ProjectRow): ProjectSummary {
       name: row.author_name,
       avatarUrl: avatarUrl(row.author_id, row.author_avatar),
     },
-    projectType: row.project_type as ProjectSummary["projectType"],
-    extensionType: row.extension_type as ProjectSummary["extensionType"],
+    projectType: row.project_type,
+    includedTypes: parseIncludedTypes(row.included_types),
     tags: parseTags(row.tags),
     entries: {
       worldbook: row.worldbook_count,
@@ -172,22 +174,23 @@ interface CatalogCursor {
   id: string;
 }
 
-function cursorScope(query: ProjectListQuery): string {
-  return JSON.stringify([
+function cursorScope(query: ProjectListQuery): Promise<string> {
+  return sha256Hex(JSON.stringify([
     query.sort,
     query.sort === "likes" || query.sort === "downloads" ? (query.period ?? "30d") : "all",
-    query.projectType ?? null,
+    query.projectType,
+    query.includeContained,
     query.authorId ?? null,
-    query.tag ?? null,
+    query.tag,
     query.search ?? null,
-  ]);
+  ]));
 }
 
 function encodeCursor(cursor: CatalogCursor): string {
   return btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(cursor))));
 }
 
-function decodeCursor(cursor: string | undefined, query: ProjectListQuery): CatalogCursor | null {
+function decodeCursor(cursor: string | undefined, query: ProjectListQuery, scope: string): CatalogCursor | null {
   if (!cursor) return null;
   try {
     const parsed = JSON.parse(
@@ -195,7 +198,7 @@ function decodeCursor(cursor: string | undefined, query: ProjectListQuery): Cata
     ) as Partial<CatalogCursor>;
     const numeric = query.sort === "likes" || query.sort === "downloads";
     if (
-      parsed.scope === cursorScope(query) &&
+      parsed.scope === scope &&
       typeof parsed.id === "string" &&
       typeof parsed.asOf === "string" &&
       Number.isFinite(Date.parse(parsed.asOf)) &&
@@ -210,8 +213,8 @@ function decodeCursor(cursor: string | undefined, query: ProjectListQuery): Cata
   return null;
 }
 
-export function isValidProjectListCursor(query: ProjectListQuery): boolean {
-  return !query.cursor || decodeCursor(query.cursor, query) !== null;
+export async function isValidProjectListCursor(query: ProjectListQuery): Promise<boolean> {
+  return !query.cursor || decodeCursor(query.cursor, query, await cursorScope(query)) !== null;
 }
 
 const SORT_COLUMN: Record<ProjectListQuery["sort"], string> = {
@@ -254,7 +257,8 @@ export async function listPublishedProjects(
   query: ProjectListQuery,
   onMeta?: (meta: { rows_read: number; rows_written: number }) => void,
 ) {
-  const cursor = decodeCursor(query.cursor, query);
+  const scope = await cursorScope(query);
+  const cursor = decodeCursor(query.cursor, query, scope);
   if (query.cursor && !cursor) throw new Error("Invalid catalog cursor");
   const asOf = cursor?.asOf ?? new Date().toISOString();
   const period = query.period ?? "30d";
@@ -262,17 +266,28 @@ export async function listPublishedProjects(
   const where = [PUBLIC_PROJECT];
   const bindings: unknown[] = [];
 
-  if (query.projectType) {
-    where.push("r.project_type = ?");
-    bindings.push(query.projectType);
+  if (query.projectType.length > 0) {
+    const placeholders = query.projectType.map(() => "?").join(", ");
+    const primary = `r.project_type IN (${placeholders})`;
+    where.push(query.includeContained
+      ? `(${primary} OR EXISTS (SELECT 1 FROM json_each(r.included_types) WHERE value IN (${placeholders})))`
+      : primary);
+    bindings.push(...query.projectType);
+    if (query.includeContained) bindings.push(...query.projectType);
   }
   if (query.authorId) {
     where.push("p.author_id = ?");
     bindings.push(query.authorId);
   }
-  if (query.tag) {
-    where.push("EXISTS (SELECT 1 FROM json_each(r.tags) WHERE json_each.value = ?)");
-    bindings.push(query.tag);
+  const tagGroups: Record<string, string[]> = Object.create(null);
+  for (const tag of query.tag) {
+    const group = presetTagGroup(tag);
+    const key = group === null ? `custom:${tag}` : `preset:${group}`;
+    (tagGroups[key] ??= []).push(tag);
+  }
+  for (const tags of Object.values(tagGroups)) {
+    where.push(`EXISTS (SELECT 1 FROM project_search_tags WHERE project_id = p.id AND tag IN (${tags.map(() => "?").join(", ")}))`);
+    bindings.push(...tags);
   }
   if (query.search) {
     const predicate = searchPredicate(query.search);
@@ -328,7 +343,7 @@ export async function listPublishedProjects(
     total: totalRow.total,
     nextCursor:
       hasMore && last
-        ? encodeCursor({ scope: cursorScope(query), asOf, value: sortValue(last, query.sort, periodic), id: last.id })
+        ? encodeCursor({ scope, asOf, value: sortValue(last, query.sort, periodic), id: last.id })
         : null,
   });
 }

@@ -61,9 +61,9 @@ describe("submission metadata diff", () => {
       "INSERT INTO projects (id, author_id, visibility) VALUES ('diff-project', 'diff-user', 'private')",
     ).run();
     await bindings.DB.prepare(`INSERT INTO project_versions
-      (id, project_id, version_no, title, schema_version, created_by) VALUES
-      ('diff-old', 'diff-project', 1, 'project', '1.0', 'diff-user'),
-      ('diff-new', 'diff-project', 2, 'project', '2.0', 'diff-user')`).run();
+      (id, project_id, version_no, title, project_type, schema_version, created_by) VALUES
+      ('diff-old', 'diff-project', 1, 'project', '系统核心', '1.0', 'diff-user'),
+      ('diff-new', 'diff-project', 2, 'project', '系统核心', '2.0', 'diff-user')`).run();
     await bindings.DB.prepare(`INSERT INTO submissions
       (id, project_id, version_id, base_published_version_id, status, submitted_by)
       VALUES ('diff-submission', 'diff-project', 'diff-new', 'diff-old', 'pending', 'diff-user')`).run();
