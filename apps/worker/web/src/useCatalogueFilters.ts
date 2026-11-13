@@ -65,8 +65,7 @@ function taxonomyFilters(state: TaxonomyFilters, action: TaxonomyAction): Taxono
   return {
     ...state,
     tags: room > 0 && additions.length > 0 ? [...state.tags, ...additions.slice(0, room)] : state.tags,
-    tagLimitMessage:
-      additions.length > room ? `最多可同时筛选 ${MAX_SELECTED_TAGS} 个标签，请先移除已选标签。` : null,
+    tagLimitMessage: additions.length > room ? `最多可同时筛选 ${MAX_SELECTED_TAGS} 个标签，请先移除已选标签。` : null,
   };
 }
 

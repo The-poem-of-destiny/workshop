@@ -249,6 +249,16 @@ h3 {
   display: grid;
   gap: 6px;
 }
+.sidebar-primary-filter {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.sidebar-primary-filter > legend {
+  margin-bottom: 6px;
+  padding: 0;
+}
 .filter-group-label {
   color: var(--muted);
   font-size: 14px;

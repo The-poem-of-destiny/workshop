@@ -68,15 +68,15 @@ export function ProjectDraftMetadata({
           </label>
           {input("discordThreadUrl", "Discord 讨论链接")}
         </div>
-        <div className="form-grid">
-          {input("versionLabel", "版本号")}
-        </div>
+        <div className="form-grid">{input("versionLabel", "版本号")}</div>
         <ProjectClassification
           idPrefix="project"
           projectType={form.projectType}
           includedTypes={form.includedTypes}
           disabled={disabled}
-          onChange={(projectType, includedTypes) => setForm((previous) => ({ ...previous, projectType, includedTypes }))}
+          onChange={(projectType, includedTypes) =>
+            setForm((previous) => ({ ...previous, projectType, includedTypes }))
+          }
         />
         <div className="form-grid">
           {input("coverPositionX", "封面横向位置（0–100）")}

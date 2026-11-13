@@ -114,7 +114,7 @@ export function ProjectDetail({
         <DialogHeader className="detail-header">
           <DialogTitle>{project.title}</DialogTitle>
           <DialogDescription className="sr-only">项目详情</DialogDescription>
-          <div className="detail-meta-line" aria-label="项目分类">
+          <section className="detail-meta-line" aria-label="项目分类">
             <button
               type="button"
               className="detail-badge project-type-tag"
@@ -124,12 +124,16 @@ export function ProjectDetail({
             >
               主要分类：{projectType}
             </button>
-          </div>
+          </section>
           {includedTypes.length > 0 ? (
-            <div className="detail-meta-line detail-included-types" aria-label="包含类型">
+            <section className="detail-meta-line detail-included-types" aria-label="包含类型">
               <span>包含：</span>
-              {includedTypes.map((type) => <span key={type} className="detail-badge">{type}</span>)}
-            </div>
+              {includedTypes.map((type) => (
+                <span key={type} className="detail-badge">
+                  {type}
+                </span>
+              ))}
+            </section>
           ) : null}
           {tags.length ? (
             <fieldset className="detail-tags">

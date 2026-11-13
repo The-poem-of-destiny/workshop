@@ -26,7 +26,10 @@ export function ProjectClassification({
           aria-describedby={`${idPrefix}-classification-hint`}
           onChange={(event) => {
             const primary = event.target.value as ProjectType;
-            onChange(primary, includedTypes.filter((type) => type !== "系统核心" && type !== primary));
+            onChange(
+              primary,
+              includedTypes.filter((type) => type !== "系统核心" && type !== primary),
+            );
           }}
         >
           <option value="" disabled>

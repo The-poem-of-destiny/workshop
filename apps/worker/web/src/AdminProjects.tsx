@@ -51,7 +51,8 @@ export function AdminProjects({
               </small>
             </span>
             <span className="status">
-              {project.deletedAt ? "已删除 · " : ""}{project.projectType}
+              {project.deletedAt ? "已删除 · " : ""}
+              {project.projectType}
               {project.includedTypes.length ? `（包含：${project.includedTypes.join("、")}）` : ""}
             </span>
           </div>

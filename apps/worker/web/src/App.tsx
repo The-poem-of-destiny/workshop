@@ -39,14 +39,12 @@ export function App() {
     drawerToggle,
     drawerClose,
   } = useWorkshopNavigation();
+  const catalogue = useCatalogue({ enabled: view === "browse", setError, home });
   const {
     addTags,
     toggleTag,
     removeTag,
     tagLimitMessage,
-    total,
-    period,
-    setPeriod,
     search,
     setSearch,
     projectTypes,
@@ -63,17 +61,7 @@ export function App() {
     layout,
     setLayout,
     hasFilters,
-    listLoading,
-    loadedQuery,
-    queryKey,
-    projects,
-    pageIndex,
-    pageSize,
-    setListRetry,
-    setPageSize,
-    changePage,
-    nextCursor,
-  } = useCatalogue({ enabled: view === "browse", setError, home });
+  } = catalogue;
   const { me, logout, login, loginFallback, refreshMe, sessionError } = useWorkshopSession({
     embedded,
     setError,
@@ -253,38 +241,9 @@ export function App() {
           >
             <WorkshopCatalogue
               home={home}
-              hasFilters={hasFilters}
-              total={total}
-              period={period}
-              setPeriod={setPeriod}
-              search={search}
-              setSearch={setSearch}
-              projectTypes={projectTypes}
-              setProjectTypes={setProjectTypes}
-              includeContained={includeContained}
-              setIncludeContained={setIncludeContained}
-              author={author}
-              setAuthor={setAuthor}
-              tags={tags}
-              removeTag={removeTag}
-              tagLimitMessage={tagLimitMessage}
-              clearFilters={clearFilters}
+              catalogue={catalogue}
               detailOpener={detailOpener}
               setSelected={setSelected}
-              sort={sort}
-              setSort={setSort}
-              layout={layout}
-              setLayout={setLayout}
-              listLoading={listLoading}
-              loadedQuery={loadedQuery}
-              queryKey={queryKey}
-              projects={projects}
-              pageIndex={pageIndex}
-              pageSize={pageSize}
-              setListRetry={setListRetry}
-              setPageSize={setPageSize}
-              changePage={changePage}
-              nextCursor={nextCursor}
             />
           </WorkshopWorkspaces>
           {selected ? (

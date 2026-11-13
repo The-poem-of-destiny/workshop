@@ -161,10 +161,7 @@ export function ProjectCard({
         </p>
         {layout === "cards" ? dateMeta : null}
         <p className="card-note">{preview}</p>
-        <div
-          className="tags"
-          title={[project.projectType, ...project.tags].join("、")}
-        >
+        <div className="tags" title={[project.projectType, ...project.tags].join("、")}>
           {project.projectType ? (
             <span className="project-type-tag" data-type={project.projectType}>
               {project.projectType}

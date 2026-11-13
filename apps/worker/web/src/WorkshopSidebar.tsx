@@ -1,4 +1,4 @@
-import { MAX_SELECTED_TAGS, orderedPresetTagGroups, presetTagGroup, PROJECT_TYPES } from "@workshop/domain";
+import { MAX_SELECTED_TAGS, orderedPresetTagGroups, PROJECT_TYPES, presetTagGroup } from "@workshop/domain";
 import { BookOpen, Compass, LayoutGrid, List, X } from "lucide-react";
 import { type Dispatch, type RefObject, type SetStateAction, useState } from "react";
 
@@ -151,10 +151,12 @@ export function WorkshopSidebar({
             </button>
           ) : null}
         </div>
-        <div className="filter-group">
-          <span className="filter-group-label" id="primary-filter-label">主要分类（可多选）</span>
-          <p className="sidebar-filter-hint">多选分类满足任意一个即可（OR）。</p>
-          <div className="filter-options" role="group" aria-labelledby="primary-filter-label">
+        <fieldset className="filter-group sidebar-primary-filter" aria-describedby="primary-filter-help">
+          <legend className="filter-group-label">主要分类（可多选）</legend>
+          <p id="primary-filter-help" className="sidebar-filter-hint">
+            多选分类满足任意一个即可（OR）。
+          </p>
+          <div className="filter-options">
             <button
               type="button"
               className={`filter-chip${projectTypes.length === 0 ? " active" : ""}`}
@@ -174,7 +176,9 @@ export function WorkshopSidebar({
                 onClick={() => {
                   if (!setView("browse")) return;
                   setProjectTypes(
-                    projectTypes.includes(value) ? projectTypes.filter((type) => type !== value) : [...projectTypes, value],
+                    projectTypes.includes(value)
+                      ? projectTypes.filter((type) => type !== value)
+                      : [...projectTypes, value],
                   );
                 }}
               >
@@ -192,9 +196,11 @@ export function WorkshopSidebar({
             />
             同时匹配包含该类型的项目
           </label>
-        </div>
+        </fieldset>
         <div className="filter-group">
-          <label className="filter-group-label" htmlFor="sidebar-tag">标签</label>
+          <label className="filter-group-label" htmlFor="sidebar-tag">
+            标签
+          </label>
           <div className="sidebar-tag-input-row">
             <input
               id="sidebar-tag"
@@ -220,10 +226,11 @@ export function WorkshopSidebar({
             预设标签同组任选（OR）、跨组同时满足（AND）；每个自定义标签都须满足。输入预设词也按所属组匹配。
           </p>
           <p id="sidebar-tag-status" className="sidebar-filter-hint" role="status" aria-live="polite">
-            {tagLimitMessage ?? `已选 ${tags.length} / ${MAX_SELECTED_TAGS} 个标签${atTagLimit ? "，请先移除再添加。" : "。"}`}
+            {tagLimitMessage ??
+              `已选 ${tags.length} / ${MAX_SELECTED_TAGS} 个标签${atTagLimit ? "，请先移除再添加。" : "。"}`}
           </p>
           {tags.length > 0 ? (
-            <div className="sidebar-selected-tags" aria-label="已选筛选标签">
+            <section className="sidebar-selected-tags" aria-label="已选筛选标签">
               {tags.map((value) => (
                 <button
                   type="button"
@@ -233,16 +240,22 @@ export function WorkshopSidebar({
                   title={presetTagGroup(value) ? `预设 · ${presetTagGroup(value)}` : "自定义标签 · AND"}
                   onClick={() => removeTag(value)}
                 >
-                  {value}<X aria-hidden="true" />
+                  {value}
+                  <X aria-hidden="true" />
                 </button>
               ))}
-            </div>
+            </section>
           ) : null}
           <div className="sidebar-tag-groups">
             {groups.map((group) => (
-              <details key={group.name} className="sidebar-tag-group" open={group.tags.some((value) => tags.includes(value))}>
+              <details
+                key={group.name}
+                className="sidebar-tag-group"
+                open={group.tags.some((value) => tags.includes(value))}
+              >
                 <summary>
-                  {group.name}<span>{group.tags.length}</span>
+                  {group.name}
+                  <span>{group.tags.length}</span>
                 </summary>
                 <fieldset className="sidebar-tags" aria-label={`${group.name}标签`}>
                   {group.tags.map((value) => (
@@ -264,7 +277,9 @@ export function WorkshopSidebar({
           </div>
           {pageTags.length > 0 ? (
             <details className="sidebar-tag-group">
-              <summary>本页常见<span>{pageTags.length}</span></summary>
+              <summary>
+                本页常见<span>{pageTags.length}</span>
+              </summary>
               <fieldset className="sidebar-tags" aria-label="本页常见标签">
                 {pageTags.map((value) => (
                   <button

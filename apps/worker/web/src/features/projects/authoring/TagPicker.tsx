@@ -104,11 +104,7 @@ export function TagPicker({
       {groups.length > 0 ? (
         <div className="tag-groups">
           {groups.map((group) => (
-            <details
-              className="tag-group"
-              key={group.name}
-              open={group.tags.some((option) => value.includes(option))}
-            >
+            <details className="tag-group" key={group.name} open={group.tags.some((option) => value.includes(option))}>
               <summary>
                 {group.name}（{group.tags.length}）
               </summary>

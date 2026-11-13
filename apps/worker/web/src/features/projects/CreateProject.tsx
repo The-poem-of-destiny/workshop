@@ -60,8 +60,7 @@ export function CreateProject({
   const update = (
     key: Exclude<keyof ProjectForm, "tags" | "requirements" | "projectType" | "includedTypes">,
     value: string,
-  ): void =>
-    setForm((previous) => ({ ...previous, [key]: value }));
+  ): void => setForm((previous) => ({ ...previous, [key]: value }));
 
   async function create(): Promise<void> {
     if (!form.title.trim() || !form.projectType || busy) return;
@@ -139,7 +138,9 @@ export function CreateProject({
           projectType={form.projectType}
           includedTypes={form.includedTypes}
           disabled={busy}
-          onChange={(projectType, includedTypes) => setForm((previous) => ({ ...previous, projectType, includedTypes }))}
+          onChange={(projectType, includedTypes) =>
+            setForm((previous) => ({ ...previous, projectType, includedTypes }))
+          }
         />
       </section>
 

@@ -10,73 +10,47 @@ import type { HomeLoadState } from "./useWorkshopHome";
 
 export function WorkshopCatalogue({
   home,
-  hasFilters,
-  total,
-  period,
-  setPeriod,
-  search,
-  setSearch,
-  projectTypes,
-  setProjectTypes,
-  includeContained,
-  setIncludeContained,
-  author,
-  setAuthor,
-  tags,
-  removeTag,
-  tagLimitMessage,
-  clearFilters,
+  catalogue,
   detailOpener,
   setSelected,
-  sort,
-  setSort,
-  layout,
-  setLayout,
-  listLoading,
-  loadedQuery,
-  queryKey,
-  projects,
-  pageIndex,
-  pageSize,
-  setListRetry,
-  setPageSize,
-  changePage,
-  nextCursor,
 }: {
   home: HomeLoadState;
-  total: number;
-  period: "all" | "7d" | "30d" | "90d";
-  setPeriod: (period: "all" | "7d" | "30d" | "90d") => void;
-  hasFilters: CatalogueState["hasFilters"];
-  search: CatalogueState["search"];
-  setSearch: CatalogueState["setSearch"];
-  projectTypes: CatalogueState["projectTypes"];
-  setProjectTypes: CatalogueState["setProjectTypes"];
-  includeContained: CatalogueState["includeContained"];
-  setIncludeContained: CatalogueState["setIncludeContained"];
-  author: CatalogueState["author"];
-  setAuthor: CatalogueState["setAuthor"];
-  tags: CatalogueState["tags"];
-  removeTag: CatalogueState["removeTag"];
-  tagLimitMessage: CatalogueState["tagLimitMessage"];
-  clearFilters: CatalogueState["clearFilters"];
+  catalogue: CatalogueState;
   detailOpener: RefObject<HTMLElement | null>;
   setSelected: (project: ProjectSummary | null) => void;
-  sort: CatalogueState["sort"];
-  setSort: CatalogueState["setSort"];
-  layout: CatalogueState["layout"];
-  setLayout: CatalogueState["setLayout"];
-  listLoading: CatalogueState["listLoading"];
-  loadedQuery: CatalogueState["loadedQuery"];
-  queryKey: CatalogueState["queryKey"];
-  projects: CatalogueState["projects"];
-  pageIndex: CatalogueState["pageIndex"];
-  pageSize: CatalogueState["pageSize"];
-  setListRetry: CatalogueState["setListRetry"];
-  setPageSize: CatalogueState["setPageSize"];
-  changePage: CatalogueState["changePage"];
-  nextCursor: CatalogueState["nextCursor"];
 }) {
+  const {
+    hasFilters,
+    total,
+    period,
+    setPeriod,
+    search,
+    setSearch,
+    projectTypes,
+    setProjectTypes,
+    includeContained,
+    setIncludeContained,
+    author,
+    setAuthor,
+    tags,
+    removeTag,
+    tagLimitMessage,
+    clearFilters,
+    sort,
+    setSort,
+    layout,
+    setLayout,
+    listLoading,
+    loadedQuery,
+    queryKey,
+    projects,
+    pageIndex,
+    pageSize,
+    setListRetry,
+    setPageSize,
+    changePage,
+    nextCursor,
+  } = catalogue;
   return (
     <>
       {hasFilters ? (
@@ -102,7 +76,8 @@ export function WorkshopCatalogue({
           ))}
           {includeContained ? (
             <button type="button" className="filter-chip active" onClick={() => setIncludeContained(false)}>
-              包含类型也匹配<X aria-hidden="true" />
+              包含类型也匹配
+              <X aria-hidden="true" />
             </button>
           ) : null}
           {author ? (
@@ -119,7 +94,8 @@ export function WorkshopCatalogue({
               onClick={() => removeTag(tag)}
               title={`移除标签 ${tag}`}
             >
-              标签：{tag}<X aria-hidden="true" />
+              标签：{tag}
+              <X aria-hidden="true" />
             </button>
           ))}
           <button type="button" className="active-filters-clear" onClick={clearFilters}>
@@ -127,7 +103,11 @@ export function WorkshopCatalogue({
           </button>
         </section>
       ) : null}
-      {tagLimitMessage ? <p className="catalogue-filter-message" role="status">{tagLimitMessage}</p> : null}
+      {tagLimitMessage ? (
+        <p className="catalogue-filter-message" role="status">
+          {tagLimitMessage}
+        </p>
+      ) : null}
       {!hasFilters ? (
         <Discovery
           home={home}

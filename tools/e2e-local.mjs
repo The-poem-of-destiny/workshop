@@ -30,8 +30,26 @@ const authorToken = "e2e-author-token";
 const ownerToken = "e2e-owner-token";
 const memberToken = "e2e-member-token";
 const taxonomyTags = [
-  "人类", "冒险者", "温柔", "合集", "工具脚本", "e2e-a", "e2e-b", "地区与城市", "战斗", "单次事件",
-  "冒险者公会", "帝国", "白发红瞳", "cbz", "hnh", "1011", "轻型", "中型", "大型", "e2e-tail",
+  "人类",
+  "冒险者",
+  "温柔",
+  "合集",
+  "工具脚本",
+  "e2e-a",
+  "e2e-b",
+  "地区与城市",
+  "战斗",
+  "单次事件",
+  "冒险者公会",
+  "帝国",
+  "白发红瞳",
+  "cbz",
+  "hnh",
+  "1011",
+  "轻型",
+  "中型",
+  "大型",
+  "e2e-tail",
 ];
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -204,8 +222,11 @@ async function main() {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            title: "E2E Project", description: "e2e", projectType: "角色",
-            includedTypes: ["内容扩展", "玩法"], tags: taxonomyTags,
+            title: "E2E Project",
+            description: "e2e",
+            projectType: "角色",
+            includedTypes: ["内容扩展", "玩法"],
+            tags: taxonomyTags,
           }),
         },
         authorToken,
@@ -332,8 +353,11 @@ async function main() {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            title: "E2E Sort", description: "ordering", projectType: "事件",
-            includedTypes: [], tags: ["兽族", "冒险者", "e2e-a"],
+            title: "E2E Sort",
+            description: "ordering",
+            projectType: "事件",
+            includedTypes: [],
+            tags: ["兽族", "冒险者", "e2e-a"],
           }),
         },
         authorToken,
@@ -457,15 +481,21 @@ async function main() {
     await check("taxonomy catalogue query and complete detail metadata", async () => {
       const cases = [
         { query: { projectType: ["角色", "事件"] }, count: 2, label: "primary types use OR" },
-        { query: { projectType: ["内容扩展"] }, count: 0, label: "primary matching excludes contained types by default" },
+        {
+          query: { projectType: ["内容扩展"] },
+          count: 0,
+          label: "primary matching excludes contained types by default",
+        },
         {
           query: { projectType: ["内容扩展"], includeContained: ["true"] },
-          count: 1, label: "contained type matching is opt-in",
+          count: 1,
+          label: "contained type matching is opt-in",
         },
         { query: { tag: ["人类", "兽族", "冒险者"] }, count: 2, label: "same-group presets use OR" },
         {
           query: { tag: ["人类", "兽族", "冒险者", "温柔"] },
-          count: 1, label: "different preset groups use AND",
+          count: 1,
+          label: "different preset groups use AND",
         },
         { query: { tag: ["e2e-a", "e2e-b"] }, count: 1, label: "each custom tag uses AND" },
         { query: { tag: taxonomyTags.slice(0, 12) }, count: 1, label: "twelve mixed tags are accepted" },
@@ -486,7 +516,10 @@ async function main() {
       const metadata = JSON.parse(detail.body);
       assert(metadata.projectType === "角色", "detail exposes one primary type");
       assert(metadata.includedTypes.join("、") === "内容扩展、玩法", "detail exposes separate included types");
-      assert(JSON.stringify(metadata.tags) === JSON.stringify(taxonomyTags), "detail retains every ordinary tag and stored abbreviation");
+      assert(
+        JSON.stringify(metadata.tags) === JSON.stringify(taxonomyTags),
+        "detail retains every ordinary tag and stored abbreviation",
+      );
     });
 
     await check("logical acquisitions are idempotent and file reads repeatable", async () => {
@@ -545,8 +578,11 @@ async function main() {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            title, description: "manual review", projectType: "事件",
-            includedTypes: ["角色", "内容扩展"], tags: ["单次事件", "人类", "cbz"],
+            title,
+            description: "manual review",
+            projectType: "事件",
+            includedTypes: ["角色", "内容扩展"],
+            tags: ["单次事件", "人类", "cbz"],
           }),
         },
         authorToken,
@@ -670,8 +706,14 @@ async function main() {
           await page.locator(".detail").waitFor({ state: "visible" });
           await page.getByRole("dialog").getByRole("heading", { name: "E2E Project" }).waitFor();
           await screenshot(page, "detail-desktop");
-          assert((await page.locator(".detail-tags .detail-tag").count()) === 20, "detail renders all twenty ordinary tags");
-          assert((await page.locator(".detail-included-types").textContent()).includes("玩法"), "detail labels contained types separately");
+          assert(
+            (await page.locator(".detail-tags .detail-tag").count()) === 20,
+            "detail renders all twenty ordinary tags",
+          );
+          assert(
+            (await page.locator(".detail-included-types").textContent()).includes("玩法"),
+            "detail labels contained types separately",
+          );
           assert(
             (await page
               .locator(".detail")
@@ -713,15 +755,21 @@ async function main() {
           await page.locator(".card").first().waitFor({ state: "visible", timeout: 10_000 });
           const sidebar = page.getByRole("complementary", { name: "工坊导航与筛选" });
           const input = sidebar.getByRole("textbox", { name: "标签", exact: true });
-          const sameValues = (actual, expected) => JSON.stringify([...actual].sort()) === JSON.stringify([...expected].sort());
-          async function expectFilters(action, { projectTypes = [], includeContained = false, tags = [], count, label }) {
+          const sameValues = (actual, expected) =>
+            JSON.stringify([...actual].sort()) === JSON.stringify([...expected].sort());
+          async function expectFilters(
+            action,
+            { projectTypes = [], includeContained = false, tags = [], count, label },
+          ) {
             const [response] = await Promise.all([
               page.waitForResponse((response) => {
                 const url = new URL(response.url());
-                return url.pathname === "/api/v1/projects" &&
+                return (
+                  url.pathname === "/api/v1/projects" &&
                   sameValues(url.searchParams.getAll("projectType"), projectTypes) &&
                   (url.searchParams.get("includeContained") === "true") === includeContained &&
-                  sameValues(url.searchParams.getAll("tag"), tags);
+                  sameValues(url.searchParams.getAll("tag"), tags)
+                );
               }),
               action(),
             ]);
@@ -730,68 +778,104 @@ async function main() {
             await page.waitForFunction((expected) => document.querySelectorAll(".card").length === expected, count);
           }
           await expectFilters(() => sidebar.getByRole("button", { name: "内容扩展", exact: true }).click(), {
-            projectTypes: ["内容扩展"], count: 0, label: "primary filter is not an implicit containment filter",
+            projectTypes: ["内容扩展"],
+            count: 0,
+            label: "primary filter is not an implicit containment filter",
           });
           await expectFilters(() => sidebar.getByRole("checkbox", { name: "同时匹配包含该类型的项目" }).check(), {
-            projectTypes: ["内容扩展"], includeContained: true, count: 1, label: "containment toggle includes the character project",
+            projectTypes: ["内容扩展"],
+            includeContained: true,
+            count: 1,
+            label: "containment toggle includes the character project",
           });
           await expectFilters(() => sidebar.getByRole("button", { name: "事件", exact: true }).click(), {
-            projectTypes: ["内容扩展", "事件"], includeContained: true, count: 2, label: "multiple primary buttons serialize repeated OR parameters",
+            projectTypes: ["内容扩展", "事件"],
+            includeContained: true,
+            count: 2,
+            label: "multiple primary buttons serialize repeated OR parameters",
           });
           await expectFilters(() => sidebar.getByRole("button", { name: "重置", exact: true }).click(), {
-            count: 2, label: "reset clears taxonomy filters",
+            count: 2,
+            label: "reset clears taxonomy filters",
           });
           const race = sidebar.locator("details").filter({ has: page.locator("summary", { hasText: /^种族/ }) });
           await race.locator("summary").focus();
           await page.keyboard.press("Enter");
-          assert(await race.getAttribute("open") !== null, "preset group opens from the keyboard");
+          assert((await race.getAttribute("open")) !== null, "preset group opens from the keyboard");
           await expectFilters(() => race.getByRole("button", { name: "人类", exact: true }).click(), {
-            tags: ["人类"], count: 1, label: "preset tag click filters real cards",
+            tags: ["人类"],
+            count: 1,
+            label: "preset tag click filters real cards",
           });
           await expectFilters(() => race.getByRole("button", { name: "兽族", exact: true }).click(), {
-            tags: ["人类", "兽族"], count: 2, label: "same-group presets use OR in the UI",
+            tags: ["人类", "兽族"],
+            count: 2,
+            label: "same-group presets use OR in the UI",
           });
           const identity = sidebar.locator("details").filter({ has: page.locator("summary", { hasText: /^身份/ }) });
           await identity.locator("summary").click();
           await expectFilters(() => identity.getByRole("button", { name: "冒险者", exact: true }).click(), {
-            tags: ["人类", "兽族", "冒险者"], count: 2, label: "another group composes with the race OR group",
+            tags: ["人类", "兽族", "冒险者"],
+            count: 2,
+            label: "another group composes with the race OR group",
           });
           await input.fill("温柔");
           await expectFilters(() => input.press("Enter"), {
-            tags: ["人类", "兽族", "冒险者", "温柔"], count: 1, label: "typed presets retain their preset-group AND semantics",
+            tags: ["人类", "兽族", "冒险者", "温柔"],
+            count: 1,
+            label: "typed presets retain their preset-group AND semantics",
           });
           assert(
-            await sidebar.getByRole("button", { name: "移除筛选标签 温柔", exact: true }).getAttribute("title") === "预设 · 个性",
+            (await sidebar.getByRole("button", { name: "移除筛选标签 温柔", exact: true }).getAttribute("title")) ===
+              "预设 · 个性",
             "typed preset is classified by the shared vocabulary",
           );
           await input.fill("e2e-a,e2e-b");
           await expectFilters(() => input.press("Enter"), {
-            tags: ["人类", "兽族", "冒险者", "温柔", "e2e-a", "e2e-b"], count: 1, label: "multiple custom chips each use AND",
+            tags: ["人类", "兽族", "冒险者", "温柔", "e2e-a", "e2e-b"],
+            count: 1,
+            label: "multiple custom chips each use AND",
           });
           await expectFilters(() => sidebar.getByRole("button", { name: "重置", exact: true }).click(), {
-            count: 2, label: "reset clears grouped and custom tags together",
+            count: 2,
+            label: "reset clears grouped and custom tags together",
           });
           await input.fill(taxonomyTags.slice(0, 12).join(","));
           await expectFilters(() => input.press("Enter"), {
-            tags: taxonomyTags.slice(0, 12), count: 1, label: "twelve combined typed presets/custom tags are accepted",
+            tags: taxonomyTags.slice(0, 12),
+            count: 1,
+            label: "twelve combined typed presets/custom tags are accepted",
           });
           await input.fill("e2e-tail");
           await input.press("Enter");
           await sidebar.locator("#sidebar-tag-status").filter({ hasText: "最多可同时筛选 12 个标签" }).waitFor();
-          assert((await sidebar.locator(".sidebar-selected-tags button").count()) === 12, "thirteenth typed tag does not enter state");
+          assert(
+            (await sidebar.locator(".sidebar-selected-tags button").count()) === 12,
+            "thirteenth typed tag does not enter state",
+          );
           await page.locator(".card-title").first().click();
           await page.locator(".detail").waitFor({ state: "visible" });
           await page.locator(".detail").getByRole("button", { name: "#e2e-tail", exact: true }).click();
           await page.locator(".catalogue-filter-message").filter({ hasText: "最多可同时筛选 12 个标签" }).waitFor();
-          assert((await sidebar.locator(".sidebar-selected-tags button").count()) === 12, "detail tags share the same combined limit");
+          assert(
+            (await sidebar.locator(".sidebar-selected-tags button").count()) === 12,
+            "detail tags share the same combined limit",
+          );
           await expectFilters(() => sidebar.getByRole("button", { name: "移除筛选标签 人类", exact: true }).click(), {
-            tags: taxonomyTags.slice(1, 12), count: 1, label: "removing a selected chip frees one slot",
+            tags: taxonomyTags.slice(1, 12),
+            count: 1,
+            label: "removing a selected chip frees one slot",
           });
           await input.fill("e2e-tail");
           await expectFilters(() => input.press("Enter"), {
-            tags: [...taxonomyTags.slice(1, 12), "e2e-tail"], count: 1, label: "a freed slot can be filled again",
+            tags: [...taxonomyTags.slice(1, 12), "e2e-tail"],
+            count: 1,
+            label: "a freed slot can be filled again",
           });
-          assert(catalogueRequests.every((url) => url.searchParams.getAll("tag").length <= 12), "no browser catalogue request contains thirteen tags");
+          assert(
+            catalogueRequests.every((url) => url.searchParams.getAll("tag").length <= 12),
+            "no browser catalogue request contains thirteen tags",
+          );
           await screenshot(page, "taxonomy-filters");
           await page.close();
         });
@@ -813,7 +897,7 @@ async function main() {
           const primary = drawer.getByRole("button", { name: "角色", exact: true });
           await primary.focus();
           await page.keyboard.press("Space");
-          assert(await primary.getAttribute("aria-pressed") === "true", "mobile primary selection works by keyboard");
+          assert((await primary.getAttribute("aria-pressed")) === "true", "mobile primary selection works by keyboard");
           assert(await drawer.isVisible(), "multi-select keeps the mobile drawer open");
           const summary = drawer.locator("summary").filter({ hasText: /^种族/ });
           await summary.focus();
@@ -821,7 +905,12 @@ async function main() {
           await drawer.getByRole("button", { name: "人类", exact: true }).waitFor({ state: "visible" });
           await page.keyboard.press("Escape");
           await drawer.waitFor({ state: "hidden" });
-          assert(await page.getByRole("button", { name: "打开导航与筛选", exact: true }).evaluate((element) => element === document.activeElement), "mobile drawer restores keyboard focus");
+          assert(
+            await page
+              .getByRole("button", { name: "打开导航与筛选", exact: true })
+              .evaluate((element) => element === document.activeElement),
+            "mobile drawer restores keyboard focus",
+          );
           await page.close();
         });
 
@@ -934,29 +1023,61 @@ async function main() {
           const create = page.locator(".workspace-create");
           await create.waitFor({ state: "visible" });
           await create.getByRole("textbox", { name: "标题", exact: true }).fill("E2E Taxonomy Draft");
-          assert(await create.getByRole("button", { name: "创建草稿", exact: true }).isDisabled(), "primary classification is mandatory");
+          assert(
+            await create.getByRole("button", { name: "创建草稿", exact: true }).isDisabled(),
+            "primary classification is mandatory",
+          );
           const primary = create.getByRole("combobox", { name: "主要分类（必选）", exact: true });
           assert(
-            JSON.stringify(await primary.locator("option").evaluateAll((options) => options.map((option) => option.value).filter(Boolean))) ===
-              JSON.stringify(["系统核心", "角色", "内容扩展", "玩法", "事件", "体验优化"]),
+            JSON.stringify(
+              await primary
+                .locator("option")
+                .evaluateAll((options) => options.map((option) => option.value).filter(Boolean)),
+            ) === JSON.stringify(["系统核心", "角色", "内容扩展", "玩法", "事件", "体验优化"]),
             "creation offers exactly the six approved primary types",
           );
           await primary.selectOption("角色");
           const included = create.getByRole("group", { name: "包含的其他类型（可选）", exact: true });
-          assert((await included.getByRole("checkbox", { name: "系统核心", exact: true }).count()) === 0, "core is never an included type");
-          assert((await included.getByRole("checkbox", { name: "角色", exact: true }).count()) === 0, "primary is not offered as an included type");
+          assert(
+            (await included.getByRole("checkbox", { name: "系统核心", exact: true }).count()) === 0,
+            "core is never an included type",
+          );
+          assert(
+            (await included.getByRole("checkbox", { name: "角色", exact: true }).count()) === 0,
+            "primary is not offered as an included type",
+          );
           await included.getByRole("checkbox", { name: "事件", exact: true }).check();
           await included.getByRole("checkbox", { name: "内容扩展", exact: true }).check();
           await primary.selectOption("事件");
-          assert((await included.getByRole("checkbox", { name: "事件", exact: true }).count()) === 0, "changing primary removes its duplicate inclusion");
+          assert(
+            (await included.getByRole("checkbox", { name: "事件", exact: true }).count()) === 0,
+            "changing primary removes its duplicate inclusion",
+          );
           await primary.selectOption("体验优化");
-          assert(!(await included.getByRole("checkbox", { name: "事件", exact: true }).isChecked()), "cleaned inclusion does not return after another primary change");
-          assert(await included.getByRole("checkbox", { name: "内容扩展", exact: true }).isChecked(), "unrelated included choices survive primary changes");
+          assert(
+            !(await included.getByRole("checkbox", { name: "事件", exact: true }).isChecked()),
+            "cleaned inclusion does not return after another primary change",
+          );
+          assert(
+            await included.getByRole("checkbox", { name: "内容扩展", exact: true }).isChecked(),
+            "unrelated included choices survive primary changes",
+          );
           await included.getByRole("checkbox", { name: "玩法", exact: true }).check();
-          assert((await create.locator(".tag-group summary").first().textContent()).startsWith("优化方向"), "chosen primary's tag groups are first");
-          assert((await create.locator(".tag-group summary").allTextContents()).some((label) => label.startsWith("核心风格")), "other primary groups remain reachable");
+          assert(
+            (await create.locator(".tag-group summary").first().textContent()).startsWith("优化方向"),
+            "chosen primary's tag groups are first",
+          );
+          assert(
+            (await create.locator(".tag-group summary").allTextContents()).some((label) =>
+              label.startsWith("核心风格"),
+            ),
+            "other primary groups remain reachable",
+          );
           for (const obsolete of ["cbz", "hnh", "1011", "轻型", "中型", "大型"]) {
-            assert((await create.locator(".tag-options").getByRole("button", { name: obsolete, exact: true }).count()) === 0, `${obsolete} is not a preset shortcut`);
+            assert(
+              (await create.locator(".tag-options").getByRole("button", { name: obsolete, exact: true }).count()) === 0,
+              `${obsolete} is not a preset shortcut`,
+            );
           }
           const race = create.locator(".tag-group").filter({ has: page.locator("summary", { hasText: /^种族/ }) });
           await race.locator("summary").focus();
@@ -965,35 +1086,72 @@ async function main() {
           const input = create.getByRole("textbox", { name: "添加项目标签", exact: true });
           await input.fill([...taxonomyTags, "e2e-overflow"].join(","));
           await input.press("Enter");
-          assert((await create.locator(".tag-chip").count()) === 20, "preset and custom tags share a twenty-tag form budget");
+          assert(
+            (await create.locator(".tag-chip").count()) === 20,
+            "preset and custom tags share a twenty-tag form budget",
+          );
           await create.getByRole("alert").filter({ hasText: "标签最多 20 个" }).waitFor();
           const [createdResponse] = await Promise.all([
-            page.waitForResponse((response) => new URL(response.url()).pathname === "/api/v1/projects" && response.request().method() === "POST"),
+            page.waitForResponse(
+              (response) =>
+                new URL(response.url()).pathname === "/api/v1/projects" && response.request().method() === "POST",
+            ),
             create.getByRole("button", { name: "创建草稿", exact: true }).click(),
           ]);
-          assert(createdResponse.status() === 201, `browser draft create ${createdResponse.status()}: ${await createdResponse.text()}`);
+          assert(
+            createdResponse.status() === 201,
+            `browser draft create ${createdResponse.status()}: ${await createdResponse.text()}`,
+          );
           const created = await createdResponse.json();
           const submitted = createdResponse.request().postDataJSON();
           assert(submitted.projectType === "体验优化", "creation submits one primary value");
-          assert(submitted.includedTypes.join("、") === "内容扩展、玩法", "creation submits separate included types after cleanup");
-          assert(JSON.stringify(submitted.tags) === JSON.stringify(taxonomyTags), "creation preserves twenty tags including manually entered legacy abbreviations");
-          assert(!("extensionType" in submitted) && !("displayTags" in submitted) && !("facets" in submitted), "creation sends no obsolete taxonomy semantics");
+          assert(
+            submitted.includedTypes.join("、") === "内容扩展、玩法",
+            "creation submits separate included types after cleanup",
+          );
+          assert(
+            JSON.stringify(submitted.tags) === JSON.stringify(taxonomyTags),
+            "creation preserves twenty tags including manually entered legacy abbreviations",
+          );
+          assert(
+            !("extensionType" in submitted) && !("displayTags" in submitted) && !("facets" in submitted),
+            "creation sends no obsolete taxonomy semantics",
+          );
           let editor = page.getByRole("dialog", { name: "E2E Taxonomy Draft · 编辑任务", exact: true });
           await editor.waitFor({ state: "visible", timeout: 10_000 });
           await editor.getByRole("combobox", { name: "主要分类（必选）", exact: true }).selectOption("玩法");
           const editIncluded = editor.getByRole("group", { name: "包含的其他类型（可选）", exact: true });
-          assert((await editIncluded.getByRole("checkbox", { name: "玩法", exact: true }).count()) === 0, "editor also excludes the selected primary");
+          assert(
+            (await editIncluded.getByRole("checkbox", { name: "玩法", exact: true }).count()) === 0,
+            "editor also excludes the selected primary",
+          );
           await editIncluded.getByRole("checkbox", { name: "角色", exact: true }).check();
           await editor.getByRole("button", { name: "移除标签 中型", exact: true }).click();
           const [saved] = await Promise.all([
-            page.waitForResponse((response) => new URL(response.url()).pathname === `/api/v1/projects/${created.project.id}` && response.request().method() === "PATCH"),
+            page.waitForResponse(
+              (response) =>
+                new URL(response.url()).pathname === `/api/v1/projects/${created.project.id}` &&
+                response.request().method() === "PATCH",
+            ),
             editor.getByRole("button", { name: "保存草稿资料", exact: true }).click(),
           ]);
           assert(saved.ok(), `browser taxonomy save ${saved.status()}: ${await saved.text()}`);
           const patch = saved.request().postDataJSON();
-          assert(patch.projectType === "玩法" && !patch.includedTypes.includes("玩法") && patch.includedTypes.includes("角色"), "edit payload maintains primary/included invariants");
-          assert(patch.tags.length === 19 && patch.tags.includes("cbz") && !patch.tags.includes("中型"), "edit preserves stored custom abbreviations while removing a chosen tag");
-          await page.waitForFunction(() => [...document.querySelectorAll("button")].some((button) => button.textContent?.trim() === "保存草稿资料" && !button.disabled));
+          assert(
+            patch.projectType === "玩法" &&
+              !patch.includedTypes.includes("玩法") &&
+              patch.includedTypes.includes("角色"),
+            "edit payload maintains primary/included invariants",
+          );
+          assert(
+            patch.tags.length === 19 && patch.tags.includes("cbz") && !patch.tags.includes("中型"),
+            "edit preserves stored custom abbreviations while removing a chosen tag",
+          );
+          await page.waitForFunction(() =>
+            [...document.querySelectorAll("button")].some(
+              (button) => button.textContent?.trim() === "保存草稿资料" && !button.disabled,
+            ),
+          );
           await editor.getByRole("button", { name: "返回我的项目", exact: true }).click();
           await editor.waitFor({ state: "hidden" });
           await page.reload({ waitUntil: "networkidle" });
@@ -1001,8 +1159,14 @@ async function main() {
           await page.locator(".workspace-project-row").filter({ hasText: "E2E Taxonomy Draft" }).click();
           editor = page.getByRole("dialog", { name: "E2E Taxonomy Draft · 编辑任务", exact: true });
           await editor.waitFor({ state: "visible" });
-          assert(await editor.getByRole("combobox", { name: "主要分类（必选）", exact: true }).inputValue() === "玩法", "saved primary survives a full reload");
-          assert(await editor.getByRole("checkbox", { name: "角色", exact: true }).isChecked(), "saved included type survives a full reload");
+          assert(
+            (await editor.getByRole("combobox", { name: "主要分类（必选）", exact: true }).inputValue()) === "玩法",
+            "saved primary survives a full reload",
+          );
+          assert(
+            await editor.getByRole("checkbox", { name: "角色", exact: true }).isChecked(),
+            "saved included type survives a full reload",
+          );
           assert((await editor.locator(".tag-chip").count()) === 19, "saved ordinary tags survive a full reload");
           await screenshot(page, "taxonomy-authoring");
           await context.close();
@@ -1038,7 +1202,10 @@ async function main() {
           await management.getByRole("button", { name: /项目索引/ }).click();
           const indexedProject = page.locator(".project-list .member-row").filter({ hasText: "E2E Project" });
           await indexedProject.waitFor({ state: "visible" });
-          assert((await indexedProject.locator(".status").textContent()).includes("角色（包含：内容扩展、玩法）"), "admin index separates primary and included types");
+          assert(
+            (await indexedProject.locator(".status").textContent()).includes("角色（包含：内容扩展、玩法）"),
+            "admin index separates primary and included types",
+          );
           await screenshot(page, "admin-project-taxonomy");
           await page.getByRole("button", { name: "← 工具索引", exact: true }).click();
           await management.getByRole("button", { name: /审计日志/ }).click();
@@ -1062,7 +1229,10 @@ async function main() {
           const taxonomyFacts = (await task.locator(".review-facts").textContent()).replace(/\s+/g, "");
           assert(taxonomyFacts.includes("主要分类事件"), "review displays the frozen primary classification");
           assert(taxonomyFacts.includes("包含类型角色、内容扩展"), "review displays frozen included types");
-          assert(taxonomyFacts.includes("普通标签单次事件、人类、cbz"), "review retains full ordinary tags and stored abbreviations");
+          assert(
+            taxonomyFacts.includes("普通标签单次事件、人类、cbz"),
+            "review retains full ordinary tags and stored abbreviations",
+          );
           await screenshot(page, "review-detail");
           await task.getByTestId("review-approve").click();
           await page.locator(".review-reason textarea").fill("e2e approval reason");
