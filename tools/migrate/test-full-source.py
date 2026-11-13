@@ -146,8 +146,8 @@ class SourceReconciliationTest(unittest.TestCase):
         db.executescript("""
             CREATE TABLE users (id TEXT, username TEXT, global_name TEXT, avatar TEXT, is_admin INTEGER, created_at TEXT, updated_at TEXT);
             INSERT INTO users VALUES ('u1', 'synthetic', NULL, NULL, 1, 't1', 't2');
-            CREATE TABLE projects (id TEXT, author_id TEXT, name TEXT, description TEXT, status TEXT, is_published INTEGER, visibility INTEGER, created_at TEXT, updated_at TEXT, reviewed_at TEXT, project_type TEXT);
-            INSERT INTO projects VALUES ('p1', 'u1', 'Example', 'Description', 'approved', 1, 1, 't1', 't2', 't1', '角色');
+            CREATE TABLE projects (id TEXT, author_id TEXT, name TEXT, description TEXT, status TEXT, is_published INTEGER, visibility INTEGER, created_at TEXT, updated_at TEXT, reviewed_at TEXT, project_type TEXT, cover_position_x REAL, cover_position_y REAL, cover_zoom REAL);
+            INSERT INTO projects VALUES ('p1', 'u1', 'Example', 'Description', 'approved', 1, 1, 't1', 't2', 't1', '角色', 50, 50, 1);
             CREATE TABLE project_likes (project_id TEXT);
             CREATE TABLE project_subscribes (project_id TEXT);
             CREATE TABLE project_ratings (project_id TEXT);
@@ -177,7 +177,7 @@ class SourceReconciliationTest(unittest.TestCase):
             "project_ratings", "project_metrics_daily", "site_settings", "audit_events", "recommendations", "assets")}
         self.tables["users"] = [{"id": "u1", "username": "synthetic", "global_name": None, "avatar": None, "role": "member", "created_at": "t1", "updated_at": "t2"}]
         self.tables["projects"] = [{"id": "p1", "author_id": "u1", "working_version_id": REVISION, "published_version_id": REVISION, "visibility": "public", "published_at": "t1", "published_updated_at": "t1", "downloads_count": 0, "likes_count": 0, "subscriptions_count": 0, "created_at": "t1", "updated_at": "t2"}]
-        self.tables["project_versions"] = [{"id": REVISION, "project_id": "p1", "created_by": "u1", "title": "Example", "description": "Description", "project_type": "角色", "included_types": "[]", "tags": "[]", "entry_index": '{"schemaVersion":1,"entries":[]}', "worldbook_count": 0, "regex_count": 0, "manifest_hash": hashlib.sha256(b"").hexdigest()}]
+        self.tables["project_versions"] = [{"id": REVISION, "project_id": "p1", "version_no": 1, "created_by": "u1", "created_at": "t1", "title": "Example", "description": "Description", "project_type": "角色", "included_types": "[]", "tags": "[]", "entry_index": taxonomy.stable({"schemaVersion": 1, "entries": []}), "worldbook_count": 0, "regex_count": 0, "manifest_hash": hashlib.sha256(b"").hexdigest(), "cover_position_x": 50, "cover_position_y": 50, "cover_zoom": 1}]
         self.tables["audit_events"] = [{"id": AUDIT_ID, "action": "legacy.admin_added", "target_type": "project", "target_id": "p1", "actor_id": "u1", "detail": '{"legacyActorId":"u1","legacyActorName":"synthetic","legacyDetail":"details","legacyTargetId":"p1","sourceTable":"admin_action_logs"}', "created_at": "t1"}]
         self.tables["recommendations"] = [{"id": RECOMMENDATION_ID, "curator_id": "u1", "project_id": "p1", "project_version_id": REVISION, "comment": "recommended", "created_at": "t1", "updated_at": "t2"}]
         self.data = {"format": "workshop-full-migration-preparation-v1", "tables": self.tables,
@@ -213,6 +213,52 @@ class SourceReconciliationTest(unittest.TestCase):
         result = subprocess.run([sys.executable, str(LOADER), "source", str(preparation), str(source), str(manifest)], capture_output=True, text=True, check=False)
         return result, json.loads(result.stdout)
 
+    def test_legacy_array_duplicates_need_explicit_target_and_reason(self):
+        for field, raw_tags in (("tags", '["人类","人类"]'),
+                                ("custom_tags", '["人类","人类"]'),
+                                ("facets", '{"species":["人类","人类"]}')):
+            with self.subTest(field=field):
+                with sqlite3.connect(":memory:") as db:
+                    db.executescript(self.dump)
+                    db.execute("ALTER TABLE projects ADD COLUMN " + field + " TEXT")
+                    db.execute("UPDATE projects SET " + field + "=? WHERE id='p1'", (raw_tags,))
+                    dump = "\n".join(db.iterdump()) + "\n"
+                source = self.directory / (field + "-duplicates.sql")
+                source.write_text(dump, encoding="utf-8")
+                original = source.read_bytes()
+                review_path = self.directory / (field + "-review.json")
+                taxonomy.prepare_review(source, "legacy", review_path)
+                review = taxonomy.read_review(review_path)
+                record, = review["records"]
+                self.assertEqual(review["source"]["sha256"], hashlib.sha256(original).hexdigest())
+                self.assertEqual(record["tags"]["source"], {field: raw_tags})
+                self.assertEqual(record["tags"]["values"], ["人类"])
+                self.assertIn("duplicate_tag_values_preserved", record["tags"]["issues"])
+                self.assertFalse(record["tagsAcknowledged"])
+                self.assertIsNone(record["targetTags"])
+                with self.assertRaisesRegex(ValueError, "unresolved"):
+                    taxonomy.load_review(source, review_path, "legacy")
+                record.update(reviewed=True, tagsAcknowledged=True)
+                review_path.write_text(taxonomy.stable(review), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "reviewed tags"):
+                    taxonomy.load_review(source, review_path, "legacy")
+                record["targetTags"] = ["人类"]
+                for reason in ("", " \t\n"):
+                    record["tagChangeReason"] = reason
+                    review_path.write_text(taxonomy.stable(review), encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, "explicit review explanation"):
+                        taxonomy.load_review(source, review_path, "legacy")
+                record["tagChangeReason"] = "Reviewer explicitly removes the duplicate in this source array."
+                review_path.write_text(taxonomy.stable(review), encoding="utf-8")
+                self.assertEqual(taxonomy.load_review(source, review_path, "legacy")["p1"]["tags"], '["人类"]')
+                self.assertEqual(source.read_bytes(), original)
+                data = copy.deepcopy(self.data)
+                data["tables"]["project_versions"][0]["tags"] = '["人类"]'
+                data["taxonomy_review"] = review
+                result, report = self.run_source(data, dump)
+                self.assertEqual(result.returncode, 0, (result.stderr, report))
+                self.assertTrue(report["ok"])
+
     def test_source_unbacked_target_table_is_rejected(self):
         data = copy.deepcopy(self.data)
         data["tables"]["sessions"] = [{"user_id": "u1", "token_hash": "unbacked"}]
@@ -238,9 +284,6 @@ class SourceReconciliationTest(unittest.TestCase):
                 ALTER TABLE projects ADD COLUMN version_label TEXT;
                 ALTER TABLE projects ADD COLUMN version TEXT;
                 ALTER TABLE projects ADD COLUMN precautions TEXT;
-                ALTER TABLE projects ADD COLUMN cover_position_x REAL;
-                ALTER TABLE projects ADD COLUMN cover_position_y REAL;
-                ALTER TABLE projects ADD COLUMN cover_zoom REAL;
                 ALTER TABLE projects ADD COLUMN tags TEXT;
                 ALTER TABLE projects ADD COLUMN custom_tags TEXT;
                 ALTER TABLE projects ADD COLUMN facets TEXT;
@@ -307,6 +350,9 @@ class SourceReconciliationTest(unittest.TestCase):
             with self.subTest(visible=visible):
                 dump = self.snapshot_dump(visible=visible)
                 data = self.run_transform(dump)
+                for record in data["taxonomy_review"]["records"]:
+                    self.assertNotIn("duplicate_tag_values_preserved", record["tags"]["issues"])
+                    self.assertEqual(record["tagChangeReason"], "")
                 project, = data["tables"]["projects"]
                 self.assertEqual(project["visibility"], "public" if visible else "private")
                 self.assertNotEqual(project["working_version_id"], project["published_version_id"])
@@ -368,6 +414,58 @@ class SourceReconciliationTest(unittest.TestCase):
         self.assertEqual(report, {"ok": False, "error": "input_or_schema_error"})
 
 
+class TaxonomyReviewTest(unittest.TestCase):
+    def test_generated_suggestions_never_acknowledge_any_source_kind(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            for kind in ("current", "legacy", "preview"):
+                with self.subTest(kind=kind), sqlite3.connect(":memory:") as db:
+                    if kind == "legacy":
+                        db.execute("CREATE TABLE projects (id TEXT, project_type TEXT, tags TEXT)")
+                    elif kind == "preview":
+                        db.execute("CREATE TABLE projects (id TEXT, project_type TEXT, search_tags TEXT, published_revision_id TEXT)")
+                        db.execute("CREATE TABLE project_revisions (id TEXT, project_id TEXT)")
+                    else:
+                        db.execute("CREATE TABLE projects (id TEXT)")
+                        db.execute("CREATE TABLE project_versions (id TEXT, project_id TEXT, project_type TEXT, tags TEXT)")
+                    for index, primary in enumerate(("系统", *taxonomy.PROJECT_TYPES)):
+                        identity = str(index)
+                        if kind == "legacy":
+                            db.execute("INSERT INTO projects VALUES (?,?,?)", (identity, primary, '["人类"]'))
+                        elif kind == "preview":
+                            db.execute("INSERT INTO projects VALUES (?,?,?,?)", (identity, primary, '["人类"]', identity))
+                            db.execute("INSERT INTO project_revisions VALUES (?,?)", (identity, identity))
+                        else:
+                            db.execute("INSERT INTO projects VALUES (?)", (identity,))
+                            db.execute("INSERT INTO project_versions VALUES (?,?,?,?)", (identity, identity, primary, '["人类"]'))
+                    source = directory / (kind + ".sql")
+                    source.write_text("\n".join(db.iterdump()) + "\n", encoding="utf-8")
+                    original = source.read_bytes()
+                    review_path = directory / (kind + "-review.json")
+                    result = taxonomy.prepare_review(source, kind, review_path)
+                    document = taxonomy.read_review(review_path)
+                    self.assertEqual(result, {"ok": True, "records": 7, "unresolved": 7})
+                    self.assertEqual([row["projectType"] for row in document["records"]],
+                                     ["系统核心", *taxonomy.PROJECT_TYPES])
+                    self.assertTrue(all(row["required"] == [] and row["tags"]["issues"] == []
+                                        and row["reviewed"] is False and row["tagsAcknowledged"] is False
+                                        for row in document["records"]))
+                    with self.assertRaisesRegex(ValueError, "unresolved"):
+                        taxonomy.load_review(source, review_path, kind)
+                    for acknowledged in ("reviewed", "tagsAcknowledged"):
+                        partial = copy.deepcopy(document)
+                        for row in partial["records"]:
+                            row[acknowledged] = True
+                        review_path.write_text(taxonomy.stable(partial), encoding="utf-8")
+                        with self.assertRaisesRegex(ValueError, "unresolved"):
+                            taxonomy.load_review(source, review_path, kind)
+                    for row in document["records"]:
+                        row.update(reviewed=True, tagsAcknowledged=True)
+                    review_path.write_text(taxonomy.stable(document), encoding="utf-8")
+                    self.assertEqual(len(taxonomy.load_review(source, review_path, kind)), 7)
+                    self.assertEqual(source.read_bytes(), original)
+
+
 class CurrentTaxonomySnapshotTest(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -412,6 +510,24 @@ class CurrentTaxonomySnapshotTest(unittest.TestCase):
             self.assertEqual(db.execute("SELECT p.id FROM project_search s JOIN projects p ON p.rowid=s.rowid "
                                         "WHERE project_search MATCH '1011'").fetchall(), [("p",)])
             self.assertFalse(set(taxonomy.columns(db, "project_versions")) & taxonomy.OBSOLETE)
+
+    def test_direct_mapping_current_candidate_requires_explicit_review_before_output(self):
+        with sqlite3.connect(self.source) as db:
+            db.execute("UPDATE project_versions SET project_type='系统', extension_type=NULL, project_types=NULL, tags='[\"人类\"]'")
+        self.review_path.unlink()
+        result = taxonomy.prepare_review(self.source, "current", self.review_path)
+        self.assertEqual(result["unresolved"], 7)
+        review = taxonomy.read_review(self.review_path)
+        self.assertTrue(all(row["required"] == [] and row["projectType"] == "系统核心" for row in review["records"]))
+        with self.assertRaisesRegex(ValueError, "unresolved"):
+            self.build("unreviewed-direct-map")
+        self.assertFalse((self.directory / "unreviewed-direct-map").exists())
+        for row in review["records"]:
+            row.update(reviewed=True, tagsAcknowledged=True)
+        self.review_path.write_text(taxonomy.stable(review), encoding="utf-8")
+        candidate = self.build("reviewed-direct-map")
+        self.assertTrue(taxonomy.verify(self.source, self.review_path, MIGRATIONS, candidate)["ok"])
+
 
     def test_unresolved_stale_and_altered_accounting_fail_closed(self):
         with self.assertRaisesRegex(ValueError, "unresolved"):
@@ -479,6 +595,59 @@ class CurrentTaxonomySnapshotTest(unittest.TestCase):
         self.assertEqual(report["reviewedTagChanges"], 1)
         self.assertEqual(taxonomy.read_review(candidate / "review.json")["records"], review["records"])
 
+    def test_unicode_codepoint_tags_preserve_canonical_raw_serialization(self):
+        tags = ["😀" * 51, "😀" * 100, "\u0085", "\u0085tag\u0085", "\u001ctag\u001f",
+                "nul\u0000tag", "\u0000" * 100, "a\u0000" + "😀" * 98]
+        raw_tags = json.dumps(tags, ensure_ascii=True, indent=2) + "\n"
+        with sqlite3.connect(self.source) as db:
+            db.execute("UPDATE project_versions SET tags=? WHERE id='vn'", (raw_tags,))
+        original = self.source.read_bytes()
+        self.review_path.unlink()
+        taxonomy.prepare_review(self.source, "current", self.review_path)
+        review = self.reviewed()
+        record = next(row for row in review["records"] if row["id"] == "vn")
+        self.assertEqual(record["tags"]["source"]["tags"], raw_tags)
+        self.assertEqual(record["tags"]["values"], tags)
+        self.assertEqual(record["tags"]["issues"], [])
+        candidate = self.build()
+        self.assertTrue(taxonomy.verify(self.source, self.review_path, MIGRATIONS, candidate)["ok"])
+        with sqlite3.connect(candidate / "expected.sqlite") as db:
+            self.assertEqual(db.execute("SELECT tags FROM project_versions WHERE id='vn'").fetchone()[0], raw_tags)
+        self.assertEqual(self.source.read_bytes(), original)
+
+    def test_noncanonical_or_overlong_unicode_tags_are_not_silently_normalized(self):
+        whitespace = (0x0009, 0x000A, 0x000B, 0x000C, 0x000D, 0x0020, 0x00A0, 0x1680,
+                      0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007,
+                      0x2008, 0x2009, 0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF)
+        cases = [("U+" + format(codepoint, "04X"), chr(codepoint) + "tag" + chr(codepoint))
+                 for codepoint in whitespace]
+        cases.extend((("astral-101", "😀" * 101), ("nul-101", "\u0000" * 101),
+                      ("nul-before-overlong-astral", "a\u0000" + "😀" * 100)))
+        for label, value in cases:
+            with self.subTest(value=label):
+                raw_tags = taxonomy.stable([value])
+                with sqlite3.connect(self.source) as db:
+                    db.execute("UPDATE project_versions SET tags=? WHERE id='vn'", (raw_tags,))
+                source_hash = taxonomy.file_hash(self.source)
+                self.review_path.unlink()
+                taxonomy.prepare_review(self.source, "current", self.review_path)
+                review = self.reviewed()
+                record = next(row for row in review["records"] if row["id"] == "vn")
+                self.assertEqual(record["tags"]["source"]["tags"], raw_tags)
+                self.assertEqual(record["targetTags"], [value])
+                self.assertIn("historical_tags_outside_target_value_contract", record["tags"]["issues"])
+                with self.assertRaisesRegex(ValueError, "reviewed tags"):
+                    taxonomy.load_review(self.source, self.review_path, "current")
+                record["targetTags"] = ["explicitly-reviewed-replacement"]
+                self.review_path.write_text(taxonomy.stable(review), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "explicit review explanation"):
+                    taxonomy.load_review(self.source, self.review_path, "current")
+                record["tagChangeReason"] = "Reviewer replaces a noncanonical or overlong source tag."
+                self.review_path.write_text(taxonomy.stable(review), encoding="utf-8")
+                self.assertEqual(taxonomy.load_review(self.source, self.review_path, "current")["vn"]["tags"],
+                                 '["explicitly-reviewed-replacement"]')
+                self.assertEqual(taxonomy.file_hash(self.source), source_hash)
+
     def test_already_target_snapshot_and_sql_export_preserve_all_business_values(self):
         self.reviewed()
         first = self.build()
@@ -487,7 +656,7 @@ class CurrentTaxonomySnapshotTest(unittest.TestCase):
         taxonomy.prepare_review(next_source, "current", next_review)
         document = taxonomy.read_review(next_review)
         for row in document["records"]:
-            row["tagsAcknowledged"] = True
+            row.update(reviewed=True, tagsAcknowledged=True)
         next_review.write_text(taxonomy.stable(document), encoding="utf-8")
         second = self.directory / "second"
         taxonomy.build(next_source, next_review, MIGRATIONS, second)

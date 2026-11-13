@@ -3,9 +3,9 @@
  * into the local preview state, so the preview shows real catalogue data
  * instead of hand-written samples.
  *
- * Configure paths in tools/dev/load-legacy-fixture.local.json using the
- * example. Stop the preview before running: node --experimental-strip-types
- * tools/dev/load-legacy-fixture.mts
+ * Configure paths, reviewed taxonomy input and the Python executable in
+ * tools/dev/load-legacy-fixture.local.json using the example. Stop the preview
+ * before running: node --experimental-strip-types tools/dev/load-legacy-fixture.mts
  */
 
 import { spawnSync } from "node:child_process";
@@ -16,7 +16,6 @@ import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { extractProjectEntries } from "../../packages/domain/src/project-content.ts";
-import { projectTagsSchema, projectTaxonomySchema } from "../../packages/contracts/src/projects.ts";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const configPath = resolve(root, process.argv[2] ?? "tools/dev/load-legacy-fixture.local.json");
@@ -194,8 +193,17 @@ const ROLES = new Set<string>(["member", "reviewer", "owner"]);
 // No title heuristic, old-extension fallback, or duplicate taxonomy convention.
 const reviewed = spawnSync(
   pythonPath,
-  [join(root, "tools/migrate/offline.py"), "taxonomy", "resolve", "--source", legacyDbPath,
-    "--review", taxonomyReviewPath, "--source-kind", "preview"],
+  [
+    join(root, "tools/migrate/offline.py"),
+    "taxonomy",
+    "resolve",
+    "--source",
+    legacyDbPath,
+    "--review",
+    taxonomyReviewPath,
+    "--source-kind",
+    "preview",
+  ],
   { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 },
 );
 if (reviewed.status !== 0) throw new Error("Taxonomy review is unresolved, stale, or invalid; preview is unchanged");
@@ -207,17 +215,22 @@ const classificationRows = resolvedTaxonomy.classifications;
 if (!classificationRows || typeof classificationRows !== "object" || Array.isArray(classificationRows)) {
   throw new Error("Invalid reviewed taxonomy classifications");
 }
-const classifications = new Map<string, ReturnType<typeof projectTaxonomySchema.parse>>();
-const reviewedTags = new Map<string, string[]>();
+// The Python resolver already validates taxonomy/tags. Preserve its serialized
+// JSON rather than introducing a second validator or requiring a package build.
+const classifications = new Map<string, { projectType: string; includedTypes: string; tags: string }>();
 for (const [id, row] of Object.entries(classificationRows)) {
-  if (!row || typeof row !== "object" || !("project_type" in row) || !("included_types" in row)
-    || !("tags" in row) || typeof row.tags !== "string"
-    || typeof row.included_types !== "string") throw new Error("Invalid reviewed classification");
-  classifications.set(id, projectTaxonomySchema.parse({
-    projectType: row.project_type,
-    includedTypes: JSON.parse(row.included_types),
-  }));
-  reviewedTags.set(id, projectTagsSchema.parse(JSON.parse(row.tags)));
+  if (
+    !row ||
+    typeof row !== "object" ||
+    !("project_type" in row) ||
+    !("included_types" in row) ||
+    !("tags" in row) ||
+    typeof row.project_type !== "string" ||
+    typeof row.tags !== "string" ||
+    typeof row.included_types !== "string"
+  )
+    throw new Error("Invalid reviewed classification");
+  classifications.set(id, { projectType: row.project_type, includedTypes: row.included_types, tags: row.tags });
 }
 
 const legacy = new DatabaseSync(legacyDbPath, { readOnly: true });
@@ -314,8 +327,6 @@ for (const project of projects) {
 
   const classification = classifications.get(revision.id);
   if (!classification) throw new Error("Published revision has no reviewed taxonomy classification");
-  const tags = reviewedTags.get(revision.id);
-  if (!tags) throw new Error("Published revision has no reviewed tag accounting");
   const versionId = revision.id;
 
   // Replace atomically by hand: FTS tables are trigger-owned, and a REPLACE
@@ -331,8 +342,8 @@ for (const project of projects) {
     revision.title,
     revision.description ?? project.description,
     classification.projectType,
-    JSON.stringify(classification.includedTypes),
-    JSON.stringify(tags),
+    classification.includedTypes,
+    classification.tags,
     revision.manifest_hash,
     worldbookCount,
     regexCount,

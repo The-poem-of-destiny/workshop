@@ -129,7 +129,7 @@ def inputs(preparation_path, source_path, manifest_path, migrations_dir):
     result["utilities"] = [pin(Path(__file__).with_name(name)) for name in helpers]
     result["utilities"].append(pin(Path(__file__).resolve().parents[2] / "pnpm-lock.yaml"))
     domain = Path(__file__).resolve().parents[2] / "packages/domain/src"
-    result["utilities"].extend(pin(domain / name) for name in ("project-content.ts", "content-policy.ts"))
+    result["utilities"].append(pin(domain / "project-content.ts"))
     # Pin original object bytes, including rejected/omitted source objects used by
     # independent reconciliation. The manifest alone does not freeze local bytes.
     root = Path(manifest_path).resolve().parent / "r2"

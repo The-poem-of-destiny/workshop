@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Local, source-pinned taxonomy review and lossless current-snapshot candidates.
 
-This module never accesses credentials, a network, or R2. Review files contain
-private source values. Building always creates a new candidate, including for an
+This module never accesses credentials or a network. It only reads original R2
+backup bytes when explicit legacy provenance is supplied; it never accesses R2.
+Review files contain private source values. Building always creates a new candidate, including for an
 already-current snapshot; it never updates its source in place.
 """
 from __future__ import annotations
@@ -20,11 +21,15 @@ import sys
 
 PROJECT_TYPES = ("系统核心", "角色", "内容扩展", "玩法", "事件", "体验优化")
 REVIEW_FORMAT = "workshop-taxonomy-review-v1"
-CANDIDATE_FORMAT = "workshop-taxonomy-candidate-v1"
+CANDIDATE_FORMAT = "workshop-taxonomy-candidate-v2"
 DERIVED = {"project_search", "project_search_short", "project_search_tags"}
 INTERNAL = {"d1_migrations", "sqlite_sequence", "_cf_KV"}
 OBSOLETE = {"extension_type", "project_types", "author_note"}
 DECISIONS = {"projectType", "includedTypes", "reviewed", "tagsAcknowledged", "targetTags", "tagChangeReason"}
+# Match JavaScript String.prototype.trim(), not Python's broader str.strip().
+JS_TRIM_WHITESPACE = ("\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680"
+                      "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+                      "\u2028\u2029\u202f\u205f\u3000\ufeff")
 
 
 def stable(value):
@@ -136,41 +141,40 @@ def string_array(raw, field):
     return value
 
 
-def flat_legacy_tags(row):
-    """Lossless string-value projection, including blank and oversized old tags."""
-    result = []
+def legacy_tag_arrays(row):
+    """Keep each original array separate before the cross-field merge."""
     for field in ("tags", "custom_tags", "facets"):
         raw = row.get(field)
         if field == "facets":
             groups = json.loads(raw) if raw not in (None, "") else {}
             if not isinstance(groups, dict):
                 raise ValueError("invalid source facets")
-            values = [tag for group in groups.values() for tag in string_array(group, "facet values")]
+            for group in groups.values():
+                yield string_array(group, "facet values")
         else:
-            values = string_array(raw, field)
-        for value in values:
-            if value not in result:
-                result.append(value)
-    return result
+            yield string_array(raw, field)
 
 
 def tag_accounting(row, kind):
     source = {field: row[field] for field in ("tags", "custom_tags", "facets", "search_tags") if field in row}
     if kind == "legacy":
-        tags = flat_legacy_tags(row)
+        arrays = list(legacy_tag_arrays(row))
+        duplicate_values = any(len(values) != len(set(values)) for values in arrays)
+        tags = list(dict.fromkeys(value for values in arrays for value in values))
     else:
         raw = row.get("tags", row.get("search_tags"))
         tags = string_array(raw, "tags")
+        duplicate_values = len(tags) != len(set(tags))
     issues = []
     if not tags:
         issues.append("empty_tags")
-    if any(not value.strip() for value in tags):
+    if any(not value.strip(JS_TRIM_WHITESPACE) for value in tags):
         issues.append("blank_tag_values_preserved")
-    if len(tags) != len(set(tags)):
+    if duplicate_values:
         issues.append("duplicate_tag_values_preserved")
     if len(tags) > 20:
         issues.append("historical_tags_above_editor_limit_preserved")
-    if any(value != value.strip() or len(value) > 100 for value in tags):
+    if any(value != value.strip(JS_TRIM_WHITESPACE) or len(value) > 100 for value in tags):
         issues.append("historical_tags_outside_target_value_contract")
     return {"source": source, "values": tags, "issues": issues}
 
@@ -184,7 +188,8 @@ def valid_classification(primary, included):
 
 def valid_tags(tags):
     return (isinstance(tags, list) and len(tags) <= 20
-            and all(isinstance(value, str) and value == value.strip() and 0 < len(value) <= 100 for value in tags)
+            and all(isinstance(value, str) and value == value.strip(JS_TRIM_WHITESPACE)
+                    and 0 < len(value) <= 100 for value in tags)
             and len(tags) == len(set(tags)))
 
 
@@ -232,8 +237,10 @@ def review_records(db, kind):
             "sourceTaxonomy": {field: source[field] for field in
                                ("project_type", "project_types", "extension_type", "included_types") if field in source},
             "tags": tags, "required": sorted(set(reasons)), "projectType": primary,
-            "includedTypes": included, "reviewed": not reasons,
-            "tagsAcknowledged": not tags["issues"], "targetTags": tags["values"], "tagChangeReason": "",
+            "includedTypes": included, "reviewed": False,
+            "tagsAcknowledged": False,
+            "targetTags": (None if kind == "legacy" and "duplicate_tag_values_preserved" in tags["issues"]
+                           else tags["values"]), "tagChangeReason": "",
         })
     return result
 
@@ -286,7 +293,8 @@ def resolve_review(db, source_hash, review, kind):
             raise ValueError("reviewed tags must satisfy the target max20 unique nonempty trimmed max100 contract")
         if not isinstance(actual["tagChangeReason"], str):
             raise ValueError("invalid tag change explanation")
-        if actual["targetTags"] != baseline["tags"]["values"] and not actual["tagChangeReason"].strip():
+        if (actual["targetTags"] != baseline["tags"]["values"]
+                or "duplicate_tag_values_preserved" in baseline["tags"]["issues"]) and not actual["tagChangeReason"].strip():
             raise ValueError("changed tags require an explicit review explanation; source values remain in private accounting")
         key = actual["id"]
         if key in resolved:
@@ -357,14 +365,105 @@ def check_shapes(source, target):
     return source_names, target_names
 
 
-def pinned_inputs(source_hash, review_path, migrations):
+def legacy_provenance_inputs(provenance, migrations, planner):
+    result, sources = [], set()
+    for paths in provenance:
+        if len(paths) != 3:
+            raise ValueError("legacy provenance requires preparation, original SQL and manifest")
+        preparation_path, source_path, manifest_path = (Path(path).resolve(strict=True) for path in paths)
+        for path in (preparation_path, source_path, manifest_path):
+            if any(Path(str(path) + suffix).exists() for suffix in ("-wal", "-shm", "-journal")):
+                raise ValueError("legacy provenance inputs must be closed snapshots without sidecars")
+        with source_path.open("rb") as stream:
+            if stream.read(16) == b"SQLite format 3\x00":
+                raise ValueError("legacy provenance requires the original SQL dump, not a current SQLite snapshot")
+        pins = planner.inputs(preparation_path, source_path, manifest_path, migrations)
+        source_hash = pins["source"]["sha256"]
+        if source_hash in sources:
+            raise ValueError("duplicate or conflicting legacy source provenance")
+        sources.add(source_hash)
+        result.append(pins)
+    return sorted(result, key=lambda item: (item["source"]["sha256"], item["preparation"]["sha256"]))
+
+
+def legacy_integrity_evidence(source, migrations, provenance, planner):
+    """Grant only byte-reconciled imported exceptions matching this current snapshot."""
+    omissions, owners = [], {}
+    for pins in provenance:
+        preparation_path = Path(pins["preparation"]["path"])
+        data = planner.loader.preparation(preparation_path)
+        if not planner.loader.source_reconcile(data, Path(pins["source"]["path"]),
+                                               Path(pins["manifest"]["path"]), migrations=Path(migrations))["ok"]:
+            raise ValueError("legacy provenance does not reconcile to original source bytes")
+        if not planner.validator.validate(data, Path(migrations))["ok"]:
+            raise ValueError("legacy provenance fails canonical application validation")
+        expected, _ = canonical(migrations)
+        try:
+            expected.row_factory = sqlite3.Row
+            planner.loader.assert_source_columns(expected)
+            expected.execute("PRAGMA foreign_keys=OFF")
+            for name, in expected.execute("SELECT name FROM sqlite_schema WHERE type='trigger'").fetchall():
+                expected.execute("DROP TRIGGER " + quote(name))
+            # The independent source check authenticated every canonical version
+            # and asset column; materialize only their real storage affinities/defaults.
+            for table in ("projects", "project_versions", "assets"):
+                for row in data["tables"].get(table, []):
+                    keys = sorted(row)
+                    expected.execute("INSERT INTO " + quote(table) + " (" + ",".join(map(quote, keys))
+                                     + ") VALUES (" + ",".join("?" for _ in keys) + ")", [row[key] for key in keys])
+            version_keys = sorted(set(columns(expected, "project_versions")) - {"project_type", "included_types", "tags"})
+            asset_keys = sorted(columns(expected, "assets"))
+            project_keys = ("id", "author_id", "created_at", "published_version_id", "published_at", "published_updated_at")
+            for item in data.get("omissions", []):
+                reason = item.get("reason", "")
+                if (item.get("table") != "projects" or not isinstance(item.get("source"), dict)
+                        or (reason != "content index unavailable: duplicate entry keys"
+                            and not reason.startswith("invalid content asset omitted: "))):
+                    continue
+                identity = planner.loader.version_id(str(item["source"]["id"]))
+                original = expected.execute("SELECT * FROM project_versions WHERE id=?", (identity,)).fetchone()
+                current = source.execute("SELECT v.* FROM project_versions v JOIN projects p ON p.published_version_id=v.id "
+                                         "WHERE v.id=? AND v.entry_index IS NULL", (identity,)).fetchone()
+                if original is None or current is None:
+                    continue
+                original_project = expected.execute("SELECT * FROM projects WHERE id=? AND published_version_id=?",
+                                                    (original["project_id"], identity)).fetchone()
+                if original_project is None:
+                    continue
+                current_project = source.execute("SELECT * FROM projects WHERE id=? AND published_version_id=?",
+                                                 (current["project_id"], identity)).fetchone()
+                if (current_project is None
+                        or any(cell(original[key]) != cell(current[key]) for key in version_keys)
+                        or any(cell(original_project[key]) != cell(current_project[key]) for key in project_keys)):
+                    raise ValueError("imported exception revision or published project identity changed")
+                original_assets = Counter(stable([cell(row[key]) for key in asset_keys]) for row in
+                                          expected.execute("SELECT * FROM assets WHERE version_id=?", (identity,)))
+                current_assets = Counter(stable([cell(row[key]) for key in asset_keys]) for row in
+                                         source.execute("SELECT * FROM assets WHERE version_id=?", (identity,)))
+                if original_assets != current_assets:
+                    raise ValueError("imported exception asset rows changed")
+                if reason.startswith("invalid content asset omitted: ") and (
+                        original_project["visibility"] != "private" or current_project["visibility"] != "private"):
+                    continue
+                owner = pins["source"]["sha256"]
+                if identity in owners and owners[identity] != owner:
+                    raise ValueError("conflicting legacy exception provenance")
+                owners[identity] = owner
+                omissions.append(item)
+        finally:
+            expected.close()
+    return {"omissions": sorted(omissions, key=stable)}
+
+
+def pinned_inputs(source_hash, review_path, migrations, provenance):
     return {"format": CANDIDATE_FORMAT, "sourceSha256": source_hash,
             "reviewSha256": file_hash(review_path), "migrations": migrations,
+            "legacyProvenance": provenance,
             "helpers": [{"name": name, "sha256": file_hash(Path(__file__).with_name(name))}
                         for name in ("taxonomy.py", "full-validate.py", "multiday-plan.py", "d1-data.py", "full-load.py")]}
 
 
-def build(source_path, review_path, migrations, output):
+def build(source_path, review_path, migrations, output, legacy_provenance=()):
     output = Path(output)
     review = read_review(review_path)
     target, migration_pins = canonical(migrations)
@@ -373,7 +472,9 @@ def build(source_path, review_path, migrations, output):
         with snapshot(source_path) as (source, source_hash):
             decisions = resolve_review(source, source_hash, review, "current")
             source_names, target_names = check_shapes(source, target)
-            frozen = pinned_inputs(source_hash, review_path, migration_pins)
+            provenance = legacy_provenance_inputs(legacy_provenance, migrations, planner)
+            frozen = pinned_inputs(source_hash, review_path, migration_pins, provenance)
+            integrity_evidence = legacy_integrity_evidence(source, migrations, provenance, planner)
             schema = planner.schema(target)
             triggers = [(row["name"], row["sql"]) for row in schema if row["type"] == "trigger"]
             search = dict(triggers).get("project_search_update")
@@ -398,9 +499,13 @@ def build(source_path, review_path, migrations, output):
             for _, sql in triggers:
                 target.execute(sql)
             target.commit()
+            integrity = planner.validator.application_integrity(target, integrity_evidence)
+            if integrity["failures"] or planner.validator.stored_size_failures(target):
+                raise ValueError("candidate application integrity or D1 stored-row bounds failed")
             if planner.schema(target) != schema:
                 raise ValueError("candidate canonical schema changed during copying")
-            if pinned_inputs(source_hash, review_path, migration_pins) != frozen:
+            if pinned_inputs(source_hash, review_path, migration_pins,
+                             legacy_provenance_inputs(legacy_provenance, migrations, planner)) != frozen:
                 raise ValueError("migration inputs changed during build")
             output.mkdir(mode=0o700, parents=False, exist_ok=False)
             path = output / "expected.sqlite"
@@ -453,7 +558,7 @@ def independent_rows(source, candidate, decisions):
     return evidence
 
 
-def verify(source_path, review_path, migrations, candidate_dir, report_path=None):
+def verify(source_path, review_path, migrations, candidate_dir, report_path=None, legacy_provenance=()):
     candidate_dir = Path(candidate_dir)
     review = read_review(review_path)
     evidence = read_review(candidate_dir / "candidate.json")
@@ -464,7 +569,8 @@ def verify(source_path, review_path, migrations, candidate_dir, report_path=None
     try:
         with snapshot(source_path) as (source, source_hash), snapshot(candidate_dir / "expected.sqlite") as (candidate, candidate_hash):
             decisions = resolve_review(source, source_hash, review, "current")
-            if evidence != pinned_inputs(source_hash, review_path, migration_pins):
+            provenance = legacy_provenance_inputs(legacy_provenance, migrations, planner)
+            if evidence != pinned_inputs(source_hash, review_path, migration_pins, provenance):
                 raise ValueError("stale candidate source/review/migrations/helpers")
             if read_review(candidate_dir / "review.json") != review:
                 raise ValueError("sealed review differs from reviewed input")
@@ -475,13 +581,17 @@ def verify(source_path, review_path, migrations, candidate_dir, report_path=None
                 raise ValueError("candidate foreign key check failed")
             if [row[0] for row in candidate.execute("PRAGMA integrity_check")] != ["ok"]:
                 raise ValueError("candidate integrity check failed")
-            integrity = validator.application_integrity(candidate, {})
+            integrity_evidence = legacy_integrity_evidence(source, migrations, provenance, planner)
+            integrity = validator.application_integrity(candidate, integrity_evidence)
             if integrity["failures"] or validator.stored_size_failures(candidate):
                 raise ValueError("candidate application integrity or D1 stored-row bounds failed")
             # FTS integrity checks write to an in-memory clone, never the candidate.
             candidate.backup(candidate_memory)
             search = canonical_db.execute("SELECT sql FROM sqlite_schema WHERE name='project_search_update'").fetchone()[0]
             planner.expected_search(candidate_memory, {}, search)
+            if pinned_inputs(source_hash, review_path, migration_pins,
+                             legacy_provenance_inputs(legacy_provenance, migrations, planner)) != evidence:
+                raise ValueError("migration inputs changed during verification")
             result = {"format": "workshop-taxonomy-verification-v1", "ok": True,
                       "sourceSha256": source_hash, "candidateSha256": candidate_hash,
                       "reviewSha256": file_hash(review_path), "tables": tables,
@@ -495,7 +605,11 @@ def verify(source_path, review_path, migrations, candidate_dir, report_path=None
                           "tagChangeReason": row["tagChangeReason"]} for row in review["records"]]),
                       "nonTaxonomyScope": "all logical source rows/fields except reviewed primary/included/tags and explicitly removed obsolete fields",
                       "foreignKeys": True, "applicationIntegrity": True, "canonicalSearch": True,
-                      "sourceUnchanged": True, "objects": "references preserved; no object bytes accessed"}
+                      "acceptedImportedExceptions": integrity["accepted_exceptions"],
+                      "legacyProvenanceSha256": digest(provenance), "legacySources": len(provenance),
+                      "sourceUnchanged": True,
+                      "objects": ("references preserved; supplied local legacy backup bytes independently checked; no remote R2 access"
+                                  if provenance else "references preserved; no object bytes accessed")}
         if report_path:
             json_write(report_path, result)
         return result
@@ -516,6 +630,9 @@ def configure(parser):
         command.add_argument("--review", type=Path, required=True)
         command.add_argument("--migrations", type=Path, required=True)
         command.add_argument("--" + ("output" if name == "build" else "candidate"), type=Path, required=True)
+        command.add_argument("--legacy-provenance", type=Path, nargs=3, action="append", default=[],
+                             metavar=("PREPARATION", "SOURCE_SQL", "MANIFEST"),
+                             help="independently validate imported content exceptions against one local legacy backup (repeatable)")
         if name == "verify":
             command.add_argument("--report", type=Path)
     resolve = commands.add_parser("resolve", help="resolve reviewed classifications for the local preview loader")
@@ -529,9 +646,9 @@ def run(args):
         if args.taxonomy_mode == "prepare-review":
             result = prepare_review(args.source, args.source_kind, args.output)
         elif args.taxonomy_mode == "build":
-            result = build(args.source, args.review, args.migrations, args.output)
+            result = build(args.source, args.review, args.migrations, args.output, args.legacy_provenance)
         elif args.taxonomy_mode == "verify":
-            result = verify(args.source, args.review, args.migrations, args.candidate, args.report)
+            result = verify(args.source, args.review, args.migrations, args.candidate, args.report, args.legacy_provenance)
         else:
             result = {"ok": True, "classifications": load_review(args.source, args.review, args.source_kind)}
     except (OSError, ValueError, TypeError, KeyError, sqlite3.Error):
