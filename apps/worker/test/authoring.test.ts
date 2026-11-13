@@ -1,5 +1,11 @@
 import { env, SELF } from "cloudflare:test";
-import { type Session, uploadResponseSchema } from "@workshop/contracts";
+import {
+  authoringProjectResponseSchema,
+  authoringVersionResponseSchema,
+  type Session,
+  uploadResponseSchema,
+} from "@workshop/contracts";
+import { PROJECT_TYPES } from "@workshop/domain";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { DataEnv } from "../src/data/env";
 
@@ -90,7 +96,10 @@ beforeEach(async () => {
 
 describe("authoring write paths", () => {
   it("stores marked final worldbook names without rewriting references", async () => {
-    const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Names" }) });
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Names", projectType: "角色" }),
+    });
     const draft = (await created.json()) as { project: { id: string }; workingVersionId: string };
     const source = JSON.stringify({
       entries: {
@@ -123,7 +132,7 @@ describe("authoring write paths", () => {
   it("creates projects and enforces the row-version CAS", async () => {
     const created = await request("/", {
       method: "POST",
-      body: JSON.stringify({ title: "New project", description: "draft", tags: ["tag"] }),
+      body: JSON.stringify({ title: "New project", projectType: "角色", description: "draft", tags: ["tag"] }),
       headers: { "content-type": "application/json" },
     });
     expect(created.status).toBe(201);
@@ -150,11 +159,265 @@ describe("authoring write paths", () => {
     });
   });
 
+  it("validates primary changes against retained included categories on patches and successors", async () => {
+    const tags = Array.from({ length: 20 }, (_, index) => `标签${index}`);
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "完整分类", projectType: "角色", includedTypes: ["玩法", "事件"], tags }),
+    });
+    expect(created.status).toBe(201);
+    const first = authoringProjectResponseSchema.parse(await created.json());
+    for (const [method, suffix, projectType] of [
+      ["PATCH", "", "玩法"],
+      ["POST", "/versions", "事件"],
+    ] as const) {
+      const invalid = await request(`/${first.project.id}${suffix}`, {
+        method,
+        headers: { "if-match": String(first.rowVersion) },
+        body: JSON.stringify({ projectType }),
+      });
+      expect(invalid.status).toBe(400);
+    }
+    const unchanged = await bindings.DB.prepare(`SELECT p.row_version, v.project_type, v.included_types, v.tags,
+      (SELECT COUNT(*) FROM project_versions WHERE project_id = p.id) AS versions
+      FROM projects p JOIN project_versions v ON v.id = p.working_version_id WHERE p.id = ?`)
+      .bind(first.project.id)
+      .first();
+    expect(unchanged).toEqual({
+      row_version: 1,
+      project_type: "角色",
+      included_types: '["玩法","事件"]',
+      tags: JSON.stringify(tags),
+      versions: 1,
+    });
+    const titleOnly = await request(`/${first.project.id}`, {
+      method: "PATCH",
+      headers: { "if-match": "1" },
+      body: JSON.stringify({ title: "只改标题" }),
+    });
+    expect(titleOnly.status).toBe(200);
+    const retained = authoringVersionResponseSchema.parse(await titleOnly.json());
+    const retainedDraft = await request(`/${first.project.id}/draft`);
+    expect(retainedDraft.status).toBe(200);
+    expect(authoringProjectResponseSchema.parse(await retainedDraft.json())).toMatchObject({
+      rowVersion: retained.rowVersion,
+      workingVersionId: retained.versionId,
+      project: { title: "只改标题", projectType: "角色", includedTypes: ["玩法", "事件"], tags },
+    });
+    const changed = await request(`/${first.project.id}`, {
+      method: "PATCH",
+      headers: { "if-match": String(retained.rowVersion) },
+      body: JSON.stringify({ projectType: "玩法", includedTypes: ["角色", "事件"] }),
+    });
+    expect(changed.status).toBe(200);
+    const changedVersion = authoringVersionResponseSchema.parse(await changed.json());
+    const changedDraft = await request(`/${first.project.id}/draft`);
+    expect(changedDraft.status).toBe(200);
+    expect(authoringProjectResponseSchema.parse(await changedDraft.json())).toMatchObject({
+      rowVersion: changedVersion.rowVersion,
+      workingVersionId: changedVersion.versionId,
+      project: { projectType: "玩法", includedTypes: ["角色", "事件"], tags },
+    });
+  });
+
+  it("normalizes Unicode tags on writes and preserves code points through submission", async () => {
+    const tags = [
+      "🧪".repeat(51),
+      "🧪".repeat(100),
+      "trimmed",
+      "\u0085tag\u0085",
+      "\u0000x",
+      "\u0000".repeat(100),
+      "\u0001x",
+      "\\u0000",
+      "\\u0001",
+    ];
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        title: "Unicode 标签",
+        projectType: "角色",
+        tags: [tags[0], tags[1], "\ttrimmed\uFEFF", ...tags.slice(3)],
+      }),
+    });
+    expect(created.status).toBe(201);
+    const draft = authoringProjectResponseSchema.parse(await created.json());
+    expect(draft.project.tags).toEqual(tags);
+
+    for (const tag of ["🧪".repeat(101), `a\u0000${"🧪".repeat(100)}`]) {
+      const invalidCreate = await request("/", {
+        method: "POST",
+        body: JSON.stringify({ title: "Too long", projectType: "角色", tags: [tag] }),
+      });
+      expect(invalidCreate.status).toBe(400);
+      const invalidPatch = await request(`/${draft.project.id}`, {
+        method: "PATCH",
+        headers: { "if-match": String(draft.rowVersion) },
+        body: JSON.stringify({ tags: [tag] }),
+      });
+      expect(invalidPatch.status).toBe(400);
+    }
+    expect(await bindings.DB.prepare("SELECT COUNT(*) AS total FROM projects").first()).toEqual({ total: 1 });
+    const unchanged = authoringProjectResponseSchema.parse(await (await request(`/${draft.project.id}/draft`)).json());
+    expect(unchanged.rowVersion).toBe(draft.rowVersion);
+    expect(unchanged.project.tags).toEqual(tags);
+
+    const patched = await request(`/${draft.project.id}`, {
+      method: "PATCH",
+      headers: { "if-match": String(draft.rowVersion) },
+      body: JSON.stringify({ tags: [...tags, "\uFEFFpatched\t"] }),
+    });
+    expect(patched.status).toBe(200);
+    const updated = authoringVersionResponseSchema.parse(await patched.json());
+    const expectedTags = [...tags, "patched"];
+    const reloaded = authoringProjectResponseSchema.parse(await (await request(`/${draft.project.id}/draft`)).json());
+    expect(reloaded.project.tags).toEqual(expectedTags);
+    expect(reloaded.rowVersion).toBe(updated.rowVersion);
+    expect(reloaded.workingVersionId).toBe(updated.versionId);
+
+    const text = JSON.stringify({ scriptName: "Unicode", findRegex: "/a/g", replaceString: "b" });
+    const uploaded = await request(`/${draft.project.id}/versions/${draft.workingVersionId}/files/regex`, {
+      method: "PUT",
+      body: text,
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(new TextEncoder().encode(text).byteLength),
+        "if-match": String(updated.rowVersion),
+      },
+    });
+    expect(uploaded.status).toBe(200);
+    const saved = uploadResponseSchema.parse(await uploaded.json());
+    const submitted = await request(`/${draft.project.id}/versions/${draft.workingVersionId}/submit`, {
+      method: "POST",
+      headers: { "if-match": String(saved.rowVersion) },
+      body: JSON.stringify({ gate: "warn" }),
+    });
+    expect(submitted.status).toBe(201);
+    const frozen = await bindings.DB.prepare(
+      "SELECT tags, worldbook_count, regex_count FROM project_versions WHERE id = ?",
+    )
+      .bind(draft.workingVersionId)
+      .first();
+    expect(frozen).toEqual({ tags: JSON.stringify(expectedTags), worldbook_count: 0, regex_count: 1 });
+  });
+
+  it.each(["insert", "update"] as const)(
+    "enforces canonical tags on direct D1 %s without changing JSON or duplicate identity",
+    async (operation) => {
+      const created = await request("/", {
+        method: "POST",
+        body: JSON.stringify({ title: "Direct tags", projectType: "角色", tags: ["original"] }),
+      });
+      expect(created.status).toBe(201);
+      const draft = authoringProjectResponseSchema.parse(await created.json());
+      const versionId = operation === "insert" ? "direct-tag-version" : draft.workingVersionId;
+      const writeTags =
+        operation === "insert"
+          ? bindings.DB.prepare(`INSERT INTO project_versions
+              (id, project_id, version_no, title, project_type, tags, created_by)
+              SELECT 'direct-tag-version', project_id, 2, 'Direct tags', '角色', ?, 'author'
+              FROM project_versions WHERE id = ?`)
+          : bindings.DB.prepare("UPDATE project_versions SET tags = ? WHERE id = ?");
+      const readTags = () =>
+        bindings.DB.prepare("SELECT tags FROM project_versions WHERE id = ?").bind(versionId).first();
+      for (const tags of [
+        JSON.stringify(
+          ["🧪".repeat(51), "🧪".repeat(100), "\u0000x", "\u0000".repeat(100), "\u0085tag\u0085"],
+          null,
+          2,
+        ),
+        String.raw`["\u0000x","\u0001x","\\u0000","\\u0001","\\\u0000","\\\u0001"]`,
+      ]) {
+        await writeTags.bind(tags, draft.workingVersionId).run();
+        expect(await readTags()).toEqual({ tags });
+        if (operation === "insert") {
+          await bindings.DB.prepare("DELETE FROM project_versions WHERE id = ?").bind(versionId).run();
+        }
+      }
+
+      const whitespace = [
+        "\u0009",
+        "\u000A",
+        "\u000B",
+        "\u000C",
+        "\u000D",
+        "\u0020",
+        "\u00A0",
+        "\u1680",
+        "\u2000",
+        "\u2001",
+        "\u2002",
+        "\u2003",
+        "\u2004",
+        "\u2005",
+        "\u2006",
+        "\u2007",
+        "\u2008",
+        "\u2009",
+        "\u200A",
+        "\u2028",
+        "\u2029",
+        "\u202F",
+        "\u205F",
+        "\u3000",
+        "\uFEFF",
+      ];
+      const beforeInvalid = await readTags();
+      for (const tags of [
+        [""],
+        ["🧪".repeat(101)],
+        ["\u0000".repeat(101)],
+        [`a\u0000${"🧪".repeat(100)}`],
+        ["\\u0000".repeat(17)],
+        ["\u0000x", "\u0000x"],
+        ["\\u0000", "\\u0000"],
+        ["\u0000tag\t"],
+        ["\uFEFF\u0000tag"],
+        ...whitespace.flatMap((boundary) => [[boundary], [`${boundary}tag`], [`tag${boundary}`]]),
+      ]) {
+        await expect(writeTags.bind(JSON.stringify(tags), draft.workingVersionId).run()).rejects.toThrow(
+          "invalid project taxonomy or tags",
+        );
+        expect(await readTags()).toEqual(beforeInvalid);
+      }
+    },
+  );
+
+  it.each(PROJECT_TYPES)("accepts nonempty regex-only upload and submission for %s", async (projectType) => {
+    const created = await request("/", { method: "POST", body: JSON.stringify({ title: "正则项目", projectType }) });
+    expect(created.status).toBe(201);
+    const draft = authoringProjectResponseSchema.parse(await created.json());
+    const text = JSON.stringify({ scriptName: "Test", findRegex: "/a/g", replaceString: "b" });
+    const upload = await request(`/${draft.project.id}/versions/${draft.workingVersionId}/files/regex`, {
+      method: "PUT",
+      body: text,
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(new TextEncoder().encode(text).byteLength),
+        "if-match": String(draft.rowVersion),
+      },
+    });
+    expect(upload.status).toBe(200);
+    const saved = uploadResponseSchema.parse(await upload.json());
+    const submitted = await request(`/${draft.project.id}/versions/${draft.workingVersionId}/submit`, {
+      method: "POST",
+      headers: { "if-match": String(saved.rowVersion) },
+      body: JSON.stringify({ gate: "warn" }),
+    });
+    expect(submitted.status).toBe(201);
+    const frozen = await bindings.DB.prepare(
+      "SELECT project_type, worldbook_count, regex_count FROM project_versions WHERE id = ?",
+    )
+      .bind(draft.workingVersionId)
+      .first();
+    expect(frozen).toEqual({ project_type: projectType, worldbook_count: 0, regex_count: 1 });
+  });
+
   it("accepts only one concurrent metadata update with the same version", async () => {
     const created = await request("/", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title: "Concurrent project" }),
+      body: JSON.stringify({ title: "Concurrent project", projectType: "角色" }),
     });
     const { project, rowVersion } = (await created.json()) as { project: { id: string }; rowVersion: number };
     const update = (title: string) =>
@@ -170,7 +433,10 @@ describe("authoring write paths", () => {
   });
 
   it("hides projects from non-authors and permits owners", async () => {
-    const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Private" }) });
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Private", projectType: "角色" }),
+    });
     const { project, workingVersionId } = (await created.json()) as {
       project: { id: string };
       workingVersionId: string;
@@ -198,7 +464,10 @@ describe("authoring write paths", () => {
   });
 
   it("keeps revision numbers immutable and uploads hashed assets", async () => {
-    const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Versions" }) });
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Versions", projectType: "角色" }),
+    });
     const first = (await created.json()) as { project: { id: string }; workingVersionId: string };
     const revision = await request(`/${first.project.id}/versions`, {
       method: "POST",
@@ -246,7 +515,10 @@ describe("authoring write paths", () => {
   });
 
   it("supports two gallery slots with real image validation and CAS", async () => {
-    const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Gallery" }) });
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Gallery", projectType: "角色" }),
+    });
     const { project } = (await created.json()) as { project: { id: string } };
     const png = Uint8Array.from([
       137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196,
@@ -311,7 +583,10 @@ describe("authoring write paths", () => {
   });
 
   it("deletes one entry into a new revision without touching the old asset", async () => {
-    const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Entries" }) });
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Entries", projectType: "角色" }),
+    });
     const first = (await created.json()) as { project: { id: string }; workingVersionId: string };
     const twoEntries = JSON.stringify({
       entries: [
@@ -340,7 +615,10 @@ describe("authoring write paths", () => {
     expect((await request(savedPath, {}, "other-token")).status).toBe(404);
     expect((await request(savedPath, {}, "owner-token")).status).toBe(200);
     expect((await SELF.fetch("https://workshop.test/api/v1/projects" + savedPath, {})).status).toBe(401);
-    const unrelated = await request("/", { method: "POST", body: JSON.stringify({ title: "Other project" }) });
+    const unrelated = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Other project", projectType: "角色" }),
+    });
     const otherProject = (await unrelated.json()) as { project: { id: string } };
     expect(
       (await request(`/${otherProject.project.id}/versions/${first.workingVersionId}/files/worldbook`)).status,
@@ -420,6 +698,31 @@ describe("authoring write paths", () => {
       .bind(result.versionId)
       .first<{ worldbook_count: number; regex_count: number }>();
     expect(counts).toEqual({ worldbook_count: 1, regex_count: 1 });
+
+    const removedWorldbook = await request(
+      `/${first.project.id}/versions/${result.versionId}/entries/worldbook/${encodeURIComponent("uid:2")}`,
+      { method: "DELETE", headers: { "if-match": "5" } },
+    );
+    expect(removedWorldbook.status).toBe(200);
+    const regexOnly = (await removedWorldbook.json()) as { rowVersion: number; versionId: string; entryCount: number };
+    expect(regexOnly).toMatchObject({ rowVersion: 6, entryCount: 0 });
+    const regexOnlyAssets = await bindings.DB.prepare("SELECT kind FROM assets WHERE version_id = ? ORDER BY kind")
+      .bind(regexOnly.versionId)
+      .all<{ kind: string }>();
+    expect(regexOnlyAssets.results).toEqual([{ kind: "cover" }, { kind: "regex" }]);
+    expect(
+      await bindings.DB.prepare("SELECT worldbook_count, regex_count FROM project_versions WHERE id = ?")
+        .bind(regexOnly.versionId)
+        .first(),
+    ).toEqual({ worldbook_count: 0, regex_count: 1 });
+    await expect((await bindings.R2.get(asset!.r2_key))?.text()).resolves.toBe(text);
+    const submittedRegex = await request(`/${first.project.id}/versions/${regexOnly.versionId}/submit`, {
+      method: "POST",
+      headers: { "if-match": "6" },
+      body: JSON.stringify({ gate: "missing", acknowledged: true }),
+    });
+    expect(submittedRegex.status).toBe(201);
+    await expect(submittedRegex.json()).resolves.toMatchObject({ status: "pending", checkStatus: "needs_human" });
   });
   it("keeps published bytes unchanged and rejects deleting the required final draft entry", async () => {
     const created = await request("/", {
@@ -493,7 +796,10 @@ describe("authoring write paths", () => {
   });
 
   it("leaves the working revision unchanged when a retained asset is missing", async () => {
-    const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Missing retained" }) });
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Missing retained", projectType: "角色" }),
+    });
     const first = (await created.json()) as { project: { id: string }; workingVersionId: string };
     const entries = JSON.stringify({
       entries: [
@@ -540,7 +846,10 @@ describe("authoring write paths", () => {
   });
 
   it("supersedes pending submissions and rejects unsupported/oversized uploads", async () => {
-    const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Submit" }) });
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Submit", projectType: "角色" }),
+    });
     const first = (await created.json()) as { project: { id: string }; workingVersionId: string };
     const upload = await request(`/${first.project.id}/versions/${first.workingVersionId}/files/worldbook`, {
       method: "PUT",
@@ -655,7 +964,7 @@ describe("authoring write paths", () => {
     // Use an independent draft for the upload limit check.
     const fresh = await request("/", {
       method: "POST",
-      body: JSON.stringify({ title: "Upload limit" }),
+      body: JSON.stringify({ title: "Upload limit", projectType: "角色" }),
     });
     expect(fresh.status).toBe(201);
     const fourth = (await fresh.json()) as { project: { id: string }; workingVersionId: string; rowVersion: number };
@@ -710,7 +1019,7 @@ describe("authoring write paths", () => {
     const edited = await request(`/${first.project.id}`, {
       method: "PATCH",
       headers: { "if-match": String(current!.row_version) },
-      body: JSON.stringify({ title: "Changed after submit", projectType: "扩展", tags: ["规则"] }),
+      body: JSON.stringify({ title: "Changed after submit", projectType: "内容扩展", tags: ["规则"] }),
     });
     expect(edited.status).toBe(409);
     const snapshot = await bindings.DB.prepare("SELECT title, project_type, tags FROM project_versions WHERE id = ?")
@@ -720,7 +1029,10 @@ describe("authoring write paths", () => {
   });
 
   it("rate limits rapid metadata writes", async () => {
-    const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Rate" }) });
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Rate", projectType: "角色" }),
+    });
     const project = (await created.json()) as { project: { id: string } };
     const statements = Array.from({ length: 20 }, (_, index) =>
       bindings.DB.prepare(`INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
@@ -740,7 +1052,10 @@ describe("authoring write paths", () => {
   });
 
   it("soft deletes a project and hides it from the author", async () => {
-    const created = await request("/", { method: "POST", body: JSON.stringify({ title: "Delete me" }) });
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Delete me", projectType: "角色" }),
+    });
     const project = (await created.json()) as { project: { id: string } };
     const deleted = await request(`/${project.project.id}`, {
       method: "DELETE",
@@ -757,7 +1072,7 @@ describe("authoring write paths", () => {
   it("updates unsubmitted draft metadata without replacing its content", async () => {
     const created = await request("/", {
       method: "POST",
-      body: JSON.stringify({ title: "Metadata", versionLabel: "v1" }),
+      body: JSON.stringify({ title: "Metadata", projectType: "角色", versionLabel: "v1" }),
     });
     const project = (await created.json()) as { project: { id: string }; workingVersionId: string };
     await bindings.DB.prepare("UPDATE project_versions SET manifest_hash = ? WHERE id = ?")
@@ -816,7 +1131,7 @@ describe("authoring write paths", () => {
   it("keeps published revision metadata immutable while editing a newer draft", async () => {
     const created = await request("/", {
       method: "POST",
-      body: JSON.stringify({ title: "Published title", versionLabel: "v1" }),
+      body: JSON.stringify({ title: "Published title", projectType: "角色", versionLabel: "v1" }),
     });
     const first = (await created.json()) as { project: { id: string }; workingVersionId: string };
     await bindings.DB.prepare("UPDATE projects SET published_version_id = ?, published_at = ? WHERE id = ?")
@@ -897,7 +1212,7 @@ describe("authoring write paths", () => {
     const create = (discordThreadUrl: string) =>
       request("/", {
         method: "POST",
-        body: JSON.stringify({ title: "Discord", discordThreadUrl }),
+        body: JSON.stringify({ title: "Discord", projectType: "角色", discordThreadUrl }),
         headers: { "content-type": "application/json" },
       });
 
@@ -919,7 +1234,7 @@ describe("authoring write paths", () => {
     expect(revision?.discord_thread_url).toBe("https://discord.com/channels/123456789012345678/223456789012345678");
   });
 
-  it("rejects invalid uploads and policy-invalid submissions", async () => {
+  it("rejects malformed or empty uploads and accepts a regex-only character submission", async () => {
     const created = await request("/", {
       method: "POST",
       body: JSON.stringify({ title: "Validation", projectType: "角色" }),
@@ -960,20 +1275,12 @@ describe("authoring write paths", () => {
 
     const regex = JSON.stringify({ scriptName: "Test", findRegex: "/a/g", replaceString: "b" });
     expect((await upload("regex", regex)).status).toBe(200);
-    const roleWithoutWorldbook = await request(`/${project.project.id}/versions/${project.workingVersionId}/submit`, {
+    const regexOnlySubmit = await request(`/${project.project.id}/versions/${project.workingVersionId}/submit`, {
       method: "POST",
       headers: { "if-match": String(rowVersion) },
       body: JSON.stringify({ gate: "warn" }),
     });
-    expect(roleWithoutWorldbook.status).toBe(400);
-
-    expect((await upload("worldbook", validWorldbook)).status).toBe(200);
-    const validSubmit = await request(`/${project.project.id}/versions/${project.workingVersionId}/submit`, {
-      method: "POST",
-      headers: { "if-match": String(rowVersion) },
-      body: JSON.stringify({ gate: "warn" }),
-    });
-    expect(validSubmit.status).toBe(201);
+    expect(regexOnlySubmit.status).toBe(201);
   });
   it("round-trips recommended pairings beside hard dependencies", async () => {
     const requirements = {
@@ -988,7 +1295,7 @@ describe("authoring write paths", () => {
     };
     const created = await request("/", {
       method: "POST",
-      body: JSON.stringify({ title: "建议搭配", requirements }),
+      body: JSON.stringify({ title: "建议搭配", projectType: "角色", requirements }),
     });
     expect(created.status).toBe(201);
     const project = (await created.json()) as { project: { id: string } };

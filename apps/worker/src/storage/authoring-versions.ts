@@ -31,7 +31,7 @@ export async function patchProject(
     projectUpdate,
     db
       .prepare(`UPDATE project_versions
-      SET title = ?, description = ?, project_type = ?, extension_type = ?,
+      SET title = ?, description = ?, project_type = ?, included_types = ?,
           tags = ?, schema_version = COALESCE(schema_version, ?), version_label = ?, requirements = ?,
           cover_position_x = ?, cover_position_y = ?, cover_zoom = ?, discord_thread_url = ?
       WHERE id = ? AND changes() = 1`)
@@ -39,7 +39,7 @@ export async function patchProject(
         values.title,
         values.description,
         values.projectType,
-        values.extensionType,
+        JSON.stringify(values.includedTypes),
         tags,
         values.schemaVersion,
         values.versionLabel,
@@ -105,7 +105,7 @@ export async function addVersion(
       .bind(versionId, versionId, now, current.id, expectedVersion, current.working_version_id),
     db
       .prepare(`INSERT INTO project_versions
-      (id, project_id, version_no, title, description, project_type, extension_type,
+      (id, project_id, version_no, title, description, project_type, included_types,
        schema_version, version_label, requirements, cover_position_x, cover_position_y, cover_zoom,
        discord_thread_url, tags, worldbook_count, regex_count, created_by, created_at)
       SELECT ?, ?, (SELECT COALESCE(MAX(version_no), 0) + 1 FROM project_versions WHERE project_id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
@@ -120,7 +120,7 @@ export async function addVersion(
         values.title,
         values.description,
         values.projectType,
-        values.extensionType,
+        JSON.stringify(values.includedTypes),
         values.schemaVersion,
         values.versionLabel,
         values.requirements,

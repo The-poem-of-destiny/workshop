@@ -144,6 +144,44 @@ async function localApi(path, init = {}, role = "member") {
   return response.status === 204 ? null : response.json();
 }
 
+async function submitPreviewExample(projectId, versionPath, rowVersion, sample) {
+  if (!sample.submit) return;
+  const visible = await localApi(`/projects/${projectId}/visibility`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", "if-match": String(rowVersion) },
+    body: JSON.stringify({ visibility: "public" }),
+  });
+  const submitted = await localApi(`${versionPath}/submit`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "if-match": String(visible.rowVersion) },
+    body: JSON.stringify({ gate: "missing", acknowledged: true }),
+  });
+  if (sample.reject) {
+    await localApi(
+      `/admin/submissions/${submitted.submissionId}/review`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decision: "reject", reason: "本地预览：请补充兼容版本和使用说明后重新提交。" }),
+      },
+      "reviewer",
+    );
+  }
+  if (sample.approve) {
+    // The catalogue only shows approved revisions, so the demo rows need a
+    // human decision; local checks never produce a passing gate on their own.
+    await localApi(
+      `/admin/submissions/${submitted.submissionId}/review`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decision: "approve", reason: "本地预览：人工放行以检查目录与项目页。" }),
+      },
+      "reviewer",
+    );
+  }
+}
+
 async function seedExamples() {
   for (const { role } of accounts) {
     const me = await localApi("/me", {}, role);
@@ -156,17 +194,67 @@ async function seedExamples() {
   // pairing point at a project this same seeding pass creates.
   const idsByTitle = new Map(owned.items.map((entry) => [entry.project.title, entry.project.id]));
   const examples = [
-    { title: "港口贸易与航线", type: "扩展", extension: "规则", submit: true, approve: true },
-    { title: "队伍宿营事件集", type: "事件", submit: true },
-    { title: "人物关系与声望", type: "系统核心", submit: true, approve: true },
-    { title: "群岛角色补充", type: "角色", submit: true, approve: true },
-    { title: "群岛人物与事件合集", type: "角色", submit: true, approve: true },
-    { title: "本地冒险札记", type: "事件", submit: false },
-    { title: "装备属性整理", type: "扩展", extension: "内容", submit: false },
+    {
+      title: "港口贸易与航线",
+      type: "玩法",
+      includedTypes: ["内容扩展"],
+      tags: ["经济交易", "探索冒险", "金狮商会"],
+      submit: true,
+      approve: true,
+    },
+    { title: "队伍宿营事件集", type: "事件", includedTypes: ["角色"], tags: ["事件链", "合集"], submit: true },
+    {
+      title: "人物关系与声望",
+      type: "系统核心",
+      includedTypes: ["玩法"],
+      tags: ["日常陪伴", "好感社交"],
+      submit: true,
+      approve: true,
+    },
+    {
+      title: "群岛角色补充",
+      type: "角色",
+      includedTypes: ["事件"],
+      tags: ["人鱼", "冒险者", "温柔"],
+      submit: true,
+      approve: true,
+    },
+    {
+      title: "群岛人物与事件合集",
+      type: "角色",
+      includedTypes: ["事件", "内容扩展"],
+      tags: [
+        "人类",
+        "精灵/半精灵",
+        "冒险者",
+        "温柔",
+        "白发红瞳",
+        "冒险者公会",
+        "帝国",
+        "合集",
+        "单次事件",
+        "地区与城市",
+        "战斗",
+        "工具脚本",
+        "港口",
+        "航线",
+        "cbz",
+        "hnh",
+        "1011",
+        "轻型",
+        "中型",
+        "大型",
+      ],
+      submit: true,
+      approve: true,
+    },
+    { title: "本地冒险札记", type: "事件", tags: ["单次事件", "探索冒险"], submit: false },
+    { title: "装备属性整理", type: "内容扩展", tags: ["物品与装备"], submit: false },
     {
       title: "长篇世界观资料与地域风俗补充",
-      type: "扩展",
-      extension: "内容",
+      type: "内容扩展",
+      includedTypes: ["事件"],
+      tags: ["地区与城市", "饮食与文化", "异界与位面"],
       submit: true,
       approve: true,
       recommend: [
@@ -174,7 +262,16 @@ async function seedExamples() {
         { title: "港口贸易与航线", note: "配合航线规则，风土条目才对应得上" },
       ],
     },
-    { title: "待修改的对话样式", type: "扩展", extension: "规则", submit: true, reject: true },
+    { title: "待修改的对话样式", type: "体验优化", tags: ["提示词优化"], submit: true, reject: true },
+    { title: "航海开局事件", type: "事件", tags: ["开局剧本", "金狮商会"], submit: true, approve: true },
+    {
+      title: "冒险界面优化",
+      type: "体验优化",
+      tags: ["界面美化", "工具脚本"],
+      regexOnly: true,
+      submit: true,
+      approve: true,
+    },
   ];
   for (const [index, sample] of examples.entries()) {
     const title = `[预览] ${sample.title}`;
@@ -193,9 +290,9 @@ async function seedExamples() {
         title,
         description: `本地工作区预览：${sample.title}。提供背景规则、使用说明和示例内容，方便检查编辑与审核流程。`,
         projectType: sample.type,
-        extensionType: sample.extension ?? null,
+        includedTypes: sample.includedTypes ?? [],
         versionLabel: `1.${index}.0`,
-        tags: ["本地预览", sample.type],
+        tags: sample.tags,
         ...(sample.recommend
           ? {
               requirements: {
@@ -211,53 +308,21 @@ async function seedExamples() {
     });
     idsByTitle.set(title, created.project.id);
     const versionPath = `/projects/${created.project.id}/versions/${created.workingVersionId}`;
-    const body = JSON.stringify({
-      entries: Array.from({ length: (index % 3) + 2 }, (_, entry) => ({
-        uid: entry + 1,
-        key: [sample.title, `条目${entry + 1}`],
-        content: `${sample.title}：${["背景与适用范围", "交互规则与边界", "场景示例", "补充说明"][entry]}。\n仅用于本地预览。`,
-      })),
-    });
-    const uploaded = await localApi(`${versionPath}/files/worldbook`, {
+    const body = sample.regexOnly
+      ? JSON.stringify([{ scriptName: sample.title, findRegex: "预览", replaceString: "本地预览" }])
+      : JSON.stringify({
+          entries: Array.from({ length: (index % 3) + 2 }, (_, entry) => ({
+            uid: entry + 1,
+            key: [sample.title, `条目${entry + 1}`],
+            content: `${sample.title}：${["背景与适用范围", "交互规则与边界", "场景示例", "补充说明"][entry]}。\n仅用于本地预览。`,
+          })),
+        });
+    const uploaded = await localApi(`${versionPath}/files/${sample.regexOnly ? "regex" : "worldbook"}`, {
       method: "PUT",
       headers: { "content-type": "application/json", "if-match": String(created.rowVersion) },
       body,
     });
-    if (!sample.submit) continue;
-    const visible = await localApi(`/projects/${created.project.id}/visibility`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json", "if-match": String(uploaded.rowVersion) },
-      body: JSON.stringify({ visibility: "public" }),
-    });
-    const submitted = await localApi(`${versionPath}/submit`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "if-match": String(visible.rowVersion) },
-      body: JSON.stringify({ gate: "missing", acknowledged: true }),
-    });
-    if (sample.reject) {
-      await localApi(
-        `/admin/submissions/${submitted.submissionId}/review`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ decision: "reject", reason: "本地预览：请补充兼容版本和使用说明后重新提交。" }),
-        },
-        "reviewer",
-      );
-    }
-    if (sample.approve) {
-      // The catalogue only shows approved revisions, so the demo rows need a
-      // human decision; local checks never produce a passing gate on their own.
-      await localApi(
-        `/admin/submissions/${submitted.submissionId}/review`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ decision: "approve", reason: "本地预览：人工放行以检查目录与项目页。" }),
-        },
-        "reviewer",
-      );
-    }
+    await submitPreviewExample(created.project.id, versionPath, uploaded.rowVersion, sample);
   }
 }
 

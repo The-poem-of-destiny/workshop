@@ -1,13 +1,29 @@
+import { MAX_CUSTOM_TAGS, MAX_SELECTED_TAGS, PROJECT_TYPES } from "@workshop/domain";
 import { z } from "zod";
 import { visibilitySchema } from "./identity.js";
 import { recommendationMetadataSchema } from "./recommendation-metadata.js";
 import { requirementsSchema } from "./requirements.js";
 
-export const projectTypeSchema = z.enum(["事件", "系统核心", "角色", "扩展"]);
+export const projectTypeSchema = z.enum(PROJECT_TYPES);
 export type ProjectType = z.infer<typeof projectTypeSchema>;
 
-export const extensionTypeSchema = z.enum(["规则", "内容"]);
-export type ExtensionType = z.infer<typeof extensionTypeSchema>;
+export const includedTypesSchema = z
+  .array(projectTypeSchema.exclude(["系统核心"]))
+  .refine((values) => new Set(values).size === values.length, "包含分类不能重复")
+  .transform((values) => PROJECT_TYPES.filter((type) => values.some((value) => value === type)));
+
+export const projectTaxonomySchema = z
+  .object({ projectType: projectTypeSchema, includedTypes: includedTypesSchema })
+  .superRefine((value, ctx) => {
+    if (value.includedTypes.includes(value.projectType)) {
+      ctx.addIssue({ code: "custom", path: ["includedTypes"], message: "包含分类不能与主分类相同" });
+    }
+  });
+
+export const projectTagsSchema = z
+  .array(z.string().trim().min(1).max(100))
+  .max(MAX_CUSTOM_TAGS)
+  .refine((values) => new Set(values).size === values.length, "标签不能重复");
 
 export const projectSortSchema = z.enum(["updated", "published", "downloads", "likes"]);
 export type ProjectSort = z.infer<typeof projectSortSchema>;
@@ -24,9 +40,9 @@ export const projectSummarySchema = z.object({
     name: z.string(),
     avatarUrl: z.string().nullable(),
   }),
-  projectType: projectTypeSchema.nullable(),
-  extensionType: extensionTypeSchema.nullable(),
-  tags: z.array(z.string()),
+  projectType: projectTypeSchema,
+  includedTypes: includedTypesSchema,
+  tags: projectTagsSchema,
   entries: z.object({
     worldbook: z.number().int().nonnegative(),
     regex: z.number().int().nonnegative(),
@@ -120,9 +136,22 @@ export const projectListQuerySchema = z.object({
   // UTC rolling window for likes/downloads; omitted means 30 days.
   // Like windows sum transitions (including unlikes of older likes), not active likes.
   period: projectPeriodSchema.optional(),
-  projectType: projectTypeSchema.optional(),
+  projectType: z
+    .union([projectTypeSchema, z.array(projectTypeSchema)])
+    .optional()
+    .transform((value) => {
+      const values = value === undefined ? [] : Array.isArray(value) ? value : [value];
+      return PROJECT_TYPES.filter((type) => values.includes(type));
+    }),
+  includeContained: z
+    .union([z.boolean(), z.enum(["true", "false"]).transform((value) => value === "true")])
+    .default(false),
   authorId: z.string().trim().min(1).max(64).optional(),
-  tag: z.string().trim().min(1).max(60).optional(),
+  tag: z
+    .union([z.string().trim().min(1).max(100), z.array(z.string().trim().min(1).max(100))])
+    .optional()
+    .transform((value) => [...new Set(value === undefined ? [] : Array.isArray(value) ? value : [value])].sort())
+    .pipe(z.array(z.string()).max(MAX_SELECTED_TAGS)),
   search: z.string().trim().min(1).max(80).optional(),
 });
 

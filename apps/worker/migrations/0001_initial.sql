@@ -135,7 +135,7 @@ CREATE TABLE project_ratings (
 CREATE VIRTUAL TABLE project_search USING fts5(
   title,
   project_type,
-  extension_type,
+  included_types,
   tag_text,
   author_name,
   tokenize = 'trigram'
@@ -162,9 +162,9 @@ CREATE TABLE "project_versions" (
   version_no INTEGER NOT NULL,
   title TEXT NOT NULL,
   description TEXT,
-  project_type TEXT,
-  extension_type TEXT,
-  tags TEXT NOT NULL DEFAULT '[]',
+  project_type TEXT NOT NULL CHECK(project_type IN ('系统核心','角色','内容扩展','玩法','事件','体验优化')),
+  included_types TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(included_types) AND json_type(included_types) = 'array'),
+  tags TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(tags) AND json_type(tags) = 'array' AND json_array_length(tags) <= 20),
   manifest_hash TEXT,
   worldbook_count INTEGER NOT NULL DEFAULT 0,
   regex_count INTEGER NOT NULL DEFAULT 0,
@@ -182,6 +182,30 @@ CREATE TABLE "project_versions" (
     AND json_type(requirements,'$.notes') = 'text')),
   UNIQUE (project_id, version_no)
 );
+
+-- Validate a NUL-free JSON projection: escaped NUL becomes U+0001, preserving
+-- code-point count and trim boundaries without SQLite length() truncation.
+-- Store and compare duplicates using the original values, never this projection.
+-- The explicit trim set matches JavaScript trim(), including BOM but not U+0085.
+CREATE TRIGGER project_versions_taxonomy_insert BEFORE INSERT ON project_versions
+WHEN EXISTS(SELECT 1 FROM json_each(NEW.included_types)
+    WHERE type <> 'text' OR value NOT IN ('角色','内容扩展','玩法','事件','体验优化') OR value = NEW.project_type)
+  OR (SELECT COUNT(*) FROM json_each(NEW.included_types)) <> (SELECT COUNT(DISTINCT value) FROM json_each(NEW.included_types))
+  OR EXISTS(SELECT 1 FROM json_each(replace(NEW.tags, '\u0000', '\u0001'))
+    WHERE type <> 'text' OR length(value) NOT BETWEEN 1 AND 100
+      OR value <> trim(value, char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)))
+  OR (SELECT COUNT(*) FROM json_each(NEW.tags)) <> (SELECT COUNT(DISTINCT value) FROM json_each(NEW.tags))
+BEGIN SELECT RAISE(ABORT,'invalid project taxonomy or tags'); END;
+
+CREATE TRIGGER project_versions_taxonomy_update BEFORE UPDATE OF project_type,included_types,tags ON project_versions
+WHEN EXISTS(SELECT 1 FROM json_each(NEW.included_types)
+    WHERE type <> 'text' OR value NOT IN ('角色','内容扩展','玩法','事件','体验优化') OR value = NEW.project_type)
+  OR (SELECT COUNT(*) FROM json_each(NEW.included_types)) <> (SELECT COUNT(DISTINCT value) FROM json_each(NEW.included_types))
+  OR EXISTS(SELECT 1 FROM json_each(replace(NEW.tags, '\u0000', '\u0001'))
+    WHERE type <> 'text' OR length(value) NOT BETWEEN 1 AND 100
+      OR value <> trim(value, char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)))
+  OR (SELECT COUNT(*) FROM json_each(NEW.tags)) <> (SELECT COUNT(DISTINCT value) FROM json_each(NEW.tags))
+BEGIN SELECT RAISE(ABORT,'invalid project taxonomy or tags'); END;
 
 CREATE TABLE projects (
   id TEXT PRIMARY KEY,
@@ -355,7 +379,7 @@ CREATE VIEW project_search_short_source AS
 SELECT p.rowid AS project_rowid,
  (WITH RECURSIVE chars(text,n) AS (
    SELECT COALESCE(r.title,'') || char(31) || COALESCE(r.project_type,'') || char(31)
-     || COALESCE(r.extension_type,'') || char(31) || COALESCE(u.global_name,'') || char(31)
+     || COALESCE((SELECT group_concat(value,char(31)) FROM json_each(r.included_types)),'') || char(31) || COALESCE(u.global_name,'') || char(31)
      || COALESCE(u.username,'') || char(31)
      || COALESCE((SELECT group_concat(tag,char(31)) FROM project_search_tags t WHERE t.project_id=p.id),'') ,1
    UNION ALL SELECT text,n+1 FROM chars WHERE n<length(text)
@@ -441,12 +465,11 @@ BEGIN
  DELETE FROM project_search_tags WHERE project_id=NEW.id;
  INSERT INTO project_search_tags(project_id,tag)
  SELECT NEW.id,j.value FROM "project_versions" r,json_each(r.tags) j
- WHERE r.id=NEW.published_version_id AND j.type='text' AND j.value<>''
- UNION SELECT NEW.id,r.extension_type FROM "project_versions" r
- WHERE r.id=NEW.published_version_id AND r.extension_type IS NOT NULL AND r.extension_type<>'';
+ WHERE r.id=NEW.published_version_id AND j.type='text' AND j.value<>'';
  DELETE FROM project_search WHERE rowid=NEW.rowid;
- INSERT INTO project_search(rowid,title,project_type,extension_type,tag_text,author_name)
- SELECT NEW.rowid,r.title,r.project_type,r.extension_type,
+ INSERT INTO project_search(rowid,title,project_type,included_types,tag_text,author_name)
+ SELECT NEW.rowid,r.title,r.project_type,
+ COALESCE((SELECT group_concat(value,' ') FROM json_each(r.included_types)),''),
  COALESCE((SELECT group_concat(tag,' ') FROM project_search_tags t WHERE t.project_id=NEW.id),''),
  (SELECT COALESCE(global_name,username) FROM users WHERE id=NEW.author_id)
  FROM "project_versions" r WHERE r.id=NEW.published_version_id;

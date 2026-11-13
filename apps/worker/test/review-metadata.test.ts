@@ -1,4 +1,5 @@
 import { env } from "cloudflare:test";
+import type { AdminSubmissionDetail } from "@workshop/contracts";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { DataEnv } from "../src/data/env";
 import { getSubmissionDiff } from "../src/storage/diff";
@@ -28,15 +29,58 @@ describe("review metadata evidence", () => {
         { field: "title", severity: "block", message: "invalid title" },
       ],
     });
-    const detail = {
-      submission: { id: "s", submittedAt: "now", checkStatus: "completed" },
-      project: { id: "p", author: { name: "author" }, visibility: "private" },
-      version: { id: "r", versionNo: 1, title: "title" },
-    } as unknown as Parameters<typeof buildReviewMarkdown>[0]["detail"];
+    const detail: AdminSubmissionDetail = {
+      submission: {
+        id: "s",
+        projectId: "p",
+        versionId: "r",
+        status: "pending",
+        submittedBy: "author",
+        submittedAt: "now",
+        resolvedAt: null,
+        clientGate: "warn",
+        clientCheckerVersion: null,
+        checkStatus: "done",
+        checkAttempts: 1,
+        checkError: null,
+        checkReport: null,
+        checkReportHash: null,
+        reportCleanedAt: null,
+        routeGate: "warn",
+        durationMs: 1,
+        checkedAt: "now",
+        checkerVersion: null,
+        autoPublishedAt: null,
+      },
+      project: {
+        id: "p",
+        title: "current title",
+        description: null,
+        author: { id: "author", name: "author" },
+        visibility: "private",
+      },
+      version: {
+        id: "r",
+        versionNo: 1,
+        title: "frozen title",
+        description: null,
+        projectType: "角色",
+        includedTypes: ["内容扩展", "事件"],
+        searchTags: ["人类", "温柔", "合集"],
+        manifestHash: null,
+        createdAt: "now",
+      },
+      assets: [],
+      review: null,
+    };
     const markdown = buildReviewMarkdown({ detail, report, diff: null, sources: [], reason: "" });
     expect(markdown).toContain("提示 · tags：duplicate tags");
     expect(markdown).toContain("阻断 · title：invalid title");
     expect(markdown).not.toContain("invalid finding");
+    expect(markdown).toContain("# 审核复核 · frozen title");
+    expect(markdown).toContain("| 主要分类 | 角色 |");
+    expect(markdown).toContain("| 包含类型 | 内容扩展、事件 |");
+    expect(markdown).toContain("| 普通标签 | 人类、温柔、合集 |");
   });
 
   it("handles reports without metadata and malformed metadata findings", () => {
@@ -61,9 +105,9 @@ describe("submission metadata diff", () => {
       "INSERT INTO projects (id, author_id, visibility) VALUES ('diff-project', 'diff-user', 'private')",
     ).run();
     await bindings.DB.prepare(`INSERT INTO project_versions
-      (id, project_id, version_no, title, schema_version, created_by) VALUES
-      ('diff-old', 'diff-project', 1, 'project', '1.0', 'diff-user'),
-      ('diff-new', 'diff-project', 2, 'project', '2.0', 'diff-user')`).run();
+      (id, project_id, version_no, title, project_type, schema_version, created_by) VALUES
+      ('diff-old', 'diff-project', 1, 'project', '系统核心', '1.0', 'diff-user'),
+      ('diff-new', 'diff-project', 2, 'project', '系统核心', '2.0', 'diff-user')`).run();
     await bindings.DB.prepare(`INSERT INTO submissions
       (id, project_id, version_id, base_published_version_id, status, submitted_by)
       VALUES ('diff-submission', 'diff-project', 'diff-new', 'diff-old', 'pending', 'diff-user')`).run();

@@ -97,7 +97,7 @@ export function useWorkshopNavigation() {
       } else if (event.key === "Tab") {
         const controls = Array.from(
           document.querySelectorAll<HTMLElement>(
-            "#workshop-sidebar button:not(:disabled), #workshop-sidebar input, #workshop-sidebar a[href]",
+            "#workshop-sidebar button:not(:disabled), #workshop-sidebar input:not(:disabled), #workshop-sidebar summary, #workshop-sidebar select:not(:disabled), #workshop-sidebar a[href]",
           ),
         ).filter((element) => element.getClientRects().length > 0);
         const first = controls[0];

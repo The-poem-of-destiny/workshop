@@ -1,15 +1,14 @@
 import type { Requirements } from "@workshop/contracts";
+import type { ProjectType } from "@workshop/domain";
 import type { AuthorProject, ProjectSummary } from "../../api";
-
-export { EXTENSION_TYPES, PROJECT_TYPES } from "@workshop/domain";
 
 export interface ProjectForm {
   title: string;
   description: string;
   requirements: Requirements;
   versionLabel: string;
-  projectType: string;
-  extensionType: string;
+  projectType: ProjectType | "";
+  includedTypes: ProjectType[];
   schemaVersion: string;
   discordThreadUrl: string;
   coverPositionX: string;
@@ -24,8 +23,8 @@ export function projectForm(project: ProjectSummary, entry?: AuthorProject): Pro
     description: project.description ?? "",
     requirements: entry?.requirements ?? { schemaVersion: 1, dependencies: [], conflicts: [], notes: "" },
     versionLabel: project.versionLabel ?? "",
-    projectType: project.projectType ?? "",
-    extensionType: project.extensionType ?? "",
+    projectType: project.projectType,
+    includedTypes: [...project.includedTypes],
     schemaVersion: project.schemaVersion ?? "",
     discordThreadUrl: project.discordThreadUrl ?? "",
     coverPositionX: String(project.coverPositionX ?? 50),
@@ -41,8 +40,8 @@ export function metadataPayload(form: ProjectForm): Record<string, unknown> {
     description: form.description || null,
     requirements: form.requirements,
     versionLabel: form.versionLabel || null,
-    projectType: form.projectType || null,
-    extensionType: form.extensionType || null,
+    projectType: form.projectType,
+    includedTypes: form.includedTypes,
     coverPositionX: Number(form.coverPositionX),
     coverPositionY: Number(form.coverPositionY),
     coverZoom: Number(form.coverZoom),

@@ -19,9 +19,11 @@ flowchart LR
 
 Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立，`VERSION_METADATA` 用于部署版本隔离，缺失时绕过 Cache API。静态资源可能由 Static Assets 单独交付。具名入口共享 Worker bindings，静态检查是代码约束而非平台权限隔离。
 
+`CachedReads` 仅在有效 TTL 大于 0 且 `VERSION_METADATA.id` 为非空字符串时读写 Cache API；缓存键包含部署版本、TTL、规范化路径／查询和内部可信读取描述符。成功响应的缓存写入通过 `waitUntil` 完成，不阻塞源端响应；验证命中必须等待这些写入结束，不能把 `Cache-Control` 或返回 200 当成已存储、已命中的证据。
+
 公开投影记录生成时的绝对到期时间，外层只使用剩余期限，缺失、非法或过期则 no-store；内部控制头不返回浏览器。不可变字节按版本或 hash 分区，每次仍需实时门禁。仅公开白名单内的成功结果有资格缓存，错误、部分失败和私有响应不公开缓存。
 
-不使用全球主动 purge 或 epoch；写后各 PoP 的旧数据可能留至到期，在途请求可能在变更后填入旧数据，浏览器缓存及保存的字节也无法收回。TTL 不是全球撤回时限。源端重新执行时检查当前公开资格；实际命中、部署和费用需经授权的 hosted 观测，当前尚未验证，上线仍需用户明确授权。
+不使用全球主动 purge 或 epoch；写后各 PoP 的旧数据可能留至到期，在途请求可能在变更后填入旧数据，浏览器缓存及保存的字节也无法收回。TTL 不是全球撤回时限。源端重新执行时检查当前公开资格；本地运行时行为与 hosted 平台证据的边界见[本地缓存行为验证与边界](#本地缓存行为验证与边界)。真实 Cloudflare 边缘命中、部署和费用仍需经授权的 hosted 观测，当前尚未验证，上线仍需用户明确授权。
 
 ## 公开发现和下载
 
@@ -39,6 +41,22 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 | GET `/downloads/:token` | 一次性消费并下载 | N | 固定 hash 字节可复用；每次实时取对象、竞争消费及计数 |
 | GET `/recommendations` | 公开推荐 | P60 | 公开投影 60 秒 |
 | GET `/reference-sets`、`/reference-sets/:id`、`/site` | 参考集与站点 | P300 | 公开投影 300 秒 |
+
+### 目录筛选的规范化缓存身份
+
+`GET /api/v1/projects` 的[筛选合同](worker-api.md#目录筛选与游标)先经共享 schema 规范化，再用于目录 SQL、cursor scope 和公开缓存键，不以原始 query string 的拼写区分同义请求：
+
+- 重复 `projectType` 去重并按六类顺序排列；重复 `tag` 经 JavaScript `trim()`、去重、排序后合计最多 12 个。标签的预设同组 OR、跨组 AND、每个自定义词独立 AND 语义不因缓存而改变，手输预设词仍属其词表分组。
+- 省略 `includeContained` 与显式 `false` 采用同一身份；`true` 单独分区，不能把“仅主类”的结果误用于“还包含”。改变主类集合、标签、作者、搜索、排序、有效统计周期或页游标也有各自的查询身份。
+- `limit=25`、`sort=published`、有效统计周期 `30d` 等默认值在规范化查询中省略；统计周期只对 likes／downloads 排序生效。参数顺序和重复选择不会创建额外缓存变体。非法筛选或不属于当前 scope 的 cursor 返回 400，不得作为其他筛选结果缓存。
+
+### 本地缓存行为验证与边界
+
+行为回归使用 [cache-api.test.ts](../../apps/worker/test/cache-api.test.ts) 的 Cloudflare 本地 D1／Cache API 运行时，实际调用生产 `CachedReads`，提供非空部署版本和正 TTL，并等待 `waitUntil` 的缓存写入。关键命中判据不是响应头，而是首次读取后改变底层数据库，等价查询仍返回已缓存旧值；改变身份或到期后才返回新值。
+
+分类回归先缓存角色／事件与人类／战士筛选的 `Taxonomy original`，将底层发布版改为 `Taxonomy changed` 后，以重排／重复参数和显式 `includeContained=false` 仍读到 original；切换为 `includeContained=true` 必须读到 changed。玩法仅在“还包含”时为 1 项，仅主类时为 0 项。相同 harness 还覆盖应用 freshness 到期、部署版本隔离、GET／HEAD 共用完整表示、禁用 TTL 和缺失版本时绕过缓存。
+
+普通 `tools/preview-debug.mjs` 预览将 `CACHE_TTL_PUBLIC_SECONDS` 固定为 0，因此其 API／UI 成功不能证明公开列表 Cache API 命中。本地 harness 的命中也不代表真实 Cloudflare 边缘、跨 PoP 行为或费用已验收；线上观测仍需单独授权。
 
 ## 认证、会话与当前用户
 
@@ -121,4 +139,4 @@ API 的 `OPTIONS` 是 CORS 预检，不属于公开 GET/HEAD 缓存；允许来�
 
 统计须分别记录外部请求 E、内部 cached fetch I、非缓存 fetch F、RPC R、D1 实际 rows_read/rows_written 和 R2 操作。安装 N 个唯一项目分为 ceil(N/50) 批。没有线上测量不能声称具体 HIT、费用或节省百分比。
 
-Cache API 的机制及限制参见 Cloudflare 官方 [Cache API](https://developers.cloudflare.com/workers/runtime-apis/cache/)；实际命中与费用需在获授权环境验证，源码和响应头不能替代该证据。
+Cache API 的机制及限制参见 Cloudflare 官方 [Cache API](https://developers.cloudflare.com/workers/runtime-apis/cache/)；本地回归边界见[上文](#本地缓存行为验证与边界)，真实 Cloudflare 边缘命中与费用仍需在获授权的 hosted 环境验证，源码和响应头不能替代该证据。

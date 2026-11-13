@@ -1,3 +1,4 @@
+import type { ProjectType } from "@workshop/domain";
 import { Bookmark, BookOpen, Code2, Download, GitBranch, Heart, RefreshCcw } from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { api, type ProjectDetail as ProjectDetailResponse, type ProjectSummary } from "../../api";
@@ -44,7 +45,7 @@ export function ProjectDetail({
   onUninstall: (p: ProjectSummary) => void;
   onAuthor: (author: { id: string; name: string }) => void;
   onTag: (tag: string) => void;
-  onProjectType: (type: string) => void;
+  onProjectType: (type: ProjectType) => void;
   onLogin: () => void;
   onError: (message: string) => void;
   onSubscriptionChange: (projectId: string, subscribed: boolean) => void;
@@ -89,7 +90,9 @@ export function ProjectDetail({
   }, [detailReload, project.id]);
 
   const versionLabel = detail?.versionLabel ?? project.versionLabel ?? null;
-  const tags = project.tags.filter((tag) => tag !== project.projectType);
+  const projectType = detail?.projectType ?? project.projectType;
+  const includedTypes = detail?.includedTypes ?? project.includedTypes;
+  const tags = detail?.tags ?? project.tags;
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -111,21 +114,26 @@ export function ProjectDetail({
         <DialogHeader className="detail-header">
           <DialogTitle>{project.title}</DialogTitle>
           <DialogDescription className="sr-only">项目详情</DialogDescription>
-          {project.projectType || project.extensionType ? (
-            <div className="detail-meta-line">
-              {project.projectType ? (
-                <button
-                  type="button"
-                  className="detail-badge project-type-tag"
-                  data-type={project.projectType}
-                  title={`查看类型「${project.projectType}」的全部项目`}
-                  onClick={() => onProjectType(project.projectType ?? "")}
-                >
-                  {project.projectType}
-                </button>
-              ) : null}
-              {project.extensionType ? <span className="detail-badge">{project.extensionType}扩展</span> : null}
-            </div>
+          <section className="detail-meta-line" aria-label="项目分类">
+            <button
+              type="button"
+              className="detail-badge project-type-tag"
+              data-type={projectType}
+              title={`查看主要分类「${projectType}」的全部项目`}
+              onClick={() => onProjectType(projectType)}
+            >
+              主要分类：{projectType}
+            </button>
+          </section>
+          {includedTypes.length > 0 ? (
+            <section className="detail-meta-line detail-included-types" aria-label="包含类型">
+              <span>包含：</span>
+              {includedTypes.map((type) => (
+                <span key={type} className="detail-badge">
+                  {type}
+                </span>
+              ))}
+            </section>
           ) : null}
           {tags.length ? (
             <fieldset className="detail-tags">

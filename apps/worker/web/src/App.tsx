@@ -39,17 +39,20 @@ export function App() {
     drawerToggle,
     drawerClose,
   } = useWorkshopNavigation();
+  const catalogue = useCatalogue({ enabled: view === "browse", setError, home });
   const {
-    setTag,
-    total,
-    period,
-    setPeriod,
+    addTags,
+    toggleTag,
+    removeTag,
+    tagLimitMessage,
     search,
     setSearch,
-    projectType,
-    tag,
+    projectTypes,
+    setProjectTypes,
+    includeContained,
+    setIncludeContained,
+    tags,
     author,
-    setProjectType,
     clearFilters,
     pageTags,
     setAuthor,
@@ -58,17 +61,7 @@ export function App() {
     layout,
     setLayout,
     hasFilters,
-    listLoading,
-    loadedQuery,
-    queryKey,
-    projects,
-    pageIndex,
-    pageSize,
-    setListRetry,
-    setPageSize,
-    changePage,
-    nextCursor,
-  } = useCatalogue({ enabled: view === "browse", setError, home });
+  } = catalogue;
   const { me, logout, login, loginFallback, refreshMe, sessionError } = useWorkshopSession({
     embedded,
     setError,
@@ -132,11 +125,6 @@ export function App() {
   }, []);
   const selectedInstallState = selected ? installationState(selected) : "notInstalled";
 
-  function applyTag(value: string): void {
-    if (!setView("browse")) return;
-    setTag((current) => (current === value ? "" : value));
-    setSidebarOpen(false);
-  }
   const installedAvailable = embedded || Boolean(context?.connected);
   const reviewer = me?.role === "reviewer" || me?.role === "owner";
   return (
@@ -165,9 +153,7 @@ export function App() {
         login={login}
         drawerToggle={drawerToggle}
         setSidebarOpen={setSidebarOpen}
-        projectType={projectType}
-        tag={tag}
-        author={author}
+        hasFilters={hasFilters}
         view={view}
         reviewer={reviewer}
       />
@@ -191,16 +177,21 @@ export function App() {
           setSidebarOpen={setSidebarOpen}
           drawerToggle={drawerToggle}
           view={view}
-          projectType={projectType}
+          projectTypes={projectTypes}
           setView={setView}
-          setProjectType={setProjectType}
+          setProjectTypes={setProjectTypes}
+          includeContained={includeContained}
+          setIncludeContained={setIncludeContained}
           installedAvailable={installedAvailable}
           installedUpdateCount={installedUpdateCount}
-          tag={tag}
+          tags={tags}
+          tagLimitMessage={tagLimitMessage}
           author={author}
+          hasFilters={hasFilters}
           clearFilters={clearFilters}
-          setTag={setTag}
-          applyTag={applyTag}
+          addTags={addTags}
+          toggleTag={toggleTag}
+          removeTag={removeTag}
           pageTags={pageTags}
           setAuthor={setAuthor}
           sort={sort}
@@ -250,35 +241,9 @@ export function App() {
           >
             <WorkshopCatalogue
               home={home}
-              hasFilters={hasFilters}
-              total={total}
-              period={period}
-              setPeriod={setPeriod}
-              search={search}
-              setSearch={setSearch}
-              projectType={projectType}
-              setProjectType={setProjectType}
-              author={author}
-              setAuthor={setAuthor}
-              tag={tag}
-              setTag={setTag}
-              clearFilters={clearFilters}
+              catalogue={catalogue}
               detailOpener={detailOpener}
               setSelected={setSelected}
-              sort={sort}
-              setSort={setSort}
-              layout={layout}
-              setLayout={setLayout}
-              listLoading={listLoading}
-              loadedQuery={loadedQuery}
-              queryKey={queryKey}
-              projects={projects}
-              pageIndex={pageIndex}
-              pageSize={pageSize}
-              setListRetry={setListRetry}
-              setPageSize={setPageSize}
-              changePage={changePage}
-              nextCursor={nextCursor}
             />
           </WorkshopWorkspaces>
           {selected ? (
@@ -295,12 +260,13 @@ export function App() {
                 setSelected(null);
               }}
               onTag={(value) => {
-                applyTag(value);
+                if (!setView("browse")) return;
+                addTags([value]);
                 setSelected(null);
               }}
               onProjectType={(value) => {
                 if (!setView("browse")) return;
-                setProjectType(value);
+                setProjectTypes([value]);
                 setSelected(null);
               }}
               onLogin={login}

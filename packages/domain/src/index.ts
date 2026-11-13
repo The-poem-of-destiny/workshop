@@ -1,4 +1,3 @@
-export * from "./content-policy.js";
 export * from "./discord.js";
 export * from "./image.js";
 export * from "./limits.js";

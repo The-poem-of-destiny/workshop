@@ -55,14 +55,7 @@ export function ProjectCard({
   }
   const open = (event: MouseEvent<HTMLElement>): void => onOpen(project, event.currentTarget);
   const preview = project.description?.trim() || "暂无文字简介";
-  const cardTags = [...new Set(project.tags)]
-    .filter(
-      (tag) =>
-        tag !== project.projectType &&
-        tag !== project.extensionType &&
-        !(project.projectType === "系统核心" && tag === "系统"),
-    )
-    .slice(0, MAX_DISPLAY_TAGS - (project.extensionType ? 1 : 0));
+  const cardTags = project.tags.filter((tag) => tag !== project.projectType).slice(0, MAX_DISPLAY_TAGS);
   const dateMeta = (
     <div className="card-dates">
       <span title="更新">
@@ -168,16 +161,12 @@ export function ProjectCard({
         </p>
         {layout === "cards" ? dateMeta : null}
         <p className="card-note">{preview}</p>
-        <div
-          className="tags"
-          title={[project.projectType, project.extensionType, ...project.tags].filter(Boolean).join("、")}
-        >
+        <div className="tags" title={[project.projectType, ...project.tags].join("、")}>
           {project.projectType ? (
             <span className="project-type-tag" data-type={project.projectType}>
               {project.projectType}
             </span>
           ) : null}
-          {project.extensionType ? <span>{project.extensionType}</span> : null}
           {cardTags.map((tag) => (
             <span key={tag}>{tag}</span>
           ))}

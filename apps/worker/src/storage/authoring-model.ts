@@ -1,12 +1,20 @@
-import { type PatchProject, type Requirements, requirementsSchema, type Session } from "@workshop/contracts";
+import {
+  includedTypesSchema,
+  type PatchProject,
+  type ProjectType,
+  projectTaxonomySchema,
+  type Requirements,
+  requirementsSchema,
+  type Session,
+} from "@workshop/contracts";
 
 export interface ProjectAccessRow {
   id: string;
   author_id: string;
   title: string;
   description: string | null;
-  project_type: string | null;
-  extension_type: string | null;
+  project_type: ProjectType;
+  included_types: string;
   search_tags: string;
   visibility: "public" | "private";
   working_version_id: string | null;
@@ -24,8 +32,8 @@ export interface WorkingVersionRow extends ProjectAccessRow {
   version_no: number;
   version_title: string;
   version_description: string | null;
-  version_project_type: string | null;
-  version_extension_type: string | null;
+  version_project_type: ProjectType;
+  version_included_types: string;
   version_tags: string;
   version_schema_version: string | null;
   version_discord_thread_url: string | null;
@@ -52,6 +60,10 @@ export function parseTags(value: string): string[] {
   }
 }
 
+export function parseIncludedTypes(value: string): ProjectType[] {
+  return includedTypesSchema.parse(JSON.parse(value));
+}
+
 export async function getAuthoringProject(
   db: D1Database,
   projectId: string,
@@ -59,7 +71,7 @@ export async function getAuthoringProject(
 ): Promise<ProjectAccessRow | null> {
   return db
     .prepare(`
-    SELECT p.id, p.author_id, r.title, r.description, r.project_type, r.extension_type,
+    SELECT p.id, p.author_id, r.title, r.description, r.project_type, r.included_types,
       r.tags AS search_tags, p.visibility, p.working_version_id, p.published_version_id, p.row_version,
       r.version_label, r.requirements, r.cover_position_x, r.cover_position_y, r.cover_zoom,
       (COALESCE(p.published_version_id = p.working_version_id, 0)
@@ -78,12 +90,12 @@ export async function getWorkingVersion(
 ): Promise<WorkingVersionRow | null> {
   return db
     .prepare(`
-    SELECT p.id, p.author_id, r.title, r.description, r.project_type, r.extension_type,
+    SELECT p.id, p.author_id, r.title, r.description, r.project_type, r.included_types,
       r.tags AS search_tags, p.visibility, p.working_version_id, p.published_version_id, p.row_version,
       r.version_label, r.requirements, r.cover_position_x, r.cover_position_y, r.cover_zoom,
       r.version_no, r.title AS version_title, r.description AS version_description,
       r.project_type AS version_project_type,
-      r.extension_type AS version_extension_type, r.tags AS version_tags,
+      r.included_types AS version_included_types, r.tags AS version_tags,
       r.schema_version AS version_schema_version, r.discord_thread_url AS version_discord_thread_url,
       r.version_label AS version_version_label, r.requirements AS version_requirements,
       r.cover_position_x AS version_cover_position_x, r.cover_position_y AS version_cover_position_y,
@@ -101,8 +113,8 @@ export async function getWorkingVersion(
 export interface VersionValues {
   title: string;
   description: string | null;
-  projectType: string | null;
-  extensionType: string | null;
+  projectType: ProjectType;
+  includedTypes: ProjectType[];
   schemaVersion: string | null;
   versionLabel: string | null;
   requirements: string | null;
@@ -114,11 +126,14 @@ export interface VersionValues {
 }
 
 export function versionValues(current: WorkingVersionRow, patch: PatchProject): VersionValues {
+  const taxonomy = projectTaxonomySchema.parse({
+    projectType: patch.projectType ?? current.version_project_type,
+    includedTypes: patch.includedTypes ?? parseIncludedTypes(current.version_included_types),
+  });
   return {
     title: patch.title ?? current.version_title,
     description: patch.description !== undefined ? patch.description : current.version_description,
-    projectType: patch.projectType !== undefined ? patch.projectType : current.version_project_type,
-    extensionType: patch.extensionType !== undefined ? patch.extensionType : current.version_extension_type,
+    ...taxonomy,
     schemaVersion: patch.schemaVersion !== undefined ? patch.schemaVersion : current.version_schema_version,
     versionLabel: patch.versionLabel !== undefined ? patch.versionLabel : current.version_version_label,
     requirements:

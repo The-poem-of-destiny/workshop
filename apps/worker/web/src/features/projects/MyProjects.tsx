@@ -108,7 +108,13 @@ export function MyProjects({
       const status = statusOf(item);
       if (statusFilter !== "all" && status !== statusFilter) return false;
       if (!needle) return true;
-      return [item.project.title, item.project.description ?? "", item.project.projectType ?? "", ...item.project.tags]
+      return [
+        item.project.title,
+        item.project.description ?? "",
+        item.project.projectType,
+        ...item.project.includedTypes,
+        ...item.project.tags,
+      ]
         .join(" ")
         .toLocaleLowerCase()
         .includes(needle);
@@ -189,7 +195,9 @@ export function MyProjects({
                   <span className="workspace-project-main">
                     <strong>{item.project.title}</strong>
                     <small>
-                      {item.project.projectType ?? "未分类"} · v{item.project.versionLabel ?? "未标注"} ·{" "}
+                      {item.project.projectType}
+                      {item.project.includedTypes.length ? `（包含：${item.project.includedTypes.join("、")}）` : ""}
+                      {" · "}v{item.project.versionLabel ?? "未标注"} ·{" "}
                       {item.project.updatedAt ? new Date(item.project.updatedAt).toLocaleDateString() : "日期未知"}
                     </small>
                   </span>
