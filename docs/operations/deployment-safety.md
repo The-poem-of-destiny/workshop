@@ -20,7 +20,7 @@ The current checkpoint is `f2491599cfb97a6405b5f73ead73227387786478` ([PR #80](h
 
 Dependabot ordinary version updates remain weekly and grouped; security updates are enabled separately. The `dependency-security-automerge` workflow runs trusted `main` policy only, never checks out or executes PR code, and uses no personal token or new secret.
 
-Vitest is pinned to 5.0.5 while the Workers test runtime lacks `AsyncLocalStorage.disable()`; Vitest 5.1 mock factories fail during collection. Revisit the pin after a released `@cloudflare/vitest-plugin` includes [workers-sdk#16699](https://github.com/cloudflare/workers-sdk/pull/16699) and the Worker suite passes.
+Vitest 5.1.0 uses `@cloudflare/vitest-plugin` 1.6.1 or later, which includes [workers-sdk#16699](https://github.com/cloudflare/workers-sdk/pull/16699) for mock-factory cleanup in Workers; the unchanged write-barrier runtime suite passes with 1.6.1. The plugin's bundled Wrangler 4.159.0 requires `@cloudflare/workers-types` ^5.20261109.1; the direct Wrangler CLI remains 4.158.0.
 
 The pilot allowlist is only the Worker runtime leaf dependency `hono`: a stable, increasing patch within the same minor; exactly the Worker manifest and canonical pnpm leaf lock change; a single verified Dependabot commit based on current `main`; a GitHub open vulnerability alert linked to the exact PR/head, installed old version and exact first patched version. Grouped, ambiguous, unknown, major/minor, Actions, scripts, registry and unrelated lock changes remain manual. Required checks must be successful on the latest head and bound to GitHub Actions app `15368`; strict protection must enforce administrators and disallow bypass, force pushes and deletion.
 
