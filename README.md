@@ -71,6 +71,8 @@ pnpm check                 # 零警告 lint、检查覆盖、类型、测试、s
 pnpm e2e:local             # 真实 workerd + 本地 D1/R2 + Chromium E2E
 ```
 
+本地角色预览使用 `pnpm preview:debug`；预览前端必须显式提供 Worker 来源 `PREVIEW_API_ORIGIN`，缺失时启动会报错并退出，不会静默连接默认后端。预览账号缺失、请求失败或响应格式无效时，页面会显示账号未就绪提示，仍可匿名浏览；依赖不可用账号的角色选项保持禁用。
+
 ### 程序性质量门禁
 
 - `pnpm check:workspace` 从 workspace 声明发现包，要求每包有 typecheck/test 或在单一策略表中有明确豁免。新增包未分类、缺脚本及过期豁免均失败；`--if-present` 不再意味着可静默漏检。content 是 JavaScript；contracts 的 schema 由消费者测试覆盖，不保留空测试命令。
@@ -85,36 +87,32 @@ pnpm e2e:local             # 真实 workerd + 本地 D1/R2 + Chromium E2E
 - CI `secrets` job 使用固定版本及 SHA-256 校验的 Gitleaks 二进制，扫描可达 Git 历史且输出脱敏，不需要付费 Action 或读取个人 `.env`。本地可用同版本执行 `gitleaks git --redact --no-banner --log-opts="--all" .`；提交前另用 `gitleaks git --redact --no-banner --pre-commit --staged .` 检查暂存内容。`.gitleaksignore` 只允许经核实的精确历史误报指纹，不能整类排除。它不能代替服务端 push protection，也不证明历史从未泄露。
 - 手写生产非 JSX 与非测试 tools 的 Biome 上限为认知复杂度 40、函数 120 行、文件 600 行；TSX 为 60／300／700，行数跳过空行。测试（含 E2E）不按生产函数阈值约束；CSS 不设文件行数门禁，以现有全产物预算约束体积，避免只为行数拆分样式并引入级联风险。阈值是重构触发器，不替代职责与行为审查，不允许用薄包装、批量 suppress 或排除生产目录过关。测试准入和维护取舍见 [test-maintenance](.agents/skills/test-maintenance/SKILL.md)。
 
-本地 D1：
+仅初始化可丢弃的空本地 D1（不用于升级既有数据库）：
 
 ```text
 cd apps/worker
-pnpm exec wrangler d1 migrations apply workshop-staging --local --config wrangler.jsonc
+pnpm exec wrangler d1 migrations apply DB --local --config wrangler.jsonc
 ```
 
 客户端构建与发布脚本在 `apps/tavern-client/package.json`；checker 构建与发布脚本在 `packages/content/package.json`。
 
-数据库结构以完整编号 migration 链为准，不以旧导出数据要求保留无用字段。迁移工具区分公开样本导入与当前 published／working 快照迁移；后者保留可映射业务数据，但不重构旧提交、审核、检查历史，也不迁移旧权限或登录凭据。工具入口见 [`tools/migrate/README.md`](tools/migrate/README.md)，范围与安全操作见[迁移手册](docs/operations/legacy-data-migration.md)。正式切换仍需另行授权，不能把当前快照验收等同于 [D-40 完整迁移目标](docs/plans/refactor-2026-10/decisions.md#d-40-完整替代旧版与完整数据迁移)。
+当前数据库结构以 `apps/worker/migrations/0001_initial.sql` 的上线前空库基线为准，不能对既有数据库套用该初始 schema。存量数据切换需从完整当前快照重建隔离候选并独立对账，再另行授权绑定切换；挑选旧站公开项目导入本地预览不等于完整当前库迁移。工具入口见 [`tools/migrate/README.md`](tools/migrate/README.md)，范围和操作边界见[迁移手册](docs/operations/legacy-data-migration.md)。
 
-`0021_remove_obsolete_state.sql` 会删除旧镜像字段、撤下未完成索引的历史发布并清理无用资产关联（保留 revision 和 R2 原文件）。远程执行前必须备份、确认影响与获得授权；本地通过不代表已经应用到 staging／production。
+生产上线时冻结已接受基线，之后保留已应用文件并追加有序增量 migration；不是永久禁止增量迁移。schema、备份、恢复和授权要求以[部署安全规则](docs/operations/deployment-safety.md#schema-evolution-and-production-cutover)为准，旧编号链及历史验收不再是当前切换依据。
 
 ## 部署
 
-部署由 GitHub Actions 执行；本地 `wrangler deploy` 只用于验证或故障处理，不作为发布依据。
+部署由 GitHub Actions 执行；本地使用检查与 dry-run 验证，不把 `wrangler deploy` 当作无副作用的验证命令。以下描述仓库中的流程与门禁，不代表远端已经执行。
 
 - **CI**：`.github/workflows/ci.yml` 在相关路径 push/PR 时运行 `pnpm check` 和 `pnpm e2e:local`。
-- **Staging**：`ci` 在 `main` 成功后，`.github/workflows/deploy-staging.yml` 自动触发；staging environment 只允许 `main`，没有额外 reviewer gate。流水线构建 Web artifact 并记录 SHA-256，然后执行 D1 migration、Worker 部署、记录 Worker version 和 health smoke。
-- **Production**：推送 `v*` tag 触发 `.github/workflows/deploy-production.yml`；production environment 要求 1 名 reviewer，并只允许 `v*` tag。流水线查找该 commit 的 staging 成功记录，下载同一 artifact，校验文件 SHA-256 清单及 manifest 的 `sourceSha`，再执行 migration、部署、记录 Worker version 和 health smoke。
-- 生产发布必须使用 staging 已验证的同一 commit，不接受本地或其他分支的构建。staging artifact 现在包含 Web 静态资源、Worker bundle 与 Tavern client；production 下载并校验同一 artifact，再发布 stable client。
+- **Staging**：`ci` 在 `main` 成功后，`.github/workflows/deploy-staging.yml` 仅在来源新鲜且存在应用变更时构建、部署；纯文档等变更跳过。自动 staging **从不执行 D1 migration**；相对最近成功部署与已接受 schema checkpoint 中较新者存在 schema 变更时暂停构建和部署。当前 checkpoint 为 `f2491599cfb97a6405b5f73ead73227387786478`，不得只为让流水线变绿而推进。
+- **Production**：`v*` tag 触发 `.github/workflows/deploy-production.yml`，production environment 要求审批。流程查找该 commit 的成功 staging 记录并校验同一 artifact，但当前在 **Require separately verified production schema** 无条件停止，尚不会到达后续备份或部署步骤；恢复须另行明确授权并独立核验 schema、数据和绑定。
+- 获授权恢复 production 后，仍须使用 staging 已验证的同一 commit 和 artifact，不接受本地或其他分支重建产物；artifact 包含 Web 静态资源、Worker bundle 与 Tavern client，后续 stable client 发布也受该门禁约束。
 - Release artifact 包含构建目录中的隐藏文件（包括 Vite manifest），确保上传内容与 SHA-256 清单一致。
 - Git 仓库与 Cloudflare 运行时是两套独立状态：推送不等于部署，部署后必须单独核对 Worker version。
 - 密钥通过 GitHub Actions secrets 或 `wrangler secret put` 写入，不进入仓库。
-- 生产 D1 不手工修改；schema 变更只通过 migration，并先在本地和 staging 验证。
-- production migration 前自动导出 D1、记录 Time Travel bookmark，并上传到私有 R2 backup bucket；恢复步骤见 [`docs/operations/deployment-safety.md`](docs/operations/deployment-safety.md)。
+- 不手工随意修改生产 D1；上线前空库基线、既有库切换及上线后有序增量迁移分别遵循上述安全规则，并核验兼容性、备份和实际数据。
+- production 中保留的 D1 导出、Time Travel bookmark 和私有 R2 备份步骤目前在停止门禁之后，不是已运行的自动备份或已验证恢复能力；恢复要求见 [`docs/operations/deployment-safety.md`](docs/operations/deployment-safety.md)。
 - 备份完整性用 `.github/workflows/verify-production-backup.yml` 手动验证；它不修改生产数据库。
 
-本地验证仍按上面的 `pnpm check` 和 `pnpm e2e:local` 执行。需要手工排查 migration 时使用：
-
-```text
-pnpm --filter @workshop/worker exec wrangler d1 migrations apply <database> --remote --config wrangler.jsonc --env <staging|production>
-```
+本地验证仍按上面的 `pnpm check` 和 `pnpm e2e:local` 执行。需要排查真实数据库或 schema 切换时先遵循[部署安全规则](docs/operations/deployment-safety.md)，获得对应环境和具体操作的授权；本 README 不提供可绕过当前暂停门禁的远程 DDL 命令。

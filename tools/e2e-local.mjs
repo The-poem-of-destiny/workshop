@@ -10,6 +10,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { request } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -124,6 +125,7 @@ async function main() {
       path.join(workerDir, "node_modules/wrangler/bin/wrangler.js"),
       "dev",
       "--local",
+      "--test-scheduled",
       "--ip",
       "127.0.0.1",
       "--config",
@@ -686,16 +688,78 @@ async function main() {
       }
       try {
         await check("browser anonymous search and detail", async () => {
+          const scheduleTimeout = 60_000;
+          const hour = 3_600_000;
+          let scheduleNow = Date.now();
+          const nextHour = (Math.floor(scheduleNow / hour) + 1) * hour;
+          // Display windows end on UTC hours; reserve the full request deadline before any possible expiry.
+          if (nextHour - scheduleNow <= scheduleTimeout) {
+            await sleep(nextHour - scheduleNow);
+            scheduleNow = Date.now();
+            assert(
+              scheduleNow >= nextHour && scheduleNow + scheduleTimeout < nextHour + hour,
+              "Local scheduled clock did not enter the next hour with a full request deadline",
+            );
+          }
+          // This local control tick may be slightly ahead of the clock; never replay a prior display window.
+          const scheduleTime = new Date(scheduleNow);
+          scheduleTime.setUTCMinutes(5, 0, 0);
+          const scheduleQuery = new URLSearchParams({
+            time: String(scheduleTime.getTime()),
+            cron: "*/1 * * * *",
+            format: "json",
+          });
+          // Miniflare's local scheduled-event control route requires a loopback Host header.
+          const scheduled = await new Promise((resolve, reject) => {
+            const dispatchNow = Date.now();
+            const selectedHour = Math.floor(scheduleNow / hour) * hour;
+            assert(
+              dispatchNow >= selectedHour && dispatchNow + scheduleTimeout < selectedHour + hour,
+              "Local scheduled clock moved outside the selected hour's request deadline",
+            );
+            const req = request(
+              `${base}/cdn-cgi/local/scheduled?${scheduleQuery}`,
+              { headers: { Host: "localhost" }, signal: AbortSignal.timeout(scheduleTimeout) },
+              (res) => {
+                let body = "";
+                res.setEncoding("utf8");
+                res.on("data", (chunk) => {
+                  body += chunk;
+                });
+                res.on("end", () => {
+                  try {
+                    assert(res.statusCode === 200, `local scheduled event ${res.statusCode}: ${body}`);
+                    resolve(JSON.parse(body));
+                  } catch (error) {
+                    reject(error);
+                  }
+                });
+                res.on("error", reject);
+              },
+            );
+            req.on("error", reject);
+            req.end();
+          });
+          assert(scheduled.outcome === "ok", `local scheduled event failed: ${scheduled.outcome}`);
+          const discovery = await api("/api/v1/projects/discovery");
+          assert(discovery.response.status === 200, `discovery ${discovery.response.status}: ${discovery.body}`);
+          const batch = JSON.parse(discovery.body);
+          assert(
+            batch.batchId && batch.items.some((item) => item.id === project.project.id),
+            "the real scheduled discovery batch includes the published fixture",
+          );
           const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
           observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.locator(".card").first().waitFor({ state: "visible", timeout: 10_000 });
-          if ((await page.locator(".discovery-item").count()) > 0) {
-            await page.locator(".discovery-item").first().click();
-            await page.locator(".detail").waitFor({ state: "visible" });
-            await page.keyboard.press("Escape");
-            await page.locator(".detail").waitFor({ state: "hidden" });
-          }
+          await page.locator(".discovery-directory-item").filter({ hasText: "E2E Project" }).click();
+          const discoveryImage = page.locator('.discovery-main-image[aria-label="查看 E2E Project 详情"]');
+          await discoveryImage.waitFor({ state: "visible" });
+          await discoveryImage.click();
+          await page.locator(".detail").waitFor({ state: "visible" });
+          await page.getByRole("dialog").getByRole("heading", { name: "E2E Project", exact: true }).waitFor();
+          await page.keyboard.press("Escape");
+          await page.locator(".detail").waitFor({ state: "hidden" });
           await screenshot(page, "browse-desktop");
           await page.getByRole("searchbox", { name: "搜索" }).fill("E2E Project");
           await page
@@ -1221,10 +1285,18 @@ async function main() {
           observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.getByRole("button", { name: "审核台", exact: true }).click();
+          await page.getByRole("searchbox", { name: "搜索当前队列", exact: true }).fill("E2E Approve");
           const item = page.getByTestId("review-queue-item").filter({ hasText: "E2E Approve" }).first();
           await item.waitFor({ state: "visible", timeout: 15_000 });
-          await item.click();
+          await item.focus();
+          const opener = await item.elementHandle();
+          await item.press("Enter");
           const task = page.getByRole("dialog", { name: /^审核 · E2E Approve ·/ });
+          await task.getByRole("button", { name: "返回队列", exact: true }).waitFor({ state: "visible" });
+          await task.getByRole("button", { name: "返回队列", exact: true }).click();
+          await task.waitFor({ state: "hidden" });
+          await page.waitForFunction((element) => element.isConnected && document.activeElement === element, opener);
+          await item.press("Enter");
           await task.getByRole("button", { name: "返回队列", exact: true }).waitFor({ state: "visible" });
           const taxonomyFacts = (await task.locator(".review-facts").textContent()).replace(/\s+/g, "");
           assert(taxonomyFacts.includes("主要分类事件"), "review displays the frozen primary classification");
@@ -1251,6 +1323,8 @@ async function main() {
             .getByTestId("review-queue-item")
             .filter({ hasText: "E2E Approve" })
             .waitFor({ state: "hidden", timeout: 10_000 });
+          await task.waitFor({ state: "hidden" });
+          await page.waitForFunction(() => document.activeElement?.id === "review-queue-search");
           let detail;
           for (let attempt = 0; attempt < 40; attempt += 1) {
             detail = await api(`/api/v1/projects/${approveProjectId}`);
