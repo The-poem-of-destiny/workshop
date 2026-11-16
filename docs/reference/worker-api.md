@@ -76,13 +76,19 @@
 | POST `/projects/:id/downloads` | Bearer、`Idempotency-Key` UUID v4；返回当前可访问发布版的 201 `{versionId, files:[{kind,url}]}`。缺少或非法幂等键 400；日获取上限 429；不可访问 404。 |
 | POST `/projects/:id/acquisitions` | Bearer、`Idempotency-Key` UUID v4，头 `X-Client-Version` 和 `X-Client-Channel: stable\|staging` 必须匹配当前频道；201 返回 project、release、downloads。版本缺失或不匹配 426，发布版不可访问 404。 |
 | GET `/downloads/:projectId/:versionId/:kind` | Bearer；直接实时验证登录、可见性、当前发布版和文件关联，返回文件流；无登录 401，不可访问／文件缺失 404。读取可重复，不签发或消费授权票据。 |
-| GET `/recommendations` | `{items}` 推荐列表。 |
+| GET `/recommendations` | `{items}` 推荐列表；按更新时间倒序取最多 20 项，不适用下述 discovery 专有的 90 天、非作者、非空评语条件。 |
 | GET `/site` | 站点 banner 和内容。 |
 
 一次逻辑获取由客户端生成一个 UUID v4；网络重试必须复用同一键，独立获取使用新键。POST 按用户、版本、UTC 日汇总，重复键不递增；世界书和正则 GET 不额外计数。每用户每版本每日最多 128 次不同逻辑获取，以有界 JSON 保存当天幂等键，达到上限返回 429，既有键重试仍成功。项目累计和日汇总计逻辑获取次数，不宣称字节传输完成。旧项目日指标保留为历史权威，不补造旧用户／版本下载记录。URL 本身不授予权限；每次 GET 都需有效 Bearer，并在打开对象后重查授权和发布指针。
 用户日统计记录所有授权逻辑获取；公开下载指标只统计公开项目的非作者普通玩家获取，作者、reviewer／owner 和私有访问不贡献公开指标。
 
-玩家推荐使用 `PUT /api/v1/recommendations/:projectId`，Bearer 和 JSON `{projectVersionId,comment}`；仅当前公开发布版可写，同一玩家／版本保留一条，可编辑或以 `DELETE` 携带同一 JSON 撤回。旧版本不会自动背书新版本。匿名 401，版本过期或项目不可访问 404。发现响应包含 `batchId`、`scheduledAt` 和项目条目；每个条目的 `recommendations` 包含当前仍有效的非作者玩家非空评论及推荐者信息，界面可逐条浏览，撤回和版本变化立即反映在后续响应中。
+玩家推荐使用 `PUT /api/v1/recommendations/:projectId`，Bearer 和 JSON `{projectVersionId,comment}`；仅当前公开发布版可写，同一玩家／版本保留一条，可编辑或以 `DELETE` 携带同一 JSON 撤回。旧版本不会自动背书新版本。匿名 401，版本过期或项目不可访问 404。
+
+发现响应包含 `batchId`、`scheduledAt` 和项目条目。仅 discovery 的 `items[].recommendations` 使用以下投影合同（也适用于 `/home` 中的 discovery 段），不应推广到独立 `GET /recommendations`：
+
+- 完整返回当前仍公开且未删除项目、对应当前发布版本的有效玩家推荐：推荐者不是项目作者，记录创建于最近 90 天内，且 `comment.trim()` 非空；编辑评语不刷新创建时间窗口。
+- 每条为 `{id,curator:{id,name,avatarUrl},comment,projectVersionId}`，返回原始 `comment`，使用推荐者当前名称与头像，按推荐记录 `id` 稳定升序排列；没有符合者时为 `[]`。同一存续记录编辑保留 ID，删除后重建不保证复用原 ID。
+- 展示读取不重算批次冻结的选取分数或贡献。撤回、评语、推荐者资料或版本变化在后续源投影读取时使用当前已提交记录；公共缓存 TTL 内仍可能短暂显示旧内容。默认公开 TTL 为 60 秒且可配置，不保证 HTTP 立即可见或全球同步撤回，见[运行配置](runtime-configuration.md#失效与撤回)。
 
 `POST /api/v1/recommendations/changes` 接受作者客户端计算的版本／清单哈希及 changedEntries、totalEntries；服务端对照两份不可变条目目录验证，元数据修改不贡献内容变化。此提示不是通用 diff 服务。
 
@@ -116,6 +122,8 @@ URL=$(jq -r '.files[0].url // empty' /tmp/workshop-downloads.json)
 ## 作者写入和并发
 
 下表均在 `/api/v1/projects` 下，需要 Bearer 和相应项目作者或 owner 权限。请求 JSON schema 见 [authoring.ts](../../packages/contracts/src/authoring.ts)。所有需要版本的操作发送 `If-Match: <rowVersion>`，接受正整数或加引号的正整数；先读取草稿或使用上次写入响应中的新 `rowVersion`。缺少、格式错误或版本过期通常返回 412；部分版本冲突的 `details` 含 `resource`、`expectedVersion`、`currentVersion`。刷新草稿并重新协调变更，不要盲目覆盖。提交冻结的版本不可编辑；元数据更新和新版本创建可能返回 429。
+
+项目元数据中的建议搭配 `recommended` 最多 50 项，每项可选 `note` 经 trim 后最多 300 字符，见 [requirements.ts](../../packages/contracts/src/requirements.ts)。这些是输入校验上限；“软关系”只表示建议搭配不阻断安装，客户端不会沿该关系自动解析或下载目标。
 
 | 方法和路径 | 输入及结果 |
 | --- | --- |

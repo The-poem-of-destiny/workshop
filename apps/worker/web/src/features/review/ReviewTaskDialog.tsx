@@ -35,7 +35,7 @@ export function ReviewTaskDialog({
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           if (returnFocus.current?.isConnected) returnFocus.current.focus({ preventScroll: true });
-          document.getElementById("review-queue-search")?.focus({ preventScroll: true });
+          else document.getElementById("review-queue-search")?.focus({ preventScroll: true });
         }}
         onEscapeKeyDown={(event) => {
           if (busy || decision) event.preventDefault();

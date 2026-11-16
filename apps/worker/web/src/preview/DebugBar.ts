@@ -1,12 +1,37 @@
 import { setSessionToken } from "../api";
 
 export async function mountDebugBar(): Promise<void> {
-  const response = await fetch("/__preview/accounts");
-  if (!response.ok) throw new Error("Local preview accounts are unavailable");
-  const accounts: { role: string; token: string }[] = await response.json();
+  let accounts: { role: string; token: string }[] = [];
+  let accountError = "";
+  try {
+    const response = await fetch("/__preview/accounts");
+    if (!response.ok) throw new Error("Local preview accounts are unavailable");
+    const loaded: unknown = await response.json();
+    if (
+      !Array.isArray(loaded) ||
+      !loaded.length ||
+      loaded.some((item) => typeof item?.role !== "string" || typeof item?.token !== "string" || !item.token)
+    ) {
+      throw new Error("Local preview accounts are invalid");
+    }
+    accounts = loaded;
+  } catch {
+    accountError = "本地预览账号未就绪；请使用 pnpm preview:debug 启动。当前为匿名浏览。";
+  }
   const params = new URLSearchParams(location.search);
-  const role = params.get("debug-role") ?? "anonymous";
-  const account = accounts.find((item) => item.role === role);
+  const requestedRole = params.get("debug-role") ?? "anonymous";
+  const account = accounts.find((item) => item.role === requestedRole);
+  const role = account ? requestedRole : "anonymous";
+  if (requestedRole !== "anonymous" && !account && !accountError) {
+    accountError = "所选本地预览账号不可用，当前为匿名浏览。";
+  }
+  if (accountError) {
+    const url = new URL(location.href);
+    params.set("debug-role", "anonymous");
+    params.set("debug-view", "browse");
+    url.search = params.toString();
+    history.replaceState(null, "", url);
+  }
   setSessionToken(account?.token ?? null);
   const bar = document.createElement("nav");
   bar.setAttribute("aria-label", "本地 Debug");
@@ -30,6 +55,7 @@ export async function mountDebugBar(): Promise<void> {
     const option = document.createElement("option");
     option.value = `${sceneRole}:${view}`;
     option.textContent = label;
+    option.disabled = sceneRole !== "anonymous" && !accounts.some((item) => item.role === sceneRole);
     option.selected = sceneRole === role && view === (params.get("debug-view") ?? "browse");
     select.append(option);
   }
@@ -51,5 +77,11 @@ export async function mountDebugBar(): Promise<void> {
     location.reload();
   });
   bar.append(reset);
+  if (accountError) {
+    const error = document.createElement("span");
+    error.setAttribute("role", "alert");
+    error.textContent = accountError;
+    bar.append(error);
+  }
   document.body.prepend(bar);
 }

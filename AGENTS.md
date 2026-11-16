@@ -22,6 +22,8 @@ Read the relevant skill before starting work; do not rely on memory of it.
 
 Work starts from refreshed `origin/main`, never from the local worktree HEAD alone.
 
+Create new task checkouts only under this repository's `worktrees/<task>/` directory. Do not create sibling `../workshop-*` checkouts among other user projects. This convention does not authorize moving or deleting existing checkouts.
+
 ## PR rules
 
 - Do not commit directly to `main`; integrate through a PR from `work`.
