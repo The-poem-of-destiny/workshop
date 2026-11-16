@@ -6,7 +6,6 @@ export type InstallProject = {
   author?: { id: string; name: string } | null;
   version: string;
   versionLabel?: string | null;
-  projectType?: string | null;
 };
 export type InstallLocation = { worldbook: string | null; character: string | null };
 export type InstallInstance = {

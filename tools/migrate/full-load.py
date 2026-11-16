@@ -23,6 +23,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from taxonomy import canonical, cell, columns, resolve_review, snapshot
+
 
 def load_validator():
     path = Path(__file__).with_name("full-validate.py")
@@ -73,6 +75,17 @@ MISSING_DRAFTS = frozenset({
     "726d5157-9716-4863-9175-732bf8469dcf",
 })
 
+# Every canonical column must be independently reconstructed from original SQL,
+# manifest metadata or validated backup bytes before a preparation is trusted.
+SOURCE_COLUMNS = {
+    "project_versions": (
+        "id", "project_id", "version_no", "title", "description", "project_type", "included_types", "tags",
+        "manifest_hash", "worldbook_count", "regex_count", "schema_version", "discord_thread_url", "created_by",
+        "created_at", "version_label", "cover_position_x", "cover_position_y", "cover_zoom", "entry_index", "requirements",
+    ),
+    "assets": ("id", "project_id", "version_id", "kind", "r2_key", "sha256", "bytes", "mime", "created_at"),
+}
+
 
 def stable(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -82,18 +95,37 @@ def version_id(source_id):
     return "legacy-revision-" + hashlib.sha256(stable([source_id]).encode()).hexdigest()
 
 
-def source_metadata(row):
-    return (row.get("name"), row.get("description"), row.get("project_type"),
-            row.get("extension_type"), row.get("version_label") or row.get("version"),
-            stable({"schemaVersion": 1, "dependencies": [], "conflicts": [], "notes": row["precautions"]}) if row.get("precautions") is not None else None,
-            row.get("cover_position_x"), row.get("cover_position_y"),
-            row.get("cover_zoom"))
+def source_metadata(row, classification):
+    return {
+        "title": row.get("name"), "description": row.get("description"),
+        **classification, "version_label": row.get("version_label") or row.get("version"),
+        "requirements": stable({"schemaVersion": 1, "dependencies": [], "conflicts": [], "notes": row["precautions"]}) if row.get("precautions") is not None else None,
+        "cover_position_x": row.get("cover_position_x"), "cover_position_y": row.get("cover_position_y"),
+        "cover_zoom": row.get("cover_zoom"),
+    }
 
 
-def candidate_metadata(row):
-    return tuple(row.get(field) for field in (
-        "title", "description", "project_type", "extension_type", "version_label",
-        "requirements", "cover_position_x", "cover_position_y", "cover_zoom"))
+def assert_source_columns(db):
+    for table, keys in SOURCE_COLUMNS.items():
+        if set(columns(db, table)) != set(keys):
+            raise ValueError("unaccounted canonical source columns in " + table)
+
+
+def canonical_source_rows(db, table, rows):
+    """Compare stored values/types/defaults using the real target schema."""
+    keys = SOURCE_COLUMNS[table]
+    db.execute("SAVEPOINT source_projection")
+    try:
+        db.execute("DELETE FROM " + quote(table))
+        for row in rows:
+            fields = sorted(row)
+            db.execute("INSERT INTO " + quote(table) + " (" + ",".join(map(quote, fields))
+                       + ") VALUES (" + ",".join("?" for _ in fields) + ")", [row[key] for key in fields])
+        return [stable([cell(row[key]) for key in keys])
+                for row in db.execute("SELECT * FROM " + quote(table))]
+    finally:
+        db.execute("ROLLBACK TO source_projection")
+        db.execute("RELEASE source_projection")
 
 
 def source_tags(row):
@@ -111,27 +143,25 @@ def source_tags(row):
             groups = [value]
         for group in groups:
             for tag in group:
-                if not isinstance(tag, str) or not tag.strip():
+                if not isinstance(tag, str):
                     raise ValueError("invalid source tag")
                 if tag not in tags:
                     tags.append(tag)
-    if len(tags) > 20:
-        raise ValueError("source tags exceed current limit")
     return stable(tags)
 
 
-
-def source_reconcile(data, dump, manifest_path):
-    """Compare source facts to candidates without invoking the transformer."""
+def source_reconcile(data, dump, manifest_path, *, migrations=None):
+    """Compare canonical source facts without invoking the transformer."""
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     raw = dump.read_bytes()
+    if raw.startswith(b"SQLite format 3\x00"):
+        raise ValueError("legacy reconciliation requires the original SQL dump")
     databases = [item for item in manifest.get("databases", []) if item.get("name") == "creative_workshop"]
     if len(databases) != 1 or hashlib.sha256(raw).hexdigest() != databases[0].get("sha256"):
         raise ValueError("source dump does not match manifest")
-    db = sqlite3.connect(":memory:")
-    try:
-        db.executescript(raw.decode("utf-8"))
-        db.row_factory = sqlite3.Row
+    with snapshot(dump) as (db, source_hash):
+        if source_hash != hashlib.sha256(raw).hexdigest():
+            raise ValueError("source dump changed before reconciliation")
         names = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         required = {"users", "projects", "project_likes", "project_subscribes",
                     "project_ratings", "project_metric_daily", "daily_random_draw_state",
@@ -151,8 +181,14 @@ def source_reconcile(data, dump, manifest_path):
         for name, count in counts.items():
             if name not in names or db.execute("SELECT count(*) FROM " + quote(name)).fetchone()[0] != count:
                 raise ValueError("source table count differs from manifest")
-    finally:
-        db.close()
+        review = data.get("taxonomy_review")
+        classifications = resolve_review(db, hashlib.sha256(raw).hexdigest(), review, "legacy")
+        projects_by_id = {str(row["id"]): row for row in source["projects"]}
+        for decision in review["records"]:
+            # An independent flat projection also proves review accounting was lossless.
+            row = projects_by_id[decision["id"]]
+            if json.loads(source_tags(row)) != decision["tags"]["values"]:
+                raise ValueError("legacy tag accounting differs from independent source projection")
 
     report = {"format": "workshop-full-source-reconciliation-v1", "ok": False,
               "checks": {}, "failures": [],
@@ -211,18 +247,21 @@ def source_reconcile(data, dump, manifest_path):
         visibility = "public" if pub and pub.get("visibility") == 1 else "private"
         if visibility == "private":
             private_roots.add(root)
-        projection = pub if pub is not None else projects[draft]
         expected_projects.append((root, str(base["author_id"]), version_id(draft),
                                   version_id(published) if published else None, visibility,
                                   (pub.get("latest_approved_at") or pub.get("reviewed_at")) if pub else None,
                                   (pub.get("latest_approved_at") or pub.get("reviewed_at")) if pub else None,
                                   base.get("downloads_count") or 0, base.get("likes_count") or 0,
                                   subscriptions[root], base.get("created_at"), base.get("updated_at"), None))
-        for pid in {draft, published} - {None}:
+        ordered = sorted({draft, published} - {None}, key=lambda pid: (pid != root, pid))
+        for number, pid in enumerate(ordered, 1):
             current_ids.add(pid)
-            expected_revisions.append((version_id(pid), root, str(projects[pid]["author_id"]),
-                                       *source_metadata(projects[pid]), source_tags(projects[pid]),
-                                       projects[pid].get("discord_thread_url")))
+            expected_revisions.append({
+                "id": version_id(pid), "project_id": root, "version_no": number,
+                **source_metadata(projects[pid], classifications[pid]),
+                "created_by": str(projects[pid]["author_id"]), "created_at": projects[pid].get("created_at"),
+                "discord_thread_url": projects[pid].get("discord_thread_url"), "schema_version": None,
+            })
     compare("users", ((str(row["id"]), row.get("username"), row.get("global_name"),
                        row.get("avatar"), "member", row.get("created_at"), row.get("updated_at"))
                       for row in source["users"]),
@@ -234,9 +273,6 @@ def source_reconcile(data, dump, manifest_path):
               row.get("published_at"), row.get("published_updated_at"), row.get("downloads_count"),
               row.get("likes_count"), row.get("subscriptions_count"), row.get("created_at"),
               row.get("updated_at"), row.get("deleted_at")) for row in tables.get("projects", [])))
-    compare("current_revisions", expected_revisions,
-            ((row["id"], str(row["project_id"]), str(row["created_by"]), *candidate_metadata(row),
-              row.get("tags"), row.get("discord_thread_url")) for row in tables.get("project_versions", [])))
 
     for source_name, target_name, fields in (
         ("project_likes", "project_likes", ("user_id", "created_at")),
@@ -466,6 +502,9 @@ def source_reconcile(data, dump, manifest_path):
                 "id": stable([pid, kind]), "source_id": pid, "kind": kind,
                 "path": str(backup_path), "bucket": bucket, "key": key,
                 "sha256": obj.get("sha256"), "bytes": obj.get("size"),
+                "mime": (obj.get("http_metadata") or {}).get("contentType") or
+                        ("application/json" if kind != "cover" else "application/octet-stream"),
+                "created_at": version.get("created_at"),
                 "target": ("covers/imported/" if kind == "cover" else "projects/imported/") + str(obj.get("sha256")),
             })
 
@@ -537,7 +576,11 @@ def source_reconcile(data, dump, manifest_path):
                                       entry["content_hash"], entry["content_length"])
                                      for entry in validation["entries"])
         retained_assets.append(asset)
-        expected_assets.append((roots[pid], rid, kind, asset["target"], asset["sha256"], asset["bytes"]))
+        expected_assets.append({
+            "id": "legacy-asset-" + hashlib.sha256(stable([rid, kind]).encode()).hexdigest(),
+            "project_id": roots[pid], "version_id": rid, "kind": kind, "r2_key": asset["target"],
+            "sha256": asset["sha256"], "bytes": asset["bytes"], "mime": asset["mime"], "created_at": asset["created_at"],
+        })
         expected_objects.add((asset["target"], asset["sha256"], asset["bytes"]))
         allowed_object_sources.add((asset["bucket"], asset["key"], asset["target"], asset["sha256"], asset["bytes"]))
 
@@ -581,9 +624,32 @@ def source_reconcile(data, dump, manifest_path):
             ((row.get("id"), int(row.get("entry_index") is not None), row.get("worldbook_count"),
               row.get("regex_count"), row.get("manifest_hash")) for row in tables["project_versions"]))
     report["incomplete_content_revisions"] = len(incomplete)
-    compare("assets", expected_assets,
-            ((str(row["project_id"]), row.get("version_id"), row.get("kind"), row.get("r2_key"),
-              row.get("sha256"), row.get("bytes")) for row in tables.get("assets", [])))
+    entries_by_revision = {}
+    for rid, kind, key, name, content_hash, content_length in expected_entries:
+        entries_by_revision.setdefault(rid, []).append({
+            "kind": kind, "entryKey": key, "name": name, "contentHash": content_hash, "contentLength": content_length,
+        })
+    readiness = {row[0]: row[1:] for row in expected_readiness}
+    for revision in expected_revisions:
+        ready, worldbook_count, regex_count, manifest_hash = readiness[revision["id"]]
+        revision.update(worldbook_count=worldbook_count, regex_count=regex_count, manifest_hash=manifest_hash,
+                        entry_index=stable({"schemaVersion": 1, "entries": sorted(entries_by_revision.get(revision["id"], []),
+                                           key=lambda entry: (entry["kind"], entry["entryKey"]))}) if ready else None)
+    schema, _ = canonical(migrations or Path(__file__).resolve().parents[2] / "apps/worker/migrations")
+    try:
+        schema.row_factory = sqlite3.Row
+        schema.execute("PRAGMA foreign_keys=OFF")
+        for name, in schema.execute("SELECT name FROM sqlite_schema WHERE type='trigger'").fetchall():
+            schema.execute("DROP TRIGGER " + quote(name))
+        assert_source_columns(schema)
+        for table, expected, check in (("project_versions", expected_revisions, "current_revisions"),
+                                       ("assets", expected_assets, "assets")):
+            if any(set(row) != set(SOURCE_COLUMNS[table]) for row in expected):
+                raise ValueError("incomplete canonical source reconstruction in " + table)
+            compare(check, canonical_source_rows(schema, table, expected),
+                    canonical_source_rows(schema, table, tables.get(table, [])))
+    finally:
+        schema.close()
     objects = data.get("objects", [])
     compare("objects", expected_objects,
             ((row.get("targetKey"), row.get("sha256"), row.get("bytes")) for row in objects))

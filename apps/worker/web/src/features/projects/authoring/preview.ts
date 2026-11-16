@@ -1,4 +1,4 @@
-import { markWorldbookNames, normalizeProjectType, PROJECT_CONTENT_POLICY } from "@workshop/domain";
+import { markWorldbookNames } from "@workshop/domain";
 
 export type WorldbookEntryPreview = {
   name: string;
@@ -226,14 +226,4 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/** Short author-facing hint derived from the domain content policy for the selected project type. */
-export function contentRequirementHint(projectType: string): string | null {
-  const type = normalizeProjectType(projectType);
-  if (!type) return null;
-  const rule = PROJECT_CONTENT_POLICY[type];
-  if (rule.required.includes("worldbook")) return `${type}项目必须上传世界书；正则文件可选。`;
-  if (rule.anyOf.length > 0) return `${type}项目需要世界书或正则文件中的至少一个。`;
-  return `${type}项目没有强制的内容文件要求。`;
 }

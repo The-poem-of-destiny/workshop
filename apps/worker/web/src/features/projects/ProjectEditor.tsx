@@ -134,6 +134,7 @@ export function ProjectEditor({
   });
 
   async function createFirstVersion(): Promise<void> {
+    if (busy || !form.projectType) return;
     setBusy(true);
     try {
       const result = await api.createVersion(entry.project.id, rowVersion, metadataPayload(form));
@@ -353,7 +354,6 @@ export function ProjectEditor({
           worldbookUploaded={worldbookUploaded}
           regexUploaded={regexUploaded}
           busy={busy || workingVersionFrozen}
-          projectType={form.projectType}
           onPickWorldbook={pickWorldbook}
           onPickRegex={pickRegex}
           onRemoveWorldbook={removeWorldbook}

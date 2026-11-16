@@ -673,7 +673,7 @@ button.detail-badge:hover {
   color: #a5ddc4;
 }
 
-.detail-header .project-type-tag[data-type="扩展"] {
+.detail-header .project-type-tag[data-type="内容扩展"] {
   background: #35334b;
   border-color: transparent;
   color: #c9c2f2;
@@ -689,6 +689,23 @@ button.detail-badge:hover {
   background: #432d35;
   border-color: transparent;
   color: #edb5c4;
+}
+
+.detail-header .project-type-tag[data-type="玩法"] {
+  background: #253b4b;
+  border-color: transparent;
+  color: #aed5ef;
+}
+
+.detail-header .project-type-tag[data-type="体验优化"] {
+  background: #363c2b;
+  border-color: transparent;
+  color: #d0dda9;
+}
+
+.detail-included-types > span:first-child {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .detail-tags {

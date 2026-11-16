@@ -1,5 +1,7 @@
 {
   "legacyDbPath": "path/to/legacy.sqlite",
+  "taxonomyReviewPath": ".local/legacy-preview/taxonomy-review.json",
+  "pythonPath": ".local/python/.venv/bin/python",
   "r2Source": "path/to/legacy-projects",
   "d1Path": "path/to/preview-d1.sqlite",
   "r2MetaPath": "path/to/preview-r2-metadata.sqlite",

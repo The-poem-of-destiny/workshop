@@ -91,7 +91,7 @@ When a process or organization rule changes, update the owning artifact (`AGENTS
 
 - Worker endpoints and bindings: `apps/worker/wrangler.jsonc`.
 - Client version and distribution paths: `apps/tavern-client/`.
-- Target empty-database structure: `apps/worker/migrations/0001_initial.sql`; never apply this reset schema to an existing database. Existing deployments require an independently reconciled candidate database and explicit binding cutover.
+- Before production launch, target empty-database structure lives in `apps/worker/migrations/0001_initial.sql`; never apply this reset schema to an existing database. Existing deployments require an independently reconciled candidate database and explicit binding cutover. At launch freeze that baseline and realign staging; afterward add ordered incremental migrations without rewriting applied files. See `docs/operations/deployment-safety.md`.
 - Project taxonomy, content policy and runtime limits: `packages/domain/src/`; standalone recommendation selection: `packages/domain/src/recommendation.ts`; editable traffic distribution: `apps/worker/src/recommendation-traffic-config.ts`.
 - Product and creator-facing wording: plain everyday Chinese, with no internal field or implementation names in the UI.
 

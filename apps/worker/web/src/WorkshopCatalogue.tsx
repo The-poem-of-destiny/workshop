@@ -4,73 +4,53 @@ import type { ProjectSummary } from "./api";
 import { Button } from "./components/ui/button";
 import { Discovery } from "./features/projects/Discovery";
 import { ProjectCard } from "./features/projects/ProjectCard";
-import type { useCatalogue } from "./useCatalogue";
+import type { CatalogueState } from "./useCatalogue";
 import { SORTS } from "./useCatalogueFilters";
 import type { HomeLoadState } from "./useWorkshopHome";
 
 export function WorkshopCatalogue({
   home,
-  hasFilters,
-  total,
-  period,
-  setPeriod,
-  search,
-  setSearch,
-  projectType,
-  setProjectType,
-  author,
-  setAuthor,
-  tag,
-  setTag,
-  clearFilters,
+  catalogue,
   detailOpener,
   setSelected,
-  sort,
-  setSort,
-  layout,
-  setLayout,
-  listLoading,
-  loadedQuery,
-  queryKey,
-  projects,
-  pageIndex,
-  pageSize,
-  setListRetry,
-  setPageSize,
-  changePage,
-  nextCursor,
 }: {
   home: HomeLoadState;
-  total: number;
-  period: "all" | "7d" | "30d" | "90d";
-  setPeriod: (period: "all" | "7d" | "30d" | "90d") => void;
-  hasFilters: ReturnType<typeof useCatalogue>["hasFilters"];
-  search: ReturnType<typeof useCatalogue>["search"];
-  setSearch: ReturnType<typeof useCatalogue>["setSearch"];
-  projectType: ReturnType<typeof useCatalogue>["projectType"];
-  setProjectType: ReturnType<typeof useCatalogue>["setProjectType"];
-  author: ReturnType<typeof useCatalogue>["author"];
-  setAuthor: ReturnType<typeof useCatalogue>["setAuthor"];
-  tag: ReturnType<typeof useCatalogue>["tag"];
-  setTag: ReturnType<typeof useCatalogue>["setTag"];
-  clearFilters: ReturnType<typeof useCatalogue>["clearFilters"];
+  catalogue: CatalogueState;
   detailOpener: RefObject<HTMLElement | null>;
   setSelected: (project: ProjectSummary | null) => void;
-  sort: ReturnType<typeof useCatalogue>["sort"];
-  setSort: ReturnType<typeof useCatalogue>["setSort"];
-  layout: ReturnType<typeof useCatalogue>["layout"];
-  setLayout: ReturnType<typeof useCatalogue>["setLayout"];
-  listLoading: ReturnType<typeof useCatalogue>["listLoading"];
-  loadedQuery: ReturnType<typeof useCatalogue>["loadedQuery"];
-  queryKey: ReturnType<typeof useCatalogue>["queryKey"];
-  projects: ReturnType<typeof useCatalogue>["projects"];
-  pageIndex: ReturnType<typeof useCatalogue>["pageIndex"];
-  pageSize: ReturnType<typeof useCatalogue>["pageSize"];
-  setListRetry: ReturnType<typeof useCatalogue>["setListRetry"];
-  setPageSize: ReturnType<typeof useCatalogue>["setPageSize"];
-  changePage: ReturnType<typeof useCatalogue>["changePage"];
-  nextCursor: ReturnType<typeof useCatalogue>["nextCursor"];
 }) {
+  const {
+    hasFilters,
+    total,
+    period,
+    setPeriod,
+    search,
+    setSearch,
+    projectTypes,
+    setProjectTypes,
+    includeContained,
+    setIncludeContained,
+    author,
+    setAuthor,
+    tags,
+    removeTag,
+    tagLimitMessage,
+    clearFilters,
+    sort,
+    setSort,
+    layout,
+    setLayout,
+    listLoading,
+    loadedQuery,
+    queryKey,
+    projects,
+    pageIndex,
+    pageSize,
+    setListRetry,
+    setPageSize,
+    changePage,
+    nextCursor,
+  } = catalogue;
   return (
     <>
       {hasFilters ? (
@@ -82,14 +62,21 @@ export function WorkshopCatalogue({
               <X aria-hidden="true" />
             </button>
           ) : null}
-          {projectType ? (
+          {projectTypes.map((type) => (
             <button
+              key={type}
               type="button"
               className="filter-chip active"
-              onClick={() => setProjectType("")}
-              title="移除类型筛选"
+              onClick={() => setProjectTypes(projectTypes.filter((value) => value !== type))}
+              title={`移除主要分类 ${type}`}
             >
-              类型：{projectType}
+              主要分类：{type}
+              <X aria-hidden="true" />
+            </button>
+          ))}
+          {includeContained ? (
+            <button type="button" className="filter-chip active" onClick={() => setIncludeContained(false)}>
+              包含类型也匹配
               <X aria-hidden="true" />
             </button>
           ) : null}
@@ -99,16 +86,27 @@ export function WorkshopCatalogue({
               <X aria-hidden="true" />
             </button>
           ) : null}
-          {tag.trim() ? (
-            <button type="button" className="filter-chip active" onClick={() => setTag("")} title="移除标签筛选">
-              标签：{tag.trim()}
+          {tags.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              className="filter-chip active"
+              onClick={() => removeTag(tag)}
+              title={`移除标签 ${tag}`}
+            >
+              标签：{tag}
               <X aria-hidden="true" />
             </button>
-          ) : null}
+          ))}
           <button type="button" className="active-filters-clear" onClick={clearFilters}>
             清除全部
           </button>
         </section>
+      ) : null}
+      {tagLimitMessage ? (
+        <p className="catalogue-filter-message" role="status">
+          {tagLimitMessage}
+        </p>
       ) : null}
       {!hasFilters ? (
         <Discovery

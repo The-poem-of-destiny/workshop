@@ -47,7 +47,14 @@ export function Subscriptions({
     const needle = search.trim().toLocaleLowerCase();
     return subscribedItems.filter((project) => {
       if (!needle) return true;
-      return [project.title, project.description ?? "", project.author.name, project.projectType ?? "", ...project.tags]
+      return [
+        project.title,
+        project.description ?? "",
+        project.author.name,
+        project.projectType,
+        ...project.includedTypes,
+        ...project.tags,
+      ]
         .join(" ")
         .toLocaleLowerCase()
         .includes(needle);
@@ -115,7 +122,9 @@ export function Subscriptions({
               <div className="subscription-copy">
                 <h3>{project.title}</h3>
                 <p className="workspace-muted">
-                  {project.author.name} · {project.projectType ?? "未分类"} · v{project.versionLabel ?? "未标注"}
+                  {project.author.name} · {project.projectType}
+                  {project.includedTypes.length ? `（包含：${project.includedTypes.join("、")}）` : ""}
+                  {" · "}v{project.versionLabel ?? "未标注"}
                 </p>
                 <p className="subscription-date">
                   最近更新 {project.updatedAt ? new Date(project.updatedAt).toLocaleDateString() : "日期未知"}

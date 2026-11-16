@@ -36,6 +36,7 @@ import type {
   UploadResponse,
 } from "@workshop/contracts";
 import { projectBatchQuerySchema, projectBatchResponseSchema } from "@workshop/contracts";
+import { MAX_SELECTED_TAGS, PROJECT_TYPES, type ProjectType } from "@workshop/domain";
 import { newId } from "./lib/newId";
 
 export type {
@@ -206,10 +207,15 @@ export const api = {
     period?: "all" | "7d" | "30d" | "90d";
     cursor?: string;
     limit?: number;
-    projectType?: string;
+    projectTypes?: readonly ProjectType[];
+    includeContained?: boolean;
     authorId?: string;
-    tag?: string;
+    tags?: readonly string[];
   }) => {
+    const tags = [...new Set((params.tags ?? []).map((tag) => tag.trim()).filter(Boolean))].sort();
+    if (tags.length > MAX_SELECTED_TAGS) {
+      return Promise.reject(new Error(`最多可同时筛选 ${MAX_SELECTED_TAGS} 个标签。`));
+    }
     const query = new URLSearchParams();
     if (params.limit !== undefined && params.limit !== 25) query.set("limit", String(params.limit));
     if (params.search?.trim()) query.set("search", params.search.trim());
@@ -218,9 +224,12 @@ export const api = {
       query.set("period", params.period);
     }
     if (params.cursor) query.set("cursor", params.cursor);
-    if (params.projectType) query.set("projectType", params.projectType);
+    for (const type of PROJECT_TYPES) {
+      if (params.projectTypes?.includes(type)) query.append("projectType", type);
+    }
+    if (params.includeContained) query.set("includeContained", "true");
     if (params.authorId?.trim()) query.set("authorId", params.authorId.trim());
-    if (params.tag?.trim()) query.set("tag", params.tag.trim());
+    for (const tag of tags) query.append("tag", tag);
     query.sort();
     const search = query.toString();
     return requestJson<ProjectListResponse>(`/api/v1/projects${search ? `?${search}` : ""}`, {}, true);

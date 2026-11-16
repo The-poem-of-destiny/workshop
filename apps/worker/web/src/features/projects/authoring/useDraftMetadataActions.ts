@@ -29,6 +29,10 @@ export function useDraftMetadataActions({
 }) {
   async function save(): Promise<void> {
     if (busy || workingVersionFrozen) return;
+    if (!form.projectType) {
+      onError("请选择主要分类后再保存。");
+      return;
+    }
     setBusy(true);
     try {
       const result = await api.patchProject(entry.project.id, rowVersion, metadataPayload(form));

@@ -42,8 +42,8 @@ beforeEach(async () => {
     .bind(now)
     .run();
   await bindings.DB.prepare(`
-    INSERT INTO project_versions (id, project_id, version_no, title, created_by)
-    VALUES ('r1', 'p1', 1, '测试项目', 'u1')
+    INSERT INTO project_versions (id, project_id, version_no, title, project_type, created_by)
+    VALUES ('r1', 'p1', 1, '测试项目', '角色', 'u1')
   `).run();
   await bindings.DB.prepare("UPDATE projects SET published_version_id = 'r1' WHERE id = 'p1'").run();
   await bindings.DB.prepare(

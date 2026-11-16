@@ -1,12 +1,10 @@
-import { CHARACTER_FACET_OPTIONS, EXTENSION_TYPES } from "@workshop/domain";
+import { MAX_SELECTED_TAGS, orderedPresetTagGroups, PROJECT_TYPES, presetTagGroup } from "@workshop/domain";
 import { BookOpen, Compass, LayoutGrid, List, X } from "lucide-react";
+import { type Dispatch, type RefObject, type SetStateAction, useState } from "react";
 
-import { PROJECT_TYPES } from "./features/projects/projectMetadata";
-
-import type { useCatalogue } from "./useCatalogue";
+import type { CatalogueState } from "./useCatalogue";
 import { SORTS } from "./useCatalogueFilters";
-import type { useInstalledProjects } from "./useInstalledProjects";
-import type { useWorkshopNavigation } from "./useWorkshopNavigation";
+import type { WorkshopView } from "./useWorkshopNavigation";
 
 export function WorkshopSidebar({
   sidebarOpen,
@@ -15,16 +13,21 @@ export function WorkshopSidebar({
   setSidebarOpen,
   drawerToggle,
   view,
-  projectType,
+  projectTypes,
   setView,
-  setProjectType,
+  setProjectTypes,
+  includeContained,
+  setIncludeContained,
   installedAvailable,
   installedUpdateCount,
-  tag,
+  tags,
+  tagLimitMessage,
   author,
+  hasFilters,
   clearFilters,
-  setTag,
-  applyTag,
+  addTags,
+  toggleTag,
+  removeTag,
   pageTags,
   setAuthor,
   sort,
@@ -32,29 +35,43 @@ export function WorkshopSidebar({
   layout,
   setLayout,
 }: {
-  sidebarOpen: ReturnType<typeof useWorkshopNavigation>["sidebarOpen"];
-  isMobile: ReturnType<typeof useWorkshopNavigation>["isMobile"];
-  drawerClose: ReturnType<typeof useWorkshopNavigation>["drawerClose"];
-  setSidebarOpen: ReturnType<typeof useWorkshopNavigation>["setSidebarOpen"];
-  drawerToggle: ReturnType<typeof useWorkshopNavigation>["drawerToggle"];
-  view: ReturnType<typeof useWorkshopNavigation>["view"];
-  projectType: ReturnType<typeof useCatalogue>["projectType"];
-  setView: ReturnType<typeof useWorkshopNavigation>["setView"];
-  setProjectType: ReturnType<typeof useCatalogue>["setProjectType"];
+  sidebarOpen: boolean;
+  isMobile: boolean;
+  drawerClose: RefObject<HTMLButtonElement | null>;
+  setSidebarOpen: Dispatch<SetStateAction<boolean>>;
+  drawerToggle: RefObject<HTMLButtonElement | null>;
+  view: WorkshopView;
+  projectTypes: CatalogueState["projectTypes"];
+  setView: (view: WorkshopView) => boolean;
+  setProjectTypes: CatalogueState["setProjectTypes"];
+  includeContained: CatalogueState["includeContained"];
+  setIncludeContained: CatalogueState["setIncludeContained"];
   installedAvailable: boolean;
-  installedUpdateCount: ReturnType<typeof useInstalledProjects>["installedUpdateCount"];
-  tag: ReturnType<typeof useCatalogue>["tag"];
-  author: ReturnType<typeof useCatalogue>["author"];
-  clearFilters: ReturnType<typeof useCatalogue>["clearFilters"];
-  setTag: ReturnType<typeof useCatalogue>["setTag"];
-  applyTag: (value: string) => void;
-  pageTags: ReturnType<typeof useCatalogue>["pageTags"];
-  setAuthor: ReturnType<typeof useCatalogue>["setAuthor"];
-  sort: ReturnType<typeof useCatalogue>["sort"];
-  setSort: ReturnType<typeof useCatalogue>["setSort"];
-  layout: ReturnType<typeof useCatalogue>["layout"];
-  setLayout: ReturnType<typeof useCatalogue>["setLayout"];
+  installedUpdateCount: number | null;
+  tags: CatalogueState["tags"];
+  tagLimitMessage: CatalogueState["tagLimitMessage"];
+  author: CatalogueState["author"];
+  hasFilters: CatalogueState["hasFilters"];
+  clearFilters: CatalogueState["clearFilters"];
+  addTags: CatalogueState["addTags"];
+  toggleTag: CatalogueState["toggleTag"];
+  removeTag: CatalogueState["removeTag"];
+  pageTags: CatalogueState["pageTags"];
+  setAuthor: CatalogueState["setAuthor"];
+  sort: CatalogueState["sort"];
+  setSort: CatalogueState["setSort"];
+  layout: CatalogueState["layout"];
+  setLayout: CatalogueState["setLayout"];
 }) {
+  const [tagDraft, setTagDraft] = useState("");
+  const groups = orderedPresetTagGroups(projectTypes);
+  const atTagLimit = tags.length >= MAX_SELECTED_TAGS;
+
+  function commitTagDraft(): void {
+    if (!tagDraft.trim() || !setView("browse")) return;
+    addTags(tagDraft.split(/[,，\n]+/));
+    setTagDraft("");
+  }
   return (
     <div
       id="workshop-sidebar"
@@ -83,10 +100,11 @@ export function WorkshopSidebar({
       <nav className="sidebar-nav">
         <button
           type="button"
-          className={view === "browse" && !projectType ? "active" : ""}
+          className={view === "browse" && projectTypes.length === 0 ? "active" : ""}
           onClick={() => {
             if (!setView("browse")) return;
-            setProjectType("");
+            setProjectTypes([]);
+            setIncludeContained(false);
             setSidebarOpen(false);
           }}
         >
@@ -120,78 +138,143 @@ export function WorkshopSidebar({
           <span id="sidebar-filter-title" className="sidebar-section-label">
             筛选
           </span>
-          {projectType || tag.trim() || author ? (
-            <button type="button" className="sidebar-reset" onClick={clearFilters}>
+          {hasFilters ? (
+            <button
+              type="button"
+              className="sidebar-reset"
+              onClick={() => {
+                clearFilters();
+                setTagDraft("");
+              }}
+            >
               重置
             </button>
           ) : null}
         </div>
-        <div className="filter-group">
-          <span className="filter-group-label">类型</span>
+        <fieldset className="filter-group sidebar-primary-filter" aria-describedby="primary-filter-help">
+          <legend className="filter-group-label">主要分类（可多选）</legend>
+          <p id="primary-filter-help" className="sidebar-filter-hint">
+            多选分类满足任意一个即可（OR）。
+          </p>
           <div className="filter-options">
-            {["", ...PROJECT_TYPES].map((value) => (
+            <button
+              type="button"
+              className={`filter-chip${projectTypes.length === 0 ? " active" : ""}`}
+              aria-pressed={projectTypes.length === 0}
+              onClick={() => {
+                if (setView("browse")) setProjectTypes([]);
+              }}
+            >
+              全部分类
+            </button>
+            {PROJECT_TYPES.map((value) => (
               <button
-                key={value || "all"}
+                key={value}
                 type="button"
-                className={`filter-chip${projectType === value ? " active" : ""}`}
-                aria-pressed={projectType === value}
+                className={`filter-chip${projectTypes.includes(value) ? " active" : ""}`}
+                aria-pressed={projectTypes.includes(value)}
                 onClick={() => {
                   if (!setView("browse")) return;
-                  setProjectType(value);
-                  setSidebarOpen(false);
+                  setProjectTypes(
+                    projectTypes.includes(value)
+                      ? projectTypes.filter((type) => type !== value)
+                      : [...projectTypes, value],
+                  );
                 }}
               >
-                {value || "全部"}
+                {value}
               </button>
             ))}
           </div>
-        </div>
+          <label className="sidebar-contained-toggle">
+            <input
+              type="checkbox"
+              checked={includeContained}
+              onChange={(event) => {
+                if (setView("browse")) setIncludeContained(event.target.checked);
+              }}
+            />
+            同时匹配包含该类型的项目
+          </label>
+        </fieldset>
         <div className="filter-group">
           <label className="filter-group-label" htmlFor="sidebar-tag">
             标签
           </label>
-          <input
-            id="sidebar-tag"
-            className="sidebar-tag-input"
-            value={tag}
-            onChange={(event) => setTag(event.target.value)}
-            placeholder="按标签筛选"
-            autoComplete="off"
-          />
-          <p className="sidebar-filter-hint">
-            {projectType === "角色"
-              ? "下方为官方角色标签，点击即可筛选；也可以直接输入自定义标签。"
-              : projectType === "扩展"
-                ? `扩展类型（${EXTENSION_TYPES.join(" / ")}）是独立字段，不作为标签；可直接输入自定义标签筛选。`
-                : "官方标签按项目类型提供；也可以直接输入自定义标签筛选。"}
+          <div className="sidebar-tag-input-row">
+            <input
+              id="sidebar-tag"
+              className="sidebar-tag-input"
+              value={tagDraft}
+              onChange={(event) => setTagDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing) return;
+                if (event.key === "Enter" || event.key === "," || event.key === "，") {
+                  event.preventDefault();
+                  commitTagDraft();
+                }
+              }}
+              placeholder="输入标签后按 Enter 添加"
+              aria-describedby="sidebar-tag-help sidebar-tag-status"
+              autoComplete="off"
+            />
+            <button type="button" className="sidebar-tag-add" disabled={!tagDraft.trim()} onClick={commitTagDraft}>
+              添加
+            </button>
+          </div>
+          <p id="sidebar-tag-help" className="sidebar-filter-hint">
+            预设标签同组任选（OR）、跨组同时满足（AND）；每个自定义标签都须满足。输入预设词也按所属组匹配。
           </p>
-          {tag.trim() ? (
-            <p className="sidebar-active-tag">
-              <span>当前标签：{tag}</span>
-              <button type="button" onClick={() => setTag("")}>
-                清除
-              </button>
-            </p>
-          ) : null}
-          {projectType === "角色" ? (
-            <div className="sidebar-tag-groups">
-              {(Object.keys(CHARACTER_FACET_OPTIONS) as Array<keyof typeof CHARACTER_FACET_OPTIONS>).map((group) => (
-                <details key={group} className="sidebar-tag-group">
-                  <summary>
-                    官方 · {group}
-                    <span>{CHARACTER_FACET_OPTIONS[group].length}</span>
-                  </summary>
-                  <fieldset className="sidebar-tags" aria-label={`${group}标签`}>
-                    {(CHARACTER_FACET_OPTIONS[group] as readonly string[]).map((value) => (
-                      <button type="button" key={value} aria-pressed={tag === value} onClick={() => applyTag(value)}>
-                        {value}
-                      </button>
-                    ))}
-                  </fieldset>
-                </details>
+          <p id="sidebar-tag-status" className="sidebar-filter-hint" role="status" aria-live="polite">
+            {tagLimitMessage ??
+              `已选 ${tags.length} / ${MAX_SELECTED_TAGS} 个标签${atTagLimit ? "，请先移除再添加。" : "。"}`}
+          </p>
+          {tags.length > 0 ? (
+            <section className="sidebar-selected-tags" aria-label="已选筛选标签">
+              {tags.map((value) => (
+                <button
+                  type="button"
+                  key={value}
+                  className="filter-chip active"
+                  aria-label={`移除筛选标签 ${value}`}
+                  title={presetTagGroup(value) ? `预设 · ${presetTagGroup(value)}` : "自定义标签 · AND"}
+                  onClick={() => removeTag(value)}
+                >
+                  {value}
+                  <X aria-hidden="true" />
+                </button>
               ))}
-            </div>
+            </section>
           ) : null}
+          <div className="sidebar-tag-groups">
+            {groups.map((group) => (
+              <details
+                key={group.name}
+                className="sidebar-tag-group"
+                open={group.tags.some((value) => tags.includes(value))}
+              >
+                <summary>
+                  {group.name}
+                  <span>{group.tags.length}</span>
+                </summary>
+                <fieldset className="sidebar-tags" aria-label={`${group.name}标签`}>
+                  {group.tags.map((value) => (
+                    <button
+                      type="button"
+                      key={value}
+                      aria-pressed={tags.includes(value)}
+                      disabled={atTagLimit && !tags.includes(value)}
+                      onClick={() => {
+                        if (setView("browse")) toggleTag(value);
+                      }}
+                    >
+                      {value}
+                    </button>
+                  ))}
+                </fieldset>
+              </details>
+            ))}
+          </div>
           {pageTags.length > 0 ? (
             <details className="sidebar-tag-group">
               <summary>
@@ -199,7 +282,15 @@ export function WorkshopSidebar({
               </summary>
               <fieldset className="sidebar-tags" aria-label="本页常见标签">
                 {pageTags.map((value) => (
-                  <button type="button" key={value} aria-pressed={tag === value} onClick={() => applyTag(value)}>
+                  <button
+                    type="button"
+                    key={value}
+                    aria-pressed={tags.includes(value)}
+                    disabled={atTagLimit && !tags.includes(value)}
+                    onClick={() => {
+                      if (setView("browse")) toggleTag(value);
+                    }}
+                  >
                     {value}
                   </button>
                 ))}

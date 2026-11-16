@@ -1,4 +1,13 @@
-import type { ProjectEntryKind } from "./content-policy.js";
+export type ProjectEntryKind = "worldbook" | "regex";
+export type ProjectContentPresence = Record<ProjectEntryKind, boolean>;
+
+export function validateProjectContentPresence(
+  presence: ProjectContentPresence,
+): { valid: true } | { valid: false; error: string } {
+  return presence.worldbook || presence.regex
+    ? { valid: true }
+    : { valid: false, error: "项目必须包含有效且非空的世界书或正则" };
+}
 
 type EntryRef = {
   entry: Record<string, unknown>;

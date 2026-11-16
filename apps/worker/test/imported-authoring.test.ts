@@ -50,18 +50,18 @@ async function seedImported(workingNo = 7, publishedNo = workingNo) {
   const created = await request("", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ title: "Working" }),
+    body: JSON.stringify({ title: "Working", projectType: "角色", includedTypes: ["玩法"] }),
   });
   const { project, workingVersionId } = (await created.json()) as { project: { id: string }; workingVersionId: string };
   const publishedId = workingNo === publishedNo ? workingVersionId : crypto.randomUUID();
   await bindings.DB.prepare(
-    "UPDATE project_versions SET version_no = ?, description = NULL, project_type = NULL, extension_type = NULL, version_label = NULL WHERE id = ?",
+    "UPDATE project_versions SET version_no = ?, description = NULL, version_label = NULL WHERE id = ?",
   )
     .bind(workingNo, workingVersionId)
     .run();
   if (publishedId !== workingVersionId) {
-    await bindings.DB.prepare(`INSERT INTO project_versions (id, project_id, version_no, title, description, tags, created_by, created_at)
-      VALUES (?, ?, ?, 'Published', 'Published description', '[]', ?, ?)`)
+    await bindings.DB.prepare(`INSERT INTO project_versions (id, project_id, version_no, title, description, project_type, tags, created_by, created_at)
+      VALUES (?, ?, ?, 'Published', 'Published description', '角色', '[]', ?, ?)`)
       .bind(publishedId, project.id, publishedNo, session.userId, now)
       .run();
   }
@@ -181,12 +181,12 @@ describe("imported publication authoring", () => {
     ).toEqual({ working_version_id: successor.versionId, published_version_id: publishedId, row_version: 2 });
   });
 
-  it("preserves null working metadata through unrelated edits and successor copies", async () => {
+  it("preserves nullable text and required taxonomy through unrelated edits and successor copies", async () => {
     const { projectId } = await seedImported(3, 9);
     const expected = {
       description: null,
-      projectType: null,
-      extensionType: null,
+      projectType: "角色",
+      includedTypes: ["玩法"],
       versionLabel: null,
     };
     await expect((await request(`/${projectId}/draft`)).json()).resolves.toMatchObject({ project: expected });

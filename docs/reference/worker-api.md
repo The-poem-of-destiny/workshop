@@ -36,6 +36,27 @@
 
 例如，同源浏览器创建 browser 流后打开响应中的 URL；校验 callback 消息的来源和 state，使用消息中的 token 请求 `/api/v1/me`。device/embed 必须保留创建流时的绑定 cookie，让 OAuth callback 和兑换请求使用同一浏览器上下文；device 状态查询还要提供 deviceCode。不要把 token、deviceCode 或兑换 code 写入日志。
 
+## 项目分类与标签
+
+项目以 `projectType` 表示恰好一个必填主分类，枚举顺序为 `系统核心`、`角色`、`内容扩展`、`玩法`、`事件`、`体验优化`。系统核心指玩家的命定核心伙伴，不表示整套游戏替换。缺失主分类或使用旧值 `扩展` 等非法值返回 400，不提供运行时默认分类或旧值转换。
+
+- `includedTypes` 是独立的“还包含”分类数组，不是普通标签。创建时省略默认为 `[]`；完整项目响应始终包含该数组，按上述分类顺序排列。不得包含主分类自身、系统核心或重复值。
+- PATCH 省略 `includedTypes` 时保留已有值。仅修改主分类后若与已有“还包含”冲突，整次更新返回 400，不改变资料或 `rowVersion`；应在同一 PATCH 中明确传入合法的新数组。
+- `tags: string[]` 只保存普通标签，预设词与自定义词使用同一字段，不附加子分类。最多 20 个且不得重复；每词为 1–100 个 Unicode code points，而非 UTF-16 code units。API 输入先按 JavaScript `trim()` 规范化，再检查长度和重复；tab、BOM 等边界空白会被移除，U+0085 与 U+0000 不因此被删除或禁止。持久化值必须已经 canonical，数据库不会静默修剪后再存储。
+- 创建草稿可以尚无内容；提交时必须至少有一种有效非空内容。全部六类均允许仅世界书、仅正则或二者混合，不因分类增加内容种类限制，也不放宽原有解析、安全、权限和送审检查。
+
+运行时请求和响应不使用 `extensionType` 等旧子分类字段；这些字段不能替代 `projectType`、`includedTypes` 或 `tags`。字段 schema 见 [projects.ts](../../packages/contracts/src/projects.ts) 与 [authoring.ts](../../packages/contracts/src/authoring.ts)，预设词表及分组以 [taxonomy.ts](../../packages/domain/src/taxonomy.ts) 为准。
+
+### 目录筛选与游标
+
+`GET /api/v1/projects` 使用以下组合规则，分类、标签、作者和搜索条件之间为 AND：
+
+- 可以重复传入 `projectType`，所选主类之间为 OR。默认 `includeContained=false`，只匹配项目主分类；设为 `true` 才同时匹配 `includedTypes`。
+- 可以重复传入 `tag`。按上述输入规则规范化并去重后，预设词和自定义词合计最多 12 个；第 13 个重复词不增加名额，第 13 个唯一词返回 400。
+- 同一预设组内为 OR、不同预设组之间为 AND；每个自定义词各自为 AND。手输词只要命中预设词表，也按其预设组处理，不按输入来源变成自定义词。例如 `tag=人类&tag=精灵/半精灵&tag=温柔&tag=旅程甲` 表示“人类或精灵/半精灵”，且“温柔”，且“旅程甲”。
+- 主类集合按枚举顺序、标签集合按规范化后的去重排序生成统一查询身份；参数重排、重复以及显式 `includeContained=false` 不改变其语义。目录查询、cursor scope 和[公开缓存身份](cache-design.md#目录筛选的规范化缓存身份)使用相同的规范化筛选值。
+- 同一筛选集合的重排或重复可以继续使用原 cursor。改变主类集合、`includeContained`、标签、作者、搜索、排序或有效统计周期后，旧 cursor 返回 400，应从第一页重新查询。
+
 ## 发现、项目和下载
 
 以下路径以 `/api/v1` 为前缀。公开读取不要求会话；私有发布内容的读取权限由各 handler 和 storage 判定。
@@ -46,7 +67,7 @@
 | --- | --- |
 | GET `/health` | 服务版本和 DB、R2、ASSETS 绑定是否存在；不是依赖连通性检查。 |
 | GET `/home` | 返回 `site`、`discovery`、`projects` 三段；每段为 `{ok:true,data}` 或 `{ok:false,error}`。全部成功为公开 200，部分失败为 no-store 200，全部失败为 no-store 500。默认项目列表等价于无筛选的 `/projects`。 |
-| GET `/projects` | `limit` 1–50 默认 25；`cursor`、`sort`、`period`、`projectType`、`authorId`、`tag`、`search`；合法值见 [projects.ts](../../packages/contracts/src/projects.ts)。非法查询或 cursor 400。 |
+| GET `/projects` | `limit` 1–50 默认 25；`cursor`、`sort`、`period`、可重复的 `projectType`、`includeContained`、`authorId`、可重复的 `tag`、`search`；组合语义和 12 词上限见[目录筛选与游标](#目录筛选与游标)。非法查询或 cursor 400。 |
 | GET `/projects/batch` | 唯一 `ids` 参数为逗号分隔的 1–50 个 ID，trim、去重并按字典序排列；响应 `{items,missingIds}`，隐藏或不存在的项目只列入 missingIds。空项、重复参数或未知非 tracking 参数为 400。 |
 | GET `/projects/discovery` | 发现项目列表。 |
 | GET `/projects/:id` | 已发布项目详情；不存在或不可公开访问 404。 |
@@ -98,9 +119,9 @@ URL=$(jq -r '.files[0].url // empty' /tmp/workshop-downloads.json)
 
 | 方法和路径 | 输入及结果 |
 | --- | --- |
-| POST `/` | `createProjectSchema`，201 返回 project、rowVersion、workingVersionId；元数据或 Discord 线程 URL 不合法 400。 |
+| POST `/` | `createProjectSchema`，必填主分类，`includedTypes` 省略为 `[]`；201 返回 project、rowVersion、workingVersionId；[分类／标签](#项目分类与标签)、其他元数据或 Discord 线程 URL 不合法 400。 |
 | GET `/:id/draft` | 返回项目、rowVersion、workingVersionId、latestSubmission；不存在或无权 404。 |
-| PATCH `/:id` | If-Match、`patchProjectSchema`；成功返回更新结果；冻结 409。 |
+| PATCH `/:id` | If-Match、`patchProjectSchema`；省略的分类／标签字段保留原值，合并后仍须满足[分类／标签合同](#项目分类与标签)；成功返回 versionId、rowVersion，需重读 draft 获取完整项目；冻结 409。 |
 | DELETE `/:id` | If-Match；软删除，204。 |
 | PATCH `/:id/visibility` | If-Match、`{"visibility":"public"}` 或 `private`；返回 rowVersion。 |
 | POST `/:id/versions` | If-Match、`patchProjectSchema`；201 返回 versionId、rowVersion。 |

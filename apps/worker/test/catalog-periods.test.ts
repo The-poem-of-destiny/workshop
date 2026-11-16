@@ -1,5 +1,5 @@
 import { env, SELF } from "cloudflare:test";
-import { projectListQuerySchema, projectListResponseSchema } from "@workshop/contracts";
+import { type ProjectType, projectListQuerySchema, projectListResponseSchema } from "@workshop/contracts";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DataEnv } from "../src/data/env";
@@ -21,15 +21,20 @@ beforeEach(async () => {
 });
 afterEach(() => vi.useRealTimers());
 
-async function project(id: string, type = "角色", tags = '["奇幻"]') {
+async function project(
+  id: string,
+  type: ProjectType = "角色",
+  tags = '["奇幻"]',
+  includedTypes: readonly ProjectType[] = [],
+) {
   await bindings.DB.prepare(`INSERT INTO projects
     (id, author_id, visibility, published_at, updated_at)
     VALUES (?, 'u', 'public', ?, ?)`)
     .bind(id, asOf, asOf)
     .run();
   await bindings.DB.prepare(`INSERT INTO project_versions
-    (id, project_id, version_no, title, project_type, tags, created_by) VALUES (?, ?, 1, ?, ?, ?, 'u')`)
-    .bind(`r-${id}`, id, `奇幻${id}`, type, tags)
+    (id, project_id, version_no, title, project_type, tags, included_types, created_by) VALUES (?, ?, 1, ?, ?, ?, ?, 'u')`)
+    .bind(`r-${id}`, id, `奇幻${id}`, type, tags, JSON.stringify(includedTypes))
     .run();
   await bindings.DB.prepare("UPDATE projects SET published_version_id = ? WHERE id = ?").bind(`r-${id}`, id).run();
 }
@@ -61,6 +66,94 @@ describe("catalog net windows on real D1", () => {
     const omitted = await SELF.fetch("https://workshop.example/api/v1/projects?sort=likes");
     const body = projectListResponseSchema.parse(await omitted.json());
     expect(body.items.map((item) => item.id)).toEqual(["older", "recent"]);
+  });
+
+  it("matches repeated primary selections with OR and only includes contained categories when requested", async () => {
+    await project("role", "角色");
+    await project("event", "事件");
+    await project("core", "系统核心", '["合集"]', ["角色", "玩法"]);
+    await project("content", "内容扩展");
+    const selected = await SELF.fetch(
+      "https://workshop.test/api/v1/projects?projectType=事件&projectType=角色&projectType=角色",
+    );
+    expect(selected.status).toBe(200);
+    const primary = projectListResponseSchema.parse(await selected.json());
+    expect(primary.items.map((item) => item.id).sort()).toEqual(["event", "role"]);
+    const contained = await SELF.fetch(
+      "https://workshop.test/api/v1/projects?projectType=角色&projectType=事件&includeContained=true",
+    );
+    expect(contained.status).toBe(200);
+    const combined = projectListResponseSchema.parse(await contained.json());
+    expect(combined.total).toBe(3);
+    expect(combined.items.map((item) => item.id).sort()).toEqual(["core", "event", "role"]);
+    expect(combined.items.find((item) => item.id === "core")).toMatchObject({
+      projectType: "系统核心",
+      includedTypes: ["角色", "玩法"],
+      tags: ["合集"],
+    });
+    const noFilter = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ includeContained: true }));
+    expect(noFilter.total).toBe(4);
+  });
+
+  it("ORs presets within a group, ANDs groups and every custom tag, independent of primary category", async () => {
+    await project("human", "玩法", '["人类","战士","自定义甲","自定义乙"]');
+    await project("elf", "事件", '["精灵/半精灵","战士","自定义甲","自定义乙"]');
+    await project("wrong-identity", "角色", '["人类","法师","自定义甲","自定义乙"]');
+    await project("missing-custom", "角色", '["人类","战士","自定义甲"]');
+    await project("wrong-species", "角色", '["兽族","战士","自定义甲","自定义乙"]');
+    const query = new URLSearchParams();
+    for (const tag of ["自定义乙", "精灵/半精灵", "战士", "人类", "自定义甲", "人类"]) query.append("tag", tag);
+    const response = await SELF.fetch(`https://workshop.test/api/v1/projects?${query}`);
+    expect(response.status).toBe(200);
+    const body = projectListResponseSchema.parse(await response.json());
+    expect(body.total).toBe(2);
+    expect(body.items.map((item) => item.id).sort()).toEqual(["elf", "human"]);
+    const combined = await listPublishedProjects(
+      bindings.DB,
+      projectListQuerySchema.parse({
+        projectType: ["玩法", "体验优化"],
+        tag: ["战士", "人类", "精灵/半精灵", "自定义甲", "自定义乙"],
+      }),
+    );
+    expect(combined.items.map((item) => item.id)).toEqual(["human"]);
+  });
+
+  it("keeps cursor scope stable for equivalent repeated selections and rejects a thirteenth unique tag", async () => {
+    for (const id of ["a", "b", "c"]) await project(id, "角色", '["人类","战士"]');
+    const query = projectListQuerySchema.parse({ limit: 1, projectType: ["玩法", "角色"], tag: ["战士", "人类"] });
+    const first = await listPublishedProjects(bindings.DB, query);
+    expect(first.nextCursor).not.toBeNull();
+    const equivalent = projectListQuerySchema.parse({
+      limit: 1,
+      cursor: first.nextCursor!,
+      projectType: ["角色", "玩法", "角色"],
+      tag: ["人类", "战士", "人类"],
+    });
+    expect(await isValidProjectListCursor(equivalent)).toBe(true);
+    expect((await listPublishedProjects(bindings.DB, equivalent)).items.map((item) => item.id)).toEqual(["b"]);
+    const tags = ["人类", "战士", ...Array.from({ length: 10 }, (_, index) => `custom${index}`)];
+    const parameters = new URLSearchParams();
+    for (const tag of [...tags, "人类"]) parameters.append("tag", tag);
+    expect((await SELF.fetch(`https://workshop.test/api/v1/projects?${parameters}`)).status).toBe(200);
+    parameters.append("tag", "thirteenth");
+    expect((await SELF.fetch(`https://workshop.test/api/v1/projects?${parameters}`)).status).toBe(400);
+  });
+
+  it("paginates twelve maximum-length Unicode tags within the cursor request limit", async () => {
+    const tags = Array.from({ length: 12 }, (_, index) => `${index.toString().padStart(2, "0")}${"签".repeat(98)}`);
+    for (const id of ["a", "b"]) await project(id, "角色", JSON.stringify(tags));
+    const parameters = new URLSearchParams({ limit: "1" });
+    for (const tag of tags) parameters.append("tag", tag);
+    const first = await SELF.fetch(`https://workshop.test/api/v1/projects?${parameters}`);
+    expect(first.status).toBe(200);
+    const page = projectListResponseSchema.parse(await first.json());
+    expect(page.items.map((item) => item.id)).toEqual(["b"]);
+    expect(page.nextCursor).not.toBeNull();
+    expect(page.nextCursor!.length).toBeLessThanOrEqual(2048);
+    parameters.set("cursor", page.nextCursor!);
+    const second = await SELF.fetch(`https://workshop.test/api/v1/projects?${parameters}`);
+    expect(second.status).toBe(200);
+    expect(projectListResponseSchema.parse(await second.json()).items.map((item) => item.id)).toEqual(["a"]);
   });
 
   it("rejects anonymous complete previews and returns authenticated content privately", async () => {
@@ -116,7 +209,10 @@ describe("catalog net windows on real D1", () => {
         ).first<{ net: number }>()
       )?.net,
     ).toBe(0);
-    const page = await listPublishedProjects(bindings.DB, { limit: 10, sort: "likes", period: "7d" });
+    const page = await listPublishedProjects(
+      bindings.DB,
+      projectListQuerySchema.parse({ limit: 10, sort: "likes", period: "7d" }),
+    );
     expect(page.items.map((item) => item.id)).toEqual(["zero", "negative"]);
     expect(page.items[1]?.counts.likes).toBe(0);
   });
@@ -133,7 +229,10 @@ describe("catalog net windows on real D1", () => {
       await event("negative", -1, asOf);
       vi.useFakeTimers({ toFake: ["Date"] });
       vi.setSystemTime(new Date(asOf));
-      const page = await listPublishedProjects(bindings.DB, { limit: 10, sort: "likes", period: `${days}d` });
+      const page = await listPublishedProjects(
+        bindings.DB,
+        projectListQuerySchema.parse({ limit: 10, sort: "likes", period: `${days}d` }),
+      );
       expect(page.items.map((item) => item.id)).toEqual(["inside", "outside", "negative"]);
       expect(page.total).toBe(3);
     });
@@ -141,7 +240,7 @@ describe("catalog net windows on real D1", () => {
 
   it("filters the complete result, reports exact totals on every page and binds cursors to query scope", async () => {
     for (const id of ["a", "b", "c", "d", "e"]) await project(id);
-    await project("other-type", "扩展");
+    await project("other-type", "内容扩展");
     await project("other-tag", "角色", '["科幻"]');
     await event("a", 1, asOf);
     await event("c", -1, asOf);
@@ -163,18 +262,32 @@ describe("catalog net windows on real D1", () => {
     for (const change of [
       { sort: "downloads" as const },
       { period: "7d" as const },
-      { tag: "科幻" },
+      { projectType: ["事件"] },
+      { includeContained: true },
+      { tag: ["科幻"] },
       { search: "别的" },
       { authorId: "other" },
     ]) {
-      expect(isValidProjectListCursor({ ...query, ...change, cursor: first.nextCursor! })).toBe(false);
+      expect(
+        await isValidProjectListCursor(
+          projectListQuerySchema.parse({ ...query, ...change, cursor: first.nextCursor! }),
+        ),
+      ).toBe(false);
     }
-    const second = await listPublishedProjects(bindings.DB, { ...query, cursor: first.nextCursor! });
-    const third = await listPublishedProjects(bindings.DB, { ...query, cursor: second.nextCursor! });
+    const second = await listPublishedProjects(
+      bindings.DB,
+      projectListQuerySchema.parse({ ...query, cursor: first.nextCursor! }),
+    );
+    const third = await listPublishedProjects(
+      bindings.DB,
+      projectListQuerySchema.parse({ ...query, cursor: second.nextCursor! }),
+    );
     expect([second.total, third.total]).toEqual([5, 5]);
     expect([...first.items, ...second.items, ...third.items].map((item) => item.id)).toEqual(["a", "e", "d", "b", "c"]);
     expect(third.nextCursor).toBeNull();
-    expect((await listPublishedProjects(bindings.DB, { ...query, tag: "不存在" })).total).toBe(0);
+    expect(
+      (await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ ...query, tag: "不存在" }))).total,
+    ).toBe(0);
     const invalid = await SELF.fetch(
       new URL(
         `/api/v1/projects?sort=likes&period=7d&cursor=${encodeURIComponent(first.nextCursor!)}`,
@@ -196,12 +309,21 @@ describe("catalog net windows on real D1", () => {
     // A draft edit newer than either approval must not move b ahead of a.
     await bindings.DB.prepare("UPDATE projects SET updated_at = '2099-12-31T00:00:00.000Z' WHERE id = 'b'").run();
     for (const sort of ["likes", "downloads", "updated"] as const) {
-      const page = await listPublishedProjects(bindings.DB, { limit: 10, sort, period: "all" });
+      const page = await listPublishedProjects(
+        bindings.DB,
+        projectListQuerySchema.parse({ limit: 10, sort, period: "all" }),
+      );
       expect(page.items.map((item) => item.id)).toEqual(["a", "b"]);
     }
-    const published = await listPublishedProjects(bindings.DB, { limit: 10, sort: "published" });
+    const published = await listPublishedProjects(
+      bindings.DB,
+      projectListQuerySchema.parse({ limit: 10, sort: "published" }),
+    );
     expect(published.items.map((item) => item.id)).toEqual(["b", "a"]);
-    const updated = await listPublishedProjects(bindings.DB, { limit: 10, sort: "updated" });
+    const updated = await listPublishedProjects(
+      bindings.DB,
+      projectListQuerySchema.parse({ limit: 10, sort: "updated" }),
+    );
     expect(updated.items.map((item) => item.updatedAt)).toEqual([
       "2026-10-26T11:00:00.000Z",
       "2026-10-26T10:00:00.000Z",
@@ -226,10 +348,14 @@ describe("catalog net windows on real D1", () => {
     vi.setSystemTime(new Date(asOf));
     let reads = Infinity;
     let writes = Infinity;
-    const page = await listPublishedProjects(bindings.DB, { limit: 2, sort: "downloads", period: "7d" }, (meta) => {
-      reads = meta.rows_read;
-      writes = meta.rows_written;
-    });
+    const page = await listPublishedProjects(
+      bindings.DB,
+      projectListQuerySchema.parse({ limit: 2, sort: "downloads", period: "7d" }),
+      (meta) => {
+        reads = meta.rows_read;
+        writes = meta.rows_written;
+      },
+    );
     expect(page.items.map((item) => item.id)).toEqual(["inside", "outside"]);
     expect(page.total).toBe(3);
     expect(reads).toBeLessThan(200);

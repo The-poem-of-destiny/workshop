@@ -50,7 +50,11 @@ export function AdminProjects({
                 {project.publishedVersionId ? "已发布" : "未发布"}
               </small>
             </span>
-            <span className="status">{project.deletedAt ? "已删除" : (project.projectType ?? "未分类")}</span>
+            <span className="status">
+              {project.deletedAt ? "已删除 · " : ""}
+              {project.projectType}
+              {project.includedTypes.length ? `（包含：${project.includedTypes.join("、")}）` : ""}
+            </span>
           </div>
         ))}
       </div>
