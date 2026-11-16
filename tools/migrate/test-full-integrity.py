@@ -23,6 +23,7 @@ class IntegrityTest(unittest.TestCase):
                 "projects": [{"id": "p", "author_id": "u", "visibility": "public",
                               "working_version_id": "v", "published_version_id": "v"}],
                 "project_versions": [{"id": "v", "project_id": "p", "version_no": 1, "title": "Project",
+                                      "project_type": "角色", "included_types": "[]",
                                       "created_by": "u", "entry_index": json.dumps({"schemaVersion": 1, "entries": []}),
                                       "manifest_hash": hashlib.sha256(b"").hexdigest()}],
             },

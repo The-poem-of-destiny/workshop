@@ -8,6 +8,7 @@ const PROJECT_LIST_PARAMETERS: Record<string, true> = {
   sort: true,
   period: true,
   projectType: true,
+  includeContained: true,
   authorId: true,
   tag: true,
   search: true,
@@ -51,10 +52,15 @@ function canonicalProjectBatchSearch(source: URLSearchParams): URLSearchParams |
 }
 
 function canonicalProjectListSearch(source: URLSearchParams): URLSearchParams | null {
-  const values = Object.fromEntries(source);
+  const values = {
+    ...Object.fromEntries(source),
+    projectType: source.getAll("projectType"),
+    tag: source.getAll("tag"),
+  };
   for (const [name] of source) {
     if (isTrackingParameter(name)) continue;
-    if (!PROJECT_LIST_PARAMETERS[name] || source.getAll(name).length !== 1) return null;
+    if (!PROJECT_LIST_PARAMETERS[name]) return null;
+    if (name !== "projectType" && name !== "tag" && source.getAll(name).length !== 1) return null;
   }
   const parsed = projectListQuerySchema.safeParse(values);
   if (!parsed.success) return null;
@@ -70,9 +76,10 @@ function canonicalProjectListSearch(source: URLSearchParams): URLSearchParams | 
     query.set("period", parsed.data.period);
   }
   if (parsed.data.cursor) query.set("cursor", parsed.data.cursor);
-  if (parsed.data.projectType) query.set("projectType", parsed.data.projectType);
+  for (const type of parsed.data.projectType) query.append("projectType", type);
+  if (parsed.data.includeContained) query.set("includeContained", "true");
   if (parsed.data.authorId) query.set("authorId", parsed.data.authorId);
-  if (parsed.data.tag) query.set("tag", parsed.data.tag);
+  for (const tag of parsed.data.tag) query.append("tag", tag);
   if (parsed.data.search) query.set("search", parsed.data.search);
   query.sort();
   return query;

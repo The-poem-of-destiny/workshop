@@ -726,6 +726,42 @@
 .check-copy-entry {
   justify-self: start;
 }
+.project-classification {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.project-classification > label {
+  display: grid;
+  gap: 6px;
+}
+.included-types {
+  min-width: 0;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+.included-types legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.included-type-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 8px;
+}
+.included-type-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+}
+.included-type-options input {
+  width: auto;
+}
 .tag-picker {
   display: grid;
   gap: 8px;

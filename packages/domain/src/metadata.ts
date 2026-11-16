@@ -1,3 +1,5 @@
+import { MAX_CUSTOM_TAGS } from "./taxonomy.js";
+
 export const METADATA_CHECKER_REVISION = "metadata-v1";
 
 export const METADATA_LIMITS = {
@@ -5,7 +7,7 @@ export const METADATA_LIMITS = {
   description: 100_000,
   requirementsNotes: 2_000,
   versionLabel: 80,
-  tags: 100,
+  tags: MAX_CUSTOM_TAGS,
   tagLength: 100,
   coverPosition: [0, 100],
   coverZoom: [1, 3],
@@ -65,8 +67,23 @@ export function inspectProjectMetadata(input: MetadataInput): MetadataInspection
 
   const tags = input.tags ?? [];
   if (tags.length > METADATA_LIMITS.tags) add(findings, "tags", "block", "标签数量过多");
-  if (tags.some((tag) => tag.length > METADATA_LIMITS.tagLength)) add(findings, "tags", "block", "单个标签过长");
-  if (new Set(tags).size !== tags.length) add(findings, "tags", "warn", "存在重复标签");
+  if (tags.some((tag) => !tag.trim() || tag !== tag.trim()))
+    add(findings, "tags", "block", "标签不能为空或包含首尾空白");
+  if (
+    tags.some((tag) => {
+      if (tag.length <= METADATA_LIMITS.tagLength) return false;
+      let codePoints = 0;
+      for (let index = 0; index < tag.length; index += 1) {
+        codePoints += 1;
+        if (codePoints > METADATA_LIMITS.tagLength) return true;
+        if (tag.codePointAt(index)! > 0xffff) index += 1;
+      }
+      return false;
+    })
+  ) {
+    add(findings, "tags", "block", "单个标签过长");
+  }
+  if (new Set(tags).size !== tags.length) add(findings, "tags", "block", "存在重复标签");
 
   for (const [field, value] of [
     ["coverPositionX", input.coverPositionX],

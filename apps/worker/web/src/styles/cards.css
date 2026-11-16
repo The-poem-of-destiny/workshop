@@ -383,7 +383,7 @@
   background: #253e38;
   color: #a5ddc4;
 }
-.card .project-type-tag[data-type="扩展"] {
+.card .project-type-tag[data-type="内容扩展"] {
   background: #35334b;
   color: #c9c2f2;
 }
@@ -394,6 +394,14 @@
 .card .project-type-tag[data-type="事件"] {
   background: #432d35;
   color: #edb5c4;
+}
+.card .project-type-tag[data-type="玩法"] {
+  background: #253b4b;
+  color: #aed5ef;
+}
+.card .project-type-tag[data-type="体验优化"] {
+  background: #363c2b;
+  color: #d0dda9;
 }
 .card-more summary svg {
   width: 18px;

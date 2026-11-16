@@ -1,5 +1,12 @@
-import { type AuditAction, adminAuditEventSchema, auditActionSchema, serializeAuditDetail } from "@workshop/contracts";
+import {
+  type AuditAction,
+  adminAuditEventSchema,
+  auditActionSchema,
+  type ProjectType,
+  serializeAuditDetail,
+} from "@workshop/contracts";
 import { decodeCursor, encodeCursor, parseJson } from "./admin-values.js";
+import { parseIncludedTypes } from "./authoring-model.js";
 
 interface ProjectRow {
   id: string;
@@ -7,8 +14,8 @@ interface ProjectRow {
   author_name: string;
   title: string;
   description: string | null;
-  project_type: string | null;
-  extension_type: string | null;
+  project_type: ProjectType;
+  included_types: string;
   search_tags: string;
   visibility: "public" | "private";
   working_version_id: string | null;
@@ -37,7 +44,7 @@ export async function listAdminProjects(
   db: D1Database,
   limit: number,
   cursor?: string,
-  filters: { search?: string; projectType?: string; includeDeleted?: boolean } = {},
+  filters: { search?: string; projectType?: ProjectType; includeDeleted?: boolean } = {},
 ) {
   const offset = decodeCursor(cursor);
   const where: string[] = [];
@@ -55,7 +62,7 @@ export async function listAdminProjects(
   const result = await db
     .prepare(`
     SELECT p.id, p.author_id, COALESCE(u.global_name, u.username) AS author_name,
-           v.title, v.description, v.project_type, v.extension_type,
+           v.title, v.description, v.project_type, v.included_types,
            v.tags AS search_tags, p.visibility, p.working_version_id, p.published_version_id,
            p.published_at, p.downloads_count, p.likes_count, p.subscriptions_count,
            p.row_version, p.created_at, p.updated_at, p.deleted_at
@@ -73,7 +80,7 @@ export async function listAdminProjects(
       title: row.title,
       description: row.description,
       projectType: row.project_type,
-      extensionType: row.extension_type,
+      includedTypes: parseIncludedTypes(row.included_types),
       searchTags: parseJson(row.search_tags),
       visibility: row.visibility,
       author: { id: row.author_id, name: row.author_name },

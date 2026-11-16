@@ -3,6 +3,7 @@ import {
   extractProjectEntries,
   inspectProjectMetadata,
   type ProjectEntryKind,
+  validateProjectContentPresence,
   validateProjectContentText,
 } from "@workshop/domain";
 import { analyzeFiles, REVIEW_CHECKER_VERSION, routeGate } from "./content-checker";
@@ -160,6 +161,8 @@ export class ContentService implements DurableObject {
     if (inputFiles.length === 0) throw new Error("冻结内容没有世界书或正则文件");
     const files = inputFiles.map((file) => {
       if (file.text === null) throw new Error(`冻结文件缺失：${file.kind}`);
+      const validation = validateProjectContentText(file.text, file.kind);
+      if (!validation.valid) throw new Error(`冻结文件无效：${file.kind}：${validation.error}`);
       return { fileName: `${file.kind}.json`, type: file.kind, text: file.text };
     });
     const report = analyzeFiles(files);
@@ -245,6 +248,10 @@ export class ContentService implements DurableObject {
       presence[kind] = true;
       counts[kind] = result.entryCount;
       hashes[kind] = await sha256(text);
+    }
+    if (!error) {
+      const validation = validateProjectContentPresence(presence);
+      if (!validation.valid) error = validation.error;
     }
     const entries = error ? [] : await buildEntryIndex(files);
     return Response.json({ presence, counts, hashes, error, entries });

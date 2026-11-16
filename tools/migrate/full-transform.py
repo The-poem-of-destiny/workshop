@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prepare a deterministic, offline legacy snapshot migration inventory.
 
-Usage: python3 tools/migrate/full-transform.py DUMP.sql BACKUP-MANIFEST.json OUTPUT.json
+Usage: python3 tools/migrate/full-transform.py DUMP.sql BACKUP-MANIFEST.json OUTPUT.json --review REVIEW.json
 
 DUMP is the complete legacy D1 SQL export, not an application database. The
 manifest is the associated backup manifest. OUTPUT is sensitive: it contains
@@ -38,6 +38,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from full_transform_history import transform_history
+from taxonomy import read_review, resolve_review
 
 
 DERIVED = {
@@ -80,57 +81,13 @@ def url_key(value):
     return path if path and ".." not in path.split("/") else None
 
 
-def project_tags(row):
-    """Merge legacy keyword and facet values into the current flat tag list.
-
-    The flat list cannot represent facet groups or a separate display selection;
-    those source fields remain diagnostics even when their values are included.
-    """
-    unresolved = set()
-
-    def parse(field, empty, expected):
-        raw = row.get(field)
-        if raw in (None, ""):
-            return empty
-        try:
-            value = json.loads(raw)
-        except (TypeError, ValueError):
-            unresolved.add(field)
-            return None
-        if not isinstance(value, expected):
-            unresolved.add(field)
-            return None
-        return value
-
-    tags = parse("tags", [], list)
-    custom = parse("custom_tags", [], list)
-    facets = parse("facets", {}, dict)
-    if tags is None or any(not isinstance(tag, str) or not tag.strip() for tag in tags):
-        unresolved.add("tags")
-        return row.get("tags") or "[]", unresolved
-    merged = list(dict.fromkeys(tags))
-    if custom is not None:
-        if any(not isinstance(tag, str) or not tag.strip() for tag in custom):
-            unresolved.add("custom_tags")
-        else:
-            merged.extend(tag for tag in dict.fromkeys(custom) if tag not in merged)
-    if facets:
-        if all(isinstance(values, list) and all(isinstance(tag, str) and tag.strip() for tag in values)
-               for values in facets.values()):
-            for values in facets.values():
-                merged.extend(tag for tag in dict.fromkeys(values) if tag not in merged)
-        else:
-            unresolved.add("facets")
-    if len(merged) > 20:
-        unresolved.add("tags exceeds current editor limit")
-    return stable(merged), unresolved
-
-
 def main():
-    if len(sys.argv) != 4:
+    if len(sys.argv) != 6 or sys.argv[4] != "--review":
         print(__doc__.strip(), file=sys.stderr)
         return 2
-    dump, manifest_path, output = map(Path, sys.argv[1:])
+    dump, manifest_path, output = map(Path, sys.argv[1:4])
+    review_path = Path(sys.argv[5])
+    taxonomy_review = read_review(review_path)
     if output.resolve() in (dump.resolve(), manifest_path.resolve()):
         raise ValueError("output must not overwrite an input")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -141,6 +98,7 @@ def main():
     db = sqlite3.connect(":memory:")
     db.executescript(dump_bytes.decode("utf-8"))
     db.row_factory = sqlite3.Row
+    classifications = resolve_review(db, hashlib.sha256(dump_bytes).hexdigest(), taxonomy_review, "legacy")
     names = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
     # SQLite's FTS shadow tables are implementation detail, not source entities.
     names = [n for n in names if not any(n.startswith(p + "_") and n[len(p) + 1:] in
@@ -285,10 +243,9 @@ def main():
         published_at = (pub.get("latest_approved_at") or pub.get("reviewed_at")) if pub else None
         if pub and not published_at:
             issue("projects", pub, "published timestamp is not present in source")
-        mapped_tags = {str(v["id"]): project_tags(v) for v in ordered}
         def common(v):
             return {"title": v["name"], "description": v.get("description"),
-                    "project_type": v.get("project_type"), "extension_type": v.get("extension_type"),
+                    **classifications[str(v["id"])],
                     "version_label": v.get("version_label") or v.get("version"),
                     "requirements": stable({"schemaVersion": 1, "dependencies": [], "conflicts": [], "notes": v["precautions"]}) if v.get("precautions") is not None else None,
                     "cover_position_x": v.get("cover_position_x"), "cover_position_y": v.get("cover_position_y"),
@@ -305,7 +262,7 @@ def main():
             vid = str(v["id"])
             rid = revision_by_source[vid]
             tables["project_versions"].append({"id": rid, "project_id": root, "version_no": number,
-                **common(v), "tags": mapped_tags[vid][0], "discord_thread_url": v.get("discord_thread_url"),
+                **common(v), "discord_thread_url": v.get("discord_thread_url"),
                 "created_by": str(v["author_id"]), "created_at": v.get("created_at"), "entry_index_ready": 0})
             version_provenance.append({"version_id": rid, "source_project_id": vid,
                 "source_root_project_id": root, "source_created_at": v.get("created_at"),
@@ -324,8 +281,6 @@ def main():
                 "compatibility_known_incompatible", "compatibility_note", "compatibility_grace_until",
                 "compatibility_updated_at", "conflicts_with_original", "original_conflict_reference_item_ids",
                 "worldbook_ejs_length_estimates", "original_conflict_entry_names", "has_ejs", "has_character_artwork")
-            if mapped_tags[vid][1]:
-                issue("projects", v, "legacy tags cannot be represented unambiguously")
             omitted_fields = {field: v[field] for field in legacy_fields
                               if v.get(field) not in (None, "", 0, "[]", "{}")}
             if omitted_fields:
@@ -493,6 +448,7 @@ def main():
         ready = version.pop("entry_index_ready")
         version["entry_index"] = stable({"schemaVersion": 1, "entries": sorted(indexes[version["id"]], key=lambda e: (e["kind"], e["entryKey"]))}) if ready else None
     result = {"format": "workshop-full-migration-preparation-v1", "inventory": inventory,
+              "taxonomy_review": taxonomy_review,
               "tables": {name: sorted(rows, key=stable) for name, rows in sorted(tables.items())},
               "version_provenance": sorted(version_provenance, key=lambda row: row["version_id"]),
               "objects": sorted(objects, key=lambda row: (row["targetKey"], row["sourceBucket"], row["sourceKey"])),

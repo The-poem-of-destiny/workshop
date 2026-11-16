@@ -13,9 +13,10 @@ projectsRoutes.get("/", async (c) => {
     cursor: c.req.query("cursor"),
     sort: c.req.query("sort"),
     period: c.req.query("period"),
-    projectType: c.req.query("projectType"),
+    projectType: c.req.queries("projectType"),
+    includeContained: c.req.query("includeContained"),
     authorId: c.req.query("authorId"),
-    tag: c.req.query("tag"),
+    tag: c.req.queries("tag"),
     search: c.req.query("search"),
   });
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid query", parsed.error.flatten());

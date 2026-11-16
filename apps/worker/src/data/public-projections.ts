@@ -67,7 +67,11 @@ export async function publicProjection(request: Request, env: DataEnv): Promise<
   if (path === "/api/v1/projects/discovery") return Response.json(await projects.projectDiscovery(env));
   if (path === "/api/v1/projects/batch") return projectBatch(url, env);
   if (path === "/api/v1/projects") {
-    const parsed = projectListQuerySchema.safeParse(Object.fromEntries(url.searchParams));
+    const parsed = projectListQuerySchema.safeParse({
+      ...Object.fromEntries(url.searchParams),
+      projectType: url.searchParams.getAll("projectType"),
+      tag: url.searchParams.getAll("tag"),
+    });
     if (!parsed.success) return error(400, "bad_request", "Invalid query");
     const result = await projects.projectList(env, parsed.data);
     return result.ok ? Response.json(result.data) : error(400, "bad_request", "Invalid cursor");
