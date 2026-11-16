@@ -71,6 +71,8 @@ pnpm check                 # 零警告 lint、检查覆盖、类型、测试、s
 pnpm e2e:local             # 真实 workerd + 本地 D1/R2 + Chromium E2E
 ```
 
+本地角色预览使用 `pnpm preview:debug`；预览前端必须显式提供 Worker 来源 `PREVIEW_API_ORIGIN`，缺失时启动会报错并退出，不会静默连接默认后端。预览账号缺失、请求失败或响应格式无效时，页面会显示账号未就绪提示，仍可匿名浏览；依赖不可用账号的角色选项保持禁用。
+
 ### 程序性质量门禁
 
 - `pnpm check:workspace` 从 workspace 声明发现包，要求每包有 typecheck/test 或在单一策略表中有明确豁免。新增包未分类、缺脚本及过期豁免均失败；`--if-present` 不再意味着可静默漏检。content 是 JavaScript；contracts 的 schema 由消费者测试覆盖，不保留空测试命令。
