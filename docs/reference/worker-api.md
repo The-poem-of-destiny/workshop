@@ -82,13 +82,17 @@
 一次逻辑获取由客户端生成一个 UUID v4；网络重试必须复用同一键，独立获取使用新键。POST 按用户、版本、UTC 日汇总，重复键不递增；世界书和正则 GET 不额外计数。每用户每版本每日最多 128 次不同逻辑获取，以有界 JSON 保存当天幂等键，达到上限返回 429，既有键重试仍成功。项目累计和日汇总计逻辑获取次数，不宣称字节传输完成。旧项目日指标保留为历史权威，不补造旧用户／版本下载记录。URL 本身不授予权限；每次 GET 都需有效 Bearer，并在打开对象后重查授权和发布指针。
 用户日统计记录所有授权逻辑获取；公开下载指标只统计公开项目的非作者普通玩家获取，作者、reviewer／owner 和私有访问不贡献公开指标。
 
-玩家推荐使用 `PUT /api/v1/recommendations/:projectId`，Bearer 和 JSON `{projectVersionId,comment}`；仅当前公开发布版可写，同一玩家／版本保留一条，可编辑或以 `DELETE` 携带同一 JSON 撤回。旧版本不会自动背书新版本。匿名 401，版本过期或项目不可访问 404。
+玩家推荐使用 `PUT /api/v1/recommendations/:projectId`，Bearer 和 JSON `{projectVersionId,comment}`；仅曾成功订阅过该项目的登录用户可写当前公开发布版，同一玩家／版本保留一条。可编辑或以 `DELETE` 携带同一 JSON 撤回自己的记录；撤回不要求仍有订阅资格，避免历史记录无法清理。订阅、安装、下载或旧五分记录都不会自动生成推荐；旧版本不会自动背书新版本。匿名 401，当前公开版本但从未订阅 403（`forbidden`），版本过期或项目不可访问 404。显式 owner 管理推荐接口保留原有权限，不代表普通玩家获得资格。
 
 发现响应包含 `batchId`、`scheduledAt` 和项目条目。仅 discovery 的 `items[].recommendations` 使用以下投影合同（也适用于 `/home` 中的 discovery 段），不应推广到独立 `GET /recommendations`：
 
 - 完整返回当前仍公开且未删除项目、对应当前发布版本的有效玩家推荐：推荐者不是项目作者，记录创建于最近 90 天内，且 `comment.trim()` 非空；编辑评语不刷新创建时间窗口。
 - 每条为 `{id,curator:{id,name,avatarUrl},comment,projectVersionId}`，返回原始 `comment`，使用推荐者当前名称与头像，按推荐记录 `id` 稳定升序排列；没有符合者时为 `[]`。同一存续记录编辑保留 ID，删除后重建不保证复用原 ID。
 - 展示读取不重算批次冻结的选取分数或贡献。撤回、评语、推荐者资料或版本变化在后续源投影读取时使用当前已提交记录；公共缓存 TTL 内仍可能短暂显示旧内容。默认公开 TTL 为 60 秒且可配置，不保证 HTTP 立即可见或全球同步撤回，见[运行配置](runtime-configuration.md#失效与撤回)。
+
+订阅使用 `project_subscriptions` 的 `(project_id,user_id)` 唯一成员行和 `active` 标记：首次成功订阅建立资格；取消仅置 `active=0`，不会删除资格或推荐；重新订阅复用同一行。当前订阅状态、列表与 `subscriptions_count`（含公开、作者和管理目录）仅统计 `active=1`，状态变更触发器在同一 SQL 写入中维护计数。重新订阅更新时间以保持原有最近订阅排序，重复订阅不改变顺序。保留成员行比另建历史表少一次资格写入和一套主键／索引；资格使用现有主键 `EXISTS`，当前列表使用 `active=1` 的用户／时间部分索引，不引入无界事件日志。推荐写入及审计在同一 D1 batch 内再次原子校验成员资格与当前公开版本，拒绝时不写推荐或审计，也不重算冻结贡献。
+
+本改动只更新未发布基线 schema 与离线转换器，不是已有数据库升级或真实数据迁移。离线转换只把源中仍有证据的现存订阅行初始化为 `active=1`；源中已有 `active` 时逐值保留，包括 `0`。旧系统已删除的取消订阅行无法反推，不能以下载、安装、评分或猜测补造；这类历史用户需在新状态下成功订阅一次才建立可证明的资格。独立校验器核对源行、计数及非目标字段，不把转换工具可运行视作远端切换已获授权。
 
 `POST /api/v1/recommendations/changes` 接受作者客户端计算的版本／清单哈希及 changedEntries、totalEntries；服务端对照两份不可变条目目录验证，元数据修改不贡献内容变化。此提示不是通用 diff 服务。
 
@@ -112,10 +116,10 @@ URL=$(jq -r '.files[0].url // empty' /tmp/workshop-downloads.json)
 | GET `/` | 当前用户及角色，见 `meResponseSchema`。 |
 | GET `/projects` | 当前用户可管理的作者项目列表。 |
 | GET `/projects/:id/submissions` | 项目投稿历史，无权或不存在 404。 |
-| GET `/subscriptions` | 订阅项目 `{items}`。 |
-| GET `/state` | `ids` 为逗号分隔项目 ID，最多 50 个；返回互动状态。 |
+| GET `/subscriptions` | 当前仍订阅且可公开访问的项目 `{items}`，不含已取消订阅的资格成员行。 |
+| GET `/state` | `ids` 为逗号分隔项目 ID，最多 50 个；返回互动状态。`subscribed` 为当前状态；`recommendationEligible` 为服务端确认的曾订阅资格；`recommendation` 为本人对当前发布版的 `{projectVersionId,comment}` 或 `null`。推荐资格不从当前开关推断，也不会返回他人的推荐草稿。 |
 | PUT、DELETE `/likes/:id` | 添加或取消点赞，204。 |
-| PUT、DELETE `/subscriptions/:id` | 添加或取消订阅，204。 |
+| PUT、DELETE `/subscriptions/:id` | 添加或取消当前订阅，204；重复操作幂等。成功订阅即获得推荐资格，取消订阅不会撤销该资格。 |
 | PUT `/ratings/:id` | JSON `ratingInputSchema`，成功 204，无效 JSON 或评分 400。 |
 | DELETE `/ratings/:id` | 删除评分，204。 |
 
