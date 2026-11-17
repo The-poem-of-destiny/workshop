@@ -36,7 +36,7 @@ export async function projectRecommendation(
   if (!session) return { kind: "unauthorized" as const };
   return remove
     ? deleteAdminRecommendation(env.DB, projectId, session.userId, input.projectVersionId)
-    : updateAdminRecommendation(env.DB, projectId, session.userId, input);
+    : updateAdminRecommendation(env.DB, projectId, session.userId, input, true);
 }
 
 export async function projectChangeSignal(

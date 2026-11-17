@@ -3,6 +3,8 @@ import type { ExperienceNotesResponse } from "@workshop/contracts";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { DataEnv } from "../src/data/env";
 import { identityMe } from "../src/data/identity-operations";
+import { listAdminProjects } from "../src/storage/admin-directory";
+import { getPublishedProject } from "../src/storage/projects";
 import { hashSessionToken } from "../src/storage/session-hash";
 import { applySchema } from "./support/schema";
 
@@ -178,7 +180,7 @@ describe("identity and interactions", () => {
     await expect(subscribed.json()).resolves.toMatchObject({ items: [{ id: "p1" }] });
     expect((await saveNote({ rating: 5, comment: "私密" })).status).toBe(204);
     await expect((await request("/api/v1/me/state?ids=p1")).json()).resolves.toEqual({
-      items: [{ projectId: "p1", liked: true, subscribed: true }],
+      items: [{ projectId: "p1", liked: true, subscribed: true, recommendationEligible: true, recommendation: null }],
     });
     const publicProject = await SELF.fetch("https://workshop.test/api/v1/projects/p1");
     expect(publicProject.status).toBe(200);
@@ -318,5 +320,70 @@ describe("identity and interactions", () => {
     expect((await request("/api/v1/me/experience-notes/p1/unversioned", { method: "DELETE" })).status).toBe(204);
     expect((await notes()).unversionedNote).toBeNull();
     expect((await notes()).versions[0]?.note).toMatchObject({ rating: 3, comment: "新版记录" });
+  });
+  it("keeps current subscription rows, eligibility, counts and lists exact through concurrent transitions", async () => {
+    await bindings.DB.prepare("UPDATE projects SET working_version_id='r1' WHERE id='p1'").run();
+    const subscribe = (active: boolean) =>
+      request("/api/v1/me/subscriptions/p1", { method: active ? "PUT" : "DELETE" });
+    expect((await subscribe(false)).status).toBe(204);
+    expect((await bindings.DB.prepare("SELECT * FROM project_subscriptions").all()).results).toEqual([]);
+    expect(
+      await bindings.DB.prepare("SELECT subscriptions_count FROM projects WHERE id='p1'").first("subscriptions_count"),
+    ).toBe(0);
+    expect(
+      (await Promise.all(Array.from({ length: 8 }, () => subscribe(true)))).map((response) => response.status),
+    ).toEqual(Array(8).fill(204));
+    expect((await bindings.DB.prepare("SELECT project_id,user_id FROM project_subscriptions").all()).results).toEqual([
+      { project_id: "p1", user_id: "u1" },
+    ]);
+    expect(
+      await bindings.DB.prepare("SELECT subscriptions_count FROM projects WHERE id='p1'").first("subscriptions_count"),
+    ).toBe(1);
+    await bindings.DB.prepare("UPDATE project_subscriptions SET created_at='2000-01-01T00:00:00.000Z'").run();
+    expect(
+      (await Promise.all(Array.from({ length: 8 }, () => subscribe(false)))).map((response) => response.status),
+    ).toEqual(Array(8).fill(204));
+    expect((await bindings.DB.prepare("SELECT * FROM project_subscriptions").all()).results).toEqual([]);
+    expect(
+      await bindings.DB.prepare("SELECT subscriptions_count FROM projects WHERE id='p1'").first("subscriptions_count"),
+    ).toBe(0);
+    await expect((await request("/api/v1/me/subscriptions")).json()).resolves.toMatchObject({ items: [] });
+    await expect((await request("/api/v1/me/state?ids=p1")).json()).resolves.toMatchObject({
+      items: [{ subscribed: false, recommendationEligible: false }],
+    });
+    expect(await getPublishedProject(bindings.DB, "p1")).toMatchObject({ counts: { subscriptions: 0 } });
+    await expect((await request("/api/v1/me/projects")).json()).resolves.toMatchObject({
+      items: [{ project: { id: "p1", counts: { subscriptions: 0 } } }],
+    });
+    expect((await listAdminProjects(bindings.DB, 20)).items).toMatchObject([
+      { id: "p1", counts: { subscriptions: 0 } },
+    ]);
+    expect(
+      (await Promise.all(Array.from({ length: 8 }, () => subscribe(true)))).map((response) => response.status),
+    ).toEqual(Array(8).fill(204));
+    expect((await bindings.DB.prepare("SELECT project_id,user_id FROM project_subscriptions").all()).results).toEqual([
+      { project_id: "p1", user_id: "u1" },
+    ]);
+    expect(
+      await bindings.DB.prepare("SELECT subscriptions_count FROM projects WHERE id='p1'").first("subscriptions_count"),
+    ).toBe(1);
+    expect(await bindings.DB.prepare("SELECT created_at FROM project_subscriptions").first("created_at")).not.toBe(
+      "2000-01-01T00:00:00.000Z",
+    );
+    await bindings.DB.prepare("UPDATE project_subscriptions SET created_at='2001-01-01T00:00:00.000Z'").run();
+    expect((await subscribe(true)).status).toBe(204);
+    expect(await bindings.DB.prepare("SELECT created_at FROM project_subscriptions").first("created_at")).toBe(
+      "2001-01-01T00:00:00.000Z",
+    );
+    await expect((await request("/api/v1/me/subscriptions")).json()).resolves.toMatchObject({ items: [{ id: "p1" }] });
+    await Promise.all(Array.from({ length: 12 }, (_, index) => subscribe(index % 2 === 0)));
+    const rows = (await bindings.DB.prepare("SELECT * FROM project_subscriptions").all()).results;
+    expect(
+      await bindings.DB.prepare("SELECT subscriptions_count FROM projects WHERE id='p1'").first("subscriptions_count"),
+    ).toBe(rows.length);
+    expect(rows.length).toBeLessThanOrEqual(1);
+    await expect((await request("/api/v1/me/state?ids=p1")).json()).resolves.toMatchObject({
+      items: [{ subscribed: rows.length === 1, recommendationEligible: rows.length === 1 }],
+    });
   });
 });

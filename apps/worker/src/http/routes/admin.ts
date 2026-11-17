@@ -242,6 +242,7 @@ adminRoutes.put("/recommendations/:projectId", async (c) => {
   if (response.kind === "forbidden") return jsonError(c, "forbidden", "Owner role required");
   const result = response.data;
   if (result.kind === "not_found") return jsonError(c, "not_found", "Project not found");
+  if (result.kind === "forbidden") return jsonError(c, "forbidden", "Recommendation not allowed");
   return c.json({ id: result.id, comment: result.comment, reaction: result.reaction });
 });
 

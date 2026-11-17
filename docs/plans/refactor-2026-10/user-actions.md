@@ -42,7 +42,7 @@
 - [ ] 普通浏览器完成授权、刷新、退出，再尝试需登录操作；没有授权循环或退出后继续写入。
 - [ ] 在 ST 嵌入上下文验证提供的登录／设备码旅程，不依赖普通浏览器碰巧已有的会话。
 - [ ] 用满足指定允许公会／身份组的账号验证正例；拒绝用例必须不满足任一允许路径，不能把合法多公会回退误报为绕过。
-- [ ] 切换账号后，订阅、个人备忘、本人推荐和作者内容只属于当前账号；版本备忘 #94 已合并、推荐资格 #93 尚未合并，两项均须在各自获授权部署后再做真实验收，不把合并或 pending PR 当作线上能力。
+- [ ] 切换账号后，订阅、个人备忘、本人推荐和作者内容只属于当前账号；版本备忘 #94 与当前订阅推荐资格 #93 均须在各自获授权部署后再做真实验收，不把本地验证、CI 或 PR 合并当作线上能力。
 
 ### B. 作者、审核者与 owner
 
@@ -73,7 +73,7 @@
 
 ## 5. 不属于当前人工阻塞的事项
 
-- 版本体验／评分备忘 [PR #94](https://github.com/The-poem-of-destiny/workshop/pull/94) 已实现、独立审查、通过 exact-head required checks 并正常合并；推荐资格 [PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) 正在纠正，必要验证和必需检查通过后可正常合并，不是用户勾选即可完成的人工事项。最新条件为登录且当前订阅才可新增／编辑，退订立即失去资格但既有推荐保留、本人仍可撤回，重新订阅恢复资格；不保留历史资格。详情以[已接受决定](../../../.agents/notes/in-progress/version-experience-notes-and-recommendations.md)及各自 PR 为准。
+- 版本体验／评分备忘 [PR #94](https://github.com/The-poem-of-destiny/workshop/pull/94) 已实现、独立审查、通过 exact-head required checks 并正常合并；推荐资格 [PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) 已纠正并通过本地关键 API／UI 验证，以必需 exact-head CI 作为正常合并门禁，不是用户勾选即可完成的人工事项。条件为登录且当前订阅才可新增／编辑，退订立即失去资格但既有推荐保留、本人仍可撤回，重新订阅恢复资格；不保留历史资格。详情以[已接受决定](../../../.agents/notes/in-progress/version-experience-notes-and-recommendations.md)及各自 PR 为准。
 - 旧清单中的逐条更新 UI、独立修复／更新中心、旧路径 shim 和跨角色迁移不能直接当作当前未完成要求。当前客户端采用可核对的实例扫描、整体操作与可靠旧身份转换；是否新增其他产品模式须单独决定，不扩大本轮两个缺口。
 - 经典界面迁移／双前端开关继续暂缓；每日抽签 Q-10 仍暂缓，不阻塞本轮。安装、订阅、下载分离及审核队列等既定方向见 [decisions.md](decisions.md)，不重新要求用户决策。
 

@@ -7,7 +7,6 @@ import { Markdown } from "../../lib/markdown";
 import { ProjectCommunity } from "./ProjectCommunity";
 import { ProjectExperienceNotes } from "./ProjectExperienceNotes";
 import { ProjectMedia } from "./ProjectMedia";
-import { ProjectRecommendation } from "./ProjectRecommendation";
 import { ProjectRequirements } from "./ProjectRequirements";
 import { ProjectSourcePreview } from "./ProjectSourcePreview";
 
@@ -283,16 +282,6 @@ export function ProjectDetail({
                 <ProjectExperienceNotes
                   key={`${detail.id}:${detail.publishedVersionId}:${loggedIn}`}
                   projectId={detail.id}
-                  loggedIn={loggedIn}
-                  onLogin={onLogin}
-                  onError={onError}
-                />
-              ) : null}
-              {detail?.publishedVersionId ? (
-                <ProjectRecommendation
-                  key={`${detail.id}:${detail.publishedVersionId}`}
-                  projectId={detail.id}
-                  projectVersionId={detail.publishedVersionId}
                   loggedIn={loggedIn}
                   onLogin={onLogin}
                   onError={onError}

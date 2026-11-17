@@ -82,13 +82,17 @@
 一次逻辑获取由客户端生成一个 UUID v4；网络重试必须复用同一键，独立获取使用新键。POST 按用户、版本、UTC 日汇总，重复键不递增；世界书和正则 GET 不额外计数。每用户每版本每日最多 128 次不同逻辑获取，以有界 JSON 保存当天幂等键，达到上限返回 429，既有键重试仍成功。项目累计和日汇总计逻辑获取次数，不宣称字节传输完成。旧项目日指标保留为历史权威，不补造旧用户／版本下载记录。URL 本身不授予权限；每次 GET 都需有效 Bearer，并在打开对象后重查授权和发布指针。
 用户日统计记录所有授权逻辑获取；公开下载指标只统计公开项目的非作者普通玩家获取，作者、reviewer／owner 和私有访问不贡献公开指标。
 
-玩家推荐使用 `PUT /api/v1/recommendations/:projectId`，Bearer 和 JSON `{projectVersionId,comment}`；仅当前公开发布版可写，同一玩家／版本保留一条，可编辑或以 `DELETE` 携带同一 JSON 撤回。旧版本不会自动背书新版本。匿名 401，版本过期或项目不可访问 404。
+玩家推荐使用 `PUT /api/v1/recommendations/:projectId`，Bearer 和 JSON `{projectVersionId,comment}`；仅当前订阅该项目的登录用户可新增或编辑当前公开发布版的推荐，同一玩家／版本保留一条。取消订阅立即失去写入资格，但已有推荐不自动删除，仍可以 `DELETE` 携带同一版本 JSON 撤回自己的记录；重新订阅恢复新增／编辑资格。订阅、安装、下载或旧五分记录都不会自动生成推荐；旧版本不会自动背书新版本。匿名 401，当前公开版本但未订阅 403（`forbidden`），版本过期或项目不可访问 404。显式 owner 管理推荐接口保留原有权限，不代表普通玩家获得资格。
 
 发现响应包含 `batchId`、`scheduledAt` 和项目条目。仅 discovery 的 `items[].recommendations` 使用以下投影合同（也适用于 `/home` 中的 discovery 段），不应推广到独立 `GET /recommendations`：
 
 - 完整返回当前仍公开且未删除项目、对应当前发布版本的有效玩家推荐：推荐者不是项目作者，记录创建于最近 90 天内，且 `comment.trim()` 非空；编辑评语不刷新创建时间窗口。
 - 每条为 `{id,curator:{id,name,avatarUrl},comment,projectVersionId}`，返回原始 `comment`，使用推荐者当前名称与头像，按推荐记录 `id` 稳定升序排列；没有符合者时为 `[]`。同一存续记录编辑保留 ID，删除后重建不保证复用原 ID。
 - 展示读取不重算批次冻结的选取分数或贡献。撤回、评语、推荐者资料或版本变化在后续源投影读取时使用当前已提交记录；公共缓存 TTL 内仍可能短暂显示旧内容。默认公开 TTL 为 60 秒且可配置，不保证 HTTP 立即可见或全球同步撤回，见[运行配置](runtime-configuration.md#失效与撤回)。
+
+订阅沿用 `project_subscriptions` 的 `(project_id,user_id)` 唯一当前关系：订阅 `INSERT OR IGNORE`，取消订阅 `DELETE`，不保留历史资格行或事件日志。重复操作幂等，重新订阅按新的订阅时间排序；`subscriptions_count`（含公开、作者和管理目录）由同一写入内的插入／删除触发器维护，当前列表使用已有用户／时间索引。推荐写入及审计在同一 D1 batch 内原子校验当前订阅关系与当前公开版本；拒绝时不写推荐或审计，也不重算冻结贡献。取消订阅不修改已有推荐、公共展示条件或冻结贡献。
+
+推荐资格不需要新增 schema 或订阅历史转换。离线工具继续保留源中的当前订阅行、计数及非目标字段，拒绝无法解释的源字段；不以下载、安装、评分或过去订阅的猜测补造关系。本改动未执行已有数据库升级、真实数据迁移或远端切换。
 
 `POST /api/v1/recommendations/changes` 接受作者客户端计算的版本／清单哈希及 changedEntries、totalEntries；服务端对照两份不可变条目目录验证，元数据修改不贡献内容变化。此提示不是通用 diff 服务。
 
@@ -112,10 +116,10 @@ URL=$(jq -r '.files[0].url // empty' /tmp/workshop-downloads.json)
 | GET `/` | 当前用户及角色，见 `meResponseSchema`。 |
 | GET `/projects` | 当前用户可管理的作者项目列表。 |
 | GET `/projects/:id/submissions` | 项目投稿历史，无权或不存在 404。 |
-| GET `/subscriptions` | 订阅项目 `{items}`。 |
-| GET `/state` | `ids` 为逗号分隔项目 ID，最多 50 个；返回本人点赞与订阅状态，不返回评分或体验文字。 |
+| GET `/subscriptions` | 当前仍订阅且可公开访问的项目 `{items}`。 |
+| GET `/state` | `ids` 为逗号分隔项目 ID，最多 50 个；返回本人互动状态，不返回评分或体验文字。`subscribed` 为当前订阅状态，`recommendationEligible` 为服务端确认的当前订阅资格，与 `subscribed` 一致；`recommendation` 为本人对当前发布版的 `{projectVersionId,comment}` 或 `null`，取消订阅后仍返回已有记录供撤回。不会返回他人的推荐草稿。 |
 | PUT、DELETE `/likes/:id` | 添加或取消点赞，204。 |
-| PUT、DELETE `/subscriptions/:id` | 添加或取消订阅，204。 |
+| PUT、DELETE `/subscriptions/:id` | 添加或取消当前订阅，204；重复操作幂等。成功订阅获得推荐写入资格，取消订阅立即撤销新增／编辑资格，但不删除已有推荐；本人仍可撤回。 |
 | GET `/experience-notes/:id` | 本人版本体验备忘，见 `experienceNotesResponseSchema`；返回当前发布版本（未记录时 `note: null`）、本人已记备忘的历史版本及独立的 `unversionedNote`。 |
 | PUT `/experience-notes/:id/versions/:versionId` | JSON `experienceNoteInputSchema`：`rating` 为 1–5 整数，`comment` 可选、最多 2000 字符。明确保存该版本，成功 204；无效 JSON 或输入 400。省略 `comment` 保留原文字，显式空串清空。 |
 | DELETE `/experience-notes/:id/versions/:versionId` | 仅删除本人该项目、该版本的备忘，成功 204；无本人记录或不可访问时 404。 |

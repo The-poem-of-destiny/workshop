@@ -682,6 +682,28 @@ async function main() {
       );
     });
 
+    await check("downloads do not qualify a never-subscribed player to recommend", async () => {
+      const detail = await api(`/api/v1/projects/${project.project.id}`);
+      const projectVersionId = JSON.parse(detail.body).publishedVersionId;
+      const denied = await api(
+        `/api/v1/recommendations/${project.project.id}`,
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ projectVersionId, comment: "download is not subscription evidence" }),
+        },
+        memberToken,
+      );
+      assert(denied.response.status === 403, `never-subscribed write ${denied.response.status}: ${denied.body}`);
+      assert(JSON.parse(denied.body).error.code === "forbidden", "ineligible write uses the existing forbidden code");
+      const state = await api(`/api/v1/me/state?ids=${project.project.id}`, {}, memberToken);
+      const item = JSON.parse(state.body).items[0];
+      assert(
+        !item.subscribed && !item.recommendationEligible && item.recommendation === null,
+        "download grants no membership or recommendation",
+      );
+    });
+
     async function createPending(title, key) {
       const created = await api(
         "/api/v1/projects",
@@ -1177,6 +1199,146 @@ async function main() {
           await like.waitFor();
           await context.close();
         });
+
+        await check(
+          "browser current subscriber can recommend, loses edit eligibility on unsubscribe and can retract",
+          async () => {
+            const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+            await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), memberToken);
+            const page = await context.newPage();
+            observePage(page);
+            const openDetail = async () => {
+              await page.goto(`${base}/`, { waitUntil: "networkidle" });
+              await page.locator(".card", { hasText: "E2E Project" }).first().locator(".card-title").click();
+              await page.locator(".detail").waitFor({ state: "visible" });
+            };
+            await openDetail();
+            const form = page.getByRole("region", { name: "版本推荐", exact: true });
+            const ineligible = "请先订阅此项目，再推荐当前版本；取消订阅后不可新增或编辑，仍可撤回已有推荐。";
+            await form.getByText(ineligible, { exact: true }).waitFor();
+            assert(
+              (await page.locator(".detail").getByRole("textbox", { name: /推荐/ }).count()) === 1,
+              "project detail exposes one public recommendation editor",
+            );
+            assert(
+              await form.getByRole("button", { name: "推荐当前版本", exact: true }).isDisabled(),
+              "unsubscribed UI explains and blocks an ineligible write",
+            );
+            await page.locator(".detail").getByRole("button", { name: "订阅", exact: true }).click();
+            await page.locator(".detail").getByRole("button", { name: "已订阅", exact: true }).waitFor();
+            assert(
+              await form.getByRole("button", { name: "推荐当前版本", exact: true }).isEnabled(),
+              "successful subscribe immediately enables explicit recommendation",
+            );
+            await form
+              .getByRole("textbox", { name: "公开推荐说明（可选）" })
+              .fill("member explicit current version recommendation");
+            await form.getByRole("button", { name: "推荐当前版本", exact: true }).click();
+            await form.getByRole("status").filter({ hasText: "当前版本推荐已保存。" }).waitFor();
+            const before = await api(`/api/v1/me/state?ids=${project.project.id}`, {}, memberToken);
+            const initial = JSON.parse(before.body).items[0];
+            assert(
+              initial.subscribed &&
+                initial.recommendationEligible &&
+                initial.recommendation.comment === "member explicit current version recommendation",
+              "real Worker stores the explicit recommendation",
+            );
+            await page.locator(".detail").getByRole("button", { name: "已订阅", exact: true }).click();
+            await page.locator(".detail").getByRole("button", { name: "订阅", exact: true }).waitFor();
+            assert(
+              (await form.getByRole("button", { name: "更新当前版本推荐", exact: true }).isDisabled()) &&
+                (await form.getByRole("textbox", { name: "公开推荐说明（可选）" }).isDisabled()) &&
+                (await form.getByRole("button", { name: "撤回当前版本推荐", exact: true }).isEnabled()),
+              "unsubscribe immediately disables create/edit while preserving own retraction",
+            );
+            const denied = await api(
+              `/api/v1/recommendations/${project.project.id}`,
+              {
+                method: "PUT",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  projectVersionId: initial.recommendation.projectVersionId,
+                  comment: "denied unsubscribed edit",
+                }),
+              },
+              memberToken,
+            );
+            assert(
+              denied.response.status === 403 && JSON.parse(denied.body).error.code === "forbidden",
+              "unsubscribed API edit is forbidden",
+            );
+            await openDetail();
+            await form.getByText(ineligible, { exact: true }).waitFor();
+            assert(
+              (await form.getByRole("button", { name: "更新当前版本推荐", exact: true }).isDisabled()) &&
+                (await form.getByRole("textbox", { name: "公开推荐说明（可选）" }).isDisabled()) &&
+                (await form.getByRole("button", { name: "撤回当前版本推荐", exact: true }).isEnabled()),
+              "reloaded authoritative state still forbids edits and permits own retraction",
+            );
+            assert(
+              (await form.getByRole("textbox", { name: "公开推荐说明（可选）" }).inputValue()) ===
+                initial.recommendation.comment,
+              "reloaded backend state restores the own current-version recommendation",
+            );
+            await page.locator(".detail").getByRole("button", { name: "订阅", exact: true }).click();
+            await page.locator(".detail").getByRole("button", { name: "已订阅", exact: true }).waitFor();
+            assert(
+              await form.getByRole("button", { name: "更新当前版本推荐", exact: true }).isEnabled(),
+              "resubscribe restores edits immediately",
+            );
+            await form.getByRole("textbox", { name: "公开推荐说明（可选）" }).fill("member edited after resubscribe");
+            await form.getByRole("button", { name: "更新当前版本推荐", exact: true }).click();
+            await form.getByRole("status").filter({ hasText: "当前版本推荐已保存。" }).waitFor();
+            await page.locator(".detail").getByRole("button", { name: "已订阅", exact: true }).click();
+            await page.locator(".detail").getByRole("button", { name: "订阅", exact: true }).waitFor();
+            const state = await api(`/api/v1/me/state?ids=${project.project.id}`, {}, memberToken);
+            const persisted = JSON.parse(state.body).items[0];
+            assert(
+              !persisted.subscribed &&
+                !persisted.recommendationEligible &&
+                persisted.recommendation.comment === "member edited after resubscribe",
+              "unsubscribe removes current eligibility without deleting the edited recommendation",
+            );
+            const subscriptions = await api("/api/v1/me/subscriptions", {}, memberToken);
+            assert(
+              !JSON.parse(subscriptions.body).items.some((item) => item.id === project.project.id),
+              "unsubscribed project is absent from the current subscriptions list",
+            );
+            const deadline = Date.now() + 75_000;
+            let projected;
+            while (Date.now() < deadline) {
+              const discovery = await api("/api/v1/projects/discovery");
+              projected = JSON.parse(discovery.body)
+                .items.find((item) => item.id === project.project.id)
+                ?.recommendations.find((item) => item.curator.id === "e2e-member");
+              if (projected?.comment === "member edited after resubscribe") break;
+              await sleep(500);
+            }
+            assert(
+              projected?.comment === "member edited after resubscribe" &&
+                projected.projectVersionId === persisted.recommendation.projectVersionId,
+              "discovery retains the existing recommendation after unsubscribe within its unchanged cache boundary",
+            );
+            await screenshot(page, "recommendation-unsubscribed");
+            await form.getByRole("button", { name: "撤回当前版本推荐", exact: true }).click();
+            await form.getByRole("status").filter({ hasText: "当前版本推荐已撤回。" }).waitFor();
+            const cleaned = await api(`/api/v1/me/state?ids=${project.project.id}`, {}, memberToken);
+            const final = JSON.parse(cleaned.body).items[0];
+            assert(
+              !final.subscribed && !final.recommendationEligible && final.recommendation === null,
+              "own retraction succeeds without restoring subscription or eligibility",
+            );
+            await openDetail();
+            await form.getByText(ineligible, { exact: true }).waitFor();
+            assert(
+              (await form.getByRole("textbox", { name: "公开推荐说明（可选）" }).inputValue()) === "" &&
+                (await form.getByRole("button", { name: "撤回当前版本推荐", exact: true }).count()) === 0 &&
+                (await form.getByRole("button", { name: "推荐当前版本", exact: true }).isDisabled()),
+              "reopening after own retraction restores an empty ineligible editor without stale retract controls",
+            );
+            await context.close();
+          },
+        );
 
         await check("browser private version notes save reload edit and delete independently", async () => {
           const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });

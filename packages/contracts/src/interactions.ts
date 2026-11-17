@@ -4,6 +4,8 @@ export const interactionStateItemSchema = z.object({
   projectId: z.string().min(1),
   liked: z.boolean(),
   subscribed: z.boolean(),
+  recommendationEligible: z.boolean(),
+  recommendation: z.object({ projectVersionId: z.string().min(1), comment: z.string() }).nullable(),
 });
 
 export const meStateResponseSchema = z.object({

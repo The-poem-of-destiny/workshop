@@ -87,7 +87,7 @@ def create_current_snapshot(path, migrations=MIGRATIONS):
                    ("gallery/p/gallery_1-" + "c" * 64 + ".png", "c" * 64, 12, "image/png", "2026-01-01"))
         db.executescript("""
             INSERT INTO project_likes VALUES ('p','reviewer','2026-01-02');
-            INSERT INTO project_subscriptions VALUES ('p','reviewer','2026-01-02');
+            INSERT INTO project_subscriptions (project_id,user_id,created_at) VALUES ('p','reviewer','2026-01-02');
             INSERT INTO project_ratings VALUES ('p','reviewer',4,'Preserved comment','2026-01-02','2026-01-03');
             INSERT INTO project_metrics_daily VALUES ('2026-01-02','p',13,-1);
             INSERT INTO download_daily_stats VALUES ('reviewer','p','vp','2026-01-02',2,
@@ -389,6 +389,29 @@ class SourceReconciliationTest(unittest.TestCase):
         result, report = self.run_source(data, dump)
         self.assertEqual(result.returncode, 0, (result.stderr, report))
 
+    def test_legacy_current_subscriptions_keep_rows_counts_and_independent_reconciliation(self):
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(self.snapshot_dump())
+            db.executescript("""
+                ALTER TABLE project_subscribes ADD COLUMN user_id TEXT;
+                ALTER TABLE project_subscribes ADD COLUMN created_at TEXT;
+                INSERT INTO project_subscribes VALUES ('p1','u1','t1');
+            """)
+            dump = "\n".join(db.iterdump()) + "\n"
+            data = self.run_transform(dump)
+            self.assertEqual(data["tables"]["project_subscriptions"],
+                             [{"project_id": "p1", "user_id": "u1", "created_at": "t1"}])
+            self.assertEqual(data["tables"]["projects"][0]["subscriptions_count"], 1)
+            result, report = self.run_source(data, dump)
+            self.assertEqual(result.returncode, 0, (result.stderr, report))
+            self.assertEqual(report["checks"]["project_subscriptions"],
+                             {"expected": 1, "actual": 1, "missing": 0, "extra": 0})
+            tampered = copy.deepcopy(data)
+            tampered["tables"]["project_subscriptions"][0]["created_at"] = "changed"
+            result, report = self.run_source(tampered, dump)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn({"kind": "source_difference", "check": "project_subscriptions"}, report["failures"])
+
     def test_legacy_notes_keep_original_values_without_inventing_a_version(self):
         dump = self.snapshot_dump().replace("('p1','u1',5,'Original private note'", "('draft','u1',5,'Original private note'")
         self.assertNotEqual(dump, self.snapshot_dump())
@@ -554,6 +577,8 @@ class CurrentTaxonomySnapshotTest(unittest.TestCase):
             self.assertEqual(db.execute("SELECT working_version_id,published_version_id,published_cover_asset_id,"
                                        "downloads_count,likes_count,row_version FROM projects WHERE id='p'").fetchone(),
                              ("vw", "vp", "cover", 17, 1, 9))
+            self.assertEqual(db.execute("SELECT project_id,user_id,created_at FROM project_subscriptions").fetchall(),
+                             [("p", "reviewer", "2026-01-02")])
             self.assertIsNone(db.execute("SELECT ended_at FROM recommendation_batch_eligibility").fetchone()[0])
             self.assertEqual(db.execute("SELECT project_type,included_types,tags FROM project_versions WHERE id='vp'").fetchone(),
                              ("系统核心", "[]", '["cbz","hnh","1011"]'))

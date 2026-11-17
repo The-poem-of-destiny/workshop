@@ -348,7 +348,8 @@ def dropped_columns(table, source_columns, target_columns):
     if extra - permitted:
         raise ValueError("unaccounted source columns in " + table + ": " + ",".join(sorted(extra - permitted)))
     added = set(target_columns) - set(source_columns)
-    if added - ({"project_type", "included_types"} if table == "project_versions" else set()):
+    permitted_added = {"project_type", "included_types"} if table == "project_versions" else set()
+    if added - permitted_added:
         raise ValueError("unexpected target-only columns in " + table + ": " + ",".join(sorted(added)))
     return extra
 

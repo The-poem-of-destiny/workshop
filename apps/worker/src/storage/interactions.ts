@@ -5,6 +5,8 @@ interface StateRow {
   project_id: string;
   liked: number;
   subscribed: number;
+  recommendation_version_id: string | null;
+  recommendation_comment: string | null;
 }
 
 export async function getInteractionState(
@@ -18,14 +20,16 @@ export async function getInteractionState(
     .prepare(`
     SELECT p.id AS project_id,
       EXISTS (SELECT 1 FROM project_likes l WHERE l.project_id = p.id AND l.user_id = ?) AS liked,
-      EXISTS (SELECT 1 FROM project_subscriptions s WHERE s.project_id = p.id AND s.user_id = ?) AS subscribed
+      EXISTS (SELECT 1 FROM project_subscriptions s WHERE s.project_id = p.id AND s.user_id = ?) AS subscribed,
+      rec.project_version_id AS recommendation_version_id, rec.comment AS recommendation_comment
     FROM projects p
+    LEFT JOIN recommendations rec ON rec.project_version_id = p.published_version_id AND rec.curator_id = ?
     WHERE p.id IN (${placeholders})
       AND p.deleted_at IS NULL
       AND p.visibility = 'public'
       AND p.published_version_id IS NOT NULL
   `)
-    .bind(userId, userId, ...projectIds)
+    .bind(userId, userId, userId, ...projectIds)
     .all<StateRow>();
   const byId = new Map(rows.results.map((row) => [row.project_id, row]));
   const items: InteractionStateItem[] = [];
@@ -36,6 +40,10 @@ export async function getInteractionState(
         projectId,
         liked: Boolean(row.liked),
         subscribed: Boolean(row.subscribed),
+        recommendationEligible: Boolean(row.subscribed),
+        recommendation: row.recommendation_version_id
+          ? { projectVersionId: row.recommendation_version_id, comment: row.recommendation_comment ?? "" }
+          : null,
       });
   }
   return { items };

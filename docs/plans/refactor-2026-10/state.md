@@ -4,7 +4,7 @@
 
 ## 当前 main 与已完成范围
 
-本次核对的 `main`、`origin/main` 与 GitHub `main` 均为 `c450263a82c33a883bbaec5b0336130d9cfe1d12`，已包含版本备忘 PR #94 的正常合并，不包含推荐资格 PR #93 的纠正。
+文档 PR #92 核对时的 `main`、`origin/main` 与 GitHub `main` 均为 `c450263a82c33a883bbaec5b0336130d9cfe1d12`，已包含版本备忘 PR #94；文档随后正常合并为 `bf5646748ec114321b72ebdd98d7a179ea5ead73`。推荐资格 PR #93 在此基础上完成当前订阅条件纠正与下述本地关键行为验证；最终合并及 exact-head CI 状态以各 PR 为准，不将该核对快照当作永久未合并状态。
 
 - 统一项目版本、元数据／封面／内容冻结送审、自动与人工审核、报告校验、权限及作者／审核者／owner 工作区已合入；旧展示资料直写不是现行路径。
 - Web、Worker 与 Tavern client 的核心路径已实现并取得本地行为证据：目录／搜索／周期排序、安装实例扫描、整体安装／更新／卸载预览与确认、玩家改动保护及可靠旧身份转换。真实 Discord 全旅程和真实 SillyTavern 操作仍未完成当前版本验收，不能把本地宿主模拟当成真实宿主运行。
@@ -27,7 +27,7 @@
 
 ## 当前待交付与发布门槛
 
-- **当前订阅推荐资格仍未合并**：[PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) 按最新决定纠正为登录且当前订阅才可新增／编辑；退订立即失去资格，但既有推荐不自动删除、本人仍可撤回，重新订阅恢复资格。#93 当前未合并，纠正并通过必要验证与必需检查后可正常合并；不建立历史资格、不从下载／安装／旧评分推断订阅。已合并的版本备忘与推荐分离，不把旧项目级评分猜配到版本或公开为推荐；契约依据为[已接受决定](../../../.agents/notes/in-progress/version-experience-notes-and-recommendations.md)。
+- **当前订阅推荐资格已纠正**：[PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) 实现登录且当前订阅才可新增／编辑；退订立即失去资格，但既有推荐不自动删除、本人仍可撤回，重新订阅恢复资格。真实合成本地 Worker API 与 Chromium 已验证退订拒写、本人撤回、重订恢复及版本备忘不变；合并仍以 exact-head required checks 为门禁，不等于部署。不建立历史资格、不从下载／安装／旧评分推断订阅，也不把旧项目级评分猜配到版本或公开为推荐；契约依据为[已接受决定](../../../.agents/notes/in-progress/version-experience-notes-and-recommendations.md)。
 - **真实数据迁移暂不执行**：现有六分类离线工具与完整候选验证不授权访问或转换真实 D1/R2／备份。历史 staging 验收不能关闭当前 schema／taxonomy 切换门槛；切换需新的完整当前快照、显式审阅、独立对账及另行授权。
 - **部署保持暂停**：`ACCEPTED_SCHEMA_SHA=f2491599cfb97a6405b5f73ead73227387786478`、staging schema-change pause 与 production 的 `Require separately verified production schema` 门禁不变。不得直接套用旧增量链或对既有库运行新的空库基线。
 - **真实环境验收及生产切换未完成**：真实 Discord 完整登录／准入和真实 SillyTavern 安装／更新／卸载见 [user-actions.md](user-actions.md)；生产备份恢复、停写、迁移、回滚和精确版本验收仍需授权。不因这些人工门槛把已实现核心客户端重新列为代码待办。
