@@ -2,6 +2,8 @@ import { env, SELF } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { DataEnv } from "../src/data/env";
 import { identityMe } from "../src/data/identity-operations";
+import { listAdminProjects } from "../src/storage/admin-directory";
+import { getPublishedProject } from "../src/storage/projects";
 import { hashSessionToken } from "../src/storage/session-hash";
 import { applySchema } from "./support/schema";
 
@@ -168,7 +170,17 @@ describe("identity and interactions", () => {
     ).toBe(204);
     const state = await request("/api/v1/me/state?ids=p1");
     await expect(state.json()).resolves.toEqual({
-      items: [{ projectId: "p1", liked: true, subscribed: true, rating: 5, comment: "私密" }],
+      items: [
+        {
+          projectId: "p1",
+          liked: true,
+          subscribed: true,
+          recommendationEligible: true,
+          recommendation: null,
+          rating: 5,
+          comment: "私密",
+        },
+      ],
     });
     const publicProject = await SELF.fetch(
       new URL("/api/v1/projects/p1", "https://workshop.test").toString(),
@@ -179,6 +191,71 @@ describe("identity and interactions", () => {
     expect(
       await (await SELF.fetch(new URL("/api/v1/projects/p1", "https://workshop.test").toString(), undefined)).json(),
     ).not.toHaveProperty("comment");
+  });
+
+  it("retains one qualifying membership while concurrent subscription transitions keep active counts and lists exact", async () => {
+    await bindings.DB.prepare("UPDATE projects SET working_version_id='r1' WHERE id='p1'").run();
+    const subscribe = (active: boolean) =>
+      request("/api/v1/me/subscriptions/p1", { method: active ? "PUT" : "DELETE" });
+    expect((await subscribe(false)).status).toBe(204);
+    expect((await bindings.DB.prepare("SELECT * FROM project_subscriptions").all()).results).toEqual([]);
+    expect(
+      await bindings.DB.prepare("SELECT subscriptions_count FROM projects WHERE id='p1'").first("subscriptions_count"),
+    ).toBe(0);
+    expect(
+      (await Promise.all(Array.from({ length: 8 }, () => subscribe(true)))).map((response) => response.status),
+    ).toEqual(Array(8).fill(204));
+    expect((await bindings.DB.prepare("SELECT active FROM project_subscriptions").all()).results).toEqual([
+      { active: 1 },
+    ]);
+    expect(
+      await bindings.DB.prepare("SELECT subscriptions_count FROM projects WHERE id='p1'").first("subscriptions_count"),
+    ).toBe(1);
+    expect(
+      (await Promise.all(Array.from({ length: 8 }, () => subscribe(false)))).map((response) => response.status),
+    ).toEqual(Array(8).fill(204));
+    expect((await bindings.DB.prepare("SELECT active FROM project_subscriptions").all()).results).toEqual([
+      { active: 0 },
+    ]);
+    expect(
+      await bindings.DB.prepare("SELECT subscriptions_count FROM projects WHERE id='p1'").first("subscriptions_count"),
+    ).toBe(0);
+    await expect((await request("/api/v1/me/subscriptions")).json()).resolves.toMatchObject({ items: [] });
+    await expect((await request("/api/v1/me/state?ids=p1")).json()).resolves.toMatchObject({
+      items: [{ subscribed: false, recommendationEligible: true }],
+    });
+    expect(await getPublishedProject(bindings.DB, "p1")).toMatchObject({ counts: { subscriptions: 0 } });
+    await expect((await request("/api/v1/me/projects")).json()).resolves.toMatchObject({
+      items: [{ project: { id: "p1", counts: { subscriptions: 0 } } }],
+    });
+    expect((await listAdminProjects(bindings.DB, 20)).items).toMatchObject([
+      { id: "p1", counts: { subscriptions: 0 } },
+    ]);
+    await bindings.DB.prepare("UPDATE project_subscriptions SET created_at='2000-01-01T00:00:00.000Z'").run();
+    expect(
+      (await Promise.all(Array.from({ length: 8 }, () => subscribe(true)))).map((response) => response.status),
+    ).toEqual(Array(8).fill(204));
+    expect((await bindings.DB.prepare("SELECT active FROM project_subscriptions").all()).results).toEqual([
+      { active: 1 },
+    ]);
+    expect(
+      await bindings.DB.prepare("SELECT subscriptions_count FROM projects WHERE id='p1'").first("subscriptions_count"),
+    ).toBe(1);
+    expect(await bindings.DB.prepare("SELECT created_at FROM project_subscriptions").first("created_at")).not.toBe(
+      "2000-01-01T00:00:00.000Z",
+    );
+    await bindings.DB.prepare("UPDATE project_subscriptions SET created_at='2001-01-01T00:00:00.000Z'").run();
+    expect((await subscribe(true)).status).toBe(204);
+    expect(await bindings.DB.prepare("SELECT created_at FROM project_subscriptions").first("created_at")).toBe(
+      "2001-01-01T00:00:00.000Z",
+    );
+    await expect((await request("/api/v1/me/subscriptions")).json()).resolves.toMatchObject({ items: [{ id: "p1" }] });
+    await Promise.all(Array.from({ length: 12 }, (_, index) => subscribe(index % 2 === 0)));
+    const active = await bindings.DB.prepare("SELECT active FROM project_subscriptions").first<number>("active");
+    expect(
+      await bindings.DB.prepare("SELECT subscriptions_count FROM projects WHERE id='p1'").first("subscriptions_count"),
+    ).toBe(active);
+    expect((await bindings.DB.prepare("SELECT * FROM project_subscriptions").all()).results).toHaveLength(1);
   });
 
   it("preserves a stored comment when changing only stars and clears it only explicitly", async () => {

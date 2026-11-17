@@ -48,6 +48,17 @@ function request(token: string, version: string, comment: string, method = "PUT"
     body: JSON.stringify({ projectVersionId: version, comment }),
   });
 }
+function subscription(token: string, active: boolean) {
+  return SELF.fetch("https://workshop.test/api/v1/me/subscriptions/p", {
+    method: active ? "PUT" : "DELETE",
+    headers: { authorization: `Bearer ${token}` },
+  });
+}
+async function state(token: string) {
+  return SELF.fetch("https://workshop.test/api/v1/me/state?ids=p", {
+    headers: { authorization: `Bearer ${token}` },
+  }).then((response) => response.json());
+}
 async function seedRecommendation(
   id: string,
   curatorId: string,
@@ -76,9 +87,89 @@ async function discovery() {
   expect(response.status).toBe(200);
   return response.json<DiscoveryResponse>();
 }
+it("requires recorded subscription history for creates and edits without mutating frozen contributions", async () => {
+  expect(await state("player")).toMatchObject({
+    items: [{ subscribed: false, recommendationEligible: false, recommendation: null }],
+  });
+  await bindings.DB.prepare("INSERT INTO project_ratings(project_id,user_id,rating) VALUES('p','player',5)").run();
+  await buildBatch();
+  const frozen = await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all();
+  const denied = await request("player", "v1", "not qualified");
+  expect(denied.status).toBe(403);
+  expect(await denied.json()).toMatchObject({ error: { code: "forbidden" } });
+  expect((await bindings.DB.prepare("SELECT id FROM recommendations").all()).results).toEqual([]);
+  expect(
+    (await bindings.DB.prepare("SELECT id FROM audit_events WHERE action='recommendation.update'").all()).results,
+  ).toEqual([]);
+  await seedRecommendation("imported-rec", "player", "preserved imported recommendation");
+  expect((await request("player", "v1", "denied edit")).status).toBe(403);
+  expect(
+    await bindings.DB.prepare("SELECT comment FROM recommendations WHERE id='imported-rec'").first("comment"),
+  ).toBe("preserved imported recommendation");
+  expect(
+    (await bindings.DB.prepare("SELECT id FROM audit_events WHERE action='recommendation.update'").all()).results,
+  ).toEqual([]);
+  expect(await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all()).toEqual(frozen);
+  await bindings.DB.prepare("UPDATE projects SET visibility='private' WHERE id='p'").run();
+  expect((await request("player", "v1", "hidden")).status).toBe(404);
+  expect((await request("player", "v1", "", "DELETE")).status).toBe(200);
+  expect((await bindings.DB.prepare("SELECT id FROM recommendations").all()).results).toEqual([]);
+});
+
+it("keeps unsubscribed members eligible to create, edit and retract with stable recommendation identity", async () => {
+  expect((await subscription("player", true)).status).toBe(204);
+  expect((await request("player", "v1", "first recommendation")).status).toBe(200);
+  const initial = await bindings.DB.prepare(
+    "SELECT id,created_at FROM recommendations WHERE curator_id='player'",
+  ).first();
+  expect((await subscription("player", false)).status).toBe(204);
+  expect(await state("player")).toMatchObject({
+    items: [
+      {
+        subscribed: false,
+        recommendationEligible: true,
+        recommendation: { projectVersionId: "v1", comment: "first recommendation" },
+      },
+    ],
+  });
+  expect((await request("player", "v1", "updated while unsubscribed")).status).toBe(200);
+  expect(
+    await bindings.DB.prepare("SELECT id,created_at FROM recommendations WHERE curator_id='player'").first(),
+  ).toEqual(initial);
+  expect((await request("player", "v1", "", "DELETE")).status).toBe(200);
+  expect(await state("player")).toMatchObject({
+    items: [{ subscribed: false, recommendationEligible: true, recommendation: null }],
+  });
+  expect((await request("player", "v1", "new explicit recommendation while unsubscribed")).status).toBe(200);
+});
+
+it("keeps the explicit owner editorial route privileged without granting player eligibility", async () => {
+  await bindings.DB.prepare("UPDATE users SET role='owner' WHERE id='author'").run();
+  const input = {
+    method: "PUT",
+    headers: { authorization: "Bearer author", "content-type": "application/json" },
+    body: JSON.stringify({ projectVersionId: "v1", comment: "explicit editorial recommendation" }),
+  };
+  expect((await SELF.fetch("https://workshop.test/api/v1/admin/recommendations/p", input)).status).toBe(200);
+  expect((await bindings.DB.prepare("SELECT * FROM project_subscriptions").all()).results).toEqual([]);
+  expect((await request("author", "v1", "player route still requires membership")).status).toBe(403);
+  expect(
+    await bindings.DB.prepare("SELECT comment FROM recommendations WHERE curator_id='author'").first("comment"),
+  ).toBe("explicit editorial recommendation");
+  expect(
+    (
+      await SELF.fetch("https://workshop.test/api/v1/admin/recommendations/p", {
+        ...input,
+        headers: { ...input.headers, authorization: "Bearer player" },
+      })
+    ).status,
+  ).toBe(403);
+});
+
 it("keeps one endorsement per player/version and rejects stale publications", async () => {
   expect((await request("unknown", "v1", "text")).status).toBe(401);
   expect((await request("player", "other", "text")).status).toBe(404);
+  expect((await subscription("player", true)).status).toBe(204);
   expect((await request("player", "v1", "one")).status).toBe(200);
   expect((await request("player", "v1", "two")).status).toBe(200);
   expect(
@@ -148,6 +239,7 @@ it("projects all live curators and edits without changing frozen ranking through
   };
 
   await seedRecommendation("player-two-rec", "player-two", "another perspective");
+  expect((await subscription("player", true)).status).toBe(204);
   expect((await request("player", "v1", "updated comment")).status).toBe(200);
   await bindings.DB.prepare(
     "UPDATE users SET global_name='Current name',avatar='current-avatar' WHERE id='player'",
@@ -198,6 +290,8 @@ it("projects all live curators and edits without changing frozen ranking through
 });
 
 it("does not carry old endorsements into a new publication or display a deleted project", async () => {
+  expect((await subscription("player", true)).status).toBe(204);
+  expect((await subscription("player", false)).status).toBe(204);
   await seedRecommendation("old-rec", "player", "previous version comment");
   await buildBatch();
   expect((await discovery()).items).toMatchObject([
@@ -214,20 +308,26 @@ it("does not carry old endorsements into a new publication or display a deleted 
     .run();
   await bindings.DB.prepare("UPDATE projects SET published_version_id='v2' WHERE id='p'").run();
   expect((await discovery()).items).toEqual([]);
+  expect(await state("player")).toMatchObject({
+    items: [{ subscribed: false, recommendationEligible: true, recommendation: null }],
+  });
   expect((await request("player", "v1", "stale comment")).status).toBe(404);
 
   vi.setSystemTime(nowMs + hourMs);
   await buildBatch();
   expect((await discovery()).items).toMatchObject([{ id: "p", publishedVersionId: "v2", recommendations: [] }]);
   expect((await readRecommendationBatch(bindings.DB))?.items[0]?.contributions.endorsements).toBe(0);
-  await seedRecommendation("current-rec", "player", "current version comment", { version: "v2" });
+  expect((await request("player", "v2", "current version comment")).status).toBe(200);
+  const currentId = await bindings.DB.prepare(
+    "SELECT id FROM recommendations WHERE curator_id='player' AND project_version_id='v2'",
+  ).first<string>("id");
   expect((await discovery()).items).toMatchObject([
     {
       id: "p",
       publishedVersionId: "v2",
       recommendations: [
         {
-          id: "current-rec",
+          id: currentId,
           curator: { id: "player", name: "player", avatarUrl: null },
           comment: "current version comment",
           projectVersionId: "v2",

@@ -127,7 +127,7 @@ export async function authorAdminUpdateRecommendation(
 ) {
   const auth = await reviewer(env, authorization, true);
   if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await updateAdminRecommendation(env.DB, id, auth.session.userId, update) };
+  return { kind: "ok" as const, data: await updateAdminRecommendation(env.DB, id, auth.session.userId, update, false) };
 }
 
 export async function authorAdminDeleteRecommendation(env: DataEnv, authorization: string | undefined, id: string) {

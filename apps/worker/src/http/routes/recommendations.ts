@@ -42,6 +42,8 @@ for (const method of ["put", "delete"] as const) {
     );
     if (result.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
     if (result.kind === "not_found") return jsonError(c, "not_found", "Published version not found");
+    if (result.kind === "forbidden")
+      return jsonError(c, "forbidden", "请先订阅此项目，再推荐当前版本；取消订阅不影响推荐资格。");
     return c.json(result);
   });
 }
