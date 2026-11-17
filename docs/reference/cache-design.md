@@ -76,7 +76,9 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 | GET `/me/state` | 当前用户对项目的互动状态 | 保持不缓存，避免用户混淆及写后陈旧 |
 | PUT、DELETE `/me/likes/:id` | 点赞、取消点赞 | 不缓存 |
 | PUT、DELETE `/me/subscriptions/:id` | 订阅、取消订阅 | 不缓存 |
-| PUT、DELETE `/me/ratings/:id` | 设置、删除评分 | 不缓存 |
+| GET `/me/experience-notes/:id` | 本人的当前、已记备忘历史版本及未标版本旧备忘 | 不缓存，禁止共享个人评分与体验文字 |
+| PUT、DELETE `/me/experience-notes/:id/versions/:versionId` | 保存、删除本人指定版本的体验备忘 | 不缓存，权限与版本归属实时检查 |
+| DELETE `/me/experience-notes/:id/unversioned` | 删除本人的未标版本旧备忘 | 不缓存 |
 
 ## 作者、审核和管理
 

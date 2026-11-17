@@ -1,5 +1,5 @@
 import type { InteractionStateItem } from "@workshop/contracts";
-import { Bookmark, ExternalLink, Heart, RefreshCcw, Star } from "lucide-react";
+import { Bookmark, ExternalLink, Heart, RefreshCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api, type ProjectSummary } from "../../api";
 
@@ -25,23 +25,16 @@ export function ProjectCommunity({
   const [interactionReload, setInteractionReload] = useState(0);
   const [completedReload, setCompletedReload] = useState(-1);
   const interactionStatus = completedReload === interactionReload ? settledStatus : "loading";
-  const [ratingDraft, setRatingDraft] = useState<number | null>(null);
-  const [ratingComment, setRatingComment] = useState("");
   const likePending = useRef(false);
   const subscriptionPending = useRef(false);
   const [likeSaving, setLikeSaving] = useState(false);
   const [subscriptionSaving, setSubscriptionSaving] = useState(false);
-  const [ratingSaving, setRatingSaving] = useState(false);
-  const [ratingSaved, setRatingSaved] = useState(false);
   const recommendationPending = useRef(false);
   const [recommendationComment, setRecommendationComment] = useState("");
   const [recommendationSaving, setRecommendationSaving] = useState(false);
   const [recommendationStatus, setRecommendationStatus] = useState<string | null>(null);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
   useEffect(() => {
-    setRatingDraft(null);
-    setRatingComment("");
-    setRatingSaved(false);
     setRecommendationComment("");
     setRecommendationStatus(null);
     setRecommendationError(null);
@@ -61,7 +54,6 @@ export function ProjectCommunity({
           item?.recommendation?.projectVersionId === project.publishedVersionId ? (item?.recommendation ?? null) : null;
         setInteraction(item ? { ...item, recommendation } : null);
         setInteractionStatus(item ? "ready" : "unavailable");
-        setRatingComment(item?.comment ?? "");
         setRecommendationComment(recommendation?.comment ?? "");
       })
       .catch(() => {
@@ -74,41 +66,6 @@ export function ProjectCommunity({
       active = false;
     };
   }, [loggedIn, project.id, project.publishedVersionId, interactionReload]);
-  const currentRating = ratingDraft ?? interaction?.rating ?? null;
-  const submitRating = (): void => {
-    if (!loggedIn || interaction === null || currentRating === null || ratingSaving) return;
-    setRatingSaving(true);
-    api
-      .setRating(project.id, currentRating, ratingComment.trim())
-      .then(() => {
-        setRatingSaving(false);
-        setRatingDraft(null);
-        setRatingSaved(true);
-        setInteraction((value) => (value ? { ...value, rating: currentRating } : value));
-      })
-      .catch((reason) => {
-        setRatingSaving(false);
-        onError(String(reason));
-      });
-  };
-
-  const removeRating = (): void => {
-    if (ratingSaving) return;
-    setRatingSaving(true);
-    api
-      .deleteRating(project.id)
-      .then(() => {
-        setRatingSaving(false);
-        setRatingDraft(null);
-        setRatingComment("");
-        setRatingSaved(false);
-        setInteraction((value) => (value ? { ...value, rating: null } : value));
-      })
-      .catch((reason) => {
-        setRatingSaving(false);
-        onError(String(reason));
-      });
-  };
   const saveRecommendation = (remove: boolean): void => {
     const projectVersionId = remove ? interaction?.recommendation?.projectVersionId : project.publishedVersionId;
     if (!loggedIn || !interaction || !projectVersionId || recommendationPending.current) return;
@@ -129,7 +86,7 @@ export function ProjectCommunity({
       })
       .catch((reason) => {
         if (reason instanceof ApiError && reason.status === 403) {
-          setInteraction((value) => value ? { ...value, subscribed: false, recommendationEligible: false } : value);
+          setInteraction((value) => (value ? { ...value, subscribed: false, recommendationEligible: false } : value));
         }
         const message =
           reason instanceof ApiError && reason.status === 403
@@ -194,9 +151,7 @@ export function ProjectCommunity({
               .setSubscription(project.id, next)
               .then(() => {
                 setInteraction((value) =>
-                  value
-                    ? { ...value, subscribed: next, recommendationEligible: next }
-                    : value,
+                  value ? { ...value, subscribed: next, recommendationEligible: next } : value,
                 );
                 onSubscriptionChange(project.id, next);
               })
@@ -242,72 +197,6 @@ export function ProjectCommunity({
         }}
         onSave={saveRecommendation}
       />
-      <div className="rating-block">
-        <h4>我的评分备忘</h4>
-        <fieldset className="rating-stars">
-          <legend className="sr-only">项目评分</legend>
-          {[1, 2, 3, 4, 5].map((value) => {
-            const active = currentRating !== null && currentRating >= value;
-            return (
-              <button
-                key={value}
-                type="button"
-                className={active ? "rating-star is-active" : "rating-star"}
-                aria-label={`${value} 星`}
-                aria-pressed={currentRating === value}
-                disabled={!loggedIn || ratingSaving || interaction === null}
-                onClick={() => {
-                  setRatingDraft(value);
-                  setRatingSaved(false);
-                }}
-              >
-                <Star aria-hidden="true" fill={active ? "currentColor" : "none"} />
-              </button>
-            );
-          })}
-        </fieldset>
-        {!loggedIn ? (
-          <p className="hint">登录后可评分。</p>
-        ) : interactionStatus === "ready" ? (
-          <>
-            <p className="rating-summary">{currentRating === null ? "尚未评分" : `当前评分 ${currentRating} 星`}</p>
-            <label className="rating-comment">
-              <span className="sr-only">评分评论</span>
-              <textarea
-                rows={3}
-                maxLength={2000}
-                value={ratingComment}
-                placeholder="可写几句备注，留空保存会删除。"
-                onChange={(event) => {
-                  setRatingComment(event.target.value);
-                  setRatingSaved(false);
-                }}
-              />
-              <span className="rating-count">{ratingComment.length} / 2000</span>
-            </label>
-            <div className="actions">
-              <button
-                type="button"
-                className="primary"
-                disabled={currentRating === null || ratingSaving || interaction === null}
-                onClick={submitRating}
-              >
-                {ratingSaving ? "保存中…" : currentRating === null ? "提交评分" : "更新评分"}
-              </button>
-              {(interaction?.rating ?? null) !== null ? (
-                <button type="button" disabled={ratingSaving} onClick={removeRating}>
-                  清除评分
-                </button>
-              ) : null}
-            </div>
-            {ratingSaved ? (
-              <p className="rating-status" role="status">
-                评分已保存。
-              </p>
-            ) : null}
-          </>
-        ) : null}
-      </div>
     </section>
   );
 }

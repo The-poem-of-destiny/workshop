@@ -81,7 +81,8 @@ beforeEach(async () => {
     DELETE FROM automated_reviews;
     DELETE FROM project_likes;
     DELETE FROM project_subscriptions;
-    DELETE FROM project_ratings;
+    DELETE FROM project_experience_notes;
+    DELETE FROM project_unversioned_notes;
     DELETE FROM submissions;
     DELETE FROM assets;
     DELETE FROM project_versions;

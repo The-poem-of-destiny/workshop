@@ -5,6 +5,7 @@ import { api, type ProjectDetail as ProjectDetailResponse, type ProjectSummary }
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { Markdown } from "../../lib/markdown";
 import { ProjectCommunity } from "./ProjectCommunity";
+import { ProjectExperienceNotes } from "./ProjectExperienceNotes";
 import { ProjectMedia } from "./ProjectMedia";
 import { ProjectRequirements } from "./ProjectRequirements";
 import { ProjectSourcePreview } from "./ProjectSourcePreview";
@@ -277,6 +278,15 @@ export function ProjectDetail({
                 onError={onError}
                 onSubscriptionChange={onSubscriptionChange}
               />
+              {detail?.publishedVersionId ? (
+                <ProjectExperienceNotes
+                  key={`${detail.id}:${detail.publishedVersionId}:${loggedIn}`}
+                  projectId={detail.id}
+                  loggedIn={loggedIn}
+                  onLogin={onLogin}
+                  onError={onError}
+                />
+              ) : null}
             </aside>
             <section className="reading-column">
               {detailLoading ? <p className="detail-state">正在加载项目详情…</p> : null}

@@ -356,14 +356,20 @@ def dropped_columns(table, source_columns, target_columns):
 
 def check_shapes(source, target):
     source_names, target_names = logical_tables(source), logical_tables(target)
-    if source_names - target_names:
-        raise ValueError("unaccounted source tables: " + ",".join(sorted(source_names - target_names)))
-    for table in sorted(source_names):
-        dropped_columns(table, columns(source, table), columns(target, table))
+    source_tables = {name: name for name in source_names}
+    if "project_ratings" in source_names:
+        if "project_unversioned_notes" in source_names:
+            raise ValueError("ambiguous legacy and retained unversioned note tables")
+        del source_tables["project_ratings"]
+        source_tables["project_unversioned_notes"] = "project_ratings"
+    if source_tables.keys() - target_names:
+        raise ValueError("unaccounted source tables: " + ",".join(sorted(source_tables.keys() - target_names)))
+    for table, source_table in sorted(source_tables.items()):
+        dropped_columns(table, columns(source, source_table), columns(target, table))
     version_columns = set(columns(target, "project_versions"))
     if not {"project_type", "included_types"} <= version_columns or version_columns & OBSOLETE:
         raise ValueError("target migrations do not define the final six-category schema")
-    return source_names, target_names
+    return source_tables, target_names
 
 
 def legacy_provenance_inputs(provenance, migrations, planner):
@@ -485,9 +491,9 @@ def build(source_path, review_path, migrations, output, legacy_provenance=()):
                 target.execute("DROP TRIGGER " + quote(name))
             for table in sorted(target_names | DERIVED):
                 target.execute("DELETE FROM " + quote(table))
-            for table in sorted(source_names):
+            for table, source_table in sorted(source_names.items()):
                 target_columns = columns(target, table)
-                for value in source.execute("SELECT * FROM " + quote(table)):
+                for value in source.execute("SELECT * FROM " + quote(source_table)):
                     row = dict(value)
                     if table == "project_versions":
                         row.update(decisions[str(row["id"])])
@@ -540,11 +546,12 @@ def independent_rows(source, candidate, decisions):
                 raise ValueError("candidate invented rows in " + table)
             evidence[table] = {"rows": 0, "nonTaxonomySha256": digest([])}
             continue
-        excluded = (set(columns(source, table)) - set(columns(candidate, table)))
+        source_table = source_names[table]
+        excluded = (set(columns(source, source_table)) - set(columns(candidate, table)))
         if table == "project_versions":
             excluded.update({"project_type", "included_types", "tags"})
-        keys = sorted(set(columns(source, table)) - excluded)
-        expected = row_counts(source, table, keys)
+        keys = sorted(set(columns(source, source_table)) - excluded)
+        expected = row_counts(source, source_table, keys)
         actual = row_counts(candidate, table, keys)
         if expected != actual:
             raise ValueError("non-taxonomy row/field difference in " + table)

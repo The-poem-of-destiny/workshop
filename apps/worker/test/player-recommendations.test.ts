@@ -91,7 +91,9 @@ it("requires current subscription for creates and edits without mutating frozen 
   expect(await state("player")).toMatchObject({
     items: [{ subscribed: false, recommendationEligible: false, recommendation: null }],
   });
-  await bindings.DB.prepare("INSERT INTO project_ratings(project_id,user_id,rating) VALUES('p','player',5)").run();
+  await bindings.DB.prepare(
+    "INSERT INTO project_unversioned_notes(project_id,user_id,rating) VALUES('p','player',5)",
+  ).run();
   await buildBatch();
   const frozen = await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all();
   const denied = await request("player", "v1", "not qualified");
@@ -125,8 +127,13 @@ it("revokes create/edit on unsubscribe, preserves existing recommendations and r
   const projection = await discovery();
   expect((await subscription("player", false)).status).toBe(204);
   expect(await state("player")).toMatchObject({
-    items: [{ subscribed: false, recommendationEligible: false,
-      recommendation: { projectVersionId: "v1", comment: "first recommendation" } }],
+    items: [
+      {
+        subscribed: false,
+        recommendationEligible: false,
+        recommendation: { projectVersionId: "v1", comment: "first recommendation" },
+      },
+    ],
   });
   const audit = await bindings.DB.prepare("SELECT id,detail FROM audit_events").all();
   expect((await request("player", "v1", "denied edit while unsubscribed")).status).toBe(403);
@@ -137,8 +144,11 @@ it("revokes create/edit on unsubscribe, preserves existing recommendations and r
   expect((await subscription("player", true)).status).toBe(204);
   expect(await state("player")).toMatchObject({ items: [{ subscribed: true, recommendationEligible: true }] });
   expect((await request("player", "v1", "edited after resubscribe")).status).toBe(200);
-  expect(await bindings.DB.prepare("SELECT id,created_at FROM recommendations WHERE curator_id='player'").first()).toEqual({
-    id: initial!.id, created_at: initial!.created_at,
+  expect(
+    await bindings.DB.prepare("SELECT id,created_at FROM recommendations WHERE curator_id='player'").first(),
+  ).toEqual({
+    id: initial!.id,
+    created_at: initial!.created_at,
   });
   expect((await subscription("player", false)).status).toBe(204);
   expect((await request("player", "v1", "", "DELETE")).status).toBe(200);

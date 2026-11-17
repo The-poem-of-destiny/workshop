@@ -1,4 +1,4 @@
-import type { InteractionStateItem, MeStateResponse, ProjectSummary, RatingInput } from "@workshop/contracts";
+import type { InteractionStateItem, MeStateResponse, ProjectSummary } from "@workshop/contracts";
 import { getPublishedProjectsByIds } from "./projects.js";
 
 interface StateRow {
@@ -7,8 +7,6 @@ interface StateRow {
   subscribed: number;
   recommendation_version_id: string | null;
   recommendation_comment: string | null;
-  rating: number | null;
-  comment: string | null;
 }
 
 export async function getInteractionState(
@@ -23,9 +21,7 @@ export async function getInteractionState(
     SELECT p.id AS project_id,
       EXISTS (SELECT 1 FROM project_likes l WHERE l.project_id = p.id AND l.user_id = ?) AS liked,
       EXISTS (SELECT 1 FROM project_subscriptions s WHERE s.project_id = p.id AND s.user_id = ?) AS subscribed,
-      rec.project_version_id AS recommendation_version_id, rec.comment AS recommendation_comment,
-      (SELECT r.rating FROM project_ratings r WHERE r.project_id = p.id AND r.user_id = ?) AS rating,
-      (SELECT r.comment_text FROM project_ratings r WHERE r.project_id = p.id AND r.user_id = ?) AS comment
+      rec.project_version_id AS recommendation_version_id, rec.comment AS recommendation_comment
     FROM projects p
     LEFT JOIN recommendations rec ON rec.project_version_id = p.published_version_id AND rec.curator_id = ?
     WHERE p.id IN (${placeholders})
@@ -33,7 +29,7 @@ export async function getInteractionState(
       AND p.visibility = 'public'
       AND p.published_version_id IS NOT NULL
   `)
-    .bind(userId, userId, userId, userId, userId, ...projectIds)
+    .bind(userId, userId, userId, ...projectIds)
     .all<StateRow>();
   const byId = new Map(rows.results.map((row) => [row.project_id, row]));
   const items: InteractionStateItem[] = [];
@@ -48,8 +44,6 @@ export async function getInteractionState(
         recommendation: row.recommendation_version_id
           ? { projectVersionId: row.recommendation_version_id, comment: row.recommendation_comment ?? "" }
           : null,
-        rating: row.rating,
-        comment: row.comment,
       });
   }
   return { items };
@@ -111,22 +105,4 @@ export async function unsetSubscription(db: D1Database, userId: string, projectI
     .prepare("DELETE FROM project_subscriptions WHERE project_id = ? AND user_id = ?")
     .bind(projectId, userId)
     .run();
-}
-
-export async function setRating(db: D1Database, userId: string, projectId: string, input: RatingInput): Promise<void> {
-  await db
-    .prepare(`
-    INSERT INTO project_ratings (project_id, user_id, rating, comment_text)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(project_id, user_id) DO UPDATE SET
-      rating = excluded.rating,
-      comment_text = CASE WHEN ? THEN excluded.comment_text ELSE project_ratings.comment_text END,
-      updated_at = CURRENT_TIMESTAMP
-  `)
-    .bind(projectId, userId, input.rating, input.comment ?? null, input.comment !== undefined ? 1 : 0)
-    .run();
-}
-
-export async function unsetRating(db: D1Database, userId: string, projectId: string): Promise<void> {
-  await db.prepare("DELETE FROM project_ratings WHERE project_id = ? AND user_id = ?").bind(projectId, userId).run();
 }
