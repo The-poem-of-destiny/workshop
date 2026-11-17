@@ -1,14 +1,28 @@
 # Frontend fidelity mapping
 
+**Current snapshot (2026-11-17):** This page distinguishes current merged behavior from the dated experiments and measurements retained below. The checked `main` is `c450263a82c33a883bbaec5b0336130d9cfe1d12`, including the normal merge of version-note PR #94; merge, CI, local-runtime and historical staging evidence is centralized in [state.md](state.md). No Cloudflare runtime was queried for this documentation refresh.
+
+## Current scope and presentation
+
+- The new UI is the active implementation. The [dual-frontend decision](../../../.agents/notes/in-progress/dual-frontend-migration.md) still defers classic UI migration and the frontend switch; complete product/data replacement does not require restoring a second frontend or the legacy homepage shelves.
+- Catalogue cards and lists, discovery media and the detail stage use 16:9 media areas, including a neutral missing/failed-cover state. Detail gallery images use `contain`. Grid rows align to their natural row height rather than a fixed whole-card aspect ratio. Earlier 16:10 and collapsed coverless experiments below are superseded.
+- Discovery exposes the complete current batch (default 12, configurable), with a main display and keyboard-reachable thumbnail directory, rather than limiting access to four cards. Desktop has a vertical directory; at ≤760px it becomes a horizontal directory above the image/text panel. The main image opens the existing detail view. “试试看~” is the caption, not a separate discovery page.
+- Valid player recommendations can be read manually with the recommender identity and position; selection resets per project and an empty collection renders no recommendation region. Current projection, version, 90-day and cache boundaries remain in the [API reference](../../reference/worker-api.md#发现项目和下载), not in this visual map. Manual reading and live source projection do not recalculate frozen ranking contributions or guarantee immediate HTTP visibility through public-cache TTL.
+- The six-category badge is separate from the four ordinary displayed tags. Complete taxonomy, included types and grouped filtering are documented in the [using guide](../../guides/using-workshop.md#浏览与筛选) and [accepted taxonomy decision](../../../.agents/notes/in-progress/six-category-taxonomy-and-reviewed-cutover.md), not duplicated here.
+- Author metadata, cover and content freeze and publish together. Author/review/read tasks, owner tools, installation-instance scans and whole-instance preview/confirm flows are implemented; the [host protocol](../../reference/host-protocol.md) defines real host limits. Historical direct published-metadata editing and receipt-ticket transport are not current contracts.
+- Per-version private experience/rating notes in [PR #94](https://github.com/The-poem-of-destiny/workshop/pull/94) are implemented, independently reviewed and normally merged after exact-head required checks. [PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) is being corrected to require a current subscription for recommendation create/edit and will remain open: unsubscribe immediately removes eligibility but keeps existing recommendations and own retraction available; resubscribe restores eligibility. Retained post-unsubscribe eligibility is superseded. Existing discovery display is not proof of this pending correction; see the [current checklist](checklist.md#当前交付与验收门槛).
+
+The merged implementation has accepted local full-check and real Chromium evidence, including the latest PR #90/#91 delivery records. Those runs describe their verified heads and isolated data only; this docs-only change did not rerun them. Real Discord/embedded/device/role acceptance, real SillyTavern operations, hosted Cache API behavior and the new-schema real-data cutover remain unaccepted; see [manual gates](user-actions.md).
+
+## Historical mapping and experiment boundary
+
 **Reference:** read-only `../workshop-legacy` at `15303df5e3b30aa7f3fc924296ae57497a7ad09a`.
 
-**Scope update (2026-10-23):** This mapping records the earlier layout intent, not proof of functional or data equivalence. The [accepted dual-frontend decision](../../../.agents/notes/in-progress/dual-frontend-migration.md) replaces the requirement for the new UI to reproduce the legacy UI. Dataset differences are expected and the homepage differences are intentional. The [point-in-time gap audit](../../audits/frontend-gap-2026-10-23.md) remains evidence, not a requirement to restore old features. Classic UI migration is deferred while the new UI is optimized.
+The mapping, layout experiments, asset hashes and test counts below record the 2026-10-21–2026-10-26 stages. Their words “current”, “latest” and “final” refer to those stages only; they do not define today's layout or unfinished backlog. Accepted scope changed on 2026-10-23 and again through [D-40–D-47](decisions.md#d-40-完整替代旧版与完整数据迁移), with later media/discovery choices in the [visual decision](../../../.agents/notes/in-progress/new-ui-visual-direction.md). Preserve these historical results rather than relabelling them as a new measurement. The [point-in-time gap audit](../../audits/frontend-gap-2026-10-23.md) is not a demand to restore every legacy feature.
 
-**Accepted scope update (2026-10-26):** [D-40–D-47](decisions.md#d-40-完整替代旧版与完整数据迁移) now require complete legacy product and business-data replacement, not just selected public-project parity. Preserve the accepted card/list presentation, structural non-card header/sidebar and current discovery appearance. Independent task dialogs are the preferred organization; metadata/content submission, local-install instances and whole-instance operations need the new contracts before their UI cutover. Earlier mappings below describe prior implementation, not acceptance of the new scope; see the [open work packages](checklist.md#本轮工作包2026-10-26). This does not require a second classic frontend or authorize migration/deployment.
+## Historical evidence-to-implementation map
 
-## Evidence-to-implementation map
-
-| Legacy evidence | Current new UI |
+| Legacy evidence | Then-implemented new UI |
 | --- | --- |
 | `cloudflare/src/pages/home/render/layout.ts`: desktop sidebar, search and account actions. | The taller structural header centers global search and shows Discord account/avatar plus actual SillyTavern connection state. Authenticated personal routes occupy a second header row on every viewport; filters remain in the sidebar/drawer rather than sharing a bottom personal nav. |
 | `cloudflare/src/pages/home/shell-styles.ts`: compact desktop shell. | The new UI uses an independently scrolling, collapsible 280px sidebar with type/tag/author filters, sorting, layout controls and filter reset. Header height is measured so the sidebar follows wrapped mobile/account content. |
@@ -26,7 +40,7 @@ Discovery retains catalogue taxonomy colors, author avatars with initial fallbac
 
 Published preview endpoints return an empty entry list for a visible, indexed revision with zero entries and no asset of that kind. Nonzero counts with a missing asset, inaccessible projects and unavailable asset objects remain errors. A real zero-regex project returned HTTP 200 with `entries: []` and opened the reader empty state; the focused read-path regression suite passed 16 tests. Worker/Web typechecking and Web build passed after the metadata/layout changes.
 
-## Intentional functional deviations
+## Historical intentional functional deviations
 
 These are product decisions and are therefore not visual regressions:
 
@@ -43,7 +57,7 @@ These are product decisions and are therefore not visual regressions:
 - `src/lib/utils.ts` supplies the standard class merge utility used by those primitives.
 - The implementation uses these primitives in live header, login/account actions, project detail modal, and author-editor fields; they are not dependency-only artifacts.
 
-## Responsive behavior
+## Historical responsive behavior and experiments
 
 - **Desktop (≥1024px):** full-width sticky header above a collapsible 280px sidebar; sidebar scroll remains independent.
 - **Below 1024px:** personal routes remain in the header and filters use the modal drawer, with inert background, focus trapping, Escape/scrim/close dismissal and trigger focus restoration.
@@ -97,13 +111,15 @@ These records predate the 2026-10-28 integration. The separate published-metadat
 - The account endpoint exists only in the Vite `local-preview` serve mode. Production builds remove the debug bootstrap and view override; no role bypass is added to the Worker. Do not expose the debug server outside the trusted preview network.
 - Layout preferences are origin-specific. Reset layout in the debug bar to compare the default card layout with staging. Discovery content still depends on each environment's own data.
 
-## Readability Targets
+## Historical readability targets
+
+The following targets and gallery observations belong to the earlier feedback stage; the WCAG links remain useful references, but the old upload/workflow descriptions are not a replacement for current API contracts.
 
 - [WCAG 2.2 contrast minimum](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html): normal text at least 4.5:1, large text at least 3:1. Placeholder and metadata text also require contrast; disabled controls have a separate exception.
 - Pixel sizes are design choices, not WCAG mandates. Increased font size/line height, paragraph spacing, neutral surfaces and visible keyboard focus complement color contrast; measured ratios alone do not prove freedom from reading fatigue or full WCAG conformance.
 - Uploaded cover/gallery images accept actual PNG/JPEG/WebP data only, at most 1 MiB and 4096px per edge. The two additional gallery slots have author authorization and row-version checks; gallery changes are independent of draft content revisions.
 
-## Feedback Verification
+## Historical feedback verification
 
 - Full `pnpm check` passes: Worker 87 tests, domain 23 tests, content 7 tests, client 6 tests, type checks, schema/migration/backup checks, Web build and Wrangler dry-run. Existing lint warnings and the large-bundle warning remain.
 - Final isolated local E2E passes all 21 scenarios. Its database state is separate from the interactive preview and is removed after the run.
@@ -112,7 +128,7 @@ These records predate the 2026-10-28 integration. The separate published-metadat
 - A local parent iframe exercised the SillyTavern connection/import message exchange and the success toast's automatic dismissal. This is protocol/UI evidence, not a completed import into a real SillyTavern instance.
 - Measured primary text pairs meet the WCAG AA contrast minimum; the lowest measured pair is 6.70:1. This does not claim a complete accessibility audit or guarantee freedom from visual fatigue.
 
-## Workflow Reference
+## Historical workflow reference
 
 - Catalogue filters expose removable active conditions and distinguish official tags. Card/list layouts remain unchanged.
 - The connection indicator distinguishes a connected host, an embedded frame waiting for context, and standalone browsing. Connected users can open Installed to inspect recorded worldbook targets, published versus installed revisions, local changes and incomplete scans; failed project lookups are retryable and are not labelled as removals.
@@ -121,7 +137,7 @@ These records predate the 2026-10-28 integration. The separate published-metadat
 - Authoring accepts drag/drop content files and multiple regex files, previews parsed content and selected images before upload, groups local checker findings, and exports a report or AI repair prompt with matching source text. Selected content and pending cover state reset when changing project/revision. Submitting with warnings or no local report requires confirmation; local checks do not replace server review.
 - Review presents checker findings and source excerpts without executing submitted content. It polls opened queued/running checks, binds decisions to the reviewed revision/hash, requires a reason for rejection, and requires a manual-approval explanation for absent/blocked client evidence or unusable/blocked server evidence. Exported evidence remains separate from public acquisition.
 
-### Workflow Verification
+### Historical workflow verification
 
 - Full `pnpm check` passed (Worker 87, domain 23, content 7, client 6 tests), including type/schema/migration/backup checks and staging dry-run. Subsequent review-boundary fixes passed Worker/Web typechecking and build; final CSS/E2E changes passed error-level Biome and build. Lint warnings and the >500kB bundle warning remain.
 - Isolated local E2E passed 21/21 after updating interactions for counted like buttons and explicit asset upload. Final resource build: `index-TnwV6idO.js` / `index-D-TBkKZT.css`.
