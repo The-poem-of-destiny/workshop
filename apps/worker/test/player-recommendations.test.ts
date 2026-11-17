@@ -123,9 +123,16 @@ it("revokes create/edit on unsubscribe, preserves existing recommendations and r
   expect((await request("player", "v1", "first recommendation")).status).toBe(200);
   const initial = await bindings.DB.prepare("SELECT * FROM recommendations WHERE curator_id='player'").first();
   await buildBatch();
-  const frozen = await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all();
-  const projection = await discovery();
+  const frozen = (await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all()).results;
   expect((await subscription("player", false)).status).toBe(204);
+  const projection = await discovery();
+  expect(projection.items).toMatchObject([
+    {
+      id: "p",
+      counts: { subscriptions: 0 },
+      recommendations: [{ id: initial!.id, projectVersionId: "v1", comment: "first recommendation" }],
+    },
+  ]);
   expect(await state("player")).toMatchObject({
     items: [
       {
@@ -139,7 +146,7 @@ it("revokes create/edit on unsubscribe, preserves existing recommendations and r
   expect((await request("player", "v1", "denied edit while unsubscribed")).status).toBe(403);
   expect(await bindings.DB.prepare("SELECT * FROM recommendations WHERE curator_id='player'").first()).toEqual(initial);
   expect(await bindings.DB.prepare("SELECT id,detail FROM audit_events").all()).toEqual(audit);
-  expect(await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all()).toEqual(frozen);
+  expect((await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all()).results).toEqual(frozen);
   expect(await discovery()).toEqual(projection);
   expect((await subscription("player", true)).status).toBe(204);
   expect(await state("player")).toMatchObject({ items: [{ subscribed: true, recommendationEligible: true }] });
@@ -159,7 +166,7 @@ it("revokes create/edit on unsubscribe, preserves existing recommendations and r
   expect((await request("player", "v1", "denied create while unsubscribed")).status).toBe(403);
   expect((await bindings.DB.prepare("SELECT * FROM recommendations").all()).results).toEqual([]);
   expect(await bindings.DB.prepare("SELECT id,detail FROM audit_events").all()).toEqual(afterRetraction);
-  expect(await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all()).toEqual(frozen);
+  expect((await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all()).results).toEqual(frozen);
 });
 
 it("keeps the explicit owner editorial route privileged without granting player eligibility", async () => {
