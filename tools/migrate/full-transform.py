@@ -407,6 +407,9 @@ def main():
     for source_name, target_name in relations:
         seen = set()
         for row in source[source_name]:
+            if source_name == "project_subscribes" and "active" in row:
+                issue(source_name, row, "ambiguous legacy subscription activity; use a reviewed current-schema snapshot")
+                continue
             root = roots.get(str(row["project_id"]))
             if root in excluded_roots:
                 omit(source_name, row, "relation belongs to excluded project")
@@ -418,6 +421,8 @@ def main():
                 omit(source_name, row, "relation belongs to omitted historical revision")
                 continue
             mapped = {**row, "project_id": root}
+            if target_name == "project_subscriptions":
+                mapped["active"] = 1
             key = (root, row.get("user_id", row.get("day_key")))
             if key in seen:
                 issue(source_name, row, "multiple source records collapse to the same target key")

@@ -348,7 +348,9 @@ def dropped_columns(table, source_columns, target_columns):
     if extra - permitted:
         raise ValueError("unaccounted source columns in " + table + ": " + ",".join(sorted(extra - permitted)))
     added = set(target_columns) - set(source_columns)
-    if added - ({"project_type", "included_types"} if table == "project_versions" else set()):
+    permitted_added = ({"project_type", "included_types"} if table == "project_versions"
+                       else {"active"} if table == "project_subscriptions" else set())
+    if added - permitted_added:
         raise ValueError("unexpected target-only columns in " + table + ": " + ",".join(sorted(added)))
     return extra
 
@@ -490,6 +492,8 @@ def build(source_path, review_path, migrations, output, legacy_provenance=()):
                     row = dict(value)
                     if table == "project_versions":
                         row.update(decisions[str(row["id"])])
+                    if table == "project_subscriptions":
+                        row.setdefault("active", 1)
                     values = [row[key] for key in target_columns]
                     target.execute("INSERT INTO " + quote(table) + " (" + ",".join(map(quote, target_columns))
                                    + ") VALUES (" + ",".join("?" for _ in values) + ")", values)
@@ -547,6 +551,9 @@ def independent_rows(source, candidate, decisions):
         actual = row_counts(candidate, table, keys)
         if expected != actual:
             raise ValueError("non-taxonomy row/field difference in " + table)
+        initialized_active = table == "project_subscriptions" and "active" not in columns(source, table)
+        if initialized_active and candidate.execute("SELECT 1 FROM project_subscriptions WHERE active <> 1").fetchone():
+            raise ValueError("candidate invented inactive subscription history")
         if table == "project_versions":
             actual_types = {str(row[0]): (row[1], row[2], row[3]) for row in candidate.execute(
                 "SELECT id,project_type,included_types,tags FROM project_versions")}
@@ -555,6 +562,8 @@ def independent_rows(source, candidate, decisions):
                 raise ValueError("reviewed taxonomy/tags differ from candidate")
         evidence[table] = {"rows": sum(expected.values()),
                            "nonTaxonomySha256": digest(sorted(expected.items()))}
+        if initialized_active:
+            evidence[table]["initializedActiveRows"] = sum(expected.values())
     return evidence
 
 
@@ -603,7 +612,7 @@ def verify(source_path, review_path, migrations, candidate_dir, report_path=None
                           "projectType": row["projectType"], "includedTypes": row["includedTypes"],
                           "sourceTags": row["tags"], "targetTags": row["targetTags"],
                           "tagChangeReason": row["tagChangeReason"]} for row in review["records"]]),
-                      "nonTaxonomyScope": "all logical source rows/fields except reviewed primary/included/tags and explicitly removed obsolete fields",
+                      "nonTaxonomyScope": "all logical source rows/fields except reviewed primary/included/tags and explicitly removed obsolete fields; known subscriptions initialize active=1 only when the source has no active column",
                       "foreignKeys": True, "applicationIntegrity": True, "canonicalSearch": True,
                       "acceptedImportedExceptions": integrity["accepted_exceptions"],
                       "legacyProvenanceSha256": digest(provenance), "legacySources": len(provenance),

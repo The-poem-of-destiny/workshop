@@ -228,6 +228,8 @@ def source_reconcile(data, dump, manifest_path, *, migrations=None):
                     for pid in (root, str(base.get("draft_project_id") or root),
                                 str(base.get("published_project_id") or
                                     (root if base.get("is_published") else root)))}
+    if any("active" in row for row in source["project_subscribes"]):
+        raise ValueError("ambiguous legacy subscription activity; use a reviewed current-schema snapshot")
     subscriptions = Counter(roots.get(str(row["project_id"])) for row in source["project_subscribes"]
                             if str(row["project_id"]) in relation_ids)
     expected_projects = []
@@ -285,6 +287,11 @@ def source_reconcile(data, dump, manifest_path, *, migrations=None):
         actual = ((str(row["project_id"]), *(row.get(field) for field in fields))
                   for row in tables.get(target_name, []))
         compare(target_name, expected, actual)
+        if target_name == "project_subscriptions":
+            compare("subscription_membership", ((roots.get(str(row["project_id"])), row.get("user_id"), 1)
+                    for row in source[source_name] if str(row["project_id"]) in relation_ids),
+                    ((str(row["project_id"]), row.get("user_id"), row.get("active"))
+                     for row in tables.get(target_name, [])))
 
     for source_name, target_name, rename in (
         ("site_settings", "site_settings", {}),
