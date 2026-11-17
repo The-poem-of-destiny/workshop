@@ -193,7 +193,7 @@ describe("identity and interactions", () => {
     ).not.toHaveProperty("comment");
   });
 
-  it("retains one qualifying membership while concurrent subscription transitions keep active counts and lists exact", async () => {
+  it("keeps current subscription rows, eligibility, counts and lists exact through concurrent transitions", async () => {
     await bindings.DB.prepare("UPDATE projects SET working_version_id='r1' WHERE id='p1'").run();
     const subscribe = (active: boolean) =>
       request("/api/v1/me/subscriptions/p1", { method: active ? "PUT" : "DELETE" });
@@ -205,24 +205,23 @@ describe("identity and interactions", () => {
     expect(
       (await Promise.all(Array.from({ length: 8 }, () => subscribe(true)))).map((response) => response.status),
     ).toEqual(Array(8).fill(204));
-    expect((await bindings.DB.prepare("SELECT active FROM project_subscriptions").all()).results).toEqual([
-      { active: 1 },
+    expect((await bindings.DB.prepare("SELECT project_id,user_id FROM project_subscriptions").all()).results).toEqual([
+      { project_id: "p1", user_id: "u1" },
     ]);
     expect(
       await bindings.DB.prepare("SELECT subscriptions_count FROM projects WHERE id='p1'").first("subscriptions_count"),
     ).toBe(1);
+    await bindings.DB.prepare("UPDATE project_subscriptions SET created_at='2000-01-01T00:00:00.000Z'").run();
     expect(
       (await Promise.all(Array.from({ length: 8 }, () => subscribe(false)))).map((response) => response.status),
     ).toEqual(Array(8).fill(204));
-    expect((await bindings.DB.prepare("SELECT active FROM project_subscriptions").all()).results).toEqual([
-      { active: 0 },
-    ]);
+    expect((await bindings.DB.prepare("SELECT * FROM project_subscriptions").all()).results).toEqual([]);
     expect(
       await bindings.DB.prepare("SELECT subscriptions_count FROM projects WHERE id='p1'").first("subscriptions_count"),
     ).toBe(0);
     await expect((await request("/api/v1/me/subscriptions")).json()).resolves.toMatchObject({ items: [] });
     await expect((await request("/api/v1/me/state?ids=p1")).json()).resolves.toMatchObject({
-      items: [{ subscribed: false, recommendationEligible: true }],
+      items: [{ subscribed: false, recommendationEligible: false }],
     });
     expect(await getPublishedProject(bindings.DB, "p1")).toMatchObject({ counts: { subscriptions: 0 } });
     await expect((await request("/api/v1/me/projects")).json()).resolves.toMatchObject({
@@ -231,12 +230,11 @@ describe("identity and interactions", () => {
     expect((await listAdminProjects(bindings.DB, 20)).items).toMatchObject([
       { id: "p1", counts: { subscriptions: 0 } },
     ]);
-    await bindings.DB.prepare("UPDATE project_subscriptions SET created_at='2000-01-01T00:00:00.000Z'").run();
     expect(
       (await Promise.all(Array.from({ length: 8 }, () => subscribe(true)))).map((response) => response.status),
     ).toEqual(Array(8).fill(204));
-    expect((await bindings.DB.prepare("SELECT active FROM project_subscriptions").all()).results).toEqual([
-      { active: 1 },
+    expect((await bindings.DB.prepare("SELECT project_id,user_id FROM project_subscriptions").all()).results).toEqual([
+      { project_id: "p1", user_id: "u1" },
     ]);
     expect(
       await bindings.DB.prepare("SELECT subscriptions_count FROM projects WHERE id='p1'").first("subscriptions_count"),
@@ -251,11 +249,14 @@ describe("identity and interactions", () => {
     );
     await expect((await request("/api/v1/me/subscriptions")).json()).resolves.toMatchObject({ items: [{ id: "p1" }] });
     await Promise.all(Array.from({ length: 12 }, (_, index) => subscribe(index % 2 === 0)));
-    const active = await bindings.DB.prepare("SELECT active FROM project_subscriptions").first<number>("active");
+    const rows = (await bindings.DB.prepare("SELECT * FROM project_subscriptions").all()).results;
     expect(
       await bindings.DB.prepare("SELECT subscriptions_count FROM projects WHERE id='p1'").first("subscriptions_count"),
-    ).toBe(active);
-    expect((await bindings.DB.prepare("SELECT * FROM project_subscriptions").all()).results).toHaveLength(1);
+    ).toBe(rows.length);
+    expect(rows.length).toBeLessThanOrEqual(1);
+    await expect((await request("/api/v1/me/state?ids=p1")).json()).resolves.toMatchObject({
+      items: [{ subscribed: rows.length === 1, recommendationEligible: rows.length === 1 }],
+    });
   });
 
   it("preserves a stored comment when changing only stars and clears it only explicitly", async () => {

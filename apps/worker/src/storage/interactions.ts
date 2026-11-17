@@ -5,7 +5,6 @@ interface StateRow {
   project_id: string;
   liked: number;
   subscribed: number;
-  recommendation_eligible: number;
   recommendation_version_id: string | null;
   recommendation_comment: string | null;
   rating: number | null;
@@ -23,8 +22,7 @@ export async function getInteractionState(
     .prepare(`
     SELECT p.id AS project_id,
       EXISTS (SELECT 1 FROM project_likes l WHERE l.project_id = p.id AND l.user_id = ?) AS liked,
-      EXISTS (SELECT 1 FROM project_subscriptions s WHERE s.project_id = p.id AND s.user_id = ? AND s.active = 1) AS subscribed,
-      EXISTS (SELECT 1 FROM project_subscriptions s WHERE s.project_id = p.id AND s.user_id = ?) AS recommendation_eligible,
+      EXISTS (SELECT 1 FROM project_subscriptions s WHERE s.project_id = p.id AND s.user_id = ?) AS subscribed,
       rec.project_version_id AS recommendation_version_id, rec.comment AS recommendation_comment,
       (SELECT r.rating FROM project_ratings r WHERE r.project_id = p.id AND r.user_id = ?) AS rating,
       (SELECT r.comment_text FROM project_ratings r WHERE r.project_id = p.id AND r.user_id = ?) AS comment
@@ -35,7 +33,7 @@ export async function getInteractionState(
       AND p.visibility = 'public'
       AND p.published_version_id IS NOT NULL
   `)
-    .bind(userId, userId, userId, userId, userId, userId, ...projectIds)
+    .bind(userId, userId, userId, userId, userId, ...projectIds)
     .all<StateRow>();
   const byId = new Map(rows.results.map((row) => [row.project_id, row]));
   const items: InteractionStateItem[] = [];
@@ -46,7 +44,7 @@ export async function getInteractionState(
         projectId,
         liked: Boolean(row.liked),
         subscribed: Boolean(row.subscribed),
-        recommendationEligible: Boolean(row.recommendation_eligible),
+        recommendationEligible: Boolean(row.subscribed),
         recommendation: row.recommendation_version_id
           ? { projectVersionId: row.recommendation_version_id, comment: row.recommendation_comment ?? "" }
           : null,
@@ -62,7 +60,7 @@ export async function listSubscribedProjects(db: D1Database, userId: string): Pr
     .prepare(`
     SELECT s.project_id FROM project_subscriptions s
     JOIN projects p ON p.id = s.project_id
-    WHERE s.user_id = ? AND s.active = 1 AND p.deleted_at IS NULL
+    WHERE s.user_id = ? AND p.deleted_at IS NULL
       AND p.visibility = 'public' AND p.published_version_id IS NOT NULL
     ORDER BY s.created_at DESC
   `)
@@ -103,16 +101,14 @@ export async function unsetLike(db: D1Database, userId: string, projectId: strin
 
 export async function setSubscription(db: D1Database, userId: string, projectId: string): Promise<void> {
   await db
-    .prepare(`INSERT INTO project_subscriptions (project_id, user_id) VALUES (?, ?)
-      ON CONFLICT(project_id, user_id) DO UPDATE SET active = 1,
-        created_at = CASE WHEN project_subscriptions.active = 0 THEN excluded.created_at ELSE project_subscriptions.created_at END`)
+    .prepare("INSERT OR IGNORE INTO project_subscriptions (project_id, user_id) VALUES (?, ?)")
     .bind(projectId, userId)
     .run();
 }
 
 export async function unsetSubscription(db: D1Database, userId: string, projectId: string): Promise<void> {
   await db
-    .prepare("UPDATE project_subscriptions SET active = 0 WHERE project_id = ? AND user_id = ?")
+    .prepare("DELETE FROM project_subscriptions WHERE project_id = ? AND user_id = ?")
     .bind(projectId, userId)
     .run();
 }

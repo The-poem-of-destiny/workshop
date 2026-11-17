@@ -87,7 +87,7 @@ async function discovery() {
   expect(response.status).toBe(200);
   return response.json<DiscoveryResponse>();
 }
-it("requires recorded subscription history for creates and edits without mutating frozen contributions", async () => {
+it("requires current subscription for creates and edits without mutating frozen contributions", async () => {
   expect(await state("player")).toMatchObject({
     items: [{ subscribed: false, recommendationEligible: false, recommendation: null }],
   });
@@ -116,31 +116,40 @@ it("requires recorded subscription history for creates and edits without mutatin
   expect((await bindings.DB.prepare("SELECT id FROM recommendations").all()).results).toEqual([]);
 });
 
-it("keeps unsubscribed members eligible to create, edit and retract with stable recommendation identity", async () => {
+it("revokes create/edit on unsubscribe, preserves existing recommendations and restores writes on resubscribe", async () => {
   expect((await subscription("player", true)).status).toBe(204);
   expect((await request("player", "v1", "first recommendation")).status).toBe(200);
-  const initial = await bindings.DB.prepare(
-    "SELECT id,created_at FROM recommendations WHERE curator_id='player'",
-  ).first();
+  const initial = await bindings.DB.prepare("SELECT * FROM recommendations WHERE curator_id='player'").first();
+  await buildBatch();
+  const frozen = await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all();
+  const projection = await discovery();
   expect((await subscription("player", false)).status).toBe(204);
   expect(await state("player")).toMatchObject({
-    items: [
-      {
-        subscribed: false,
-        recommendationEligible: true,
-        recommendation: { projectVersionId: "v1", comment: "first recommendation" },
-      },
-    ],
+    items: [{ subscribed: false, recommendationEligible: false,
+      recommendation: { projectVersionId: "v1", comment: "first recommendation" } }],
   });
-  expect((await request("player", "v1", "updated while unsubscribed")).status).toBe(200);
-  expect(
-    await bindings.DB.prepare("SELECT id,created_at FROM recommendations WHERE curator_id='player'").first(),
-  ).toEqual(initial);
+  const audit = await bindings.DB.prepare("SELECT id,detail FROM audit_events").all();
+  expect((await request("player", "v1", "denied edit while unsubscribed")).status).toBe(403);
+  expect(await bindings.DB.prepare("SELECT * FROM recommendations WHERE curator_id='player'").first()).toEqual(initial);
+  expect(await bindings.DB.prepare("SELECT id,detail FROM audit_events").all()).toEqual(audit);
+  expect(await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all()).toEqual(frozen);
+  expect(await discovery()).toEqual(projection);
+  expect((await subscription("player", true)).status).toBe(204);
+  expect(await state("player")).toMatchObject({ items: [{ subscribed: true, recommendationEligible: true }] });
+  expect((await request("player", "v1", "edited after resubscribe")).status).toBe(200);
+  expect(await bindings.DB.prepare("SELECT id,created_at FROM recommendations WHERE curator_id='player'").first()).toEqual({
+    id: initial!.id, created_at: initial!.created_at,
+  });
+  expect((await subscription("player", false)).status).toBe(204);
   expect((await request("player", "v1", "", "DELETE")).status).toBe(200);
   expect(await state("player")).toMatchObject({
-    items: [{ subscribed: false, recommendationEligible: true, recommendation: null }],
+    items: [{ subscribed: false, recommendationEligible: false, recommendation: null }],
   });
-  expect((await request("player", "v1", "new explicit recommendation while unsubscribed")).status).toBe(200);
+  const afterRetraction = await bindings.DB.prepare("SELECT id,detail FROM audit_events").all();
+  expect((await request("player", "v1", "denied create while unsubscribed")).status).toBe(403);
+  expect((await bindings.DB.prepare("SELECT * FROM recommendations").all()).results).toEqual([]);
+  expect(await bindings.DB.prepare("SELECT id,detail FROM audit_events").all()).toEqual(afterRetraction);
+  expect(await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all()).toEqual(frozen);
 });
 
 it("keeps the explicit owner editorial route privileged without granting player eligibility", async () => {
@@ -309,7 +318,7 @@ it("does not carry old endorsements into a new publication or display a deleted 
   await bindings.DB.prepare("UPDATE projects SET published_version_id='v2' WHERE id='p'").run();
   expect((await discovery()).items).toEqual([]);
   expect(await state("player")).toMatchObject({
-    items: [{ subscribed: false, recommendationEligible: true, recommendation: null }],
+    items: [{ subscribed: false, recommendationEligible: false, recommendation: null }],
   });
   expect((await request("player", "v1", "stale comment")).status).toBe(404);
 
@@ -317,6 +326,8 @@ it("does not carry old endorsements into a new publication or display a deleted 
   await buildBatch();
   expect((await discovery()).items).toMatchObject([{ id: "p", publishedVersionId: "v2", recommendations: [] }]);
   expect((await readRecommendationBatch(bindings.DB))?.items[0]?.contributions.endorsements).toBe(0);
+  expect((await request("player", "v2", "not currently subscribed")).status).toBe(403);
+  expect((await subscription("player", true)).status).toBe(204);
   expect((await request("player", "v2", "current version comment")).status).toBe(200);
   const currentId = await bindings.DB.prepare(
     "SELECT id FROM recommendations WHERE curator_id='player' AND project_version_id='v2'",

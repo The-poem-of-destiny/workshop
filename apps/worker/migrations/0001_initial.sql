@@ -153,7 +153,6 @@ CREATE TABLE project_subscriptions (
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
   PRIMARY KEY (project_id, user_id)
 );
 
@@ -355,7 +354,7 @@ CREATE INDEX idx_project_revisions_project ON "project_versions"(project_id, ver
 
 CREATE INDEX idx_project_search_tags_tag ON project_search_tags(tag, project_id);
 
-CREATE INDEX idx_project_subscriptions_user ON project_subscriptions(user_id, created_at DESC) WHERE active = 1;
+CREATE INDEX idx_project_subscriptions_user ON project_subscriptions(user_id, created_at DESC);
 
 CREATE INDEX idx_projects_author ON projects(author_id, updated_at DESC);
 
@@ -486,22 +485,13 @@ BEGIN
 END;
 
 CREATE TRIGGER project_subscriptions_count_delete AFTER DELETE ON project_subscriptions
-WHEN OLD.active = 1
 BEGIN
   UPDATE projects SET subscriptions_count = MAX(subscriptions_count - 1, 0) WHERE id = OLD.project_id;
 END;
 
 CREATE TRIGGER project_subscriptions_count_insert AFTER INSERT ON project_subscriptions
-WHEN NEW.active = 1
 BEGIN
   UPDATE projects SET subscriptions_count = subscriptions_count + 1 WHERE id = NEW.project_id;
-END;
-
-CREATE TRIGGER project_subscriptions_count_update AFTER UPDATE OF active ON project_subscriptions
-WHEN OLD.active <> NEW.active
-BEGIN
-  UPDATE projects SET subscriptions_count = MAX(subscriptions_count + NEW.active - OLD.active, 0)
-  WHERE id = NEW.project_id;
 END;
 
 CREATE TRIGGER project_unlike_metrics AFTER DELETE ON project_likes
