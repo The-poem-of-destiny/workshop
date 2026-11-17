@@ -128,9 +128,12 @@ export function ProjectCommunity({
         setRecommendationStatus(remove ? "当前版本推荐已撤回。" : "当前版本推荐已保存。");
       })
       .catch((reason) => {
+        if (reason instanceof ApiError && reason.status === 403) {
+          setInteraction((value) => value ? { ...value, subscribed: false, recommendationEligible: false } : value);
+        }
         const message =
           reason instanceof ApiError && reason.status === 403
-            ? "请先订阅此项目，再推荐当前版本；取消订阅不影响推荐资格。"
+            ? "请先订阅此项目，再推荐当前版本；取消订阅后不可新增或编辑，仍可撤回已有推荐。"
             : `推荐保存失败：${String(reason)}`;
         setRecommendationError(message);
       })
@@ -192,7 +195,7 @@ export function ProjectCommunity({
               .then(() => {
                 setInteraction((value) =>
                   value
-                    ? { ...value, subscribed: next, recommendationEligible: next || value.recommendationEligible }
+                    ? { ...value, subscribed: next, recommendationEligible: next }
                     : value,
                 );
                 onSubscriptionChange(project.id, next);
@@ -337,13 +340,13 @@ function VersionRecommendation({
       <h4>推荐当前版本</h4>
       <p className="hint">推荐会公开展示，且只属于当前版本；新版本发布后需重新明确推荐。订阅不会自动推荐。</p>
       {!loggedIn ? (
-        <p className="hint">登录并订阅过此项目后可推荐；取消订阅仍保留推荐资格。</p>
+        <p className="hint">登录并订阅此项目后可推荐；取消订阅后仍可撤回已有推荐。</p>
       ) : ready ? (
         <>
           {!interaction?.recommendationEligible ? (
-            <p className="hint">请先订阅此项目，再推荐当前版本；取消订阅不影响推荐资格。</p>
+            <p className="hint">请先订阅此项目，再推荐当前版本；取消订阅后不可新增或编辑，仍可撤回已有推荐。</p>
           ) : (
-            <p className="hint">你已订阅过此项目，可以推荐当前版本；无需保持订阅。</p>
+            <p className="hint">你当前已订阅此项目，可以推荐当前版本。</p>
           )}
           <label className="rating-comment">
             <span>公开推荐说明（可选）</span>
