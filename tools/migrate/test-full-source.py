@@ -379,7 +379,7 @@ class SourceReconciliationTest(unittest.TestCase):
         result, report = self.run_source(data, dump)
         self.assertEqual(result.returncode, 0, (result.stderr, report))
 
-    def test_legacy_subscription_initializes_only_proven_membership_and_reconciles_independently(self):
+    def test_legacy_current_subscriptions_keep_rows_counts_and_independent_reconciliation(self):
         with sqlite3.connect(":memory:") as db:
             db.executescript(self.snapshot_dump())
             db.executescript("""
@@ -390,22 +390,17 @@ class SourceReconciliationTest(unittest.TestCase):
             dump = "\n".join(db.iterdump()) + "\n"
             data = self.run_transform(dump)
             self.assertEqual(data["tables"]["project_subscriptions"],
-                             [{"project_id": "p1", "user_id": "u1", "created_at": "t1", "active": 1}])
+                             [{"project_id": "p1", "user_id": "u1", "created_at": "t1"}])
             self.assertEqual(data["tables"]["projects"][0]["subscriptions_count"], 1)
             result, report = self.run_source(data, dump)
             self.assertEqual(result.returncode, 0, (result.stderr, report))
-            self.assertEqual(report["checks"]["subscription_membership"],
+            self.assertEqual(report["checks"]["project_subscriptions"],
                              {"expected": 1, "actual": 1, "missing": 0, "extra": 0})
             tampered = copy.deepcopy(data)
-            tampered["tables"]["project_subscriptions"][0]["active"] = 0
+            tampered["tables"]["project_subscriptions"][0]["created_at"] = "changed"
             result, report = self.run_source(tampered, dump)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn({"kind": "source_difference", "check": "subscription_membership"}, report["failures"])
-            db.execute("ALTER TABLE project_subscribes ADD COLUMN active INTEGER DEFAULT 0")
-            ambiguous = "\n".join(db.iterdump()) + "\n"
-            result, report = self.run_source(data, ambiguous)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertEqual(report, {"ok": False, "error": "input_or_schema_error"})
+            self.assertIn({"kind": "source_difference", "check": "project_subscriptions"}, report["failures"])
 
     def test_baseline_and_missing_or_altered_rows(self):
         result, report = self.run_source()
@@ -530,6 +525,8 @@ class CurrentTaxonomySnapshotTest(unittest.TestCase):
             self.assertEqual(db.execute("SELECT working_version_id,published_version_id,published_cover_asset_id,"
                                        "downloads_count,likes_count,row_version FROM projects WHERE id='p'").fetchone(),
                              ("vw", "vp", "cover", 17, 1, 9))
+            self.assertEqual(db.execute("SELECT project_id,user_id,created_at FROM project_subscriptions").fetchall(),
+                             [("p", "reviewer", "2026-01-02")])
             self.assertIsNone(db.execute("SELECT ended_at FROM recommendation_batch_eligibility").fetchone()[0])
             self.assertEqual(db.execute("SELECT project_type,included_types,tags FROM project_versions WHERE id='vp'").fetchone(),
                              ("系统核心", "[]", '["cbz","hnh","1011"]'))
@@ -538,41 +535,6 @@ class CurrentTaxonomySnapshotTest(unittest.TestCase):
             self.assertEqual(db.execute("SELECT p.id FROM project_search s JOIN projects p ON p.rowid=s.rowid "
                                         "WHERE project_search MATCH '1011'").fetchall(), [("p",)])
             self.assertFalse(set(taxonomy.columns(db, "project_versions")) & taxonomy.OBSOLETE)
-
-    def test_known_active_rows_initialize_membership_without_inventing_unsubscribers(self):
-        with sqlite3.connect(self.source) as db:
-            db.execute("DROP INDEX idx_project_subscriptions_user")
-            db.execute("ALTER TABLE project_subscriptions DROP COLUMN active")
-        original = self.source.read_bytes()
-        self.review_path.unlink()
-        taxonomy.prepare_review(self.source, "current", self.review_path)
-        self.reviewed()
-        candidate = self.build()
-        report = taxonomy.verify(self.source, self.review_path, MIGRATIONS, candidate)
-        self.assertEqual(report["tables"]["project_subscriptions"]["initializedActiveRows"], 1)
-        with sqlite3.connect(candidate / "expected.sqlite") as db:
-            self.assertEqual(db.execute("SELECT project_id,user_id,created_at,active FROM project_subscriptions").fetchall(),
-                             [("p", "reviewer", "2026-01-02", 1)])
-            db.execute("UPDATE project_subscriptions SET active=0")
-        with self.assertRaisesRegex(ValueError, "invented inactive subscription history"):
-            taxonomy.verify(self.source, self.review_path, MIGRATIONS, candidate)
-        self.assertEqual(self.source.read_bytes(), original)
-
-    def test_current_inactive_membership_and_active_counters_are_preserved(self):
-        with sqlite3.connect(self.source) as db:
-            db.execute("UPDATE project_subscriptions SET active=0")
-            db.execute("UPDATE projects SET subscriptions_count=0 WHERE id='p'")
-        original = self.source.read_bytes()
-        self.review_path.unlink()
-        taxonomy.prepare_review(self.source, "current", self.review_path)
-        self.reviewed()
-        candidate = self.build()
-        self.assertTrue(taxonomy.verify(self.source, self.review_path, MIGRATIONS, candidate)["ok"])
-        with sqlite3.connect(candidate / "expected.sqlite") as db:
-            self.assertEqual(db.execute("SELECT project_id,user_id,created_at,active FROM project_subscriptions").fetchall(),
-                             [("p", "reviewer", "2026-01-02", 0)])
-            self.assertEqual(db.execute("SELECT subscriptions_count FROM projects WHERE id='p'").fetchone(), (0,))
-        self.assertEqual(self.source.read_bytes(), original)
 
     def test_direct_mapping_current_candidate_requires_explicit_review_before_output(self):
         with sqlite3.connect(self.source) as db:
