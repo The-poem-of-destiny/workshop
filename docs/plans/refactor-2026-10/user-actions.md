@@ -2,7 +2,7 @@
 
 更新：2026-11-17。源码核对基线为 `main` 的 `c450263a82c33a883bbaec5b0336130d9cfe1d12`，已正常合并版本备忘 #94；合并、CI、本地证据与历史 staging 状态见 [state.md](state.md)。本页只列真实账号／宿主、数据切换与发布必须人工参与的门槛，不把已经实现的核心 Web／客户端重新列为代码待办。
 
-**当前不请求你执行真实迁移或发布。** 最新授权允许文档 #92 与版本备忘 #94 在 required checks 及相关审查通过后正常合并；推荐资格 #93 按当前订阅条件纠正并保持 OPEN、未合并、auto-merge 关闭。没有发布、tag、部署、个人 Cloudflare token 或真实 D1/R2／备份访问授权。下列真实环境清单只在另获对应授权、且确认目标运行版本后执行；不要用旧 staging 页面验收尚未部署的新 schema 或功能。
+**当前不请求你执行真实迁移或发布。** 版本备忘 #94 已正常合并；最新授权允许文档 #92 与按当前订阅条件纠正的推荐资格 #93 在必要验证和 exact-head required checks 通过后正常合并，不启用 auto-merge、不绕过分支保护。没有发布、tag、部署、个人 Cloudflare token 或真实 D1/R2／备份访问授权。下列真实环境清单只在另获对应授权、且确认目标运行版本后执行；不要用旧 staging 页面验收尚未部署的新 schema 或功能。
 
 ## 1. 凭据与环境：发布前按目标环境核对
 
@@ -73,7 +73,7 @@
 
 ## 5. 不属于当前人工阻塞的事项
 
-- 版本体验／评分备忘 [PR #94](https://github.com/The-poem-of-destiny/workshop/pull/94) 已实现、独立审查、通过 exact-head required checks 并正常合并；推荐资格 [PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) 纠正后仍保持未合并，不是用户勾选即可完成的人工事项。最新条件为登录且当前订阅才可新增／编辑，退订立即失去资格但既有推荐保留、本人仍可撤回，重新订阅恢复资格；不保留历史资格。详情以[已接受决定](../../../.agents/notes/in-progress/version-experience-notes-and-recommendations.md)及各自 PR 为准。
+- 版本体验／评分备忘 [PR #94](https://github.com/The-poem-of-destiny/workshop/pull/94) 已实现、独立审查、通过 exact-head required checks 并正常合并；推荐资格 [PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) 正在纠正，必要验证和必需检查通过后可正常合并，不是用户勾选即可完成的人工事项。最新条件为登录且当前订阅才可新增／编辑，退订立即失去资格但既有推荐保留、本人仍可撤回，重新订阅恢复资格；不保留历史资格。详情以[已接受决定](../../../.agents/notes/in-progress/version-experience-notes-and-recommendations.md)及各自 PR 为准。
 - 旧清单中的逐条更新 UI、独立修复／更新中心、旧路径 shim 和跨角色迁移不能直接当作当前未完成要求。当前客户端采用可核对的实例扫描、整体操作与可靠旧身份转换；是否新增其他产品模式须单独决定，不扩大本轮两个缺口。
 - 经典界面迁移／双前端开关继续暂缓；每日抽签 Q-10 仍暂缓，不阻塞本轮。安装、订阅、下载分离及审核队列等既定方向见 [decisions.md](decisions.md)，不重新要求用户决策。
 

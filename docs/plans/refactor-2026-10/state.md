@@ -27,11 +27,11 @@
 
 ## 当前待交付与发布门槛
 
-- **当前订阅推荐资格仍未合并**：[PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) 按最新决定纠正为登录且当前订阅才可新增／编辑；退订立即失去资格，但既有推荐不自动删除、本人仍可撤回，重新订阅恢复资格。#93 保持 OPEN、未合并，不建立历史资格、不从下载／安装／旧评分推断订阅。已合并的版本备忘与推荐分离，不把旧项目级评分猜配到版本或公开为推荐；契约依据为[已接受决定](../../../.agents/notes/in-progress/version-experience-notes-and-recommendations.md)。
+- **当前订阅推荐资格仍未合并**：[PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) 按最新决定纠正为登录且当前订阅才可新增／编辑；退订立即失去资格，但既有推荐不自动删除、本人仍可撤回，重新订阅恢复资格。#93 当前未合并，纠正并通过必要验证与必需检查后可正常合并；不建立历史资格、不从下载／安装／旧评分推断订阅。已合并的版本备忘与推荐分离，不把旧项目级评分猜配到版本或公开为推荐；契约依据为[已接受决定](../../../.agents/notes/in-progress/version-experience-notes-and-recommendations.md)。
 - **真实数据迁移暂不执行**：现有六分类离线工具与完整候选验证不授权访问或转换真实 D1/R2／备份。历史 staging 验收不能关闭当前 schema／taxonomy 切换门槛；切换需新的完整当前快照、显式审阅、独立对账及另行授权。
 - **部署保持暂停**：`ACCEPTED_SCHEMA_SHA=f2491599cfb97a6405b5f73ead73227387786478`、staging schema-change pause 与 production 的 `Require separately verified production schema` 门禁不变。不得直接套用旧增量链或对既有库运行新的空库基线。
 - **真实环境验收及生产切换未完成**：真实 Discord 完整登录／准入和真实 SillyTavern 安装／更新／卸载见 [user-actions.md](user-actions.md)；生产备份恢复、停写、迁移、回滚和精确版本验收仍需授权。不因这些人工门槛把已实现核心客户端重新列为代码待办。
-- **最新交付授权**：文档 [PR #92](https://github.com/The-poem-of-destiny/workshop/pull/92) 与版本备忘 #94 在 required checks 及相关审查通过后正常合并；推荐资格 #93 纠正后仍保持 OPEN、未合并、auto-merge 关闭。没有 release／tag／部署授权，不使用个人 Cloudflare token，不读写真实 D1/R2／备份或修改绑定、secrets、workflow、schema checkpoint；PR 合并不表示线上已启用。
+- **最新交付授权**：版本备忘 #94 已正常合并；文档 [PR #92](https://github.com/The-poem-of-destiny/workshop/pull/92) 与纠正后的推荐资格 #93 在必要验证和 exact-head required checks 通过后正常合并，不启用 auto-merge、不绕过分支保护。没有 release／tag／部署授权，不使用个人 Cloudflare token，不读写真实 D1/R2／备份或修改绑定、secrets、workflow、schema checkpoint；PR 合并不表示线上已启用。
 
 当前可执行与人工验收边界见 [Checklist](checklist.md) 和 [用户事项](user-actions.md)。只读 legacy 结构参考固定为 `../workshop-legacy` 的 `15303df5e3b30aa7f3fc924296ae57497a7ad09a`；经典界面迁移不是本轮待办。
 

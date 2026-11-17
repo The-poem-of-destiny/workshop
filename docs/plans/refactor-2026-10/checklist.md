@@ -10,13 +10,13 @@
 - [x] PR #89 四普通标签上限、PR #90 六分类与显式审阅离线候选工具、PR #91 预览／焦点／完整发现批次与手动推荐阅读已合并。六分类详情见[决定记录](../../../.agents/notes/in-progress/six-category-taxonomy-and-reviewed-cutover.md)，视觉范围见[映射](frontend-fidelity.md)。
 - [x] 历史 staging 迁移在 2026-11-06 取得 210/210 批及源／目标／搜索对账验收；这是既有 schema 的阶段证据，不是当前 taxonomy／新 schema 切换完成。
 - [x] 版本绑定的本人体验／评分备忘：[PR #94](https://github.com/The-poem-of-destiny/workshop/pull/94) 已实现、独立审查且 exact-head required checks 通过后正常合并；本地证据不代表线上启用，不将旧无版本评分猜配到任一版本或公开。
-- [ ] 当前订阅才可新增／编辑玩家推荐：[PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) 正在按最新决定纠正并保持未合并。退订立即失去资格，既有推荐保留且本人可撤回；重新订阅恢复资格，不保留历史资格或从下载、安装、评分推断订阅。
+- [ ] 当前订阅才可新增／编辑玩家推荐：[PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) 正在按最新决定纠正，必要验证和 exact-head required checks 通过后可正常合并。退订立即失去资格，既有推荐保留且本人可撤回；重新订阅恢复资格，不保留历史资格或从下载、安装、评分推断订阅。
 - [ ] 当前 schema／taxonomy 真实数据切换：须另行授权并核验完整当前快照、审阅决定、候选、对象引用及切换后结果；本轮明确暂不执行。
 - [ ] 当前版本真实 Discord 完整登录／准入与真实 SillyTavern 安装／更新／卸载验收，见 [user-actions.md](user-actions.md)。合成本地账号与消息宿主不替代它们。
 - [ ] 目标环境 Cache API hosted 行为与陈旧风险验收；方案以 [D-49](decisions.md#d-49-分类-ttl-cache-api)、[缓存设计](../../reference/cache-design.md)和[运行配置](../../reference/runtime-configuration.md)为准，不验证全球 purge 或旧 Workers Cache 方案。
 - [ ] 生产备份恢复、停写／迁移／回滚、发布审批和精确部署版本验收；生产切换未执行，不因历史 staging 成功关闭。
 
-最新授权允许文档 #92 与版本备忘 #94 在 required checks 及相关审查通过后正常合并；推荐资格 #93 纠正后保持 OPEN、未合并、auto-merge 关闭。不发布／建 tag／部署／操作真实数据。staging schema-change pause、`ACCEPTED_SCHEMA_SHA=f2491599cfb97a6405b5f73ead73227387786478` 与 production schema 停止门禁保持不变；`0001_initial.sql` 只可初始化空库，不对既有库执行。经典界面迁移、双前端开关及每日抽签继续暂缓。
+最新授权允许文档 #92 与纠正后的推荐资格 #93 在必要验证和 exact-head required checks 通过后正常合并；版本备忘 #94 已正常合并。不启用 auto-merge，不绕过分支保护，不发布／建 tag／部署／操作真实数据。staging schema-change pause、`ACCEPTED_SCHEMA_SHA=f2491599cfb97a6405b5f73ead73227387786478` 与 production schema 停止门禁保持不变；`0001_initial.sql` 只可初始化空库，不对既有库执行。经典界面迁移、双前端开关及每日抽签继续暂缓。
 
 ## 本轮工作包（2026-10-26）
 
