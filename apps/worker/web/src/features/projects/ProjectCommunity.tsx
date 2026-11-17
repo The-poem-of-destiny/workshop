@@ -1,8 +1,8 @@
-import { Bookmark, ExternalLink, Heart, RefreshCcw, Star } from "lucide-react";
+import { Bookmark, ExternalLink, Heart, RefreshCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, type ProjectSummary } from "../../api";
 
-type Interaction = { liked: boolean; subscribed: boolean; rating: number | null };
+type Interaction = { liked: boolean; subscribed: boolean };
 
 export function ProjectCommunity({
   project,
@@ -24,18 +24,11 @@ export function ProjectCommunity({
   const [interactionReload, setInteractionReload] = useState(0);
   const [completedReload, setCompletedReload] = useState(-1);
   const interactionStatus = completedReload === interactionReload ? settledStatus : "loading";
-  const [ratingDraft, setRatingDraft] = useState<number | null>(null);
-  const [ratingComment, setRatingComment] = useState("");
   const likePending = useRef(false);
   const subscriptionPending = useRef(false);
   const [likeSaving, setLikeSaving] = useState(false);
   const [subscriptionSaving, setSubscriptionSaving] = useState(false);
-  const [ratingSaving, setRatingSaving] = useState(false);
-  const [ratingSaved, setRatingSaved] = useState(false);
   useEffect(() => {
-    setRatingDraft(null);
-    setRatingComment("");
-    setRatingSaved(false);
     if (!loggedIn) {
       setInteraction(null);
       return;
@@ -48,9 +41,8 @@ export function ProjectCommunity({
       .then((result) => {
         if (!active) return;
         const item = result.items.find((value) => value.projectId === project.id);
-        setInteraction(item ? { liked: item.liked, subscribed: item.subscribed, rating: item.rating } : null);
+        setInteraction(item ? { liked: item.liked, subscribed: item.subscribed } : null);
         setInteractionStatus(item ? "ready" : "unavailable");
-        setRatingComment(item?.comment ?? "");
       })
       .catch(() => {
         if (active) setInteractionStatus("error");
@@ -62,49 +54,6 @@ export function ProjectCommunity({
       active = false;
     };
   }, [loggedIn, project.id, interactionReload]);
-  const currentRating = ratingDraft ?? interaction?.rating ?? null;
-  const submitRating = (): void => {
-    if (!loggedIn || interaction === null || currentRating === null || ratingSaving) return;
-    setRatingSaving(true);
-    api
-      .setRating(project.id, currentRating, ratingComment.trim())
-      .then(() => {
-        setRatingSaving(false);
-        setRatingDraft(null);
-        setRatingSaved(true);
-        setInteraction((value) => ({
-          liked: value?.liked ?? false,
-          subscribed: value?.subscribed ?? false,
-          rating: currentRating,
-        }));
-      })
-      .catch((reason) => {
-        setRatingSaving(false);
-        onError(String(reason));
-      });
-  };
-
-  const removeRating = (): void => {
-    if (ratingSaving) return;
-    setRatingSaving(true);
-    api
-      .deleteRating(project.id)
-      .then(() => {
-        setRatingSaving(false);
-        setRatingDraft(null);
-        setRatingComment("");
-        setRatingSaved(false);
-        setInteraction((value) => ({
-          liked: value?.liked ?? false,
-          subscribed: value?.subscribed ?? false,
-          rating: null,
-        }));
-      })
-      .catch((reason) => {
-        setRatingSaving(false);
-        onError(String(reason));
-      });
-  };
   return (
     <section className="rail-section" aria-label="社区互动">
       <div className="actions">
@@ -133,7 +82,6 @@ export function ProjectCommunity({
                 setInteraction((value) => ({
                   liked: next,
                   subscribed: value?.subscribed ?? false,
-                  rating: value?.rating ?? null,
                 })),
               )
               .catch((reason) => onError(String(reason)))
@@ -165,7 +113,6 @@ export function ProjectCommunity({
                 setInteraction((value) => ({
                   liked: value?.liked ?? false,
                   subscribed: next,
-                  rating: value?.rating ?? null,
                 }));
                 onSubscriptionChange(project.id, next);
               })
@@ -195,72 +142,6 @@ export function ProjectCommunity({
         </div>
       ) : null}
       {loggedIn && interactionStatus === "unavailable" ? <p className="hint">此项目当前不可互动。</p> : null}
-      <div className="rating-block">
-        <h4>我的评分备忘</h4>
-        <fieldset className="rating-stars">
-          <legend className="sr-only">项目评分</legend>
-          {[1, 2, 3, 4, 5].map((value) => {
-            const active = currentRating !== null && currentRating >= value;
-            return (
-              <button
-                key={value}
-                type="button"
-                className={active ? "rating-star is-active" : "rating-star"}
-                aria-label={`${value} 星`}
-                aria-pressed={currentRating === value}
-                disabled={!loggedIn || ratingSaving || interaction === null}
-                onClick={() => {
-                  setRatingDraft(value);
-                  setRatingSaved(false);
-                }}
-              >
-                <Star aria-hidden="true" fill={active ? "currentColor" : "none"} />
-              </button>
-            );
-          })}
-        </fieldset>
-        {!loggedIn ? (
-          <p className="hint">登录后可评分。</p>
-        ) : interactionStatus === "ready" ? (
-          <>
-            <p className="rating-summary">{currentRating === null ? "尚未评分" : `当前评分 ${currentRating} 星`}</p>
-            <label className="rating-comment">
-              <span className="sr-only">评分评论</span>
-              <textarea
-                rows={3}
-                maxLength={2000}
-                value={ratingComment}
-                placeholder="可写几句备注，留空保存会删除。"
-                onChange={(event) => {
-                  setRatingComment(event.target.value);
-                  setRatingSaved(false);
-                }}
-              />
-              <span className="rating-count">{ratingComment.length} / 2000</span>
-            </label>
-            <div className="actions">
-              <button
-                type="button"
-                className="primary"
-                disabled={currentRating === null || ratingSaving || interaction === null}
-                onClick={submitRating}
-              >
-                {ratingSaving ? "保存中…" : currentRating === null ? "提交评分" : "更新评分"}
-              </button>
-              {(interaction?.rating ?? null) !== null ? (
-                <button type="button" disabled={ratingSaving} onClick={removeRating}>
-                  清除评分
-                </button>
-              ) : null}
-            </div>
-            {ratingSaved ? (
-              <p className="rating-status" role="status">
-                评分已保存。
-              </p>
-            ) : null}
-          </>
-        ) : null}
-      </div>
     </section>
   );
 }

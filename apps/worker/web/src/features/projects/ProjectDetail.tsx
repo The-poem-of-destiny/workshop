@@ -5,6 +5,7 @@ import { api, type ProjectDetail as ProjectDetailResponse, type ProjectSummary }
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { Markdown } from "../../lib/markdown";
 import { ProjectCommunity } from "./ProjectCommunity";
+import { ProjectExperienceNotes } from "./ProjectExperienceNotes";
 import { ProjectMedia } from "./ProjectMedia";
 import { ProjectRecommendation } from "./ProjectRecommendation";
 import { ProjectRequirements } from "./ProjectRequirements";
@@ -278,6 +279,15 @@ export function ProjectDetail({
                 onError={onError}
                 onSubscriptionChange={onSubscriptionChange}
               />
+              {detail?.publishedVersionId ? (
+                <ProjectExperienceNotes
+                  key={`${detail.id}:${detail.publishedVersionId}:${loggedIn}`}
+                  projectId={detail.id}
+                  loggedIn={loggedIn}
+                  onLogin={onLogin}
+                  onError={onError}
+                />
+              ) : null}
               {detail?.publishedVersionId ? (
                 <ProjectRecommendation
                   key={`${detail.id}:${detail.publishedVersionId}`}

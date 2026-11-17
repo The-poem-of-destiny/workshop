@@ -19,7 +19,8 @@ import { chromium } from "playwright";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workerDir = path.join(root, "apps/worker");
 const port = Number(process.env.E2E_PORT ?? 8812);
-const base = `http://127.0.0.1:${port}`;
+const host = process.env.E2E_HOST ?? "127.0.0.1";
+const base = `http://${host}:${port}`;
 const tmp = mkdtempSync(path.join(os.tmpdir(), "workshop-e2e-"));
 // Keep D1/R2/DO state out of the default .wrangler directory so preview servers keep their own data.
 const stateDir = process.env.E2E_STATE_DIR ?? mkdtempSync(path.join(os.tmpdir(), "workshop-e2e-state-"));
@@ -127,7 +128,7 @@ async function main() {
       "--local",
       "--test-scheduled",
       "--ip",
-      "127.0.0.1",
+      host,
       "--config",
       "wrangler.jsonc",
       "--env",
@@ -165,6 +166,8 @@ async function main() {
       DELETE FROM manual_reviews WHERE submission_id IN (SELECT id FROM submissions WHERE submitted_by IN ('e2e-author','e2e-owner'));
       DELETE FROM automated_reviews WHERE submission_id IN (SELECT id FROM submissions WHERE submitted_by IN ('e2e-author','e2e-owner'));
       DELETE FROM submissions WHERE submitted_by IN ('e2e-author','e2e-owner');
+      DELETE FROM project_experience_notes WHERE project_id IN (SELECT id FROM projects WHERE author_id = 'e2e-author');
+      DELETE FROM project_unversioned_notes WHERE project_id IN (SELECT id FROM projects WHERE author_id = 'e2e-author');
       DELETE FROM assets WHERE project_id IN (SELECT id FROM projects WHERE author_id = 'e2e-author');
       DELETE FROM project_versions WHERE project_id IN (SELECT id FROM projects WHERE author_id = 'e2e-author');
       DELETE FROM projects WHERE author_id = 'e2e-author';
@@ -217,6 +220,7 @@ async function main() {
     });
 
     let project;
+    let experienceVersionId = "";
     await check("author creates project", async () => {
       const { response, body } = await api(
         "/api/v1/projects",
@@ -347,6 +351,54 @@ async function main() {
       assert(cover.status === 200 && cover.headers.get("content-type")?.includes("image/png"), "public cover");
     });
 
+    await check("member records a private explicit-version note before republishing", async () => {
+      const saved = await api(
+        `/api/v1/me/experience-notes/${project.project.id}/versions/${project.workingVersionId}`,
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ rating: 5, comment: "Private first-version experience" }),
+        },
+        memberToken,
+      );
+      assert(saved.response.status === 204, `initial note ${saved.response.status}: ${saved.body}`);
+      wrangler([
+        "d1",
+        "execute",
+        "DB",
+        "--local",
+        "--persist-to",
+        stateDir,
+        "--command",
+        `INSERT INTO project_unversioned_notes (project_id,user_id,rating,comment_text)
+         VALUES ('${project.project.id}','e2e-member',4,'Retained old note without version evidence')`,
+      ]);
+      const own = await api(`/api/v1/me/experience-notes/${project.project.id}`, {}, memberToken);
+      const data = JSON.parse(own.body);
+      assert(
+        own.response.status === 200 && own.response.headers.get("cache-control")?.includes("no-store"),
+        "private note is not cached",
+      );
+      assert(
+        data.versions.length === 1 &&
+          data.versions[0].projectVersionId === project.workingVersionId &&
+          data.versions[0].note.comment === "Private first-version experience",
+        "explicit version saved",
+      );
+      assert(data.unversionedNote.comment === "Retained old note without version evidence", "retained note separate");
+      const author = await api(`/api/v1/me/experience-notes/${project.project.id}`, {}, authorToken);
+      const other = JSON.parse(author.body);
+      assert(other.versions[0].note === null && other.unversionedNote === null, "author cannot read member notes");
+      const anonymous = await api(`/api/v1/me/experience-notes/${project.project.id}`);
+      assert(anonymous.response.status === 401, "anonymous note access denied");
+      const publicDetail = await api(`/api/v1/projects/${project.project.id}`);
+      assert(
+        !publicDetail.body.includes("Private first-version experience") &&
+          !publicDetail.body.includes("Retained old note without version evidence"),
+        "no public note projection",
+      );
+    });
+
     await check("author creates a second published project for ordering", async () => {
       await sleep(1100);
       const created = await api(
@@ -423,6 +475,27 @@ async function main() {
       );
       assert(revision.response.status === 201, `successor ${revision.response.status}: ${revision.body}`);
       const next = JSON.parse(revision.body);
+      experienceVersionId = next.versionId;
+      const draftNote = await api(
+        `/api/v1/me/experience-notes/${project.project.id}/versions/${next.versionId}`,
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ rating: 1 }),
+        },
+        memberToken,
+      );
+      assert(draftNote.response.status === 404, "unpublished successor cannot receive a new note");
+      const foreignNote = await api(
+        `/api/v1/me/experience-notes/${project.project.id}/versions/${second.workingVersionId}`,
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ rating: 1 }),
+        },
+        memberToken,
+      );
+      assert(foreignNote.response.status === 404, "foreign-project version rejected");
       const patched = await api(
         `/api/v1/projects/${project.project.id}`,
         {
@@ -478,6 +551,42 @@ async function main() {
         immutable.response.status === 409,
         `submitted metadata is frozen: ${immutable.response.status}: ${immutable.body}`,
       );
+    });
+
+    await check("republishing leaves current experience blank and preserves historical evidence", async () => {
+      const result = await api(`/api/v1/me/experience-notes/${project.project.id}`, {}, memberToken);
+      const data = JSON.parse(result.body);
+      assert(result.response.status === 200 && data.versions.length === 2, "own version history");
+      assert(
+        data.versions[0].projectVersionId === experienceVersionId &&
+          data.versions[0].isCurrent &&
+          data.versions[0].note === null,
+        "new publication starts blank",
+      );
+      assert(
+        data.versions[1].projectVersionId === project.workingVersionId &&
+          !data.versions[1].isCurrent &&
+          data.versions[1].note.rating === 5 &&
+          data.versions[1].note.comment === "Private first-version experience",
+        "old note remains exact",
+      );
+      assert(data.unversionedNote.rating === 4, "old unversioned score not carried forward");
+      const denied = await api(
+        `/api/v1/me/experience-notes/${project.project.id}/versions/${project.workingVersionId}`,
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ rating: 1 }),
+        },
+        authorToken,
+      );
+      assert(denied.response.status === 404, "another user cannot edit a member's historical note");
+      const missingVersion = await api(
+        `/api/v1/me/experience-notes/${project.project.id}/versions`,
+        { method: "PUT" },
+        memberToken,
+      );
+      assert(missingVersion.response.status === 404, "missing version never defaults to current");
     });
 
     await check("taxonomy catalogue query and complete detail metadata", async () => {
@@ -958,9 +1067,27 @@ async function main() {
           await page.getByRole("button", { name: "打开导航与筛选", exact: true }).click();
           const drawer = page.getByRole("dialog", { name: "工坊导航与筛选" });
           await drawer.waitFor({ state: "visible" });
+          await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "关闭导航与筛选");
           const primary = drawer.getByRole("button", { name: "角色", exact: true });
           await primary.focus();
-          await page.keyboard.press("Space");
+          const [primaryResponse] = await Promise.all([
+            page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return (
+                response.request().method() === "GET" &&
+                url.pathname === "/api/v1/projects" &&
+                JSON.stringify(url.searchParams.getAll("projectType")) === JSON.stringify(["角色"]) &&
+                url.searchParams.getAll("tag").length === 0 &&
+                url.searchParams.get("includeContained") !== "true"
+              );
+            }),
+            page.keyboard.press("Space"),
+          ]);
+          assert(primaryResponse.ok(), `mobile primary catalogue response ${primaryResponse.status()}`);
+          await page.waitForFunction(
+            () =>
+              document.querySelector('#workshop-sidebar button[aria-pressed="true"]')?.textContent?.trim() === "角色",
+          );
           assert((await primary.getAttribute("aria-pressed")) === "true", "mobile primary selection works by keyboard");
           assert(await drawer.isVisible(), "multi-select keeps the mobile drawer open");
           const summary = drawer.locator("summary").filter({ hasText: /^种族/ });
@@ -1048,6 +1175,95 @@ async function main() {
           await page.locator(".detail").getByRole("button", { name: "已点赞", exact: true, pressed: true }).waitFor();
           await page.locator(".detail").getByRole("button", { name: "已点赞", exact: true, pressed: true }).click();
           await like.waitFor();
+          await context.close();
+        });
+
+        await check("browser private version notes save reload edit and delete independently", async () => {
+          const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+          await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), memberToken);
+          const page = await context.newPage();
+          observePage(page);
+          const open = async () => {
+            await page.goto(`${base}/`, { waitUntil: "networkidle" });
+            await page.locator(".card", { hasText: "E2E Project" }).first().locator(".card-title").click();
+            await page.locator(".detail").waitFor({ state: "visible" });
+            await page.getByRole("combobox", { name: "查看版本备忘", exact: true }).waitFor();
+          };
+          await open();
+          const notes = page.getByRole("region", { name: "我的版本体验备忘", exact: true });
+          const versions = notes.getByRole("combobox", { name: "查看版本备忘", exact: true });
+          const text = notes.getByRole("textbox", { name: "本版体验文字", exact: true });
+          const mutate = async (button, method, suffix) => {
+            const written = page.waitForResponse(
+              (item) => item.request().method() === method && item.url().endsWith(suffix),
+            );
+            const refreshed = page.waitForResponse(
+              (item) =>
+                item.request().method() === "GET" && item.url().endsWith(`/experience-notes/${project.project.id}`),
+            );
+            await notes.getByRole("button", { name: button, exact: true }).click();
+            assert((await written).status() === 204, `${button} reaches exact version`);
+            assert((await refreshed).status() === 200, "own notes refreshed after mutation");
+            await versions.waitFor();
+          };
+          assert(
+            (await versions.inputValue()) === experienceVersionId && (await text.inputValue()) === "",
+            "current version starts blank in UI",
+          );
+          assert(
+            (await notes.getByRole("button", { name: "5 星", exact: true }).getAttribute("aria-pressed")) === "false",
+            "old stars not reused",
+          );
+          await versions.selectOption(project.workingVersionId);
+          assert((await text.inputValue()) === "Private first-version experience", "own historical version readable");
+          await notes.getByRole("button", { name: "4 星", exact: true }).click();
+          await text.fill("Edited historical experience");
+          await mutate("保存本版备忘", "PUT", `/versions/${project.workingVersionId}`);
+          await versions.selectOption(experienceVersionId);
+          assert((await text.inputValue()) === "", "editing history leaves current blank");
+          await notes.getByRole("button", { name: "2 星", exact: true }).click();
+          await text.fill("Current-version private experience");
+          await mutate("保存本版备忘", "PUT", `/versions/${experienceVersionId}`);
+          await open();
+          assert(
+            (await versions.inputValue()) === experienceVersionId &&
+              (await text.inputValue()) === "Current-version private experience",
+            "current note persists after reload",
+          );
+          await versions.selectOption(project.workingVersionId);
+          assert((await text.inputValue()) === "Edited historical experience", "historical edit persists after reload");
+          assert(
+            (await notes.getByRole("button", { name: "4 星", exact: true }).getAttribute("aria-pressed")) === "true",
+            "historical rating retained",
+          );
+          await screenshot(page, "version-note-history");
+          await mutate("删除本版备忘", "DELETE", `/versions/${project.workingVersionId}`);
+          await versions.locator("option").filter({ hasText: "已记备忘" }).waitFor({ state: "detached" });
+          assert(
+            (await text.inputValue()) === "Current-version private experience",
+            "historical deletion leaves current note",
+          );
+          const retained = notes.getByRole("region", { name: "未标版本的旧备忘", exact: true });
+          assert(
+            (await retained.textContent()).includes("Retained old note without version evidence"),
+            "old unversioned text remains separate",
+          );
+          await mutate("删除这条旧备忘", "DELETE", "/unversioned");
+          await retained.waitFor({ state: "detached" });
+          await versions.waitFor();
+          await mutate("删除本版备忘", "DELETE", `/versions/${experienceVersionId}`);
+          await open();
+          assert(
+            (await text.inputValue()) === "" && (await versions.locator("option").count()) === 1,
+            "deleted notes remain absent after reload",
+          );
+          await screenshot(page, "version-note-current-blank");
+          const final = await api(`/api/v1/me/experience-notes/${project.project.id}`, {}, memberToken);
+          const data = JSON.parse(final.body);
+          assert(
+            data.versions.length === 1 && data.versions[0].note === null && data.unversionedNote === null,
+            "UI mutations reached D1 exactly",
+          );
           await context.close();
         });
 
