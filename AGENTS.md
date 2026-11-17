@@ -38,7 +38,7 @@ Create new task checkouts only under this repository's `worktrees/<task>/` direc
 - `packages/contracts/` owns shared contracts, `packages/domain/` owns pure rules, and `packages/content/` owns checker and content auditing.
 - `docs/` owns current knowledge and refactor records; `.agents/` owns notes and reusable agent procedures. Follow `docs/AGENTS.md` for document placement.
 - `tools/` owns checks, migrations, local E2E and backup verification. Do not duplicate tool logic in ad-hoc scripts.
-- `../workshop-legacy` is read-only reference. Never edit or build it from this repository.
+- `worktrees/workshop-legacy` is read-only reference. Never edit or build it from this repository.
 - Generated output (`.wrangler/`, `web/dist/`, `tavern-client/dist/`, `data_backup/`) is excluded from Git and never maintained by hand.
 - Do not reintroduce the deleted legacy entry points (`cloudflare/`, old `src/`, `util/`, old `config/`, `test-dist/` or the old webpack chain).
 

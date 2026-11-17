@@ -95,7 +95,7 @@ it("requires current subscription for creates and edits without mutating frozen 
     "INSERT INTO project_unversioned_notes(project_id,user_id,rating) VALUES('p','player',5)",
   ).run();
   await buildBatch();
-  const frozen = await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all();
+  const frozen = (await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all()).results;
   const denied = await request("player", "v1", "not qualified");
   expect(denied.status).toBe(403);
   expect(await denied.json()).toMatchObject({ error: { code: "forbidden" } });
@@ -111,7 +111,7 @@ it("requires current subscription for creates and edits without mutating frozen 
   expect(
     (await bindings.DB.prepare("SELECT id FROM audit_events WHERE action='recommendation.update'").all()).results,
   ).toEqual([]);
-  expect(await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all()).toEqual(frozen);
+  expect((await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all()).results).toEqual(frozen);
   await bindings.DB.prepare("UPDATE projects SET visibility='private' WHERE id='p'").run();
   expect((await request("player", "v1", "hidden")).status).toBe(404);
   expect((await request("player", "v1", "", "DELETE")).status).toBe(200);
@@ -142,10 +142,10 @@ it("revokes create/edit on unsubscribe, preserves existing recommendations and r
       },
     ],
   });
-  const audit = await bindings.DB.prepare("SELECT id,detail FROM audit_events").all();
+  const audit = (await bindings.DB.prepare("SELECT id,detail FROM audit_events").all()).results;
   expect((await request("player", "v1", "denied edit while unsubscribed")).status).toBe(403);
   expect(await bindings.DB.prepare("SELECT * FROM recommendations WHERE curator_id='player'").first()).toEqual(initial);
-  expect(await bindings.DB.prepare("SELECT id,detail FROM audit_events").all()).toEqual(audit);
+  expect((await bindings.DB.prepare("SELECT id,detail FROM audit_events").all()).results).toEqual(audit);
   expect((await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all()).results).toEqual(frozen);
   expect(await discovery()).toEqual(projection);
   expect((await subscription("player", true)).status).toBe(204);
@@ -162,10 +162,10 @@ it("revokes create/edit on unsubscribe, preserves existing recommendations and r
   expect(await state("player")).toMatchObject({
     items: [{ subscribed: false, recommendationEligible: false, recommendation: null }],
   });
-  const afterRetraction = await bindings.DB.prepare("SELECT id,detail FROM audit_events").all();
+  const afterRetraction = (await bindings.DB.prepare("SELECT id,detail FROM audit_events").all()).results;
   expect((await request("player", "v1", "denied create while unsubscribed")).status).toBe(403);
   expect((await bindings.DB.prepare("SELECT * FROM recommendations").all()).results).toEqual([]);
-  expect(await bindings.DB.prepare("SELECT id,detail FROM audit_events").all()).toEqual(afterRetraction);
+  expect((await bindings.DB.prepare("SELECT id,detail FROM audit_events").all()).results).toEqual(afterRetraction);
   expect((await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all()).results).toEqual(frozen);
 });
 

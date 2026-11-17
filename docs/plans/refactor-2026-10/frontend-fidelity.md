@@ -16,7 +16,7 @@ The merged implementation has accepted local full-check and real Chromium eviden
 
 ## Historical mapping and experiment boundary
 
-**Reference:** read-only `../workshop-legacy` at `15303df5e3b30aa7f3fc924296ae57497a7ad09a`.
+**Reference:** read-only `worktrees/workshop-legacy` at `15303df5e3b30aa7f3fc924296ae57497a7ad09a`.
 
 The mapping, layout experiments, asset hashes and test counts below record the 2026-10-21–2026-10-26 stages. Their words “current”, “latest” and “final” refer to those stages only; they do not define today's layout or unfinished backlog. Accepted scope changed on 2026-10-23 and again through [D-40–D-47](decisions.md#d-40-完整替代旧版与完整数据迁移), with later media/discovery choices in the [visual decision](../../../.agents/notes/in-progress/new-ui-visual-direction.md). Preserve these historical results rather than relabelling them as a new measurement. The [point-in-time gap audit](../../audits/frontend-gap-2026-10-23.md) is not a demand to restore every legacy feature.
 
