@@ -111,7 +111,7 @@ def main():
     db.close()
     tables = defaultdict(list)
     for name in ("users", "projects", "project_versions", "project_likes", "project_subscriptions",
-                 "project_ratings", "project_metrics_daily", "audit_events", "recommendations", "assets",
+                 "project_experience_notes", "project_unversioned_notes", "project_metrics_daily", "audit_events", "recommendations", "assets",
                  "version_entry_index", "site_settings"):
         tables[name] = []
     issues = []
@@ -403,18 +403,21 @@ def main():
                 revision["manifest_hash"] = hashlib.sha256(b"").hexdigest()
 
     relations = (("project_likes", "project_likes"), ("project_subscribes", "project_subscriptions"),
-                 ("project_ratings", "project_ratings"), ("project_metric_daily", "project_metrics_daily"))
+                 ("project_ratings", "project_unversioned_notes"), ("project_metric_daily", "project_metrics_daily"))
     for source_name, target_name in relations:
         seen = set()
         for row in source[source_name]:
             root = roots.get(str(row["project_id"]))
             if root in excluded_roots:
-                omit(source_name, row, "relation belongs to excluded project")
+                if source_name == "project_ratings":
+                    issue(source_name, row, "cannot preserve private note without its excluded project")
+                else:
+                    omit(source_name, row, "relation belongs to excluded project")
                 continue
             if root not in accepted_roots or ("user_id" in row and str(row["user_id"]) not in users):
                 issue(source_name, row, "missing mapped project or user")
                 continue
-            if str(row["project_id"]) != root and str(row["project_id"]) not in revision_by_source:
+            if source_name != "project_ratings" and str(row["project_id"]) != root and str(row["project_id"]) not in revision_by_source:
                 omit(source_name, row, "relation belongs to omitted historical revision")
                 continue
             mapped = {**row, "project_id": root}

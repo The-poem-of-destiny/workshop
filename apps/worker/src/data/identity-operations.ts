@@ -1,5 +1,6 @@
-import type { RatingInput } from "@workshop/contracts";
+import type { ExperienceNoteInput } from "@workshop/contracts";
 import { listAuthorProjects, listAuthorSubmissions } from "../storage/authoring.js";
+import * as experienceNotes from "../storage/experience-notes.js";
 import { getMe, revokeSessionByToken, sha256Hex } from "../storage/identity.js";
 import * as interactions from "../storage/interactions.js";
 import type { NewOAuthFlow } from "../storage/oauth.js";
@@ -100,7 +101,14 @@ export type IdentityMeOperation =
   | { kind: "state"; ids: string[] }
   | { kind: "like"; projectId: string; enabled: boolean }
   | { kind: "subscription"; projectId: string; enabled: boolean }
-  | { kind: "rating"; projectId: string; input: RatingInput | null | "invalid_json" | "invalid_rating" };
+  | { kind: "experience_notes"; projectId: string }
+  | {
+      kind: "experience_note";
+      projectId: string;
+      projectVersionId: string;
+      input: ExperienceNoteInput | null | "invalid_json" | "invalid_note";
+    }
+  | { kind: "delete_unversioned_note"; projectId: string };
 
 export async function identitySession(env: DataEnv, token: string) {
   const session = await getSessionByToken(env.DB, token, env.SESSION_HASH_SECRET);
@@ -136,22 +144,43 @@ export async function identityMe(env: DataEnv, token: string, operation: Identit
       if (operation.ids.length > 50) return { ok: false as const, error: "too_many_ids" as const };
       return { ok: true as const, data: await interactions.getInteractionState(env.DB, session.userId, operation.ids) };
     case "like":
-    case "subscription":
-    case "rating": {
+    case "subscription": {
       if (!(await interactions.interactionProjectExists(env.DB, operation.projectId)))
         return { ok: false as const, error: "not_found" as const };
-      if (operation.kind === "rating" && typeof operation.input === "string")
-        return { ok: false as const, error: operation.input };
       if (operation.kind === "like") {
         if (operation.enabled) await interactions.setLike(env.DB, session.userId, operation.projectId);
         else await interactions.unsetLike(env.DB, session.userId, operation.projectId);
-      } else if (operation.kind === "subscription") {
+      } else {
         if (operation.enabled) await interactions.setSubscription(env.DB, session.userId, operation.projectId);
         else await interactions.unsetSubscription(env.DB, session.userId, operation.projectId);
-      } else if (operation.input && typeof operation.input !== "string")
-        await interactions.setRating(env.DB, session.userId, operation.projectId, operation.input);
-      else await interactions.unsetRating(env.DB, session.userId, operation.projectId);
+      }
       return { ok: true as const, data: null };
+    }
+    case "experience_notes": {
+      const data = await experienceNotes.getExperienceNotes(env.DB, session.userId, operation.projectId);
+      return data ? { ok: true as const, data } : { ok: false as const, error: "not_found" as const };
+    }
+    case "experience_note": {
+      if (typeof operation.input === "string") return { ok: false as const, error: operation.input };
+      const saved = operation.input
+        ? await experienceNotes.setExperienceNote(
+            env.DB,
+            session.userId,
+            operation.projectId,
+            operation.projectVersionId,
+            operation.input,
+          )
+        : await experienceNotes.deleteExperienceNote(
+            env.DB,
+            session.userId,
+            operation.projectId,
+            operation.projectVersionId,
+          );
+      return saved ? { ok: true as const, data: null } : { ok: false as const, error: "not_found" as const };
+    }
+    case "delete_unversioned_note": {
+      const removed = await experienceNotes.deleteUnversionedNote(env.DB, session.userId, operation.projectId);
+      return removed ? { ok: true as const, data: null } : { ok: false as const, error: "not_found" as const };
     }
   }
 }

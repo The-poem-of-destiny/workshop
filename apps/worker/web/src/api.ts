@@ -17,11 +17,13 @@ import type {
   Banner,
   DiffKind,
   DiscoveryResponse,
+  ExperienceNotesResponse,
   FindingDiff,
   FindingRef,
   HomeResponse,
   JsonValue,
   MeResponse,
+  MeStateResponse,
   ProjectBatchResponse,
   ProjectDetail,
   ProjectGalleryResponse,
@@ -238,24 +240,28 @@ export const api = {
   subscriptions: () => requestJson<{ items: ProjectSummary[] }>("/api/v1/me/subscriptions"),
   authorSubmissions: (id: string) =>
     requestJson<AuthorSubmissionListResponse>(`/api/v1/me/projects/${encodeURIComponent(id)}/submissions`),
-  setRating: (id: string, rating: number, comment?: string) =>
-    requestJson<null>(`/api/v1/me/ratings/${encodeURIComponent(id)}`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ rating, comment }),
-    }),
-  deleteRating: (id: string) => requestJson<null>(`/api/v1/me/ratings/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  experienceNotes: (id: string) =>
+    requestJson<ExperienceNotesResponse>(`/api/v1/me/experience-notes/${encodeURIComponent(id)}`),
+  setExperienceNote: (id: string, versionId: string, rating: number, comment?: string) =>
+    requestJson<null>(
+      `/api/v1/me/experience-notes/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ rating, comment }),
+      },
+    ),
+  deleteExperienceNote: (id: string, versionId: string) =>
+    requestJson<null>(
+      `/api/v1/me/experience-notes/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}`,
+      {
+        method: "DELETE",
+      },
+    ),
+  deleteUnversionedNote: (id: string) =>
+    requestJson<null>(`/api/v1/me/experience-notes/${encodeURIComponent(id)}/unversioned`, { method: "DELETE" }),
   recommendations: () => requestJson<{ items: Recommendation[] }>("/api/v1/recommendations", {}, true),
-  meState: (ids: string[]) =>
-    requestJson<{
-      items: {
-        projectId: string;
-        liked: boolean;
-        subscribed: boolean;
-        rating: number | null;
-        comment: string | null;
-      }[];
-    }>(`/api/v1/me/state?ids=${encodeURIComponent(ids.join(","))}`),
+  meState: (ids: string[]) => requestJson<MeStateResponse>(`/api/v1/me/state?ids=${encodeURIComponent(ids.join(","))}`),
   setLike: (id: string, liked: boolean) =>
     requestJson<null>(`/api/v1/me/likes/${encodeURIComponent(id)}`, { method: liked ? "PUT" : "DELETE" }),
   setSubscription: (id: string, subscribed: boolean) =>

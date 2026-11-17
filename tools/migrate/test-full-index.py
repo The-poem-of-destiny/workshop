@@ -50,7 +50,7 @@ class SourceIndexTest(unittest.TestCase):
         }
         tables = {name: [] for name in (
             "users", "projects", "project_versions", "project_likes", "project_subscriptions",
-            "project_ratings", "project_metrics_daily", "site_settings", "audit_events", "recommendations", "assets", "version_entry_index")}
+            "project_experience_notes", "project_unversioned_notes", "project_metrics_daily", "site_settings", "audit_events", "recommendations", "assets", "version_entry_index")}
         tables["users"] = [{"id": "u1", "username": "synthetic", "global_name": None, "avatar": None,
                             "role": "member", "created_at": "t1", "updated_at": "t2"}]
         tables["projects"] = [{"id": "p1", "author_id": "u1", "working_version_id": REVISION,

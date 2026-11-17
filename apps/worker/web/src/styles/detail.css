@@ -806,18 +806,23 @@ button.detail-badge:hover {
   resize: vertical;
 }
 
+.rating-comment select {
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+}
+
 .rating-count {
   display: block;
   margin-top: 3px;
   color: var(--muted);
   font-size: 11px;
   text-align: right;
-}
-
-.rating-status {
-  margin: 6px 0 0;
-  color: #a5ddc4;
-  font-size: 12px;
 }
 
 /* Preview entry navigation */

@@ -1,9 +1,10 @@
 import {
   authorProjectListResponseSchema,
   authorSubmissionListResponseSchema,
+  experienceNoteInputSchema,
+  experienceNotesResponseSchema,
   meResponseSchema,
   meStateResponseSchema,
-  ratingInputSchema,
 } from "@workshop/contracts";
 import { Hono } from "hono";
 import type { Env } from "../../env";
@@ -78,7 +79,19 @@ for (const [path, kind] of [
   }
 }
 
-meRoutes.put("/ratings/:id", async (c) => {
+meRoutes.get("/experience-notes/:id", async (c) => {
+  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), {
+    kind: "experience_notes",
+    projectId: c.req.param("id"),
+  });
+  if (!result.ok)
+    return result.error === "unauthorized"
+      ? jsonError(c, "unauthorized", "Login required")
+      : jsonError(c, "not_found", "Project not found");
+  return c.json(experienceNotesResponseSchema.parse(result.data));
+});
+
+meRoutes.put("/experience-notes/:id/versions/:versionId", async (c) => {
   let body: unknown;
   let invalidJson = false;
   try {
@@ -86,32 +99,45 @@ meRoutes.put("/ratings/:id", async (c) => {
   } catch {
     invalidJson = true;
   }
-  const parsed = ratingInputSchema.safeParse(body);
-  const input = invalidJson ? "invalid_json" : parsed.success ? parsed.data : "invalid_rating";
+  const parsed = experienceNoteInputSchema.safeParse(body);
   const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), {
-    kind: "rating",
+    kind: "experience_note",
     projectId: c.req.param("id"),
-    input,
+    projectVersionId: c.req.param("versionId"),
+    input: invalidJson ? "invalid_json" : parsed.success ? parsed.data : "invalid_note",
   });
   if (!result.ok) {
     if (result.error === "unauthorized") return jsonError(c, "unauthorized", "Login required");
     if (result.error === "invalid_json") return jsonError(c, "bad_request", "Invalid JSON body");
-    if (result.error === "invalid_rating" && !parsed.success)
-      return jsonError(c, "bad_request", "Invalid rating", parsed.error.flatten());
-    return jsonError(c, "not_found", "Project not found");
+    if (result.error === "invalid_note" && !parsed.success)
+      return jsonError(c, "bad_request", "Invalid experience note", parsed.error.flatten());
+    return jsonError(c, "not_found", "Project version not found");
   }
   return c.body(null, 204);
 });
 
-meRoutes.delete("/ratings/:id", async (c) => {
+meRoutes.delete("/experience-notes/:id/versions/:versionId", async (c) => {
   const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), {
-    kind: "rating",
+    kind: "experience_note",
     projectId: c.req.param("id"),
+    projectVersionId: c.req.param("versionId"),
     input: null,
   });
   if (!result.ok)
     return result.error === "unauthorized"
       ? jsonError(c, "unauthorized", "Login required")
-      : jsonError(c, "not_found", "Project not found");
+      : jsonError(c, "not_found", "Project version not found");
+  return c.body(null, 204);
+});
+
+meRoutes.delete("/experience-notes/:id/unversioned", async (c) => {
+  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), {
+    kind: "delete_unversioned_note",
+    projectId: c.req.param("id"),
+  });
+  if (!result.ok)
+    return result.error === "unauthorized"
+      ? jsonError(c, "unauthorized", "Login required")
+      : jsonError(c, "not_found", "Retained note not found");
   return c.body(null, 204);
 });
