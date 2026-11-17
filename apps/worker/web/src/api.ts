@@ -22,6 +22,7 @@ import type {
   HomeResponse,
   JsonValue,
   MeResponse,
+  MeStateResponse,
   ProjectBatchResponse,
   ProjectDetail,
   ProjectGalleryResponse,
@@ -246,16 +247,7 @@ export const api = {
     }),
   deleteRating: (id: string) => requestJson<null>(`/api/v1/me/ratings/${encodeURIComponent(id)}`, { method: "DELETE" }),
   recommendations: () => requestJson<{ items: Recommendation[] }>("/api/v1/recommendations", {}, true),
-  meState: (ids: string[]) =>
-    requestJson<{
-      items: {
-        projectId: string;
-        liked: boolean;
-        subscribed: boolean;
-        rating: number | null;
-        comment: string | null;
-      }[];
-    }>(`/api/v1/me/state?ids=${encodeURIComponent(ids.join(","))}`),
+  meState: (ids: string[]) => requestJson<MeStateResponse>(`/api/v1/me/state?ids=${encodeURIComponent(ids.join(","))}`),
   setLike: (id: string, liked: boolean) =>
     requestJson<null>(`/api/v1/me/likes/${encodeURIComponent(id)}`, { method: liked ? "PUT" : "DELETE" }),
   setSubscription: (id: string, subscribed: boolean) =>

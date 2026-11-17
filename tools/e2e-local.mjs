@@ -19,7 +19,8 @@ import { chromium } from "playwright";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workerDir = path.join(root, "apps/worker");
 const port = Number(process.env.E2E_PORT ?? 8812);
-const base = `http://127.0.0.1:${port}`;
+const host = process.env.E2E_HOST ?? "127.0.0.1";
+const base = `http://${host}:${port}`;
 const tmp = mkdtempSync(path.join(os.tmpdir(), "workshop-e2e-"));
 // Keep D1/R2/DO state out of the default .wrangler directory so preview servers keep their own data.
 const stateDir = process.env.E2E_STATE_DIR ?? mkdtempSync(path.join(os.tmpdir(), "workshop-e2e-state-"));
@@ -127,7 +128,7 @@ async function main() {
       "--local",
       "--test-scheduled",
       "--ip",
-      "127.0.0.1",
+      host,
       "--config",
       "wrangler.jsonc",
       "--env",
@@ -573,6 +574,28 @@ async function main() {
       );
     });
 
+    await check("downloads do not qualify a never-subscribed player to recommend", async () => {
+      const detail = await api(`/api/v1/projects/${project.project.id}`);
+      const projectVersionId = JSON.parse(detail.body).publishedVersionId;
+      const denied = await api(
+        `/api/v1/recommendations/${project.project.id}`,
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ projectVersionId, comment: "download is not subscription evidence" }),
+        },
+        memberToken,
+      );
+      assert(denied.response.status === 403, `never-subscribed write ${denied.response.status}: ${denied.body}`);
+      assert(JSON.parse(denied.body).error.code === "forbidden", "ineligible write uses the existing forbidden code");
+      const state = await api(`/api/v1/me/state?ids=${project.project.id}`, {}, memberToken);
+      const item = JSON.parse(state.body).items[0];
+      assert(
+        !item.subscribed && !item.recommendationEligible && item.recommendation === null,
+        "download grants no membership or recommendation",
+      );
+    });
+
     async function createPending(title, key) {
       const created = await api(
         "/api/v1/projects",
@@ -958,9 +981,27 @@ async function main() {
           await page.getByRole("button", { name: "打开导航与筛选", exact: true }).click();
           const drawer = page.getByRole("dialog", { name: "工坊导航与筛选" });
           await drawer.waitFor({ state: "visible" });
+          await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "关闭导航与筛选");
           const primary = drawer.getByRole("button", { name: "角色", exact: true });
           await primary.focus();
-          await page.keyboard.press("Space");
+          const [primaryResponse] = await Promise.all([
+            page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return (
+                response.request().method() === "GET" &&
+                url.pathname === "/api/v1/projects" &&
+                JSON.stringify(url.searchParams.getAll("projectType")) === JSON.stringify(["角色"]) &&
+                url.searchParams.getAll("tag").length === 0 &&
+                url.searchParams.get("includeContained") !== "true"
+              );
+            }),
+            page.keyboard.press("Space"),
+          ]);
+          assert(primaryResponse.ok(), `mobile primary catalogue response ${primaryResponse.status()}`);
+          await page.waitForFunction(
+            () =>
+              document.querySelector('#workshop-sidebar button[aria-pressed="true"]')?.textContent?.trim() === "角色",
+          );
           assert((await primary.getAttribute("aria-pressed")) === "true", "mobile primary selection works by keyboard");
           assert(await drawer.isVisible(), "multi-select keeps the mobile drawer open");
           const summary = drawer.locator("summary").filter({ hasText: /^种族/ });
@@ -1048,6 +1089,109 @@ async function main() {
           await page.locator(".detail").getByRole("button", { name: "已点赞", exact: true, pressed: true }).waitFor();
           await page.locator(".detail").getByRole("button", { name: "已点赞", exact: true, pressed: true }).click();
           await like.waitFor();
+          await context.close();
+        });
+
+        await check("browser subscriber can recommend, unsubscribe, edit after reload and retract", async () => {
+          const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+          await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), memberToken);
+          const page = await context.newPage();
+          observePage(page);
+          const openDetail = async () => {
+            await page.goto(`${base}/`, { waitUntil: "networkidle" });
+            await page.locator(".card", { hasText: "E2E Project" }).first().locator(".card-title").click();
+            await page.locator(".detail").waitFor({ state: "visible" });
+          };
+          await openDetail();
+          const form = page.getByRole("region", { name: "版本推荐", exact: true });
+          await form.getByText("请先订阅此项目，再推荐当前版本；取消订阅不影响推荐资格。", { exact: true }).waitFor();
+          assert(
+            (await page.locator(".detail").getByRole("textbox", { name: /推荐/ }).count()) === 1,
+            "project detail exposes one public recommendation editor",
+          );
+          assert(
+            await form.getByRole("button", { name: "推荐当前版本", exact: true }).isDisabled(),
+            "never-subscribed UI explains and blocks an ineligible write",
+          );
+          await page.locator(".detail").getByRole("button", { name: "订阅", exact: true }).click();
+          await page.locator(".detail").getByRole("button", { name: "已订阅", exact: true }).waitFor();
+          assert(
+            await form.getByRole("button", { name: "推荐当前版本", exact: true }).isEnabled(),
+            "successful subscribe immediately enables explicit recommendation",
+          );
+          await form
+            .getByRole("textbox", { name: "公开推荐说明（可选）" })
+            .fill("member explicit current version recommendation");
+          await form.getByRole("button", { name: "推荐当前版本", exact: true }).click();
+          await form.getByRole("status").filter({ hasText: "当前版本推荐已保存。" }).waitFor();
+          const before = await api(`/api/v1/me/state?ids=${project.project.id}`, {}, memberToken);
+          const initial = JSON.parse(before.body).items[0];
+          assert(
+            initial.subscribed &&
+              initial.recommendationEligible &&
+              initial.recommendation.comment === "member explicit current version recommendation",
+            "real Worker stores the explicit recommendation",
+          );
+          await page.locator(".detail").getByRole("button", { name: "已订阅", exact: true }).click();
+          await page.locator(".detail").getByRole("button", { name: "订阅", exact: true }).waitFor();
+          assert(
+            await form.getByRole("button", { name: "更新当前版本推荐", exact: true }).isEnabled(),
+            "unsubscribe does not revoke eligibility in the current UI",
+          );
+          await openDetail();
+          await form.getByText("你已订阅过此项目，可以推荐当前版本；无需保持订阅。", { exact: true }).waitFor();
+          assert(
+            (await form.getByRole("textbox", { name: "公开推荐说明（可选）" }).inputValue()) ===
+              initial.recommendation.comment,
+            "reloaded backend state restores the own current-version recommendation",
+          );
+          await form.getByRole("textbox", { name: "公开推荐说明（可选）" }).fill("member edited while unsubscribed");
+          await form.getByRole("button", { name: "更新当前版本推荐", exact: true }).click();
+          await form.getByRole("status").filter({ hasText: "当前版本推荐已保存。" }).waitFor();
+          const state = await api(`/api/v1/me/state?ids=${project.project.id}`, {}, memberToken);
+          const persisted = JSON.parse(state.body).items[0];
+          assert(
+            !persisted.subscribed &&
+              persisted.recommendationEligible &&
+              persisted.recommendation.comment === "member edited while unsubscribed",
+            "inactive membership permits editing after a real reload",
+          );
+          const subscriptions = await api("/api/v1/me/subscriptions", {}, memberToken);
+          assert(
+            !JSON.parse(subscriptions.body).items.some((item) => item.id === project.project.id),
+            "inactive membership is absent from the current subscriptions list",
+          );
+          const deadline = Date.now() + 75_000;
+          let projected;
+          while (Date.now() < deadline) {
+            const discovery = await api("/api/v1/projects/discovery");
+            projected = JSON.parse(discovery.body)
+              .items.find((item) => item.id === project.project.id)
+              ?.recommendations.find((item) => item.curator.id === "e2e-member");
+            if (projected?.comment === "member edited while unsubscribed") break;
+            await sleep(500);
+          }
+          assert(
+            projected?.comment === "member edited while unsubscribed" &&
+              projected.projectVersionId === persisted.recommendation.projectVersionId,
+            "discovery eventually projects the qualified current-version recommendation within the existing cache boundary",
+          );
+          await screenshot(page, "recommendation-unsubscribed");
+          await form.getByRole("button", { name: "撤回当前版本推荐", exact: true }).click();
+          await form.getByRole("status").filter({ hasText: "当前版本推荐已撤回。" }).waitFor();
+          const cleaned = await api(`/api/v1/me/state?ids=${project.project.id}`, {}, memberToken);
+          const final = JSON.parse(cleaned.body).items[0];
+          assert(
+            !final.subscribed && final.recommendationEligible && final.recommendation === null,
+            "own retraction removes the recommendation without clearing historical qualification",
+          );
+          await openDetail();
+          await form.getByText("你已订阅过此项目，可以推荐当前版本；无需保持订阅。", { exact: true }).waitFor();
+          assert(
+            (await form.getByRole("textbox", { name: "公开推荐说明（可选）" }).inputValue()) === "" &&
+              (await form.getByRole("button", { name: "撤回当前版本推荐", exact: true }).count()) === 0,
+            "reopening after own retraction restores an empty current-version editor without stale retract controls",
+          );
           await context.close();
         });
 

@@ -6,7 +6,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Markdown } from "../../lib/markdown";
 import { ProjectCommunity } from "./ProjectCommunity";
 import { ProjectMedia } from "./ProjectMedia";
-import { ProjectRecommendation } from "./ProjectRecommendation";
 import { ProjectRequirements } from "./ProjectRequirements";
 import { ProjectSourcePreview } from "./ProjectSourcePreview";
 
@@ -278,16 +277,6 @@ export function ProjectDetail({
                 onError={onError}
                 onSubscriptionChange={onSubscriptionChange}
               />
-              {detail?.publishedVersionId ? (
-                <ProjectRecommendation
-                  key={`${detail.id}:${detail.publishedVersionId}`}
-                  projectId={detail.id}
-                  projectVersionId={detail.publishedVersionId}
-                  loggedIn={loggedIn}
-                  onLogin={onLogin}
-                  onError={onError}
-                />
-              ) : null}
             </aside>
             <section className="reading-column">
               {detailLoading ? <p className="detail-state">正在加载项目详情…</p> : null}
