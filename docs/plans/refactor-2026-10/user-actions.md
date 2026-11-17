@@ -1,8 +1,8 @@
 # 需要用户提供或人工验收的事项
 
-更新：2026-11-17。源码核对基线为 `main` 的 `fc7a6343ab729971238e922538c598aa1bdeea66`；合并、CI、本地证据与历史 staging 状态见 [state.md](state.md)。本页只列真实账号／宿主、数据切换与发布必须人工参与的门槛，不把已经实现的核心 Web／客户端重新列为代码待办。
+更新：2026-11-17。源码核对基线为 `main` 的 `c450263a82c33a883bbaec5b0336130d9cfe1d12`，已正常合并版本备忘 #94；合并、CI、本地证据与历史 staging 状态见 [state.md](state.md)。本页只列真实账号／宿主、数据切换与发布必须人工参与的门槛，不把已经实现的核心 Web／客户端重新列为代码待办。
 
-**当前不请求你执行真实迁移或发布。** 本轮只更新文档、补齐两个产品缺口并分别交付保持未合并的 PR；不合并、不发布、不建 tag、不部署、不使用个人 Cloudflare token，也不读写真实 D1/R2／备份。下列真实环境清单只在另获对应授权、且确认目标运行版本后执行；不要用旧 staging 页面验收尚未部署的新 schema 或功能。
+**当前不请求你执行真实迁移或发布。** 最新授权允许文档 #92 与版本备忘 #94 在 required checks 及相关审查通过后正常合并；推荐资格 #93 按当前订阅条件纠正并保持 OPEN、未合并、auto-merge 关闭。没有发布、tag、部署、个人 Cloudflare token 或真实 D1/R2／备份访问授权。下列真实环境清单只在另获对应授权、且确认目标运行版本后执行；不要用旧 staging 页面验收尚未部署的新 schema 或功能。
 
 ## 1. 凭据与环境：发布前按目标环境核对
 
@@ -73,10 +73,10 @@
 
 ## 5. 不属于当前人工阻塞的事项
 
-- 两个已知产品缺口——具体版本的本人体验／评分备忘、曾订阅过的推荐资格——是分别实现与审查的功能 PR，尚未合入 main；不是需要用户勾选就算完成的验收项。详情以[已接受决定](../../../.agents/notes/in-progress/version-experience-notes-and-recommendations.md)及各自 PR 为准。
+- 版本体验／评分备忘 [PR #94](https://github.com/The-poem-of-destiny/workshop/pull/94) 已实现、独立审查、通过 exact-head required checks 并正常合并；推荐资格 [PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) 纠正后仍保持未合并，不是用户勾选即可完成的人工事项。最新条件为登录且当前订阅才可新增／编辑，退订立即失去资格但既有推荐保留、本人仍可撤回，重新订阅恢复资格；不保留历史资格。详情以[已接受决定](../../../.agents/notes/in-progress/version-experience-notes-and-recommendations.md)及各自 PR 为准。
 - 旧清单中的逐条更新 UI、独立修复／更新中心、旧路径 shim 和跨角色迁移不能直接当作当前未完成要求。当前客户端采用可核对的实例扫描、整体操作与可靠旧身份转换；是否新增其他产品模式须单独决定，不扩大本轮两个缺口。
 - 经典界面迁移／双前端开关继续暂缓；每日抽签 Q-10 仍暂缓，不阻塞本轮。安装、订阅、下载分离及审核队列等既定方向见 [decisions.md](decisions.md)，不重新要求用户决策。
 
 ## 6. 已有证据，无需重复旧故障排障
 
-精确合并基线 CI、本地完整检查／真实 Chromium 与历史 staging 证据统一见 [state.md](state.md#证据与边界)。最新 main staging workflow 的 build／deploy 是 skipped，不能因 workflow success 就宣布新代码部署；本次没有查询当前 Cloudflare 运行时。历史 R2 发布故障已有修复与成功记录，不据旧错误要求扩大个人 token 权限。后续功能 PR 必须提供各自冻结版本的实际检查结果，不能复用旧基线数字。
+精确合并基线 CI、本地完整检查／真实 Chromium 与历史 staging 证据统一见 [state.md](state.md#证据与边界)。初始基线 `fc7a6343ab729971238e922538c598aa1bdeea66` 的 staging workflow build／deploy 是 skipped，这条历史观察不表示当前远端已更新；本次没有查询 Cloudflare 运行时。历史 R2 发布故障已有修复与成功记录，不据旧错误要求扩大个人 token 权限。后续功能 PR 必须提供各自冻结版本的实际检查结果，不能复用旧基线数字。

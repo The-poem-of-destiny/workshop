@@ -4,32 +4,34 @@
 
 ## 当前 main 与已完成范围
 
-本次核对的 `main`、`origin/main` 与 GitHub `main` 均为 `fc7a6343ab729971238e922538c598aa1bdeea66`。以下只描述该合并基线，不包含后续独立功能 PR。
+本次核对的 `main`、`origin/main` 与 GitHub `main` 均为 `c450263a82c33a883bbaec5b0336130d9cfe1d12`，已包含版本备忘 PR #94 的正常合并，不包含推荐资格 PR #93 的纠正。
 
 - 统一项目版本、元数据／封面／内容冻结送审、自动与人工审核、报告校验、权限及作者／审核者／owner 工作区已合入；旧展示资料直写不是现行路径。
 - Web、Worker 与 Tavern client 的核心路径已实现并取得本地行为证据：目录／搜索／周期排序、安装实例扫描、整体安装／更新／卸载预览与确认、玩家改动保护及可靠旧身份转换。真实 Discord 全旅程和真实 SillyTavern 操作仍未完成当前版本验收，不能把本地宿主模拟当成真实宿主运行。
 - [PR #89](https://github.com/The-poem-of-destiny/workshop/pull/89) 的四普通标签展示上限及 [PR #90](https://github.com/The-poem-of-destiny/workshop/pull/90) 的六分类、包含关系、分组筛选和显式审阅离线候选工具已合入；当前 schema 的 `0001_initial.sql` 仅用于上线前空库，不能在既有数据库执行。源码／本地候选完成不表示已切换真实数据。
 - [PR #91](https://github.com/The-poem-of-destiny/workshop/pull/91) 的本地预览安全边界、审核焦点、发现区完整批次／手动玩家推荐阅读及相关界面修正已合入；[视觉方向记录](../../../.agents/notes/in-progress/new-ui-visual-direction.md)区分已实现方向与历史试验参数。经典界面迁移与双前端开关继续暂缓。
 - [PR #87](https://github.com/The-poem-of-destiny/workshop/pull/87) 与 [PR #88](https://github.com/The-poem-of-destiny/workshop/pull/88) 的依赖更新及官方 Workers Vitest 插件修复已合入，未以生产代码或 workflow 绕过测试。
+- [PR #94](https://github.com/The-poem-of-destiny/workshop/pull/94) 的本人版本体验／评分备忘已正常合并：新记录绑定具体不可变版本，已记历史版本可独立查看／修改／删除；无版本旧备忘原样保留、只读且本人可删除，不猜配版本、不公开旧评分。其本地及独立审查证据与 exact-head CI 见下表，真实数据转换未执行。
 
 ## 证据与边界
 
 | 层次 | 已有证据 | 不能推导的结论 |
 | --- | --- | --- |
-| 合并基线 CI | 精确 main SHA 的 [CI 43906178691](https://github.com/The-poem-of-destiny/workshop/actions/runs/43906178691) 成功，含 check、E2E、secrets；本次文档整理未重复运行旧基线全套检查 | 不证明后续功能分支通过，也不证明已部署 |
+| 初始合并基线 CI | `fc7a6343ab729971238e922538c598aa1bdeea66` 的 [CI 43906178691](https://github.com/The-poem-of-destiny/workshop/actions/runs/43906178691) 成功，含 check、E2E、secrets；本次文档整理未重复运行旧基线全套检查 | 不证明后续功能分支通过，也不证明已部署 |
 | 本地行为 | PR #90／#91 交付已取得完整检查和真实 Chromium E2E 24/24 等本地证据；仅适用于各自已验证 head 与隔离状态 | 不等于真实 Discord、公会／身份组或 SillyTavern 验收，不作为新功能 PR 的测试结果 |
+| 版本备忘 PR #94 | 完整独立审查 27/27 路径问题 0；本地检查各阶段经已记录的窄修与续跑通过，最终真实 Chromium E2E 27/27；最新 head `1a50e2b1462049bdfc523781872c06d6c21252c2` 的 [CI 44070586962](https://github.com/The-poem-of-destiny/workshop/actions/runs/44070586962) check／E2E／secrets 成功后正常合并为 `c450263a82c33a883bbaec5b0336130d9cfe1d12` | 不将首次失败记为通过，不证明真实 Discord／SillyTavern、hosted runtime 或已填充数据库转换；PR CI 不冒充合并后 main CI |
 | 历史 staging | 2026-11-06 记录的既有迁移 210/210 批完成并经源／目标／搜索对账，公开读、私有拒绝及合成角色权限／写入取得证据 | 不是当前六分类／新 schema 的真实切换，不证明生产或当前远端运行版本 |
-| 最新 staging workflow | main 对应 [43906830697](https://github.com/The-poem-of-destiny/workshop/actions/runs/43906830697) 的 changes 成功，build／deploy 均 skipped | workflow 整体成功不等于新 Worker／Web／client 已部署 |
+| 初始基线 staging workflow | `fc7a6343ab729971238e922538c598aa1bdeea66` 对应 [43906830697](https://github.com/The-poem-of-destiny/workshop/actions/runs/43906830697) 的 changes 成功，build／deploy 均 skipped | 这是该基线的历史 workflow 观察，不是当前远端运行版本；workflow 整体成功不等于已部署 |
 
 当前缓存以 [Cache API 设计](../../reference/cache-design.md)为准：按分类 TTL、各 PoP 独立缓存；不使用 Workers Cache、全球 purge 或 epoch。本地证据不证明真实边缘 HIT、跨 PoP 行为或费用；允许到期前显示陈旧数据的既定取舍不改变授权和私有响应边界。
 
 ## 当前待交付与发布门槛
 
-- **两个已确认产品缺口尚未合入 main**：按具体不可变项目版本保存本人的体验／评分备忘，以及登录且曾订阅过即可提交玩家推荐、退订不丢资格。两项各自独立 PR 开发与验收；不能把旧项目级评分当作新版本备忘或公开推荐，不猜测已丢失的退订历史。契约依据为[已接受决定](../../../.agents/notes/in-progress/version-experience-notes-and-recommendations.md)，具体 API／数据转换由各功能 PR 更新。
+- **当前订阅推荐资格仍未合并**：[PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) 按最新决定纠正为登录且当前订阅才可新增／编辑；退订立即失去资格，但既有推荐不自动删除、本人仍可撤回，重新订阅恢复资格。#93 保持 OPEN、未合并，不建立历史资格、不从下载／安装／旧评分推断订阅。已合并的版本备忘与推荐分离，不把旧项目级评分猜配到版本或公开为推荐；契约依据为[已接受决定](../../../.agents/notes/in-progress/version-experience-notes-and-recommendations.md)。
 - **真实数据迁移暂不执行**：现有六分类离线工具与完整候选验证不授权访问或转换真实 D1/R2／备份。历史 staging 验收不能关闭当前 schema／taxonomy 切换门槛；切换需新的完整当前快照、显式审阅、独立对账及另行授权。
 - **部署保持暂停**：`ACCEPTED_SCHEMA_SHA=f2491599cfb97a6405b5f73ead73227387786478`、staging schema-change pause 与 production 的 `Require separately verified production schema` 门禁不变。不得直接套用旧增量链或对既有库运行新的空库基线。
 - **真实环境验收及生产切换未完成**：真实 Discord 完整登录／准入和真实 SillyTavern 安装／更新／卸载见 [user-actions.md](user-actions.md)；生产备份恢复、停写、迁移、回滚和精确版本验收仍需授权。不因这些人工门槛把已实现核心客户端重新列为代码待办。
-- **本轮仅交付三个独立、保持未合并的 PR**：文档刷新与上述两项功能分别提交；不 merge、不启用 auto-merge、不创建 release／tag、不部署，不使用个人 Cloudflare token，不改远端数据、绑定、secrets 或 schema checkpoint。PR 开放不表示其功能已在 main 或线上启用。
+- **最新交付授权**：文档 [PR #92](https://github.com/The-poem-of-destiny/workshop/pull/92) 与版本备忘 #94 在 required checks 及相关审查通过后正常合并；推荐资格 #93 纠正后仍保持 OPEN、未合并、auto-merge 关闭。没有 release／tag／部署授权，不使用个人 Cloudflare token，不读写真实 D1/R2／备份或修改绑定、secrets、workflow、schema checkpoint；PR 合并不表示线上已启用。
 
 当前可执行与人工验收边界见 [Checklist](checklist.md) 和 [用户事项](user-actions.md)。只读 legacy 结构参考固定为 `../workshop-legacy` 的 `15303df5e3b30aa7f3fc924296ae57497a7ad09a`；经典界面迁移不是本轮待办。
 
