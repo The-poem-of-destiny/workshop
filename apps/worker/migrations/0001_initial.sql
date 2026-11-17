@@ -122,7 +122,20 @@ CREATE TABLE project_metrics_daily (
   PRIMARY KEY (day_key, project_id)
 );
 
-CREATE TABLE project_ratings (
+CREATE TABLE project_experience_notes (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  project_version_id TEXT NOT NULL,
+  rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment_text TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (user_id, project_version_id),
+  FOREIGN KEY (project_id, project_version_id) REFERENCES project_versions(project_id, id) ON DELETE RESTRICT
+);
+
+-- Imported project-level notes have no reliable version evidence. Never infer one.
+CREATE TABLE project_unversioned_notes (
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
@@ -345,8 +358,6 @@ CREATE INDEX idx_oauth_flows_status ON oauth_flows(status, expires_at);
 CREATE INDEX idx_project_likes_user ON project_likes(user_id, created_at DESC);
 
 CREATE INDEX idx_project_metrics_project ON project_metrics_daily(project_id, day_key DESC);
-
-CREATE INDEX idx_project_ratings_project ON project_ratings(project_id, rating);
 
 CREATE UNIQUE INDEX idx_project_revisions_owner ON "project_versions"(project_id, id);
 

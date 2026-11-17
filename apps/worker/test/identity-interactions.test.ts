@@ -1,4 +1,5 @@
 import { env, SELF } from "cloudflare:test";
+import type { ExperienceNotesResponse } from "@workshop/contracts";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { DataEnv } from "../src/data/env";
 import { identityMe } from "../src/data/identity-operations";
@@ -21,7 +22,8 @@ beforeAll(async () => {
 beforeEach(async () => {
   await bindings.DB.exec(`
     DELETE FROM oauth_flows;
-    DELETE FROM project_ratings;
+    DELETE FROM project_experience_notes;
+    DELETE FROM project_unversioned_notes;
     DELETE FROM project_subscriptions;
     DELETE FROM project_likes;
     DELETE FROM sessions;
@@ -60,6 +62,29 @@ async function request(path: string, init?: RequestInit): Promise<Response> {
     ...init,
     headers: { ...auth, ...init?.headers },
   });
+}
+
+const notePath = (versionId = "r1", projectId = "p1") =>
+  `/api/v1/me/experience-notes/${projectId}/versions/${versionId}`;
+const saveNote = (body: { rating: number; comment?: string }, versionId = "r1", projectId = "p1") =>
+  request(notePath(versionId, projectId), {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+async function notes(): Promise<ExperienceNotesResponse> {
+  const response = await request("/api/v1/me/experience-notes/p1");
+  expect(response.status).toBe(200);
+  return response.json();
+}
+
+async function publishSecondVersion(): Promise<void> {
+  await bindings.DB.batch([
+    bindings.DB.prepare(`INSERT INTO project_versions
+      (id, project_id, version_no, version_label, title, project_type, created_by)
+      VALUES ('r2', 'p1', 2, '新版', '测试项目', '角色', 'u1')`),
+    bindings.DB.prepare("UPDATE projects SET published_version_id = 'r2' WHERE id = 'p1'"),
+  ]);
 }
 
 describe("identity and interactions", () => {
@@ -143,7 +168,7 @@ describe("identity and interactions", () => {
     ).toBe(false);
   });
 
-  it("applies idempotent likes and subscriptions and keeps ratings private", async () => {
+  it("applies idempotent likes and subscriptions without carrying personal scores in interaction state", async () => {
     expect((await request("/api/v1/me/likes/p1", { method: "PUT" })).status).toBe(204);
     expect((await request("/api/v1/me/likes/p1", { method: "PUT" })).status).toBe(204);
     expect((await request("/api/v1/me/subscriptions/p1", { method: "PUT" })).status).toBe(204);
@@ -151,72 +176,147 @@ describe("identity and interactions", () => {
     const subscribed = await request("/api/v1/me/subscriptions");
     expect(subscribed.status).toBe(200);
     await expect(subscribed.json()).resolves.toMatchObject({ items: [{ id: "p1" }] });
-    const invalid = await request("/api/v1/me/ratings/p1", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ rating: 6 }),
+    expect((await saveNote({ rating: 5, comment: "私密" })).status).toBe(204);
+    await expect((await request("/api/v1/me/state?ids=p1")).json()).resolves.toEqual({
+      items: [{ projectId: "p1", liked: true, subscribed: true }],
     });
-    expect(invalid.status).toBe(400);
+    const publicProject = await SELF.fetch("https://workshop.test/api/v1/projects/p1");
+    expect(publicProject.status).toBe(200);
+    const publicBody = await publicProject.text();
+    expect(publicBody).not.toContain("私密");
+    for (const field of ["rating", "comment", "unversionedNote", "note"]) {
+      expect(JSON.parse(publicBody)).not.toHaveProperty(field);
+    }
+    const listing = await SELF.fetch("https://workshop.test/api/v1/projects");
+    expect(await listing.text()).not.toContain("私密");
+  });
+
+  it("requires an explicit accessible version of the same project and retains existing input limits", async () => {
+    for (const rating of [0, 6, 1.5]) expect((await saveNote({ rating })).status).toBe(400);
+    expect((await saveNote({ rating: 5, comment: "字".repeat(2001) })).status).toBe(400);
+    expect((await request(notePath(), { method: "PUT", body: "{" })).status).toBe(400);
+    expect((await request("/api/v1/me/experience-notes/p1/versions", { method: "PUT" })).status).toBe(404);
+    expect((await saveNote({ rating: 5 }, "missing")).status).toBe(404);
+    await bindings.DB.batch([
+      bindings.DB.prepare("INSERT INTO projects (id, author_id, visibility) VALUES ('p2', 'u1', 'public')"),
+      bindings.DB.prepare(`INSERT INTO project_versions (id, project_id, version_no, title, project_type, created_by)
+        VALUES ('foreign', 'p2', 1, '另一个项目', '角色', 'u1'), ('draft', 'p1', 3, '未发布', '角色', 'u1')`),
+      bindings.DB.prepare("UPDATE projects SET published_version_id = 'foreign' WHERE id = 'p2'"),
+    ]);
+    expect((await saveNote({ rating: 5 }, "foreign")).status).toBe(404);
+    expect((await saveNote({ rating: 5 }, "r1", "p2")).status).toBe(404);
+    expect((await saveNote({ rating: 5 }, "draft")).status).toBe(404);
+    expect((await notes()).versions.map((version) => version.projectVersionId)).toEqual(["r1"]);
+    expect((await saveNote({ rating: 1, comment: "字".repeat(2000) })).status).toBe(204);
+    await expect(
+      bindings.DB.prepare(`INSERT INTO project_experience_notes
+      (project_id,user_id,project_version_id,rating) VALUES ('p2','u1','r1',5)`).run(),
+    ).rejects.toThrow();
+  });
+
+  it("preserves omitted comments, clears explicit empty comments, and deletes only the specified version", async () => {
+    expect((await saveNote({ rating: 5, comment: "保留这条体验" })).status).toBe(204);
+    expect((await saveNote({ rating: 4 })).status).toBe(204);
+    expect((await notes()).versions[0]?.note).toMatchObject({ rating: 4, comment: "保留这条体验" });
+    expect((await saveNote({ rating: 3, comment: "" })).status).toBe(204);
+    expect((await notes()).versions[0]?.note).toMatchObject({ rating: 3, comment: "" });
+    expect((await request(notePath(), { method: "DELETE" })).status).toBe(204);
+    expect((await notes()).versions[0]?.note).toBeNull();
+  });
+
+  it("isolates old and current versions across republishing, concurrent saves, edits and deletion", async () => {
+    expect((await saveNote({ rating: 5, comment: "第一版" })).status).toBe(204);
+    await publishSecondVersion();
+    expect((await notes()).versions).toMatchObject([
+      { projectVersionId: "r2", isCurrent: true, note: null },
+      { projectVersionId: "r1", isCurrent: false, note: { rating: 5, comment: "第一版" } },
+    ]);
+    const results = await Promise.all([
+      saveNote({ rating: 2, comment: "第二版" }, "r2"),
+      saveNote({ rating: 4, comment: "第一版修订" }),
+    ]);
+    expect(results.map((response) => response.status)).toEqual([204, 204]);
+    expect((await notes()).versions.map((version) => version.note)).toMatchObject([
+      { rating: 2, comment: "第二版" },
+      { rating: 4, comment: "第一版修订" },
+    ]);
+    const sameVersion = await Promise.all([saveNote({ rating: 1 }, "r2"), saveNote({ rating: 3 }, "r2")]);
+    expect(sameVersion.map((response) => response.status)).toEqual([204, 204]);
+    expect(
+      await bindings.DB.prepare(
+        "SELECT count(*) AS count FROM project_experience_notes WHERE project_version_id='r2'",
+      ).first("count"),
+    ).toBe(1);
+    expect((await request(notePath(), { method: "DELETE" })).status).toBe(204);
+    expect((await notes()).versions).toHaveLength(1);
+    expect((await notes()).versions[0]?.note?.comment).toBe("第二版");
+    expect((await saveNote({ rating: 5 })).status).toBe(404);
+    expect((await saveNote({ rating: 5 }, "r2")).status).toBe(204);
+  });
+
+  it("denies anonymous, hidden, deleted, unpublished and other-user historical access", async () => {
+    await bindings.DB.batch([
+      bindings.DB.prepare("INSERT INTO users (id, username, role) VALUES ('u2', 'other', 'member')"),
+      bindings.DB.prepare(`INSERT INTO project_experience_notes (project_id,user_id,project_version_id,rating,comment_text)
+        VALUES ('p1','u2','r1',2,'另一位用户的体验')`),
+      bindings.DB.prepare(`INSERT INTO project_unversioned_notes (project_id,user_id,rating,comment_text)
+        VALUES ('p1','u2',5,'另一位用户的旧备忘')`),
+    ]);
+    expect((await notes()).versions[0]?.note).toBeNull();
+    expect((await notes()).unversionedNote).toBeNull();
+    expect((await request(notePath(), { method: "DELETE" })).status).toBe(404);
+    expect((await request("/api/v1/me/experience-notes/p1/unversioned", { method: "DELETE" })).status).toBe(404);
+    await publishSecondVersion();
+    expect((await notes()).versions.map((version) => version.projectVersionId)).toEqual(["r2"]);
+    expect((await saveNote({ rating: 5 })).status).toBe(404);
+    for (const [path, method] of [
+      ["/api/v1/me/experience-notes/p1", "GET"],
+      [notePath("r2"), "PUT"],
+      [notePath("r2"), "DELETE"],
+      ["/api/v1/me/experience-notes/p1/unversioned", "DELETE"],
+    ]) {
+      expect((await SELF.fetch(`https://workshop.test${path}`, { method })).status).toBe(401);
+    }
+    expect((await saveNote({ rating: 4 }, "r2")).status).toBe(204);
+    for (const mutation of [
+      "visibility='private'",
+      "visibility='public',deleted_at='2026-11-17'",
+      "deleted_at=NULL,published_version_id=NULL",
+    ]) {
+      await bindings.DB.prepare(`UPDATE projects SET ${mutation} WHERE id='p1'`).run();
+      expect((await request("/api/v1/me/experience-notes/p1")).status).toBe(404);
+      expect((await saveNote({ rating: 5 }, "r2")).status).toBe(404);
+      expect((await request(notePath("r2"), { method: "DELETE" })).status).toBe(404);
+    }
+    expect(
+      await bindings.DB.prepare("SELECT rating FROM project_experience_notes WHERE user_id='u1'").first("rating"),
+    ).toBe(4);
+    expect(
+      await bindings.DB.prepare("SELECT rating FROM project_experience_notes WHERE user_id='u2'").first("rating"),
+    ).toBe(2);
+  });
+
+  it("retains unversioned history separately, never carries it to a version or recommendation, and lets its owner delete it", async () => {
+    await bindings.DB.prepare(`INSERT INTO project_unversioned_notes
+      (project_id,user_id,rating,comment_text,created_at,updated_at) VALUES ('p1','u1',5,'原样旧记录',?,?)`)
+      .bind(now, now)
+      .run();
+    const retained = await notes();
+    expect(retained.unversionedNote).toEqual({ rating: 5, comment: "原样旧记录", createdAt: now, updatedAt: now });
+    expect(retained.versions[0]?.note).toBeNull();
+    expect((await saveNote({ rating: 3, comment: "新版记录" })).status).toBe(204);
+    expect((await notes()).unversionedNote).toEqual(retained.unversionedNote);
+    expect(await bindings.DB.prepare("SELECT count(*) AS count FROM recommendations").first("count")).toBe(0);
     expect(
       (
-        await request("/api/v1/me/ratings/p1", {
+        await request("/api/v1/me/experience-notes/p1/unversioned", {
           method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ rating: 5, comment: "私密" }),
+          body: JSON.stringify({ rating: 1 }),
         })
       ).status,
-    ).toBe(204);
-    const state = await request("/api/v1/me/state?ids=p1");
-    await expect(state.json()).resolves.toEqual({
-      items: [{ projectId: "p1", liked: true, subscribed: true, rating: 5, comment: "私密" }],
-    });
-    const publicProject = await SELF.fetch(
-      new URL("/api/v1/projects/p1", "https://workshop.test").toString(),
-      undefined,
-    );
-    expect(publicProject.status).toBe(200);
-    expect(await publicProject.json()).not.toHaveProperty("rating");
-    expect(
-      await (await SELF.fetch(new URL("/api/v1/projects/p1", "https://workshop.test").toString(), undefined)).json(),
-    ).not.toHaveProperty("comment");
-  });
-
-  it("preserves a stored comment when changing only stars and clears it only explicitly", async () => {
-    const save = (body: { rating: number; comment?: string }) =>
-      request("/api/v1/me/ratings/p1", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
-      });
-    expect((await save({ rating: 5, comment: "保留这条留言" })).status).toBe(204);
-    const initial = await request("/api/v1/me/state?ids=p1");
-    await expect(initial.json()).resolves.toMatchObject({
-      items: [{ rating: 5, comment: "保留这条留言" }],
-    });
-    expect((await save({ rating: 4 })).status).toBe(204);
-    const updated = await request("/api/v1/me/state?ids=p1");
-    await expect(updated.json()).resolves.toMatchObject({
-      items: [{ rating: 4, comment: "保留这条留言" }],
-    });
-    expect((await save({ rating: 3, comment: "" })).status).toBe(204);
-    const cleared = await request("/api/v1/me/state?ids=p1");
-    await expect(cleared.json()).resolves.toMatchObject({ items: [{ rating: 3, comment: "" }] });
-    expect((await request("/api/v1/me/ratings/p1", { method: "DELETE" })).status).toBe(204);
-    const removed = await request("/api/v1/me/state?ids=p1");
-    await expect(removed.json()).resolves.toMatchObject({ items: [{ rating: null, comment: null }] });
-  });
-
-  it("does not expose another user's rating comment through personal state", async () => {
-    await bindings.DB.prepare("INSERT INTO users (id, username, role) VALUES ('u2', 'other', 'member')").run();
-    await bindings.DB.prepare(
-      "INSERT INTO project_ratings (project_id, user_id, rating, comment_text) VALUES ('p1', 'u2', 2, '另一位用户的留言')",
-    ).run();
-    const personal = await request("/api/v1/me/state?ids=p1");
-    await expect(personal.json()).resolves.toMatchObject({ items: [{ rating: null, comment: null }] });
-    const anonymous = await SELF.fetch(
-      new URL("/api/v1/me/state?ids=p1", "https://workshop.test").toString(),
-      undefined,
-    );
-    expect(anonymous.status).toBe(401);
+    ).toBe(404);
+    expect((await request("/api/v1/me/experience-notes/p1/unversioned", { method: "DELETE" })).status).toBe(204);
+    expect((await notes()).unversionedNote).toBeNull();
+    expect((await notes()).versions[0]?.note).toMatchObject({ rating: 3, comment: "新版记录" });
   });
 });

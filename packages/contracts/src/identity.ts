@@ -70,12 +70,18 @@ export const authSessionResponseSchema = z.object({
 export type AuthSessionResponse = z.infer<typeof authSessionResponseSchema>;
 
 export type {
+  ExperienceNote,
+  ExperienceNoteInput,
+  ExperienceNotesResponse,
+  ExperienceNoteVersion,
   InteractionStateItem,
   MeStateResponse,
-  RatingInput,
 } from "./interactions.js";
 export {
+  experienceNoteInputSchema,
+  experienceNoteSchema,
+  experienceNotesResponseSchema,
+  experienceNoteVersionSchema,
   interactionStateItemSchema,
   meStateResponseSchema,
-  ratingInputSchema,
 } from "./interactions.js";
