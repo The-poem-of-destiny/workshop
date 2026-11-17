@@ -28,6 +28,12 @@ def create_current_snapshot(path, migrations=MIGRATIONS):
             db.execute("DROP TRIGGER " + taxonomy.quote(name))
         db.executescript("""
             DROP VIEW project_search_short_source;
+            DROP TABLE project_experience_notes;
+            DROP TABLE project_unversioned_notes;
+            CREATE TABLE project_ratings (
+                project_id TEXT NOT NULL, user_id TEXT NOT NULL, rating INTEGER NOT NULL,
+                comment_text TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                PRIMARY KEY(project_id,user_id));
             DROP TABLE project_versions;
             CREATE TABLE project_versions (
                 id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id),
@@ -150,7 +156,9 @@ class SourceReconciliationTest(unittest.TestCase):
             INSERT INTO projects VALUES ('p1', 'u1', 'Example', 'Description', 'approved', 1, 1, 't1', 't2', 't1', '角色', 50, 50, 1);
             CREATE TABLE project_likes (project_id TEXT);
             CREATE TABLE project_subscribes (project_id TEXT);
-            CREATE TABLE project_ratings (project_id TEXT);
+            CREATE TABLE project_ratings (project_id TEXT,user_id TEXT,rating INTEGER,
+                comment_text TEXT,created_at TEXT,updated_at TEXT);
+            INSERT INTO project_ratings VALUES ('p1','u1',5,'Original private note','t1','t2');
             CREATE TABLE project_metric_daily (project_id TEXT);
             CREATE TABLE daily_random_draw_state (id TEXT);
             CREATE TABLE devteam_recommendations (project_id TEXT, curator_id TEXT, comment_text TEXT, reaction_label TEXT, created_at TEXT, updated_at TEXT);
@@ -174,9 +182,11 @@ class SourceReconciliationTest(unittest.TestCase):
         self.dump = "\n".join(db.iterdump()) + "\n"
         self.tables = {name: [] for name in (
             "users", "projects", "project_versions", "project_likes", "project_subscriptions",
-            "project_ratings", "project_metrics_daily", "site_settings", "audit_events", "recommendations", "assets")}
+            "project_experience_notes", "project_unversioned_notes", "project_metrics_daily", "site_settings", "audit_events", "recommendations", "assets")}
         self.tables["users"] = [{"id": "u1", "username": "synthetic", "global_name": None, "avatar": None, "role": "member", "created_at": "t1", "updated_at": "t2"}]
         self.tables["projects"] = [{"id": "p1", "author_id": "u1", "working_version_id": REVISION, "published_version_id": REVISION, "visibility": "public", "published_at": "t1", "published_updated_at": "t1", "downloads_count": 0, "likes_count": 0, "subscriptions_count": 0, "created_at": "t1", "updated_at": "t2"}]
+        self.tables["project_unversioned_notes"] = [{"project_id": "p1", "user_id": "u1", "rating": 5,
+            "comment_text": "Original private note", "created_at": "t1", "updated_at": "t2"}]
         self.tables["project_versions"] = [{"id": REVISION, "project_id": "p1", "version_no": 1, "created_by": "u1", "created_at": "t1", "title": "Example", "description": "Description", "project_type": "角色", "included_types": "[]", "tags": "[]", "entry_index": taxonomy.stable({"schemaVersion": 1, "entries": []}), "worldbook_count": 0, "regex_count": 0, "manifest_hash": hashlib.sha256(b"").hexdigest(), "cover_position_x": 50, "cover_position_y": 50, "cover_zoom": 1}]
         self.tables["audit_events"] = [{"id": AUDIT_ID, "action": "legacy.admin_added", "target_type": "project", "target_id": "p1", "actor_id": "u1", "detail": '{"legacyActorId":"u1","legacyActorName":"synthetic","legacyDetail":"details","legacyTargetId":"p1","sourceTable":"admin_action_logs"}', "created_at": "t1"}]
         self.tables["recommendations"] = [{"id": RECOMMENDATION_ID, "curator_id": "u1", "project_id": "p1", "project_version_id": REVISION, "comment": "recommended", "created_at": "t1", "updated_at": "t2"}]
@@ -379,11 +389,51 @@ class SourceReconciliationTest(unittest.TestCase):
         result, report = self.run_source(data, dump)
         self.assertEqual(result.returncode, 0, (result.stderr, report))
 
+    def test_legacy_notes_keep_original_values_without_inventing_a_version(self):
+        dump = self.snapshot_dump().replace("('p1','u1',5,'Original private note'", "('draft','u1',5,'Original private note'")
+        self.assertNotEqual(dump, self.snapshot_dump())
+        data = self.run_transform(dump)
+        self.assertEqual(data["tables"]["project_experience_notes"], [])
+        self.assertEqual(data["tables"]["project_unversioned_notes"], self.tables["project_unversioned_notes"])
+        result, report = self.run_source(data, dump)
+        self.assertEqual(result.returncode, 0, (result.stderr, report))
+        invented = copy.deepcopy(data)
+        invented["tables"]["project_experience_notes"] = [{"project_id": "p1", "user_id": "u1",
+            "project_version_id": invented["tables"]["projects"][0]["published_version_id"],
+            "rating": 5, "comment_text": "Original private note", "created_at": "t1", "updated_at": "t2"}]
+        result, report = self.run_source(invented, dump)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn({"kind": "source_difference", "check": "project_experience_notes"}, report["failures"])
+
+    def test_collapsing_legacy_notes_fail_instead_of_discarding_one(self):
+        dump = self.snapshot_dump()
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(dump)
+            db.execute("INSERT INTO project_ratings VALUES ('draft','u1',3,'Other historical note','t3','t4')")
+            dump = "\n".join(db.iterdump()) + "\n"
+        source = self.directory / "conflict.sql"
+        source.write_text(dump, encoding="utf-8")
+        manifest = self.directory / "manifest.json"
+        manifest.write_text(json.dumps({"databases": [{"name": "creative_workshop",
+            "sha256": hashlib.sha256(dump.encode()).hexdigest(), "table_counts": {}}], "buckets": {}}), encoding="utf-8")
+        review = self.directory / "review.json"
+        review.write_text(json.dumps(self.reviewed(source)), encoding="utf-8")
+        output = self.directory / "conflict.json"
+        subprocess.run([sys.executable, str(TRANSFORMER), str(source), str(manifest), str(output),
+                        "--review", str(review)], capture_output=True, text=True, check=False)
+        data = json.loads(output.read_text(encoding="utf-8"))
+        self.assertTrue(any(item["reason"] == "multiple source records collapse to the same target key"
+                            for item in data["diagnostics"]))
+        result, report = self.run_source(data, dump)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertFalse(report["ok"])
+
     def test_baseline_and_missing_or_altered_rows(self):
         result, report = self.run_source()
         self.assertEqual(result.returncode, 0, (result.stderr, report))
         self.assertTrue(report["ok"])
-        for table, field in (("audit_events", "action"), ("recommendations", "comment")):
+        for table, field in (("audit_events", "action"), ("recommendations", "comment"),
+                             ("project_unversioned_notes", "comment_text")):
             for mutation in ("missing", "altered"):
                 with self.subTest(table=table, mutation=mutation):
                     data = copy.deepcopy(self.data)
@@ -497,6 +547,8 @@ class CurrentTaxonomySnapshotTest(unittest.TestCase):
         self.assertEqual(report["tables"]["submissions"]["rows"], 2)
         self.assertEqual(report["tables"]["download_daily_stats"]["rows"], 1)
         self.assertEqual(report["tables"]["recommendation_batch_eligibility"]["rows"], 1)
+        self.assertEqual(report["tables"]["project_unversioned_notes"]["rows"], 1)
+        self.assertEqual(report["tables"]["project_experience_notes"]["rows"], 0)
         self.assertEqual(self.source.read_bytes(), original)
         with sqlite3.connect(candidate / "expected.sqlite") as db:
             self.assertEqual(db.execute("SELECT working_version_id,published_version_id,published_cover_asset_id,"
@@ -510,6 +562,37 @@ class CurrentTaxonomySnapshotTest(unittest.TestCase):
             self.assertEqual(db.execute("SELECT p.id FROM project_search s JOIN projects p ON p.rowid=s.rowid "
                                         "WHERE project_search MATCH '1011'").fetchall(), [("p",)])
             self.assertFalse(set(taxonomy.columns(db, "project_versions")) & taxonomy.OBSOLETE)
+            self.assertEqual(db.execute("SELECT * FROM project_unversioned_notes").fetchone(),
+                             ("p", "reviewer", 4, "Preserved comment", "2026-01-02", "2026-01-03"))
+            self.assertEqual(db.execute("SELECT count(*) FROM project_experience_notes").fetchone()[0], 0)
+
+
+    def test_versioned_and_retained_notes_survive_an_already_current_snapshot(self):
+        with sqlite3.connect(self.source) as db:
+            db.execute("ALTER TABLE project_ratings RENAME TO project_unversioned_notes")
+            db.executescript("""CREATE TABLE project_experience_notes (
+                project_id TEXT NOT NULL,user_id TEXT NOT NULL,project_version_id TEXT NOT NULL,
+                rating INTEGER NOT NULL,comment_text TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
+                PRIMARY KEY(user_id,project_version_id));
+                INSERT INTO project_experience_notes VALUES ('p','reviewer','vp',2,'Version evidence','t1','t2');""")
+        self.review_path.unlink()
+        taxonomy.prepare_review(self.source, "current", self.review_path)
+        self.reviewed()
+        candidate = self.build()
+        self.assertTrue(taxonomy.verify(self.source, self.review_path, MIGRATIONS, candidate)["ok"])
+        with sqlite3.connect(candidate / "expected.sqlite") as db:
+            self.assertEqual(db.execute("SELECT project_version_id,rating,comment_text FROM project_experience_notes").fetchall(),
+                             [("vp", 2, "Version evidence")])
+            self.assertEqual(db.execute("SELECT comment_text FROM project_unversioned_notes").fetchall(), [("Preserved comment",)])
+
+    def test_mixed_legacy_and_retained_note_sources_fail_closed(self):
+        with sqlite3.connect(self.source) as db:
+            db.execute("CREATE TABLE project_unversioned_notes AS SELECT * FROM project_ratings")
+        self.review_path.unlink()
+        taxonomy.prepare_review(self.source, "current", self.review_path)
+        self.reviewed()
+        with self.assertRaisesRegex(ValueError, "ambiguous legacy and retained"):
+            self.build()
 
     def test_direct_mapping_current_candidate_requires_explicit_review_before_output(self):
         with sqlite3.connect(self.source) as db:
@@ -553,6 +636,8 @@ class CurrentTaxonomySnapshotTest(unittest.TestCase):
                 ("UPDATE projects SET working_version_id='vp' WHERE id='p'", "UPDATE projects SET working_version_id='vw' WHERE id='p'"),
                 ("UPDATE project_versions SET description='lost prose' WHERE id='vn'",
                  "UPDATE project_versions SET description=(SELECT description FROM original.project_versions WHERE id='vn') WHERE id='vn'"),
+                ("UPDATE project_unversioned_notes SET comment_text='lost old note'",
+                 "UPDATE project_unversioned_notes SET comment_text=(SELECT comment_text FROM original.project_ratings)"),
                 ("UPDATE project_versions SET project_type='事件' WHERE id='vn'", "UPDATE project_versions SET project_type='体验优化' WHERE id='vn'")):
             with self.subTest(sql=sql):
                 with sqlite3.connect(path) as db:

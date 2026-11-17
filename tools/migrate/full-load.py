@@ -206,7 +206,7 @@ def source_reconcile(data, dump, manifest_path, *, migrations=None):
 
     tables = data["tables"]
     required_targets = {"users", "projects", "project_versions", "project_likes",
-                        "project_subscriptions", "project_ratings", "project_metrics_daily",
+                        "project_subscriptions", "project_experience_notes", "project_unversioned_notes", "project_metrics_daily",
                         "site_settings",
                         "audit_events", "recommendations", "assets"}
     for name in sorted(set(tables) - required_targets):
@@ -277,14 +277,15 @@ def source_reconcile(data, dump, manifest_path, *, migrations=None):
     for source_name, target_name, fields in (
         ("project_likes", "project_likes", ("user_id", "created_at")),
         ("project_subscribes", "project_subscriptions", ("user_id", "created_at")),
-        ("project_ratings", "project_ratings", ("user_id", "rating", "comment_text", "created_at", "updated_at")),
+        ("project_ratings", "project_unversioned_notes", ("user_id", "rating", "comment_text", "created_at", "updated_at")),
         ("project_metric_daily", "project_metrics_daily", ("day_key", "downloads", "likes_delta")),
     ):
         expected = ((roots.get(str(row["project_id"])), *(row.get(field) for field in fields))
-                    for row in source[source_name] if str(row["project_id"]) in relation_ids)
+                    for row in source[source_name] if source_name == "project_ratings" or str(row["project_id"]) in relation_ids)
         actual = ((str(row["project_id"]), *(row.get(field) for field in fields))
                   for row in tables.get(target_name, []))
         compare(target_name, expected, actual)
+    compare("project_experience_notes", (), (stable(row) for row in tables.get("project_experience_notes", [])))
 
     for source_name, target_name, rename in (
         ("site_settings", "site_settings", {}),
@@ -405,7 +406,7 @@ def source_reconcile(data, dump, manifest_path, *, migrations=None):
         ("character_reference_versions", "reference baseline feature removed (R-18); source backup retained"),
         ("character_reference_items", "reference baseline feature removed (R-18); source backup retained"),
     } | {(name, reason) for name in
-         ("project_likes", "project_subscribes", "project_ratings", "project_metric_daily")
+         ("project_likes", "project_subscribes", "project_metric_daily")
          for reason in ("relation belongs to excluded project", "relation belongs to omitted historical revision")}
     omission_counts = Counter((item.get("table"), item.get("reason")) for item in omissions
                               if isinstance(item, dict) and isinstance(item.get("table"), str)
@@ -443,7 +444,7 @@ def source_reconcile(data, dump, manifest_path, *, migrations=None):
     for name in ("admins", "super_admins"):
         compare(name + "_privilege_exclusions", (stable(row) for row in source[name]),
                 omitted(name, "legacy privileges not migrated"))
-    for name in ("project_likes", "project_subscribes", "project_ratings", "project_metric_daily"):
+    for name in ("project_likes", "project_subscribes", "project_metric_daily"):
         compare(name + "_exclusions", (stable(row) for row in source[name]
                                       if roots.get(str(row["project_id"])) in excluded_roots),
                 omitted(name, "relation belongs to excluded project"))
