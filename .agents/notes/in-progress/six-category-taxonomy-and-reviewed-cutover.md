@@ -4,6 +4,7 @@
 - 确认日期：2026-11-13
 - 决策负责人：项目所有者；契约维护者：Domain/Contracts 与 Worker；界面维护者：Web；迁移维护者：离线工具；交付与安全边界：Integration。
 - 本记录保存已接受设计及其取舍，不是部署许可、操作运行簿或验收日志。当前行为分别由 [API 参考](../../../docs/reference/worker-api.md)、[使用指南](../../../docs/guides/using-workshop.md)、[迁移说明](../../../docs/operations/legacy-data-migration.md)和[部署安全规则](../../../docs/operations/deployment-safety.md)维护。
+- 生命周期核对（2026-11-17）：源码、空库 schema、API/Web 和完整离线候选工具已由 [PR #90](https://github.com/The-poem-of-destiny/workshop/pull/90) 合并；四普通标签上限 [PR #89](https://github.com/The-poem-of-destiny/workshop/pull/89) 也已合并。现有本地验收及精确 main CI 见[当前状态](../../../docs/plans/refactor-2026-10/state.md)。本记录保持 in-progress 的原因是当前 schema／taxonomy 的真实数据切换未执行，并非源码仍未交付；历史 staging 210/210 验收不关闭此门槛。
 
 ## 背景与取代范围
 
@@ -81,4 +82,4 @@
 
 本地服务端真实创建、上传、提交、人工批准及匿名回读已覆盖六类与三种有效内容组合；元数据/内容拒绝边界、分组查询、canonical 游标/本地 Cache API、Unicode HTTP 与 SQL/Python 合同已取得行为证据。当前 helper 固定的 v2 SQLite/SQL 完整候选已取得独立 typed 对账证据；三种审阅输入的初始标记、明确标签修复理由、公开重复键与私有无效内容省略的精确源例外、多导入及缺失/伪造/过期 provenance 拒绝边界亦已验证。完整非 taxonomy 版本/资产字段的当前单独篡改与当前加 preparation 协同篡改，均在刷新输入与工具 pins 后由 build 和独立 verify 拒绝；实际 canonical schema 新列缺失映射同样拒绝。显式/回退 MIME、对象别名、根版本优先序号、可空缺省及存储类型等合法变体仍可通过，当前计数、rowVersion、历史和新增行保持不变。桌面/移动作者、筛选、真实客户端 checker、审核者与 owner 表面，以及未弱化门禁的完整本地检查和 E2E 亦已取得行为证据；这些证明不能相互替代，也不代表线上边缘缓存或真实数据切换。精确命令、结果、私有探针错误及其处置保存在任务记录，不在本决策存放 fixture、运行日志或凭据。
 
-全部实现和文档冻结后，还须完成两轮连续、独立且第二轮更换审查者的零 actionable finding 审查；任何发现经 owner 修复及受影响路径核验后重新计数。之后才按普通受保护 PR、精确 head 与 required checks 交付，不绕过门禁。本记录在这些交付门禁完成前保持 in-progress；本地验收通过不等于已合并或部署。
+PR #90 的源码与工具交付、独立审查及本地验收已经结束，不再要求为该已合并 PR 重复旧“两轮清零”流程。当前剩余工作是另行授权后的完整当前快照审阅、候选独立对账、停写／真实切换与目标环境验收；本轮明确暂不执行真实迁移或发布，保持本记录 in-progress。两个新的产品功能 PR 和文档刷新各自独立审查、保持未合并，不以此处历史验收代替它们的检查，也不改本记录规定的 schema pause／production 停止门禁。

@@ -1,5 +1,8 @@
 # Creative Workshop 后续工作规划审计
 
+> 历史审计提示（2026-11-17 补充）：本文结论仅适用于下述 `0ce8f845e558ef123427a274ff6d753301f2df64` 基线，不是当前 main 的缺口清单。后续核心 Web／Worker／Tavern client、统一审核、六分类与离线候选等已经合入；原文中的“backend-only”“客户端／UI 未闭环”及旧待办不得平移到现在。当前合并源码、本地／CI 证据、历史 staging 验收、两个尚未合入的功能缺口与真实环境／切换门槛见 [state.md](../plans/refactor-2026-10/state.md) 和 [user-actions.md](../plans/refactor-2026-10/user-actions.md)。保留原审计正文与当时测量，不据本次整理宣称新审计通过或线上已更新。
+
+
 ## 1. 总体结论
 
 审计基准：本地 `refactor/2026-10`，`0ce8f845e558ef123427a274ff6d753301f2df64`。已完整读取用户指定的五份计划/状态文档和三份审计；按冻结的 `decisions.md` 裁决，不把历史报告当作当前实现。本文是规划，不修改 checklist，不实施修复，不 commit/push/部署，不查询线上或读取凭据/生产备份。
