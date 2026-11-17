@@ -113,11 +113,21 @@ URL=$(jq -r '.files[0].url // empty' /tmp/workshop-downloads.json)
 | GET `/projects` | 当前用户可管理的作者项目列表。 |
 | GET `/projects/:id/submissions` | 项目投稿历史，无权或不存在 404。 |
 | GET `/subscriptions` | 订阅项目 `{items}`。 |
-| GET `/state` | `ids` 为逗号分隔项目 ID，最多 50 个；返回互动状态。 |
+| GET `/state` | `ids` 为逗号分隔项目 ID，最多 50 个；返回本人点赞与订阅状态，不返回评分或体验文字。 |
 | PUT、DELETE `/likes/:id` | 添加或取消点赞，204。 |
 | PUT、DELETE `/subscriptions/:id` | 添加或取消订阅，204。 |
-| PUT `/ratings/:id` | JSON `ratingInputSchema`，成功 204，无效 JSON 或评分 400。 |
-| DELETE `/ratings/:id` | 删除评分，204。 |
+| GET `/experience-notes/:id` | 本人版本体验备忘，见 `experienceNotesResponseSchema`；返回当前发布版本（未记录时 `note: null`）、本人已记备忘的历史版本及独立的 `unversionedNote`。 |
+| PUT `/experience-notes/:id/versions/:versionId` | JSON `experienceNoteInputSchema`：`rating` 为 1–5 整数，`comment` 可选、最多 2000 字符。明确保存该版本，成功 204；无效 JSON 或输入 400。省略 `comment` 保留原文字，显式空串清空。 |
+| DELETE `/experience-notes/:id/versions/:versionId` | 仅删除本人该项目、该版本的备忘，成功 204；无本人记录或不可访问时 404。 |
+| DELETE `/experience-notes/:id/unversioned` | 删除本人未标版本的旧备忘，成功 204；无记录或不可访问时 404。没有新增、修改或归档到某版本的写接口。 |
+
+### 个人版本体验备忘
+
+- 只有当前登录者能读取、修改或删除自己的记录；作者、管理员及其他用户不会因此获得读取权限。匿名访问 401，所有备忘响应和写入均 `no-store`。公开详情、列表、计数与推荐没有评分或体验文字投影。
+- 项目必须仍为公开、未删除且有已发布版本。新记录只能写当前发布版本；历史版本只能维护本人已经存在的备忘，不枚举其他历史或草稿版本。缺少版本、版本不存在、跨项目版本或未获准版本均不创建记录；不自动采用“最新版”。历史备忘删除后不能凭旧版本 ID 重新创建。
+- `project_experience_notes` 以 `(user_id, project_version_id)` 唯一，以同项目的 `(project_id, project_version_id)` 外键约束版本归属。发布新版本不会复制、覆盖或迁移旧体验；界面默认显示当前版本，使用“查看版本备忘”切回自己的历史记录。
+- 旧 `project_ratings` 没有可靠版本证据，离线转换原样保留评分、文字及时间到 `project_unversioned_notes`，不推断当前或历史版本，也不转成推荐。界面单独显示“未标版本的旧备忘”，仅本人可读、可删除，不能修改或隐式回填为本版评分。
+- 这次只更新预发布空库基线和离线转换契约；不代表现有数据库已迁移，不可把 `0001_initial.sql` 应用于已有数据库。
 
 ## 作者写入和并发
 
@@ -196,10 +206,10 @@ curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "If-Match: $VERSION" -H '
 | 父对象／资源 | 引用与目标删除责任 | 保留及前提 |
 | --- | --- | --- |
 | 用户 | projects.author、audit actor 等证据 RESTRICT；session 等纯附属 CASCADE；site_settings updater SET NULL | 作者归属、审计和人工决定默认保留，不能删除用户时抹掉证据；隐私／法定义务另行决定 |
-| 用户的其他引用 | project_versions.created_by、submissions.submitted_by/withdrawn_by 默认 NO ACTION；manual_reviews.reviewer、recommendations.curator、download_daily_stats.user RESTRICT；oauth_flows.user SET NULL；likes、ratings、subscriptions CASCADE | 删除用户必须逐项处理阻断关系并保全证据；OAuth 准入证据及互动删除影响须另审 |
-| 项目纯派生／互动 | project_likes、project_ratings、project_subscriptions、project_metrics_daily、project_search_tags CASCADE；FTS 搜索索引不由外键维护 | 可级联不等于已批准硬删除；清理后复核触发器维护的搜索索引与聚合 |
+| 用户的其他引用 | project_versions.created_by、submissions.submitted_by/withdrawn_by 默认 NO ACTION；manual_reviews.reviewer、recommendations.curator、download_daily_stats.user RESTRICT；oauth_flows.user SET NULL；likes、experience notes、unversioned notes、subscriptions CASCADE | 删除用户必须逐项处理阻断关系并保全证据；OAuth 准入证据及互动删除影响须另审 |
+| 项目纯派生／互动 | project_likes、project_experience_notes、project_unversioned_notes、project_subscriptions、project_metrics_daily、project_search_tags CASCADE；FTS 搜索索引不由外键维护 | 可级联不等于已批准硬删除；清理后复核触发器维护的搜索索引与聚合 |
 | 项目 | project_versions、submissions、assets、下载、推荐、change signals 等业务记录 RESTRICT；纯关系允许 CASCADE | 软删除不等于硬删除；先明确恢复期和证据处理，清查全部依赖并人工批准 |
-| 版本 | 项目 working/published 指针是同项目、延迟检查的引用；投稿 version/base、assets 和其他业务证据 RESTRICT | 当前工作／发布版本、审核中的冻结版本及基线禁止直接回收；历史版本须先决定保留与可恢复策略 |
+| 版本 | 项目 working/published 指针是同项目、延迟检查的引用；投稿 version/base、assets、project_experience_notes 和其他业务证据 RESTRICT | 当前工作／发布版本、审核中的冻结版本及基线禁止直接回收；历史版本须先决定保留与可恢复策略 |
 | 投稿 | automated_reviews、manual_reviews 是审核证据，RESTRICT | 不能靠父项目删除级联抹除审核结论和人工决定；先完成独立证据政策 |
 | 资产与 R2 key | assets 是关联权威，版本可共享同一对象；站点 banner、报告及客户端分发等各自 key 也须纳入完整引用清单 | 不以某版本或前缀无引用断言对象孤儿；失败上传和替换旧图先只读列候选 |
 | 自动报告 | checked_at、report_r2_key、report_hash、report_cleaned_at；共享 key 的所有引用均须检查 | 期限及仍待人工审核是否豁免待定；结构化结论和 hash 保留，禁止先删仍依赖原文的报告 |
