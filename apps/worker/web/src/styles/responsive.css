@@ -32,25 +32,8 @@
   .drawer-toggle {
     display: none;
   }
-  .sidebar-toggle {
-    display: grid;
-    place-items: center;
-    width: 34px;
-    height: 34px;
-    flex: none;
-    margin-left: -4px;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--muted);
-  }
-  .sidebar-toggle:hover {
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--text);
-  }
-  .sidebar-toggle svg {
-    width: 17px;
-    height: 17px;
+  .sidebar-desktop-head {
+    display: flex;
   }
   .workshop-main {
     padding: 18px 28px 40px;
@@ -150,27 +133,16 @@
   }
   .header-help-button span,
   .tavern-status span,
-  .eyebrow {
+  .eyebrow,
+  .site-header .personal-nav,
+  .account > span:not(.account-avatar) {
+    display: none;
+  }
+  .header-center:not(:has(.header-search)) {
     display: none;
   }
   .site-header h1 {
     font-size: 16.5px;
-  }
-  .personal-nav {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-    gap: 4px;
-    padding-bottom: 1px;
-  }
-  .personal-nav::-webkit-scrollbar {
-    display: none;
-  }
-  .personal-nav button {
-    flex: none;
-    min-height: 36px;
-    padding: 5px 10px;
-    font-size: 12.5px;
   }
   .admin-tools {
     grid-template-columns: 1fr;

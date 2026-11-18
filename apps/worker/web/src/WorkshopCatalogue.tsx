@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, LayoutGrid, List, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, LayoutGrid, List, PanelLeftOpen, SlidersHorizontal, X } from "lucide-react";
 import type { RefObject } from "react";
 import type { ProjectSummary } from "./api";
 import { Button } from "./components/ui/button";
@@ -10,11 +10,19 @@ import { SORTS } from "./useCatalogueFilters";
 
 export function WorkshopCatalogue({
   catalogue,
+  isMobile,
+  sidebarCollapsed,
+  onExpandSidebar,
+  onOpenMobileFilters,
   detailOpener,
   setSelected,
   onDiscordPrompt,
 }: {
   catalogue: CatalogueState;
+  isMobile: boolean;
+  sidebarCollapsed: boolean;
+  onExpandSidebar: () => void;
+  onOpenMobileFilters: () => void;
   detailOpener: RefObject<HTMLElement | null>;
   setSelected: (project: ProjectSummary | null) => void;
   onDiscordPrompt?: (target: DiscordPromptTarget) => void;
@@ -137,52 +145,87 @@ export function WorkshopCatalogue({
 
       <div className="catalogue-toolbar">
         <div className="catalogue-toolbar-lead">
+          {!isMobile && sidebarCollapsed ? (
+            <button type="button" className="sidebar-expand-btn" aria-label="展开筛选栏" onClick={onExpandSidebar}>
+              <PanelLeftOpen aria-hidden="true" />
+              <span>筛选栏</span>
+            </button>
+          ) : null}
           <h2 className="catalogue-heading">
             {collection ? "合集内作品" : author ? "该作者的作品" : hasFilters ? "筛选结果" : "全部作品"}
           </h2>
           <p className="list-range" tabIndex={-1}>
-            {listLoading
-              ? "加载中…"
-              : loadedQuery !== queryKey
-                ? "加载失败"
-                : projects.length === 0
-                  ? `共 ${total} 个项目`
-                  : `共 ${total} 个项目 · 显示 ${pageIndex * pageSize + 1}–${pageIndex * pageSize + projects.length}`}
+            {listLoading ? (
+              "加载中…"
+            ) : loadedQuery !== queryKey ? (
+              "加载失败"
+            ) : projects.length === 0 ? (
+              `共 ${total} 个项目`
+            ) : (
+              <>
+                共 {total} 个项目
+                <span className="list-range-detail">
+                  {" "}
+                  · 显示 {pageIndex * pageSize + 1}–{pageIndex * pageSize + projects.length}
+                </span>
+              </>
+            )}
           </p>
         </div>
-        <nav className="sorts" aria-label="排序">
-          {SORTS.map(([value, label]) => (
-            <button key={value} type="button" className={sort === value ? "active" : ""} onClick={() => setSort(value)}>
-              {label}
-            </button>
-          ))}
-        </nav>
-        {sort === "downloads" || sort === "likes" ? (
-          <select
-            aria-label="统计周期"
-            value={period}
-            onChange={(event) => setPeriod(event.target.value as typeof period)}
-          >
-            <option value="all">全部时间</option>
-            <option value="7d">最近 7 天</option>
-            <option value="30d">最近 30 天</option>
-            <option value="90d">最近 90 天</option>
-          </select>
-        ) : null}
-        <fieldset className="layout-switch" aria-label="浏览布局">
-          {(["cards", "list"] as const).map((mode) => (
+        <div className="catalogue-sort-group">
+          <nav className="sorts" aria-label="排序">
+            {SORTS.map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={sort === value ? "active" : ""}
+                onClick={() => setSort(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          {sort === "downloads" || sort === "likes" ? (
+            <select
+              className="period-select"
+              aria-label="统计周期"
+              value={period}
+              onChange={(event) => setPeriod(event.target.value as typeof period)}
+            >
+              <option value="all">全部时间</option>
+              <option value="7d">最近 7 天</option>
+              <option value="30d">最近 30 天</option>
+              <option value="90d">最近 90 天</option>
+            </select>
+          ) : null}
+        </div>
+        <div className="catalogue-view-actions">
+          {isMobile ? (
             <button
               type="button"
-              key={mode}
-              aria-pressed={layout === mode}
-              title={mode === "cards" ? "卡片式" : "列表式"}
-              aria-label={mode === "cards" ? "卡片式" : "列表式"}
-              onClick={() => setLayout(mode)}
+              className={`mobile-filter-btn${hasFilters ? " is-active" : ""}`}
+              aria-label="筛选条件"
+              onClick={onOpenMobileFilters}
             >
-              {mode === "cards" ? <LayoutGrid aria-hidden="true" /> : <List aria-hidden="true" />}
+              <SlidersHorizontal aria-hidden="true" />
+              <span>筛选</span>
             </button>
-          ))}
-        </fieldset>
+          ) : null}
+          <fieldset className="layout-switch" aria-label="浏览布局">
+            {(["cards", "list"] as const).map((mode) => (
+              <button
+                type="button"
+                key={mode}
+                aria-pressed={layout === mode}
+                title={mode === "cards" ? "卡片式" : "列表式"}
+                aria-label={mode === "cards" ? "卡片式" : "列表式"}
+                onClick={() => setLayout(mode)}
+              >
+                {mode === "cards" ? <LayoutGrid aria-hidden="true" /> : <List aria-hidden="true" />}
+              </button>
+            ))}
+          </fieldset>
+        </div>
       </div>
 
       {!listLoading && loadedQuery !== queryKey ? (

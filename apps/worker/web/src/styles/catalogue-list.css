@@ -6,9 +6,68 @@
   gap: 8px 12px;
   border-bottom: 1px solid var(--border);
 }
+.catalogue-sort-group,
+.catalogue-view-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .catalogue-toolbar .sorts {
   margin: 0;
+  padding: 0;
   border: 0;
+}
+.sidebar-expand-btn,
+.mobile-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.sidebar-expand-btn:hover,
+.mobile-filter-btn:hover,
+.mobile-filter-btn.is-active {
+  border-color: rgba(207, 169, 110, 0.45);
+  background: rgba(207, 169, 110, 0.12);
+  color: var(--accent-strong);
+}
+.sidebar-expand-btn svg,
+.mobile-filter-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.period-select,
+.pagination select {
+  appearance: none;
+  height: 32px;
+  padding: 0 26px 0 10px;
+  border: 1px solid rgba(207, 169, 110, 0.28);
+  border-radius: 6px;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23cfa96e' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")
+    no-repeat right 8px center,
+    rgba(207, 169, 110, 0.08);
+  color: #e2d1b3;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.period-select:hover,
+.pagination select:hover {
+  border-color: rgba(207, 169, 110, 0.5);
+  background-color: rgba(207, 169, 110, 0.14);
+}
+.period-select option,
+.pagination select option {
+  background: #1b1e26;
+  color: var(--text);
 }
 .layout-switch,
 .pagination {
@@ -22,8 +81,8 @@
 .layout-switch button,
 .pagination button {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   flex: none;
   place-items: center;
   border: 1px solid var(--border);
@@ -33,8 +92,8 @@
 }
 .layout-switch svg,
 .pagination svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 .layout-switch button[aria-pressed="true"] {
   background: rgba(207, 169, 110, 0.14);
@@ -46,7 +105,7 @@
   flex-wrap: wrap;
   padding: 18px 0;
   color: var(--muted);
-  font-size: 13.5px;
+  font-size: 13px;
 }
 .pagination label {
   display: flex;
@@ -55,10 +114,9 @@
   margin-right: auto;
 }
 .pagination select {
-  padding: 5px 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border-color: var(--border-strong);
+  background-color: var(--surface);
+  color: var(--text);
 }
 .pagination button:disabled {
   opacity: 0.35;
@@ -219,14 +277,32 @@
 }
 
 @media (max-width: 640px) {
+  .list-range-detail {
+    display: none;
+  }
+  .catalogue-view-actions {
+    gap: 6px;
+  }
+  .catalogue-sort-group {
+    order: 3;
+    width: 100%;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .period-select {
+    height: 30px;
+    padding: 0 22px 0 8px;
+    font-size: 11.5px;
+    margin-left: auto;
+  }
   .grid.catalogue-list {
     gap: 10px;
   }
   .project-card--list {
-    grid-template-columns: 100px minmax(0, 1fr);
+    grid-template-columns: 104px minmax(0, 1fr);
     align-items: center;
-    gap: 5px 12px;
-    padding: 11px 12px;
+    gap: 4px 11px;
+    padding: 10px 11px;
   }
   .project-card--list .card-media {
     grid-row: 1 / 3;
@@ -235,35 +311,43 @@
     gap: 3px;
   }
   .project-card--list h3 {
-    font-size: 14px;
+    font-size: 13.5px;
   }
   .project-card--list .list-inline-tags,
-  .project-card--list .list-version-pill {
+  .project-card--list .list-version-pill,
+  .project-card--list .byline,
+  .project-card--list .card-more {
     display: none;
   }
   .project-card--list .list-note {
     -webkit-line-clamp: 1;
-    font-size: 12px;
-    line-height: 1.4;
+    font-size: 11.5px;
+    line-height: 1.38;
   }
   .project-card--list .card-footer {
     grid-column: 2;
     grid-row: 2;
-    gap: 4px 8px;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    gap: 8px;
   }
   .project-card--list .card-signals {
-    gap: 8px;
+    gap: 10px;
     font-size: 11px;
   }
   .project-card--list .list-entry-counts {
-    font-size: 11px;
+    font-size: 10.5px;
   }
   .project-card--list .card-stat-group {
-    min-width: 0;
+    flex: none;
     gap: 7px;
   }
   .project-card--list .list-dates-row {
-    gap: 8px;
+    flex: none;
+    gap: 6px;
+  }
+  .project-card--list .list-dates-row .list-date-item:last-child {
+    display: none;
   }
   .project-card--list .list-date-item {
     font-size: 10.5px;

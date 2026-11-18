@@ -1,13 +1,27 @@
 import { MAX_SELECTED_TAGS, orderedPresetTagGroups, PROJECT_TYPES, presetTagGroup } from "@workshop/domain";
-import { BookOpen, Compass, X } from "lucide-react";
+import {
+  BookOpen,
+  CircleUserRound,
+  Compass,
+  FolderKanban,
+  PanelLeftClose,
+  Plus,
+  ShieldCheck,
+  SlidersHorizontal,
+  X,
+} from "lucide-react";
 import { type Dispatch, type RefObject, type SetStateAction, useState } from "react";
 
 import type { CatalogueState } from "./useCatalogue";
 import type { WorkshopView } from "./useWorkshopNavigation";
+import type { useWorkshopSession } from "./useWorkshopSession";
 
 export function WorkshopSidebar({
   sidebarOpen,
   isMobile,
+  onCollapseDesktop,
+  me,
+  reviewer,
   drawerClose,
   setSidebarOpen,
   drawerToggle,
@@ -34,6 +48,9 @@ export function WorkshopSidebar({
 }: {
   sidebarOpen: boolean;
   isMobile: boolean;
+  onCollapseDesktop: () => void;
+  me: ReturnType<typeof useWorkshopSession>["me"];
+  reviewer: boolean;
   drawerClose: RefObject<HTMLButtonElement | null>;
   setSidebarOpen: Dispatch<SetStateAction<boolean>>;
   drawerToggle: RefObject<HTMLButtonElement | null>;
@@ -91,6 +108,18 @@ export function WorkshopSidebar({
           <X aria-hidden="true" />
         </button>
       </div>
+      <div className="sidebar-desktop-head">
+        <span className="sidebar-section-label">浏览与筛选</span>
+        <button
+          type="button"
+          className="sidebar-collapse-btn"
+          aria-label="收起筛选栏"
+          title="收起侧栏"
+          onClick={onCollapseDesktop}
+        >
+          <PanelLeftClose aria-hidden="true" />
+        </button>
+      </div>
       <nav className="sidebar-nav" aria-label="浏览范围">
         <button
           type="button"
@@ -126,6 +155,31 @@ export function WorkshopSidebar({
             ) : null}
           </button>
         ) : null}
+        {isMobile && me
+          ? (
+              [
+                ["projects", FolderKanban, "我的项目", true],
+                ["create", Plus, "创建项目", true],
+                ["subs", CircleUserRound, "我的订阅", true],
+                ["admin", ShieldCheck, "审核台", reviewer],
+                ["tools", SlidersHorizontal, "管理", me.role === "owner"],
+              ] as const
+            ).map(([target, Icon, label, show]) =>
+              show ? (
+                <button
+                  key={target}
+                  type="button"
+                  className={view === target ? "active" : ""}
+                  onClick={() => {
+                    if (setView(target)) setSidebarOpen(false);
+                  }}
+                >
+                  <Icon aria-hidden="true" />
+                  {label}
+                </button>
+              ) : null,
+            )
+          : null}
       </nav>
       <section className="sidebar-filters" aria-labelledby="sidebar-filter-title">
         <div className="sidebar-filter-head">

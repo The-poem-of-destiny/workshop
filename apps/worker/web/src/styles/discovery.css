@@ -453,20 +453,23 @@
 @media (max-width: 760px) {
   .discovery {
     height: auto;
-    padding: 10px 12px;
+    padding: 11px 12px 12px;
   }
   .discovery-heading {
-    gap: 6px;
+    gap: 8px;
     padding-bottom: 8px;
   }
+  .discovery-caption {
+    display: none;
+  }
   .discovery-navigation button {
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
   }
   .discovery-layout {
     display: flex;
     flex-direction: column-reverse;
-    gap: 8px;
+    gap: 9px;
   }
   .discovery-directory {
     flex-direction: row;
@@ -482,12 +485,13 @@
   }
   .discovery-directory-item {
     gap: 6px;
-    width: 140px;
-    height: 38px;
-    padding: 4px 6px;
+    width: 132px;
+    height: 34px;
+    padding: 3px 6px;
+    background: rgba(255, 255, 255, 0.03);
   }
   .discovery-directory-item > .discovery-cover {
-    width: 38px;
+    width: 36px;
   }
   .discovery-directory-text strong {
     font-size: 11px;
@@ -496,41 +500,43 @@
     display: none;
   }
   .discovery-detail {
-    grid-template-columns: 118px minmax(0, 1fr);
-    align-items: start;
-    gap: 10px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    gap: 9px;
   }
   .discovery-visual {
     height: auto;
   }
   .discovery-main-image {
-    width: 118px;
+    width: 100%;
     height: auto;
     max-width: none;
-  }
-  .discovery-image-link {
-    display: none;
+    max-height: 162px;
   }
   .discovery-copy {
     overflow: visible;
     padding-right: 0;
   }
+  .discovery-copy-content {
+    gap: 4px;
+  }
   .discovery-copy h3 {
-    font-size: 14px;
+    font-size: 14.5px;
   }
   .discovery-copy h3 button {
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 1;
   }
   .discovery-description {
-    -webkit-line-clamp: 1;
-    font-size: 11.5px;
+    -webkit-line-clamp: 2;
+    font-size: 12px;
+    line-height: 1.45;
   }
   .discovery-recommendation {
-    padding: 6px 9px 7px;
+    padding: 6px 10px 7px;
   }
   .discovery-recommendation blockquote {
-    max-height: 76px;
-    font-size: 11.5px;
+    max-height: 68px;
+    font-size: 12px;
     line-height: 1.5;
   }
 }

@@ -161,8 +161,6 @@ export function App() {
         headerRef={headerRef}
         isMobile={isMobile}
         sidebarOpen={sidebarOpen}
-        sidebarCollapsed={sidebarCollapsed}
-        setSidebarCollapsed={setSidebarCollapsed}
         confirmLeave={confirmLeave}
         search={search}
         setSearch={setSearch}
@@ -207,6 +205,9 @@ export function App() {
           <WorkshopSidebar
             sidebarOpen={sidebarOpen}
             isMobile={isMobile}
+            onCollapseDesktop={() => setSidebarCollapsed(true)}
+            me={me}
+            reviewer={reviewer}
             drawerClose={drawerClose}
             setSidebarOpen={setSidebarOpen}
             drawerToggle={drawerToggle}
@@ -292,6 +293,10 @@ export function App() {
           >
             <WorkshopCatalogue
               catalogue={catalogue}
+              isMobile={isMobile}
+              sidebarCollapsed={sidebarCollapsed}
+              onExpandSidebar={() => setSidebarCollapsed(false)}
+              onOpenMobileFilters={() => setSidebarOpen(true)}
               detailOpener={detailOpener}
               setSelected={setSelected}
               onDiscordPrompt={setDiscordPrompt}

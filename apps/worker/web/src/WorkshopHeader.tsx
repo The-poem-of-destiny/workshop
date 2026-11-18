@@ -6,8 +6,6 @@ import {
   Link2,
   Link2Off,
   Menu,
-  PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   Search,
   ShieldAlert,
@@ -26,8 +24,6 @@ export function WorkshopHeader({
   headerRef,
   isMobile,
   sidebarOpen,
-  sidebarCollapsed,
-  setSidebarCollapsed,
   search,
   setSearch,
   setView,
@@ -54,8 +50,6 @@ export function WorkshopHeader({
   headerRef: ReturnType<typeof useWorkshopNavigation>["headerRef"];
   isMobile: ReturnType<typeof useWorkshopNavigation>["isMobile"];
   sidebarOpen: ReturnType<typeof useWorkshopNavigation>["sidebarOpen"];
-  sidebarCollapsed: ReturnType<typeof useWorkshopNavigation>["sidebarCollapsed"];
-  setSidebarCollapsed: ReturnType<typeof useWorkshopNavigation>["setSidebarCollapsed"];
   search: ReturnType<typeof useCatalogue>["search"];
   setSearch: ReturnType<typeof useCatalogue>["setSearch"];
   setView: (view: WorkshopView) => boolean;
@@ -94,19 +88,6 @@ export function WorkshopHeader({
           <Menu aria-hidden="true" />
           {hasFilters ? <span className="drawer-toggle-dot" aria-hidden="true" /> : null}
         </button>
-        {view === "browse" ? (
-          <button
-            type="button"
-            className="sidebar-toggle"
-            aria-expanded={!sidebarCollapsed}
-            aria-controls="workshop-sidebar"
-            aria-label={sidebarCollapsed ? "展开筛选栏" : "收起筛选栏"}
-            title={sidebarCollapsed ? "展开筛选栏" : "收起筛选栏"}
-            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
-          >
-            {sidebarCollapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
-          </button>
-        ) : null}
         <button
           type="button"
           className="brand-lockup brand-home-button"
@@ -136,54 +117,28 @@ export function WorkshopHeader({
         ) : null}
         {me ? (
           <nav className="personal-nav" aria-label="个人导航">
-            <button
-              type="button"
-              aria-current={view === "browse" ? "page" : undefined}
-              onClick={() => setView("browse")}
-            >
-              <Compass aria-hidden="true" />
-              浏览工坊
-            </button>
-            <button
-              type="button"
-              aria-current={view === "projects" ? "page" : undefined}
-              onClick={() => setView("projects")}
-            >
-              <FolderKanban aria-hidden="true" />
-              我的项目
-            </button>
-            <button
-              type="button"
-              aria-current={view === "create" ? "page" : undefined}
-              onClick={() => setView("create")}
-            >
-              <Plus aria-hidden="true" />
-              创建项目
-            </button>
-            <button type="button" aria-current={view === "subs" ? "page" : undefined} onClick={() => setView("subs")}>
-              <CircleUserRound aria-hidden="true" />
-              我的订阅
-            </button>
-            {reviewer ? (
-              <button
-                type="button"
-                aria-current={view === "admin" ? "page" : undefined}
-                onClick={() => setView("admin")}
-              >
-                <ShieldCheck aria-hidden="true" />
-                审核台
-              </button>
-            ) : null}
-            {me.role === "owner" ? (
-              <button
-                type="button"
-                aria-current={view === "tools" ? "page" : undefined}
-                onClick={() => setView("tools")}
-              >
-                <SlidersHorizontal aria-hidden="true" />
-                管理
-              </button>
-            ) : null}
+            {(
+              [
+                ["browse", Compass, "浏览工坊", true],
+                ["projects", FolderKanban, "我的项目", true],
+                ["create", Plus, "创建项目", true],
+                ["subs", CircleUserRound, "我的订阅", true],
+                ["admin", ShieldCheck, "审核台", reviewer],
+                ["tools", SlidersHorizontal, "管理", me.role === "owner"],
+              ] as const
+            ).map(([target, Icon, label, show]) =>
+              show ? (
+                <button
+                  key={target}
+                  type="button"
+                  aria-current={view === target ? "page" : undefined}
+                  onClick={() => setView(target)}
+                >
+                  <Icon aria-hidden="true" />
+                  {label}
+                </button>
+              ) : null,
+            )}
           </nav>
         ) : null}
       </div>

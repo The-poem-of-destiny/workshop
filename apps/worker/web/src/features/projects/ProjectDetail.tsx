@@ -125,58 +125,60 @@ export function ProjectDetail({
             <DialogTitle>{project.title}</DialogTitle>
           </div>
           <DialogDescription className="sr-only">项目详情</DialogDescription>
-          <div className="detail-taxonomy-strip">
-            <section className="detail-meta-line" aria-label="项目分类">
-              <button
-                type="button"
-                className="detail-badge project-type-tag"
-                data-type={projectType}
-                title={`查看主要分类「${projectType}」的全部项目`}
-                onClick={() => onProjectType(projectType)}
-              >
-                {projectType}
-              </button>
-            </section>
-            {includedTypes.length > 0 ? (
-              <section className="detail-meta-line detail-included-types" aria-label="包含类型">
-                <span>兼有</span>
-                {includedTypes.map((type) => (
-                  <span key={type} className="detail-badge">
-                    {type}
-                  </span>
-                ))}
-              </section>
-            ) : null}
-            {detail?.collections && detail.collections.length > 0 ? (
-              <section className="detail-meta-line detail-collections" aria-label="所属合集">
-                {detail.collections.map((col) => (
-                  <button
-                    key={col.id}
-                    type="button"
-                    className="detail-collection-badge"
-                    title={col.description || `查看合集「${col.title}」内的全部作品`}
-                    onClick={() => onCollection?.({ id: col.id, title: col.title })}
-                  >
-                    <FolderOpen aria-hidden="true" />
-                    <span>{col.title}</span>
-                    <small>{col.projectCount}</small>
-                  </button>
-                ))}
-              </section>
-            ) : null}
-          </div>
-          {tags.length ? (
-            <fieldset className="detail-tags">
-              <legend className="sr-only">项目标签</legend>
-              {tags.map((tag) => (
-                <button key={tag} type="button" className="detail-tag" onClick={() => onTag(tag)}>
-                  #{tag}
-                </button>
-              ))}
-            </fieldset>
-          ) : null}
         </DialogHeader>
         <div className="detail-body">
+          <div className="detail-taxonomy-block">
+            <div className="detail-taxonomy-strip">
+              <section className="detail-meta-line" aria-label="项目分类">
+                <button
+                  type="button"
+                  className="detail-badge project-type-tag"
+                  data-type={projectType}
+                  title={`查看主要分类「${projectType}」的全部项目`}
+                  onClick={() => onProjectType(projectType)}
+                >
+                  {projectType}
+                </button>
+              </section>
+              {includedTypes.length > 0 ? (
+                <section className="detail-meta-line detail-included-types" aria-label="包含类型">
+                  <span>兼有</span>
+                  {includedTypes.map((type) => (
+                    <span key={type} className="detail-badge">
+                      {type}
+                    </span>
+                  ))}
+                </section>
+              ) : null}
+              {detail?.collections && detail.collections.length > 0 ? (
+                <section className="detail-meta-line detail-collections" aria-label="所属合集">
+                  {detail.collections.map((col) => (
+                    <button
+                      key={col.id}
+                      type="button"
+                      className="detail-collection-badge"
+                      title={col.description || `查看合集「${col.title}」内的全部作品`}
+                      onClick={() => onCollection?.({ id: col.id, title: col.title })}
+                    >
+                      <FolderOpen aria-hidden="true" />
+                      <span>{col.title}</span>
+                      <small>{col.projectCount}</small>
+                    </button>
+                  ))}
+                </section>
+              ) : null}
+            </div>
+            {tags.length ? (
+              <fieldset className="detail-tags">
+                <legend className="sr-only">项目标签</legend>
+                {tags.map((tag) => (
+                  <button key={tag} type="button" className="detail-tag" onClick={() => onTag(tag)}>
+                    #{tag}
+                  </button>
+                ))}
+              </fieldset>
+            ) : null}
+          </div>
           <div className="detail-layout">
             <ProjectMedia
               project={project}

@@ -31,7 +31,8 @@
 
 .detail .detail-header {
   flex: none;
-  padding: 14px 52px 12px 20px;
+  padding: 13px 52px 12px 20px;
+  border-bottom: 1px solid var(--border);
   background: rgba(24, 27, 34, 0.96);
 }
 
@@ -42,12 +43,15 @@
   overflow-wrap: anywhere;
 }
 
+.detail-taxonomy-block {
+  margin-bottom: 14px;
+}
+
 .detail-taxonomy-strip {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 10px;
-  margin-top: 8px;
 }
 
 .detail-body {
@@ -758,31 +762,31 @@ button.detail-badge:hover {
   color: var(--text);
 }
 
-.detail-header .project-type-tag[data-type="角色"] {
+.detail .project-type-tag[data-type="角色"] {
   background: #253e38;
   border-color: transparent;
   color: #a5ddc4;
 }
 
-.detail-header .project-type-tag[data-type="内容扩展"] {
+.detail .project-type-tag[data-type="内容扩展"] {
   background: #35334b;
   border-color: transparent;
   color: #c9c2f2;
 }
 
-.detail-header .project-type-tag[data-type="系统核心"] {
+.detail .project-type-tag[data-type="系统核心"] {
   background: #3f3522;
   border-color: transparent;
   color: #e4cc91;
 }
 
-.detail-header .project-type-tag[data-type="规则扩展"] {
+.detail .project-type-tag[data-type="规则扩展"] {
   background: #253b4b;
   border-color: transparent;
   color: #aed5ef;
 }
 
-.detail-header .project-type-tag[data-type="体验优化"] {
+.detail .project-type-tag[data-type="体验优化"] {
   background: #363c2b;
   border-color: transparent;
   color: #d0dda9;
