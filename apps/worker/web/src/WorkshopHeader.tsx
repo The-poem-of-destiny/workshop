@@ -1,4 +1,5 @@
 import {
+  CircleHelp,
   CircleUserRound,
   Compass,
   FolderKanban,
@@ -9,14 +10,13 @@ import {
   PanelLeftOpen,
   Plus,
   Search,
+  ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
 } from "lucide-react";
 
 import { Button } from "./components/ui/button";
-
 import { Input } from "./components/ui/input";
-
 import type { useCatalogue } from "./useCatalogue";
 import type { useHostConnection } from "./useHostConnection";
 import type { useWorkshopNavigation, WorkshopView } from "./useWorkshopNavigation";
@@ -38,6 +38,9 @@ export function WorkshopHeader({
   embedded,
   postToHost,
   me,
+  pendingPolicyUser,
+  onOpenPolicy,
+  onOpenFaq,
   avatarFailed,
   setAvatarFailed,
   logout,
@@ -63,6 +66,9 @@ export function WorkshopHeader({
   embedded: boolean;
   postToHost: ReturnType<typeof useHostConnection>["postToHost"];
   me: ReturnType<typeof useWorkshopSession>["me"];
+  pendingPolicyUser: ReturnType<typeof useWorkshopSession>["pendingPolicyUser"];
+  onOpenPolicy: () => void;
+  onOpenFaq: () => void;
   avatarFailed: boolean;
   setAvatarFailed: (failed: boolean) => void;
   logout: ReturnType<typeof useWorkshopSession>["logout"];
@@ -76,36 +82,109 @@ export function WorkshopHeader({
   return (
     <header ref={headerRef} className="site-header" inert={isMobile && sidebarOpen}>
       <div className="header-brand">
+        {view === "browse" ? (
+          <button
+            type="button"
+            className="sidebar-toggle"
+            aria-expanded={!sidebarCollapsed}
+            aria-controls="workshop-sidebar"
+            aria-label={sidebarCollapsed ? "展开筛选栏" : "收起筛选栏"}
+            title={sidebarCollapsed ? "展开筛选栏" : "收起筛选栏"}
+            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
+          </button>
+        ) : null}
         <button
           type="button"
-          className="sidebar-toggle"
-          aria-expanded={!sidebarCollapsed}
-          aria-controls="workshop-sidebar"
-          aria-label={sidebarCollapsed ? "展开导航与筛选" : "收起导航与筛选"}
-          title={sidebarCollapsed ? "展开导航与筛选" : "收起导航与筛选"}
-          onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+          className="brand-lockup brand-home-button"
+          onClick={() => setView("browse")}
+          title="返回创意工坊首页"
         >
-          {sidebarCollapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
-        </button>
-        <div className="brand-lockup">
-          <p className="eyebrow">命定之诗与黄昏之歌</p>
+          <span className="eyebrow">命定之诗与黄昏之歌</span>
           <h1>创意工坊</h1>
+        </button>
+      </div>
+
+      <div className="header-center">
+        <div className="header-search">
+          <Search aria-hidden="true" />
+          <Input
+            type="search"
+            value={search}
+            onChange={(event) => {
+              if (!setView("browse")) return;
+              setSearch(event.target.value);
+            }}
+            placeholder="搜索作品、作者、标签…"
+            aria-label="搜索"
+          />
         </div>
+        {me ? (
+          <nav className="personal-nav" aria-label="个人导航">
+            <button
+              type="button"
+              aria-current={view === "browse" ? "page" : undefined}
+              onClick={() => setView("browse")}
+            >
+              <Compass aria-hidden="true" />
+              浏览工坊
+            </button>
+            <button
+              type="button"
+              aria-current={view === "projects" ? "page" : undefined}
+              onClick={() => setView("projects")}
+            >
+              <FolderKanban aria-hidden="true" />
+              我的项目
+            </button>
+            <button
+              type="button"
+              aria-current={view === "create" ? "page" : undefined}
+              onClick={() => setView("create")}
+            >
+              <Plus aria-hidden="true" />
+              创建项目
+            </button>
+            <button type="button" aria-current={view === "subs" ? "page" : undefined} onClick={() => setView("subs")}>
+              <CircleUserRound aria-hidden="true" />
+              我的订阅
+            </button>
+            {reviewer ? (
+              <button
+                type="button"
+                aria-current={view === "admin" ? "page" : undefined}
+                onClick={() => setView("admin")}
+              >
+                <ShieldCheck aria-hidden="true" />
+                审核台
+              </button>
+            ) : null}
+            {me.role === "owner" ? (
+              <button
+                type="button"
+                aria-current={view === "tools" ? "page" : undefined}
+                onClick={() => setView("tools")}
+              >
+                <SlidersHorizontal aria-hidden="true" />
+                管理
+              </button>
+            ) : null}
+          </nav>
+        ) : null}
       </div>
-      <div className="header-search">
-        <Search aria-hidden="true" />
-        <Input
-          type="search"
-          value={search}
-          onChange={(event) => {
-            if (!setView("browse")) return;
-            setSearch(event.target.value);
-          }}
-          placeholder="搜索项目、作者、标签"
-          aria-label="搜索"
-        />
-      </div>
+
       <div className="header-account">
+        <button
+          type="button"
+          className="header-help-button"
+          onClick={onOpenFaq}
+          title="使用帮助与常见问题"
+          aria-label="使用帮助与常见问题"
+        >
+          <CircleHelp aria-hidden="true" />
+          <span>帮助</span>
+        </button>
         <span
           role="status"
           className={`tavern-status ${connectionStatus}`}
@@ -144,6 +223,16 @@ export function WorkshopHeader({
               退出
             </Button>
           </div>
+        ) : pendingPolicyUser ? (
+          <div className="account account-pending-policy">
+            <button type="button" className="policy-pending-trigger" onClick={onOpenPolicy}>
+              <ShieldAlert aria-hidden="true" />
+              <span>完成政策确认</span>
+            </button>
+            <Button type="button" size="sm" variant="ghost" onClick={logout}>
+              退出
+            </Button>
+          </div>
         ) : (
           <Button type="button" className="login" onClick={login}>
             <img className="discord-icon" src="/discord.svg" alt="" />
@@ -163,42 +252,6 @@ export function WorkshopHeader({
           {hasFilters ? <span className="drawer-toggle-dot" aria-hidden="true" /> : null}
         </button>
       </div>
-      {me ? (
-        <nav className="personal-nav" aria-label="个人导航">
-          <button type="button" aria-current={view === "browse" ? "page" : undefined} onClick={() => setView("browse")}>
-            <Compass aria-hidden="true" />
-            浏览工坊
-          </button>
-          <button
-            type="button"
-            aria-current={view === "projects" ? "page" : undefined}
-            onClick={() => setView("projects")}
-          >
-            <FolderKanban aria-hidden="true" />
-            我的项目
-          </button>
-          <button type="button" aria-current={view === "create" ? "page" : undefined} onClick={() => setView("create")}>
-            <Plus aria-hidden="true" />
-            创建项目
-          </button>
-          <button type="button" aria-current={view === "subs" ? "page" : undefined} onClick={() => setView("subs")}>
-            <CircleUserRound aria-hidden="true" />
-            我的订阅
-          </button>
-          {reviewer ? (
-            <button type="button" aria-current={view === "admin" ? "page" : undefined} onClick={() => setView("admin")}>
-              <ShieldCheck aria-hidden="true" />
-              审核台
-            </button>
-          ) : null}
-          {me.role === "owner" ? (
-            <button type="button" aria-current={view === "tools" ? "page" : undefined} onClick={() => setView("tools")}>
-              <SlidersHorizontal aria-hidden="true" />
-              管理
-            </button>
-          ) : null}
-        </nav>
-      ) : null}
     </header>
   );
 }

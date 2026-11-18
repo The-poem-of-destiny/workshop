@@ -33,7 +33,7 @@ export function useCatalogue({
   const [listRetry, setListRetry] = useState(0);
   const [period, setPeriod] = useState<"all" | "7d" | "30d" | "90d">("30d");
   const filters = useCatalogueFilters();
-  const { search, sort, projectTypes, includeContained, author, tags } = filters;
+  const { search, sort, projectTypes, includeContained, author, collection, tags } = filters;
   const effectivePeriod = sort === "downloads" || sort === "likes" ? period : "all";
   const [pageSize, setPageSize] = useState(25);
   const [paging, setPaging] = useState<CataloguePaging>({
@@ -48,6 +48,7 @@ export function useCatalogue({
     projectTypes,
     includeContained,
     author?.id,
+    collection?.id,
     tags,
     pageSize,
   ]);
@@ -61,6 +62,7 @@ export function useCatalogue({
     projectTypes.length === 0 &&
     !includeContained &&
     !author &&
+    !collection &&
     tags.length === 0 &&
     pageSize === 25 &&
     pageIndex === 0 &&
@@ -81,6 +83,7 @@ export function useCatalogue({
     projectTypes,
     includeContained,
     author,
+    collection,
     tags,
     pageCursor,
     pageSize,
@@ -132,6 +135,7 @@ function useCatalogueProjects({
   projectTypes,
   includeContained,
   author,
+  collection,
   tags,
   pageCursor,
   pageSize,
@@ -149,6 +153,7 @@ function useCatalogueProjects({
   projectTypes: readonly ProjectType[];
   includeContained: boolean;
   author: { id: string; name: string } | null;
+  collection: { id: string; title: string } | null;
   tags: readonly string[];
   pageCursor: string | undefined;
   pageSize: number;
@@ -199,6 +204,7 @@ function useCatalogueProjects({
           projectTypes,
           includeContained,
           authorId: author?.id,
+          collectionId: collection?.id,
           tags,
           cursor: pageCursor,
           limit: pageSize,
@@ -231,6 +237,7 @@ function useCatalogueProjects({
     projectTypes,
     includeContained,
     author,
+    collection,
     tags,
     pageCursor,
     pageSize,

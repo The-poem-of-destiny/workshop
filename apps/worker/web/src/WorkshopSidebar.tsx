@@ -1,9 +1,8 @@
 import { MAX_SELECTED_TAGS, orderedPresetTagGroups, PROJECT_TYPES, presetTagGroup } from "@workshop/domain";
-import { BookOpen, Compass, LayoutGrid, List, X } from "lucide-react";
+import { BookOpen, Compass, X } from "lucide-react";
 import { type Dispatch, type RefObject, type SetStateAction, useState } from "react";
 
 import type { CatalogueState } from "./useCatalogue";
-import { SORTS } from "./useCatalogueFilters";
 import type { WorkshopView } from "./useWorkshopNavigation";
 
 export function WorkshopSidebar({
@@ -23,6 +22,7 @@ export function WorkshopSidebar({
   tags,
   tagLimitMessage,
   author,
+  collection,
   hasFilters,
   clearFilters,
   addTags,
@@ -30,10 +30,7 @@ export function WorkshopSidebar({
   removeTag,
   pageTags,
   setAuthor,
-  sort,
-  setSort,
-  layout,
-  setLayout,
+  setCollection,
 }: {
   sidebarOpen: boolean;
   isMobile: boolean;
@@ -51,6 +48,7 @@ export function WorkshopSidebar({
   tags: CatalogueState["tags"];
   tagLimitMessage: CatalogueState["tagLimitMessage"];
   author: CatalogueState["author"];
+  collection: CatalogueState["collection"];
   hasFilters: CatalogueState["hasFilters"];
   clearFilters: CatalogueState["clearFilters"];
   addTags: CatalogueState["addTags"];
@@ -58,10 +56,7 @@ export function WorkshopSidebar({
   removeTag: CatalogueState["removeTag"];
   pageTags: CatalogueState["pageTags"];
   setAuthor: CatalogueState["setAuthor"];
-  sort: CatalogueState["sort"];
-  setSort: CatalogueState["setSort"];
-  layout: CatalogueState["layout"];
-  setLayout: CatalogueState["setLayout"];
+  setCollection: CatalogueState["setCollection"];
 }) {
   const [tagDraft, setTagDraft] = useState("");
   const groups = orderedPresetTagGroups(projectTypes);
@@ -96,20 +91,19 @@ export function WorkshopSidebar({
           <X aria-hidden="true" />
         </button>
       </div>
-      <span className="sidebar-section-label">浏览</span>
-      <nav className="sidebar-nav">
+      <nav className="sidebar-nav" aria-label="浏览范围">
         <button
           type="button"
-          className={view === "browse" && projectTypes.length === 0 ? "active" : ""}
+          className={view === "browse" && !hasFilters ? "active" : ""}
           onClick={() => {
             if (!setView("browse")) return;
-            setProjectTypes([]);
-            setIncludeContained(false);
+            clearFilters();
+            setTagDraft("");
             setSidebarOpen(false);
           }}
         >
           <Compass aria-hidden="true" />
-          全部项目
+          全部作品
         </button>
         {installedAvailable ? (
           <button
@@ -136,7 +130,7 @@ export function WorkshopSidebar({
       <section className="sidebar-filters" aria-labelledby="sidebar-filter-title">
         <div className="sidebar-filter-head">
           <span id="sidebar-filter-title" className="sidebar-section-label">
-            筛选
+            目录筛选
           </span>
           {hasFilters ? (
             <button
@@ -151,11 +145,8 @@ export function WorkshopSidebar({
             </button>
           ) : null}
         </div>
-        <fieldset className="filter-group sidebar-primary-filter" aria-describedby="primary-filter-help">
-          <legend className="filter-group-label">主要分类（可多选）</legend>
-          <p id="primary-filter-help" className="sidebar-filter-hint">
-            多选分类满足任意一个即可（OR）。
-          </p>
+        <fieldset className="filter-group sidebar-primary-filter">
+          <legend className="filter-group-label">主要分类</legend>
           <div className="filter-options">
             <button
               type="button"
@@ -214,20 +205,19 @@ export function WorkshopSidebar({
                   commitTagDraft();
                 }
               }}
-              placeholder="输入标签后按 Enter 添加"
-              aria-describedby="sidebar-tag-help sidebar-tag-status"
+              placeholder="输入标签后按 Enter"
+              aria-describedby="sidebar-tag-status"
               autoComplete="off"
             />
             <button type="button" className="sidebar-tag-add" disabled={!tagDraft.trim()} onClick={commitTagDraft}>
               添加
             </button>
           </div>
-          <p id="sidebar-tag-help" className="sidebar-filter-hint">
-            预设标签同组任选（OR）、跨组同时满足（AND）；每个自定义标签都须满足。输入预设词也按所属组匹配。
-          </p>
           <p id="sidebar-tag-status" className="sidebar-filter-hint" role="status" aria-live="polite">
             {tagLimitMessage ??
-              `已选 ${tags.length} / ${MAX_SELECTED_TAGS} 个标签${atTagLimit ? "，请先移除再添加。" : "。"}`}
+              (tags.length > 0
+                ? `已选 ${tags.length} / ${MAX_SELECTED_TAGS} 个标签${atTagLimit ? "，请先移除再添加。" : ""}`
+                : "同组任一匹配，跨组同时满足")}
           </p>
           {tags.length > 0 ? (
             <section className="sidebar-selected-tags" aria-label="已选筛选标签">
@@ -298,6 +288,17 @@ export function WorkshopSidebar({
             </details>
           ) : null}
         </div>
+        {collection ? (
+          <div className="filter-group">
+            <span className="filter-group-label">合集</span>
+            <p className="sidebar-author sidebar-collection">
+              <span>{collection.title}</span>
+              <button type="button" onClick={() => setCollection(null)}>
+                清除
+              </button>
+            </p>
+          </div>
+        ) : null}
         {author ? (
           <div className="filter-group">
             <span className="filter-group-label">作者</span>
@@ -309,47 +310,6 @@ export function WorkshopSidebar({
             </p>
           </div>
         ) : null}
-        <div className="filter-group sidebar-sort">
-          <span className="filter-group-label">排列方式</span>
-          {SORTS.map(([value, label]) => (
-            <label key={value}>
-              <input
-                type="radio"
-                name="sidebar-sort"
-                value={value}
-                checked={sort === value}
-                onChange={() => {
-                  if (!setView("browse")) return;
-                  setSort(value);
-                }}
-              />
-              {label}
-            </label>
-          ))}
-        </div>
-        <div className="filter-group sidebar-layout">
-          <span className="filter-group-label">浏览方式</span>
-          <div className="filter-options">
-            <button
-              type="button"
-              className={`filter-chip${layout === "cards" ? " active" : ""}`}
-              aria-pressed={layout === "cards"}
-              onClick={() => setLayout("cards")}
-            >
-              <LayoutGrid aria-hidden="true" />
-              卡片
-            </button>
-            <button
-              type="button"
-              className={`filter-chip${layout === "list" ? " active" : ""}`}
-              aria-pressed={layout === "list"}
-              onClick={() => setLayout("list")}
-            >
-              <List aria-hidden="true" />
-              列表
-            </button>
-          </div>
-        </div>
       </section>
     </div>
   );

@@ -2,22 +2,22 @@ import { ChevronLeft, ChevronRight, LayoutGrid, List, X } from "lucide-react";
 import type { RefObject } from "react";
 import type { ProjectSummary } from "./api";
 import { Button } from "./components/ui/button";
-import { Discovery } from "./features/projects/Discovery";
+import type { DiscordPromptTarget } from "./features/policy/DiscordLinkPrompt";
+import { CollectionAuthorBanner } from "./features/projects/CollectionAuthorBanner";
 import { ProjectCard } from "./features/projects/ProjectCard";
 import type { CatalogueState } from "./useCatalogue";
 import { SORTS } from "./useCatalogueFilters";
-import type { HomeLoadState } from "./useWorkshopHome";
 
 export function WorkshopCatalogue({
-  home,
   catalogue,
   detailOpener,
   setSelected,
+  onDiscordPrompt,
 }: {
-  home: HomeLoadState;
   catalogue: CatalogueState;
   detailOpener: RefObject<HTMLElement | null>;
   setSelected: (project: ProjectSummary | null) => void;
+  onDiscordPrompt?: (target: DiscordPromptTarget) => void;
 }) {
   const {
     hasFilters,
@@ -32,6 +32,8 @@ export function WorkshopCatalogue({
     setIncludeContained,
     author,
     setAuthor,
+    collection,
+    setCollection,
     tags,
     removeTag,
     tagLimitMessage,
@@ -52,10 +54,22 @@ export function WorkshopCatalogue({
     nextCursor,
   } = catalogue;
   return (
-    <>
+    <section className="catalogue-section" aria-label="作品目录">
+      <CollectionAuthorBanner
+        author={author}
+        collection={collection}
+        total={total}
+        onSelectAuthor={setAuthor}
+        onSelectCollection={setCollection}
+        onClearScope={() => {
+          setAuthor(null);
+          setCollection(null);
+        }}
+      />
+
       {hasFilters ? (
         <section className="active-filters" aria-label="当前筛选条件">
-          <span className="active-filters-label">筛选</span>
+          <span className="active-filters-label">当前筛选</span>
           {search.trim() ? (
             <button type="button" className="filter-chip active" onClick={() => setSearch("")} title="移除搜索条件">
               搜索：{search.trim()}
@@ -77,6 +91,17 @@ export function WorkshopCatalogue({
           {includeContained ? (
             <button type="button" className="filter-chip active" onClick={() => setIncludeContained(false)}>
               包含类型也匹配
+              <X aria-hidden="true" />
+            </button>
+          ) : null}
+          {collection ? (
+            <button
+              type="button"
+              className="filter-chip active"
+              onClick={() => setCollection(null)}
+              title="退出合集筛选"
+            >
+              合集：{collection.title}
               <X aria-hidden="true" />
             </button>
           ) : null}
@@ -103,21 +128,28 @@ export function WorkshopCatalogue({
           </button>
         </section>
       ) : null}
+
       {tagLimitMessage ? (
         <p className="catalogue-filter-message" role="status">
           {tagLimitMessage}
         </p>
       ) : null}
-      {!hasFilters ? (
-        <Discovery
-          home={home}
-          onOpen={(project, opener) => {
-            detailOpener.current = opener;
-            setSelected(project);
-          }}
-        />
-      ) : null}
+
       <div className="catalogue-toolbar">
+        <div className="catalogue-toolbar-lead">
+          <h2 className="catalogue-heading">
+            {collection ? "合集内作品" : author ? "该作者的作品" : hasFilters ? "筛选结果" : "全部作品"}
+          </h2>
+          <p className="list-range" tabIndex={-1}>
+            {listLoading
+              ? "加载中…"
+              : loadedQuery !== queryKey
+                ? "加载失败"
+                : projects.length === 0
+                  ? `共 ${total} 个项目`
+                  : `共 ${total} 个项目 · 显示 ${pageIndex * pageSize + 1}–${pageIndex * pageSize + projects.length}`}
+          </p>
+        </div>
         <nav className="sorts" aria-label="排序">
           {SORTS.map(([value, label]) => (
             <button key={value} type="button" className={sort === value ? "active" : ""} onClick={() => setSort(value)}>
@@ -152,20 +184,13 @@ export function WorkshopCatalogue({
           ))}
         </fieldset>
       </div>
-      <p className="list-range" tabIndex={-1}>
-        {listLoading
-          ? "加载中…"
-          : loadedQuery !== queryKey
-            ? "加载失败"
-            : projects.length === 0
-              ? `共 ${total} 个项目`
-              : `共 ${total} 个项目，当前显示 ${pageIndex * pageSize + 1}–${pageIndex * pageSize + projects.length} · 第 ${pageIndex + 1} 页`}
-      </p>
+
       {!listLoading && loadedQuery !== queryKey ? (
         <button type="button" onClick={() => setListRetry((value) => value + 1)}>
           重新加载
         </button>
       ) : null}
+
       <div className={`grid catalogue-grid${layout === "list" ? " catalogue-list" : ""}`} aria-busy={listLoading}>
         {(loadedQuery === queryKey ? projects : []).map((project) => (
           <ProjectCard
@@ -176,9 +201,12 @@ export function WorkshopCatalogue({
               detailOpener.current = opener;
               setSelected(item);
             }}
+            onAuthor={setAuthor}
+            onDiscordPrompt={onDiscordPrompt}
           />
         ))}
       </div>
+
       {!listLoading && loadedQuery === queryKey && projects.length === 0 ? (
         <div className="catalogue-empty">
           <p className="catalogue-empty-title">{hasFilters ? "没有符合条件的项目" : "暂无项目"}</p>
@@ -194,6 +222,7 @@ export function WorkshopCatalogue({
           ) : null}
         </div>
       ) : null}
+
       <nav className="pagination" aria-label="分页">
         <label>
           每页
@@ -229,6 +258,6 @@ export function WorkshopCatalogue({
           <ChevronRight aria-hidden="true" />
         </button>
       </nav>
-    </>
+    </section>
   );
 }

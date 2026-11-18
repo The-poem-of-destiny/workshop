@@ -1,6 +1,6 @@
 import type { ReactNode, RefObject } from "react";
 import { Component, lazy, Suspense } from "react";
-import type { ProjectSummary } from "./api";
+import { api, type ProjectSummary } from "./api";
 import { Button } from "./components/ui/button";
 import type { InstalledItem } from "./features/installed/Installed";
 import { Installed } from "./features/installed/Installed";
@@ -169,6 +169,15 @@ export function WorkshopWorkspaces({
   ) : view === "tools" && me?.role === "owner" ? (
     <DeferredView key="tools" title="管理工具">
       <AdminTools
+        onOpenProject={(projectId) => {
+          void api
+            .project(projectId)
+            .then((detail) => {
+              detailOpener.current = null;
+              setSelected(detail);
+            })
+            .catch((reason) => setError(String(reason)));
+        }}
         onError={(message) => {
           setError(message);
           setNotice(null);

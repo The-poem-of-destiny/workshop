@@ -1,5 +1,6 @@
 import type { InstallInstance, InstallScan } from "@workshop/contracts";
 import { BookOpen, RefreshCcw } from "lucide-react";
+import { useState } from "react";
 import type { ProjectSummary } from "../../api";
 import { Button } from "../../components/ui/button";
 
@@ -33,41 +34,45 @@ function InstalledRow({ item, mutating, onRetry, onOpen, onUpdate, onUninstall, 
   const instance = item.instance;
   const removed = !item.failed && item.project === null;
   const update = Boolean(item.project?.publishedVersionId && item.project.publishedVersionId !== instance.version);
+  const currentVersionText = item.project?.versionLabel ? `v${item.project.versionLabel}` : "当前线上版本";
+  const installedVersionText =
+    item.project?.publishedVersionId === instance.version ? currentVersionText : update ? "旧版本快照" : "本地记录版本";
+
   return (
     <li className="installed-item">
       <div className="installed-main">
-        <h2 className="installed-title">
-          {item.project?.title ?? (removed ? "项目已下架" : `项目 ${instance.projectId}`)}
-        </h2>
+        <h2 className="installed-title">{item.project?.title ?? (removed ? "项目已下架" : "未知工坊项目")}</h2>
         <p className="installed-meta">
           <span>世界书：{instance.location.worldbook ?? "无"}</span>
           <span>角色正则：{instance.location.character ?? "无"}</span>
-        </p>
-        <p className="installed-meta">
           <span>
-            安装版本：<code>{instance.version}</code>
+            规模：{instance.entryCount} 条世界书 / {instance.regexCount} 条正则
           </span>
-          {item.project?.publishedVersionId ? (
-            <span>
-              发布版本：<code>{item.project.publishedVersionId}</code>
-            </span>
-          ) : null}
         </p>
         <p className="installed-meta">
-          实例：<code>{instance.instanceId}</code> · {instance.entryCount} 个条目 / {instance.regexCount} 个正则
+          <span>已装状态：{installedVersionText}</span>
+          {item.project?.publishedVersionId ? <span>线上最新：{currentVersionText}</span> : null}
         </p>
         <div className="installed-badges">
-          <span className="installed-badge">{instance.source === "legacy" ? "旧版实例" : "新版实例"}</span>
+          <span className="installed-badge">{instance.source === "legacy" ? "旧版实例" : "标准实例"}</span>
           <span className={`installed-badge ${instance.state === "clean" ? "clean" : "local"}`}>
             {instance.state === "clean"
-              ? "与安装基线一致"
+              ? "与安装内容一致"
               : instance.state === "localChanged"
-                ? "玩家已修改"
-                : "基线未知，必须核对完整内容"}
+                ? "本地条目已修改"
+                : "需核对完整内容"}
           </span>
-          {update ? <span className="installed-badge update">有更新</span> : null}
+          {update ? <span className="installed-badge update">有新版本可更新</span> : null}
           {item.failed ? <span className="installed-badge warn">项目信息加载失败</span> : null}
         </div>
+        <details className="installed-tech-details">
+          <summary>查看版本与实例标识</summary>
+          <p className="installed-meta">
+            <span>实例：{instance.instanceId}</span>
+            <span>安装快照：{instance.version}</span>
+            {item.project?.publishedVersionId ? <span>最新快照：{item.project.publishedVersionId}</span> : null}
+          </p>
+        </details>
         {removed ? <p className="hint">无法获取更新，仍可预览迁移或卸载。</p> : null}
         {item.failed ? <p className="hint">网络失败不代表下架；本地实例不受影响。</p> : null}
       </div>
@@ -131,6 +136,12 @@ export function Installed({
   onMigrate: (item: InstalledItem) => void;
   onReinstall?: () => void;
 }) {
+  const [onlyUpdates, setOnlyUpdates] = useState(false);
+  const updateItems = items.filter((item) =>
+    Boolean(item.project?.publishedVersionId && item.project.publishedVersionId !== item.instance.version),
+  );
+  const visibleItems = onlyUpdates ? updateItems : items;
+
   return (
     <section className="installed" aria-labelledby="installed-title">
       <header className="installed-head">
@@ -138,10 +149,22 @@ export function Installed({
           <h1 id="installed-title">已安装实例</h1>
           <p className="installed-sub">同一项目在每本世界书中最多安装一份；更新、迁移和卸载只针对你选择的实例。</p>
         </div>
-        <Button type="button" size="sm" onClick={onScan} disabled={scanning || mutating}>
-          <RefreshCcw aria-hidden="true" className={scanning ? "spin" : undefined} />
-          {scanning ? "扫描中…" : "重新扫描"}
-        </Button>
+        <div className="installed-head-actions">
+          {items.length > 0 ? (
+            <Button
+              type="button"
+              size="sm"
+              variant={onlyUpdates ? "default" : "secondary"}
+              onClick={() => setOnlyUpdates((prev) => !prev)}
+            >
+              仅看可更新（{updateItems.length}）
+            </Button>
+          ) : null}
+          <Button type="button" size="sm" onClick={onScan} disabled={scanning || mutating}>
+            <RefreshCcw aria-hidden="true" className={scanning ? "spin" : undefined} />
+            {scanning ? "扫描中…" : "重新扫描"}
+          </Button>
+        </div>
       </header>
       {error ? (
         <p role="alert" className="install-warning">
@@ -210,15 +233,19 @@ export function Installed({
       ) : null}
       {loading ? (
         <p role="status">正在读取实例及项目信息…</p>
-      ) : scan && items.length === 0 ? (
+      ) : scan && visibleItems.length === 0 ? (
         <div className="installed-empty">
           <BookOpen aria-hidden="true" />
-          <p>扫描范围内没有确定的安装实例。</p>
-          <p className="hint">检查上方扫描范围、失败和疑似内容；可从项目详情新建安装。</p>
+          <p>{onlyUpdates ? "当前没有待更新的已安装实例。" : "扫描范围内没有确定的安装实例。"}</p>
+          <p className="hint">
+            {onlyUpdates
+              ? "切换「仅看可更新」即可查看全部已安装实例。"
+              : "检查上方扫描范围、失败和疑似内容；可从项目详情新建安装。"}
+          </p>
         </div>
       ) : (
         <ul className="installed-list">
-          {items.map((item) => (
+          {visibleItems.map((item) => (
             <InstalledRow
               key={item.instance.instanceId}
               item={item}

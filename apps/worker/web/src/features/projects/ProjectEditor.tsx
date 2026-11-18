@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { type AuthorProject, type AuthorSubmission, api } from "../../api";
+import { type AuthorCollection, type AuthorProject, type AuthorSubmission, api } from "../../api";
+import { ConfirmDialog } from "../../components/ui/confirm-dialog";
 import { ProjectDraftMetadata } from "./authoring/ProjectDraftMetadata";
 import { ProjectSubmissionReview } from "./authoring/ProjectSubmissionReview";
 import { useDraftAssetSelection } from "./authoring/useDraftAssetSelection";
@@ -10,20 +11,25 @@ import { AssetPicker } from "./authoring/AssetPicker";
 import { CheckPanel } from "./authoring/CheckPanel";
 import { CurrentVersionEntries } from "./authoring/CurrentVersionEntries";
 import { runLocalCheck } from "./authoring/checker";
+import { GallerySection } from "./authoring/GallerySection";
 import { ImagePicker } from "./authoring/ImagePicker";
+import { ProjectDangerZone } from "./authoring/ProjectDangerZone";
 import { mergedRegexUpload } from "./authoring/preview";
 import { SubmissionHistory } from "./authoring/SubmissionHistory";
 import { usePendingImage } from "./authoring/usePendingImage";
+import { ProjectCollectionsField } from "./CollectionsManager";
 import { metadataPayload, type ProjectForm, projectForm } from "./projectMetadata";
 
 export function ProjectEditor({
   entry,
+  collections = [],
   onRefresh,
   onError,
   onNotice,
   onDirtyChange,
 }: {
   entry: AuthorProject;
+  collections?: AuthorCollection[];
   onRefresh: () => Promise<void>;
   onError: (message: string) => void;
   onNotice: (message: string) => void;
@@ -35,6 +41,8 @@ export function ProjectEditor({
   const [rowVersion, setRowVersion] = useState(entry.rowVersion);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<null | { kind: "warn" | "block" | "missing" }>(null);
+  const [pendingWithdraw, setPendingWithdraw] = useState<AuthorSubmission | null>(null);
+  const [galleryPending, setGalleryPending] = useState(false);
   const [submittedVersionId, setSubmittedVersionId] = useState<string | null>(null);
   const cover = usePendingImage();
   const clearCover = cover.clear;
@@ -78,23 +86,12 @@ export function ProjectEditor({
     metadataDirty ||
     parsingAssets > 0 ||
     Boolean(cover.pending) ||
+    galleryPending ||
     Boolean(worldbook && !worldbookUploaded) ||
     (regexAssets.length > 0 && !regexUploaded);
 
   useEffect(() => setRowVersion(entry.rowVersion), [entry.rowVersion]);
-  useEffect(() => {
-    onDirtyChange?.(dirty || busy);
-    const protect = (event: BeforeUnloadEvent): void => {
-      if (!dirty && !busy) return;
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", protect);
-    return () => {
-      onDirtyChange?.(false);
-      window.removeEventListener("beforeunload", protect);
-    };
-  }, [dirty, busy, onDirtyChange]);
+  useUnsavedProtection(dirty || busy, onDirtyChange);
 
   useEffect(() => {
     // Metadata refreshes must not discard dirty local selections; only a new working revision resets them.
@@ -119,7 +116,7 @@ export function ProjectEditor({
     [assetGeneration],
   );
 
-  const { save, remove } = useDraftMetadataActions({
+  const { save } = useDraftMetadataActions({
     entry,
     form,
     busy,
@@ -143,7 +140,7 @@ export function ProjectEditor({
       setWorldbook(null);
       setRegexAssets([]);
       await onRefresh();
-      onNotice(`已创建新版本（版本 ${result.rowVersion}），现在可以上传文件。`);
+      onNotice("已创建新版本，现在可以上传文件。");
     } catch (reason) {
       onError(String(reason));
     } finally {
@@ -261,15 +258,17 @@ export function ProjectEditor({
     }
   }
 
-  async function withdraw(submission: AuthorSubmission): Promise<void> {
-    if (busy || !window.confirm("撤回这次提交？检查完成后也不会发布该快照，当前公开版本不受影响。")) return;
+  async function confirmWithdrawSubmission(): Promise<void> {
+    if (!pendingWithdraw || busy) return;
+    const submission = pendingWithdraw;
     setBusy(true);
     try {
       const result = await api.withdrawSubmission(entry.project.id, submission.id, rowVersion);
       setRowVersion(result.rowVersion);
+      setPendingWithdraw(null);
       setHistoryNonce((value) => value + 1);
       await onRefresh();
-      onNotice("提交已撤回，历史保留。继续修改请新建版本。");
+      onNotice("提交已撤回，历史保留；线上已发布版本不受影响。继续修改请新建版本。");
     } catch (reason) {
       onError(String(reason));
     } finally {
@@ -311,9 +310,6 @@ export function ProjectEditor({
           <h2>编辑项目</h2>
           <p className="hint">{entry.project.visibility === "public" ? "公开展示中" : "仅自己可见"} · 草稿内容</p>
         </div>
-        <button type="button" onClick={() => void remove()} disabled={busy}>
-          删除项目
-        </button>
       </div>
       {workingVersionFrozen ? (
         <p className="notice">
@@ -335,75 +331,50 @@ export function ProjectEditor({
       </div>
       <ProjectDraftMetadata form={form} setForm={setForm} disabled={busy || workingVersionFrozen} />
 
-      <section className="workspace-section authoring-section">
-        <h3>内容文件</h3>
-        <CurrentVersionEntries
-          projectId={entry.project.id}
-          versionId={workingVersionId}
-          rowVersion={rowVersion}
-          busy={busy}
-          frozen={workingVersionFrozen}
-          dirty={dirty}
-          onDelete={deleteSavedEntry}
-        />
-        <AssetPicker
-          worldbook={worldbook}
-          regexAssets={regexAssets}
-          worldbookError={worldbookError}
-          regexError={regexError}
-          worldbookUploaded={worldbookUploaded}
-          regexUploaded={regexUploaded}
-          busy={busy || workingVersionFrozen}
-          onPickWorldbook={pickWorldbook}
-          onPickRegex={pickRegex}
-          onRemoveWorldbook={removeWorldbook}
-          onRemoveRegex={removeRegex}
-          onUploadWorldbook={() => void uploadWorldbook()}
-          onUploadRegex={() => void uploadRegex()}
-        />
-        {check ? (
-          <CheckPanel
-            check={check}
-            worldbook={worldbook}
-            regexAssets={regexAssets}
-            onNotice={onNotice}
-            onError={onError}
-          />
-        ) : (
-          <p className="workspace-muted">
-            选择世界书或正则文件后会在这里显示客户端自检结果。也可以直接上传已确认的文件。
-          </p>
-        )}
-      </section>
+      <ProjectContentSection
+        projectId={entry.project.id}
+        versionId={workingVersionId}
+        rowVersion={rowVersion}
+        busy={busy}
+        workingVersionFrozen={workingVersionFrozen}
+        dirty={dirty}
+        worldbook={worldbook}
+        regexAssets={regexAssets}
+        worldbookError={worldbookError}
+        regexError={regexError}
+        worldbookUploaded={worldbookUploaded}
+        regexUploaded={regexUploaded}
+        check={check}
+        onDelete={deleteSavedEntry}
+        onPickWorldbook={pickWorldbook}
+        onPickRegex={pickRegex}
+        onRemoveWorldbook={removeWorldbook}
+        onRemoveRegex={removeRegex}
+        onUploadWorldbook={() => void uploadWorldbook()}
+        onUploadRegex={() => void uploadRegex()}
+        onNotice={onNotice}
+        onError={onError}
+      />
 
-      <section className="workspace-section authoring-section">
-        <h3>封面</h3>
-        <ImagePicker
-          id="cover-file"
-          label="选择封面"
-          uploadLabel={coverUrl ? "更新封面" : "上传封面"}
-          hint="JPEG、PNG 或 WebP，单张不超过 1 MiB，宽高不超过 4096 像素。选择后可以先预览再上传。"
-          disabled={busy || workingVersionFrozen}
-          currentUrl={coverUrl}
-          currentAlt="当前封面"
-          pending={cover.pending}
-          error={cover.error}
-          onPick={(file) => void cover.pick(file)}
-          onClear={cover.clear}
-          onUpload={() => void uploadCover()}
-        />
-      </section>
-
-      <div className="actions">
-        <button type="button" className="primary" onClick={() => void save()} disabled={busy || workingVersionFrozen}>
-          保存草稿资料
-        </button>
-        {!workingVersionId ? (
-          <button type="button" onClick={() => void createFirstVersion()} disabled={busy}>
-            创建首个版本
-          </button>
-        ) : null}
-      </div>
+      <ProjectEditorMediaAndCollections
+        entry={entry}
+        collections={collections}
+        rowVersion={rowVersion}
+        busy={busy}
+        workingVersionFrozen={workingVersionFrozen}
+        setBusy={setBusy}
+        setRowVersion={setRowVersion}
+        coverUrl={coverUrl}
+        cover={cover}
+        onUploadCover={() => void uploadCover()}
+        onSave={() => void save()}
+        hasWorkingVersion={Boolean(workingVersionId)}
+        onCreateFirstVersion={() => void createFirstVersion()}
+        onRefresh={onRefresh}
+        onNotice={onNotice}
+        onError={onError}
+        onGalleryPendingChange={setGalleryPending}
+      />
 
       <ProjectSubmissionReview
         check={check}
@@ -419,9 +390,231 @@ export function ProjectEditor({
           items={submissions}
           error={submissionError}
           busy={busy}
-          onWithdraw={(submission) => void withdraw(submission)}
+          onWithdraw={(submission) => setPendingWithdraw(submission)}
         />
       </ProjectSubmissionReview>
+
+      <ProjectDangerZone
+        entry={entry}
+        rowVersion={rowVersion}
+        busy={busy}
+        setBusy={setBusy}
+        onRowVersionChange={setRowVersion}
+        onRefresh={onRefresh}
+        onNotice={onNotice}
+        onError={onError}
+      />
+
+      <ConfirmDialog
+        open={pendingWithdraw !== null}
+        title="撤回审核提交"
+        description="确定撤回这次提交吗？撤回后即使自动检查完成也不会发布该快照，当前公开版本保持不变。"
+        confirmLabel="确认撤回"
+        busy={busy}
+        onConfirm={() => void confirmWithdrawSubmission()}
+        onCancel={() => setPendingWithdraw(null)}
+      />
     </section>
   );
+}
+
+function ProjectEditorMediaAndCollections({
+  entry,
+  collections,
+  rowVersion,
+  busy,
+  workingVersionFrozen,
+  setBusy,
+  setRowVersion,
+  coverUrl,
+  cover,
+  onUploadCover,
+  onSave,
+  hasWorkingVersion,
+  onCreateFirstVersion,
+  onRefresh,
+  onNotice,
+  onError,
+  onGalleryPendingChange,
+}: {
+  entry: AuthorProject;
+  collections: AuthorCollection[];
+  rowVersion: number;
+  busy: boolean;
+  workingVersionFrozen: boolean;
+  setBusy: (busy: boolean) => void;
+  setRowVersion: (version: number) => void;
+  coverUrl: string | null;
+  cover: ReturnType<typeof usePendingImage>;
+  onUploadCover: () => void;
+  onSave: () => void;
+  hasWorkingVersion: boolean;
+  onCreateFirstVersion: () => void;
+  onRefresh: () => Promise<void>;
+  onNotice: (message: string) => void;
+  onError: (message: string) => void;
+  onGalleryPendingChange: (pending: boolean) => void;
+}) {
+  return (
+    <>
+      <section className="workspace-section authoring-section">
+        <h3>封面</h3>
+        <ImagePicker
+          id="cover-file"
+          label="选择封面"
+          uploadLabel={coverUrl ? "更新封面" : "上传封面"}
+          hint="JPEG、PNG 或 WebP，单张不超过 1 MiB，宽高不超过 4096 像素。选择后可以先预览再上传。"
+          disabled={busy || workingVersionFrozen}
+          currentUrl={coverUrl}
+          currentAlt="当前封面"
+          pending={cover.pending}
+          error={cover.error}
+          onPick={(file) => void cover.pick(file)}
+          onClear={cover.clear}
+          onUpload={onUploadCover}
+        />
+      </section>
+
+      <div className="actions">
+        <button type="button" className="primary" onClick={onSave} disabled={busy || workingVersionFrozen}>
+          保存草稿资料
+        </button>
+        {!hasWorkingVersion ? (
+          <button type="button" onClick={onCreateFirstVersion} disabled={busy}>
+            创建首个版本
+          </button>
+        ) : null}
+      </div>
+
+      <GallerySection
+        projectId={entry.project.id}
+        rowVersion={rowVersion}
+        busy={busy}
+        setBusy={setBusy}
+        onRowVersionChange={setRowVersion}
+        onRefresh={onRefresh}
+        onNotice={onNotice}
+        onError={onError}
+        onPendingChange={onGalleryPendingChange}
+      />
+
+      <ProjectCollectionsField
+        projectId={entry.project.id}
+        initialCollectionIds={entry.collectionIds ?? []}
+        collections={collections}
+        busy={busy}
+        setBusy={setBusy}
+        onSaved={onRefresh}
+        onNotice={onNotice}
+        onError={onError}
+      />
+    </>
+  );
+}
+
+function ProjectContentSection({
+  projectId,
+  versionId,
+  rowVersion,
+  busy,
+  workingVersionFrozen,
+  dirty,
+  worldbook,
+  regexAssets,
+  worldbookError,
+  regexError,
+  worldbookUploaded,
+  regexUploaded,
+  check,
+  onDelete,
+  onPickWorldbook,
+  onPickRegex,
+  onRemoveWorldbook,
+  onRemoveRegex,
+  onUploadWorldbook,
+  onUploadRegex,
+  onNotice,
+  onError,
+}: {
+  projectId: string;
+  versionId: string | null;
+  rowVersion: number;
+  busy: boolean;
+  workingVersionFrozen: boolean;
+  dirty: boolean;
+  worldbook: ReturnType<typeof useDraftAssetSelection>["worldbook"];
+  regexAssets: ReturnType<typeof useDraftAssetSelection>["regexAssets"];
+  worldbookError: string | null;
+  regexError: string | null;
+  worldbookUploaded: boolean;
+  regexUploaded: boolean;
+  check: ReturnType<typeof runLocalCheck>;
+  onDelete: (kind: "worldbook" | "regex", key: string) => Promise<void>;
+  onPickWorldbook: ReturnType<typeof useDraftAssetSelection>["pickWorldbook"];
+  onPickRegex: ReturnType<typeof useDraftAssetSelection>["pickRegex"];
+  onRemoveWorldbook: () => void;
+  onRemoveRegex: (index: number) => void;
+  onUploadWorldbook: () => void;
+  onUploadRegex: () => void;
+  onNotice: (message: string) => void;
+  onError: (message: string) => void;
+}) {
+  return (
+    <section className="workspace-section authoring-section">
+      <h3>内容文件</h3>
+      <CurrentVersionEntries
+        projectId={projectId}
+        versionId={versionId}
+        rowVersion={rowVersion}
+        busy={busy}
+        frozen={workingVersionFrozen}
+        dirty={dirty}
+        onDelete={onDelete}
+      />
+      <AssetPicker
+        worldbook={worldbook}
+        regexAssets={regexAssets}
+        worldbookError={worldbookError}
+        regexError={regexError}
+        worldbookUploaded={worldbookUploaded}
+        regexUploaded={regexUploaded}
+        busy={busy || workingVersionFrozen}
+        onPickWorldbook={onPickWorldbook}
+        onPickRegex={onPickRegex}
+        onRemoveWorldbook={onRemoveWorldbook}
+        onRemoveRegex={onRemoveRegex}
+        onUploadWorldbook={onUploadWorldbook}
+        onUploadRegex={onUploadRegex}
+      />
+      {check ? (
+        <CheckPanel
+          check={check}
+          worldbook={worldbook}
+          regexAssets={regexAssets}
+          onNotice={onNotice}
+          onError={onError}
+        />
+      ) : (
+        <p className="workspace-muted">
+          选择世界书或正则文件后会在这里显示客户端自检结果。也可以直接上传已确认的文件。
+        </p>
+      )}
+    </section>
+  );
+}
+
+function useUnsavedProtection(active: boolean, onDirtyChange?: (dirty: boolean) => void) {
+  useEffect(() => {
+    onDirtyChange?.(active);
+    const protect = (event: BeforeUnloadEvent): void => {
+      if (!active) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", protect);
+    return () => {
+      onDirtyChange?.(false);
+      window.removeEventListener("beforeunload", protect);
+    };
+  }, [active, onDirtyChange]);
 }

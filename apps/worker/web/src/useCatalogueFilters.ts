@@ -21,6 +21,7 @@ export interface CatalogueFilters extends TaxonomyFilters {
   search: string;
   sort: CatalogueSort;
   author: { id: string; name: string } | null;
+  collection: { id: string; title: string } | null;
   layout: "cards" | "list";
   hasFilters: boolean;
   setProjectTypes: (values: readonly ProjectType[]) => void;
@@ -29,7 +30,8 @@ export interface CatalogueFilters extends TaxonomyFilters {
   toggleTag: (value: string) => void;
   removeTag: (value: string) => void;
   setSearch: Dispatch<SetStateAction<string>>;
-  setAuthor: Dispatch<SetStateAction<{ id: string; name: string } | null>>;
+  setAuthor: (value: { id: string; name: string } | null) => void;
+  setCollection: (value: { id: string; title: string } | null) => void;
   setSort: Dispatch<SetStateAction<CatalogueSort>>;
   setLayout: Dispatch<SetStateAction<"cards" | "list">>;
   clearFilters: () => void;
@@ -85,16 +87,35 @@ export function useCatalogueFilters(): CatalogueFilters {
     }
   }, [layout]);
   const [taxonomy, dispatch] = useReducer(taxonomyFilters, emptyTaxonomy);
-  const [author, setAuthor] = useState<{ id: string; name: string } | null>(null);
+  const [author, setAuthorState] = useState<{ id: string; name: string } | null>(null);
+  const [collection, setCollectionState] = useState<{ id: string; title: string } | null>(null);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<(typeof SORTS)[number][0]>("published");
+
+  function setAuthor(value: { id: string; name: string } | null): void {
+    setAuthorState(value);
+    if (value) setCollectionState(null);
+  }
+
+  function setCollection(value: { id: string; title: string } | null): void {
+    setCollectionState(value);
+    if (value) setAuthorState(null);
+  }
+
   function clearFilters(): void {
     setSearch("");
     dispatch({ type: "clear" });
-    setAuthor(null);
+    setAuthorState(null);
+    setCollectionState(null);
   }
+
   const hasFilters = Boolean(
-    search.trim() || taxonomy.projectTypes.length || taxonomy.includeContained || author || taxonomy.tags.length,
+    search.trim() ||
+      taxonomy.projectTypes.length ||
+      taxonomy.includeContained ||
+      author ||
+      collection ||
+      taxonomy.tags.length,
   );
   return {
     search,
@@ -106,9 +127,11 @@ export function useCatalogueFilters(): CatalogueFilters {
     toggleTag: (value: string) => dispatch({ type: "toggleTag", value }),
     removeTag: (value: string) => dispatch({ type: "removeTag", value }),
     author,
+    collection,
     setSearch,
     clearFilters,
     setAuthor,
+    setCollection,
     setSort,
     layout,
     setLayout,

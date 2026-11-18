@@ -2,6 +2,7 @@ import type { InteractionStateItem } from "@workshop/contracts";
 import { Bookmark, ExternalLink, Heart, RefreshCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api, type ProjectSummary } from "../../api";
+import type { DiscordPromptTarget } from "../policy/DiscordLinkPrompt";
 
 type Interaction = InteractionStateItem;
 
@@ -12,6 +13,7 @@ export function ProjectCommunity({
   onLogin,
   onError,
   onSubscriptionChange,
+  onDiscordPrompt,
 }: {
   project: ProjectSummary;
   discordThreadUrl: string | null | undefined;
@@ -19,6 +21,7 @@ export function ProjectCommunity({
   onLogin: () => void;
   onError: (message: string) => void;
   onSubscriptionChange: (projectId: string, subscribed: boolean) => void;
+  onDiscordPrompt?: (target: DiscordPromptTarget) => void;
 }) {
   const [interaction, setInteraction] = useState<Interaction | null>(null);
   const [settledStatus, setInteractionStatus] = useState<"loading" | "ready" | "error" | "unavailable">("loading");
@@ -103,7 +106,17 @@ export function ProjectCommunity({
     <section className="rail-section" aria-label="社区互动">
       <div className="actions">
         {discordThreadUrl ? (
-          <a className="secondary-link" href={discordThreadUrl} target="_blank" rel="noreferrer">
+          <a
+            className="secondary-link"
+            href={discordThreadUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(event) => {
+              if (!onDiscordPrompt) return;
+              event.preventDefault();
+              onDiscordPrompt({ projectTitle: project.title, threadUrl: discordThreadUrl });
+            }}
+          >
             <ExternalLink aria-hidden="true" />
             Discord 讨论
           </a>

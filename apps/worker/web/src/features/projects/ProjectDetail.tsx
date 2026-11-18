@@ -1,9 +1,10 @@
 import type { ProjectType } from "@workshop/domain";
-import { Bookmark, BookOpen, Code2, Download, GitBranch, Heart, RefreshCcw } from "lucide-react";
+import { Bookmark, BookOpen, Code2, Download, FolderOpen, GitBranch, Heart, RefreshCcw } from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { api, type ProjectDetail as ProjectDetailResponse, type ProjectSummary } from "../../api";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { Markdown } from "../../lib/markdown";
+import type { DiscordPromptTarget } from "../policy/DiscordLinkPrompt";
 import { ProjectCommunity } from "./ProjectCommunity";
 import { ProjectExperienceNotes } from "./ProjectExperienceNotes";
 import { ProjectMedia } from "./ProjectMedia";
@@ -26,6 +27,8 @@ export function ProjectDetail({
   onUpdate,
   onUninstall,
   onAuthor,
+  onCollection,
+  onDiscordPrompt,
   onTag,
   onProjectType,
   onLogin,
@@ -44,6 +47,8 @@ export function ProjectDetail({
   onUpdate: (p: ProjectSummary) => void;
   onUninstall: (p: ProjectSummary) => void;
   onAuthor: (author: { id: string; name: string }) => void;
+  onCollection?: (collection: { id: string; title: string }) => void;
+  onDiscordPrompt?: (target: DiscordPromptTarget) => void;
   onTag: (tag: string) => void;
   onProjectType: (type: ProjectType) => void;
   onLogin: () => void;
@@ -132,6 +137,24 @@ export function ProjectDetail({
                 <span key={type} className="detail-badge">
                   {type}
                 </span>
+              ))}
+            </section>
+          ) : null}
+          {detail?.collections && detail.collections.length > 0 ? (
+            <section className="detail-meta-line detail-collections" aria-label="所属合集">
+              <span>所属合集：</span>
+              {detail.collections.map((col) => (
+                <button
+                  key={col.id}
+                  type="button"
+                  className="detail-collection-badge"
+                  title={col.description || `查看合集「${col.title}」内的全部作品`}
+                  onClick={() => onCollection?.({ id: col.id, title: col.title })}
+                >
+                  <FolderOpen aria-hidden="true" />
+                  <span>{col.title}</span>
+                  <small>{col.projectCount}</small>
+                </button>
               ))}
             </section>
           ) : null}
@@ -277,6 +300,7 @@ export function ProjectDetail({
                 onLogin={onLogin}
                 onError={onError}
                 onSubscriptionChange={onSubscriptionChange}
+                onDiscordPrompt={onDiscordPrompt}
               />
               {detail?.publishedVersionId ? (
                 <ProjectExperienceNotes

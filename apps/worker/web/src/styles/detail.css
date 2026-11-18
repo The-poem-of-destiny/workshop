@@ -1005,3 +1005,31 @@ button.detail-badge:hover {
     display: none;
   }
 }
+
+.detail-collections {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.detail-collection-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid rgba(200, 174, 130, 0.35);
+  border-radius: 999px;
+  background: rgba(200, 174, 130, 0.12);
+  color: var(--accent-strong);
+  font-size: 12px;
+}
+.detail-collection-badge:hover {
+  background: rgba(200, 174, 130, 0.22);
+}
+.detail-collection-badge svg {
+  width: 13px;
+  height: 13px;
+}
+.detail-collection-badge small {
+  opacity: 0.8;
+}
