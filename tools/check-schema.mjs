@@ -150,21 +150,89 @@ rejects(
   "UPDATE project_versions SET project_type='角色' WHERE id='r2'",
   "primary change accepted an existing self inclusion",
 );
-for (const tags of [
+const whitespace = [
+  "\u0009",
+  "\u000A",
+  "\u000B",
+  "\u000C",
+  "\u000D",
+  "\u0020",
+  "\u00A0",
+  "\u1680",
+  "\u2000",
+  "\u2001",
+  "\u2002",
+  "\u2003",
+  "\u2004",
+  "\u2005",
+  "\u2006",
+  "\u2007",
+  "\u2008",
+  "\u2009",
+  "\u200A",
+  "\u2028",
+  "\u2029",
+  "\u202F",
+  "\u205F",
+  "\u3000",
+  "\uFEFF",
+];
+const validTagPayloads = [
+  JSON.stringify(Array.from({ length: 20 }, (_, index) => `tag${index}`)),
+  JSON.stringify(["🧪".repeat(51), "🧪".repeat(100), "\u0000x", "\u0000".repeat(100), "\u0085tag\u0085"], null, 2),
+  String.raw`["\u0000x","\u0001x","\\u0000","\\u0001","\\\u0000","\\\u0001"]`,
+];
+const insertVersion = db.prepare(
+  "INSERT INTO project_versions(id,project_id,version_no,title,project_type,tags,created_by) VALUES('r3','p2',2,'Direct','角色',?,'u1')",
+);
+const updateVersionTags = db.prepare("UPDATE project_versions SET tags = ? WHERE id = 'r2'");
+for (const tags of validTagPayloads) {
+  insertVersion.run(tags);
+  if (db.prepare("SELECT tags FROM project_versions WHERE id = 'r3'").get().tags !== tags) {
+    throw new Error("insert trigger mutated stored tags payload");
+  }
+  db.prepare("DELETE FROM project_versions WHERE id = 'r3'").run();
+  updateVersionTags.run(tags);
+  if (db.prepare("SELECT tags FROM project_versions WHERE id = 'r2'").get().tags !== tags) {
+    throw new Error("update trigger mutated stored tags payload");
+  }
+}
+const invalidTagPayloads = [
   "not-json",
   "{}",
   "[null]",
   "[1]",
-  '[" "]',
-  '["trim "]',
-  '["a","a"]',
-  JSON.stringify(["x".repeat(101)]),
-  JSON.stringify(Array.from({ length: 21 }, (_, index) => `tag${index}`)),
-]) {
-  rejects(`UPDATE project_versions SET tags='${tags}' WHERE id='r2'`, `invalid tags ${tags} accepted`);
+  ...[
+    [""],
+    ["a", "a"],
+    ["🧪".repeat(101)],
+    ["\u0000".repeat(101)],
+    [`a\u0000${"🧪".repeat(100)}`],
+    ["\\u0000".repeat(17)],
+    ["\u0000x", "\u0000x"],
+    ["\\u0000", "\\u0000"],
+    ["\u0000tag\t"],
+    ["\uFEFF\u0000tag"],
+    Array.from({ length: 21 }, (_, index) => `tag${index}`),
+    ...whitespace.flatMap((boundary) => [[boundary], [`${boundary}tag`], [`tag${boundary}`]]),
+  ].map((tags) => JSON.stringify(tags)),
+];
+for (const tags of invalidTagPayloads) {
+  let insertRejected = false;
+  try {
+    insertVersion.run(tags);
+  } catch {
+    insertRejected = true;
+  }
+  if (!insertRejected) throw new Error(`invalid insert tags ${tags} accepted`);
+  let updateRejected = false;
+  try {
+    updateVersionTags.run(tags);
+  } catch {
+    updateRejected = true;
+  }
+  if (!updateRejected) throw new Error(`invalid update tags ${tags} accepted`);
 }
-const twentyTags = Array.from({ length: 20 }, (_, index) => `tag${index}`);
-db.prepare("UPDATE project_versions SET tags = ? WHERE id = 'r2'").run(JSON.stringify(twentyTags));
 const indexedTags = db.prepare("SELECT tag FROM project_search_tags WHERE project_id='p1' ORDER BY tag").all();
 if (JSON.stringify(indexedTags.map((row) => row.tag)) !== JSON.stringify(["cbz", "合集"])) {
   throw new Error(`structured taxonomy leaked into ordinary tags: ${JSON.stringify(indexedTags)}`);

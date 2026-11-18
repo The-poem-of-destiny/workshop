@@ -582,6 +582,18 @@ describe("public read path", () => {
     await seed();
     const url = "https://workshop.test/api/v1/projects/p1/downloads";
     expect((await SELF.fetch(url, { method: "POST" })).status).toBe(401);
+    const authorDownload = await SELF.fetch(url, {
+      method: "POST",
+      headers: { authorization: "Bearer test-token", "Idempotency-Key": crypto.randomUUID() },
+    });
+    expect(authorDownload.status).toBe(201);
+    expect(
+      (
+        await bindings.DB.prepare("SELECT downloads_count FROM projects WHERE id = 'p1'").first<{
+          downloads_count: number;
+        }>()
+      )?.downloads_count,
+    ).toBe(12);
     const headers = { authorization: "Bearer other-token", "Idempotency-Key": crypto.randomUUID() };
     const responses = await Promise.all([
       SELF.fetch(url, { method: "POST", headers }),
