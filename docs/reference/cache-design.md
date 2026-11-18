@@ -34,6 +34,7 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 | GET `/health` | 版本和绑定存在性 | N | 无 |
 | GET `/home` | 首页三段聚合 | 全成功 P60；部分失败 N | 公开成功投影 60 秒；部分失败不缓存 |
 | GET `/projects`、`/projects/batch` | 列表与批量摘要 | P60 | 公开投影 60 秒；batch 每次最多 50 个 ID |
+| GET `/collections/:id`、`/authors/:id` | 公开合集摘要与作者公开主页摘要 | P60 | 公开投影 60 秒 |
 | GET `/projects/discovery` | 发现 | P60 | 公开投影 60 秒 |
 | GET `/projects/:id`、`/projects/:id/entries` | 公开详情及索引 | P60 | 公开投影 60 秒 |
 | GET `/projects/:id/preview/:kind` | 登录用户预览 | N | 实时会话和当前公开 revision 门禁后，固定 revision/kind/hash 投影 86400 秒 |
@@ -47,7 +48,7 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 `GET /api/v1/projects` 的[筛选合同](worker-api.md#目录筛选与游标)先经共享 schema 规范化，再用于目录 SQL、cursor scope 和公开缓存键，不以原始 query string 的拼写区分同义请求：
 
 - 重复 `projectType` 去重并按六类顺序排列；重复 `tag` 经 JavaScript `trim()`、去重、排序后合计最多 12 个。标签的预设同组 OR、跨组 AND、每个自定义词独立 AND 语义不因缓存而改变，手输预设词仍属其词表分组。
-- 省略 `includeContained` 与显式 `false` 采用同一身份；`true` 单独分区，不能把“仅主类”的结果误用于“还包含”。改变主类集合、标签、作者、搜索、排序、有效统计周期或页游标也有各自的查询身份。
+- 省略 `includeContained` 与显式 `false` 采用同一身份；`true` 单独分区，不能把“仅主类”的结果误用于“还包含”。改变主类集合、标签、作者、合集、搜索、排序、有效统计周期或页游标也有各自的查询身份。
 - `limit=25`、`sort=published`、有效统计周期 `30d` 等默认值在规范化查询中省略；统计周期只对 likes／downloads 排序生效。参数顺序和重复选择不会创建额外缓存变体。非法筛选或不属于当前 scope 的 cursor 返回 400，不得作为其他筛选结果缓存。
 
 ### 本地缓存行为验证与边界
@@ -69,7 +70,9 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 | POST `/auth/flows/:id/redeem` | 兑换设备或 embed 授权 | 不缓存，一次性操作 |
 | GET `/auth/callback` | OAuth 回调及 HTML 消息 | 不缓存，保护授权码和令牌 |
 | DELETE `/sessions/current` | 撤销会话 | 不缓存，实时生效 |
-| GET `/me` | 当前用户和角色 | 保持不缓存，避免角色和撤销陈旧 |
+| GET `/me` | 当前用户、角色和政策确认状态 | 保持不缓存，避免角色、政策状态和撤销陈旧 |
+| POST `/me/policy-acceptance` | 提交政策同意与准入问答 | 不缓存，实时更新准入状态 |
+| GET `/me/collections` | 作者合集列表 | 保持不缓存，需会话与政策准入 |
 | GET `/me/projects` | 作者项目列表 | 保持不缓存；可评估受保护投影，但每次先鉴权 |
 | GET `/me/projects/:id/submissions` | 作者投稿历史 | 保持不缓存，需项目权限 |
 | GET `/me/subscriptions` | 当前用户订阅 | 保持不缓存 |
@@ -97,6 +100,8 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 | DELETE `/projects/:id/versions/:versionId/entries/:kind/:entryKey` | 删除修订条目 |
 | POST `/projects/:id/versions/:versionId/submit` | 提交修订审核 |
 | POST `/projects/:id/submissions/:submissionId/withdraw` | 撤回投稿 |
+| PUT `/projects/:id/collections` | 更新项目所属合集 |
+| POST `/collections`、PATCH `/collections/:id`、DELETE `/collections/:id` | 创建、编辑或删除作者合集 |
 | GET `/admin/submissions` | 待审投稿列表和计数 |
 | GET `/admin/submissions/:id` | 投稿详情 |
 | GET `/admin/submissions/:id/files/:kind` | 审核文件 |

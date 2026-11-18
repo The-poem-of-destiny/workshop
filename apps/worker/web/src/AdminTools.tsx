@@ -222,7 +222,7 @@ export function AdminTools({
           onDeleteProject={(project) => {
             setPendingWrite({
               title: "删除项目",
-              description: `确定永久软删除《${project.title}》（作者：${project.author.name}）吗？`,
+              description: `确定删除项目《${project.title}》（作者：${project.author.name}）吗？删除后该项目将不再在公开目录和作者工作区显示。`,
               run: () => data.removeAdminProject(project),
             });
           }}

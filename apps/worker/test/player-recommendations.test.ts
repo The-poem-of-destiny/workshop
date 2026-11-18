@@ -1,5 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import type { DiscoveryResponse } from "@workshop/contracts";
+import { CURRENT_POLICY_VERSION } from "@workshop/domain";
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { CachedReads } from "../src/data/cached-reads";
 import type { DataEnv } from "../src/data/env";
@@ -19,9 +20,9 @@ beforeEach(async () => {
   );
   for (const id of ["author", "player", "player-two"]) {
     await bindings.DB.prepare(
-      "INSERT INTO users(id,username,role,policy_accepted_version,policy_accepted_at) VALUES(?,?,'member','2026-11-v1',?)",
+      "INSERT INTO users(id,username,role,policy_accepted_version,policy_accepted_at) VALUES(?,?,'member',?,?)",
     )
-      .bind(id, id, now)
+      .bind(id, id, CURRENT_POLICY_VERSION, now)
       .run();
     const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(id))), (b) =>
       b.toString(16).padStart(2, "0"),

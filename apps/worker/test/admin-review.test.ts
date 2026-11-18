@@ -1,5 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { exports as workerExports } from "cloudflare:workers";
+import { CURRENT_POLICY_VERSION } from "@workshop/domain";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { DataEnv } from "../src/data/env";
@@ -27,9 +28,9 @@ async function seedSession(token: string, userId: string) {
 async function seed() {
   const statements = splitSql(`
     INSERT INTO users (id, username, global_name, role, policy_accepted_version, policy_accepted_at, created_at, updated_at) VALUES
-      ('owner', 'owner', 'Owner', 'owner', '2026-11-v1', '${now}', '${now}', '${now}'),
-      ('reviewer', 'reviewer', 'Reviewer', 'reviewer', '2026-11-v1', '${now}', '${now}', '${now}'),
-      ('member', 'member', 'Member', 'member', '2026-11-v1', '${now}', '${now}', '${now}');
+      ('owner', 'owner', 'Owner', 'owner', '${CURRENT_POLICY_VERSION}', '${now}', '${now}', '${now}'),
+      ('reviewer', 'reviewer', 'Reviewer', 'reviewer', '${CURRENT_POLICY_VERSION}', '${now}', '${now}', '${now}'),
+      ('member', 'member', 'Member', 'member', '${CURRENT_POLICY_VERSION}', '${now}', '${now}', '${now}');
     INSERT INTO projects
       (id, author_id, visibility, updated_at)
     VALUES ('p1', 'member', 'private', '${now}');

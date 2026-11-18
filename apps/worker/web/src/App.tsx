@@ -149,6 +149,11 @@ export function App() {
   const installedAvailable = embedded || Boolean(context?.connected);
   const reviewer = me?.role === "reviewer" || me?.role === "owner";
   const showDesktopSidebar = view === "browse";
+  const browseWith = (apply: () => void): void => {
+    if (!setView("browse")) return;
+    apply();
+    setSelected(null);
+  };
 
   return (
     <div className={`shell${embedded ? " embedded" : ""}${me ? " authenticated" : ""}`}>
@@ -299,31 +304,17 @@ export function App() {
             <ProjectDetail
               key={`${selected.id}:${me?.id ?? "anonymous"}:${me?.role ?? ""}`}
               project={selected}
-              onClose={() => setSelected(null)}
+              onClose={() => {
+                if (!discordPrompt) setSelected(null);
+              }}
               onInstall={install}
               onUpdate={requestUpdate}
               onUninstall={requestUninstall}
-              onAuthor={(value) => {
-                if (!setView("browse")) return;
-                setAuthor(value);
-                setSelected(null);
-              }}
-              onCollection={(value) => {
-                if (!setView("browse")) return;
-                setCollection(value);
-                setSelected(null);
-              }}
+              onAuthor={(value) => browseWith(() => setAuthor(value))}
+              onCollection={(value) => browseWith(() => setCollection(value))}
               onDiscordPrompt={setDiscordPrompt}
-              onTag={(value) => {
-                if (!setView("browse")) return;
-                addTags([value]);
-                setSelected(null);
-              }}
-              onProjectType={(value) => {
-                if (!setView("browse")) return;
-                setProjectTypes([value]);
-                setSelected(null);
-              }}
+              onTag={(value) => browseWith(() => addTags([value]))}
+              onProjectType={(value) => browseWith(() => setProjectTypes([value]))}
               onLogin={login}
               installedWorldbook={
                 context?.installationScan?.instances

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeDiscordThreadUrl, parseDiscordThreadUrl } from "./discord.js";
+import { DEFAULT_COMMUNITY_INVITE_URL, parseDiscordInviteUrl } from "./policy.js";
 
 const GUILD = "123456789012345678";
 const THREAD = "223456789012345678";
@@ -33,6 +34,23 @@ describe("Discord thread URL policy", () => {
     expect(normalizeDiscordThreadUrl(`https://discord.com/channels/${GUILD}/${THREAD}`, [])).toEqual({
       ok: false,
       reason: "guild-not-allowed",
+    });
+  });
+
+  it("normalizes valid Discord invite URLs and rejects unsafe or thread URLs", () => {
+    expect(parseDiscordInviteUrl(DEFAULT_COMMUNITY_INVITE_URL)).toEqual({
+      ok: true,
+      value: "https://discord.gg/KNy8yV5w44",
+    });
+    expect(parseDiscordInviteUrl("https://discord.com/invite/KNy8yV5w44")).toEqual({
+      ok: true,
+      value: "https://discord.gg/KNy8yV5w44",
+    });
+    expect(parseDiscordInviteUrl("")).toEqual({ ok: true, value: null });
+    expect(parseDiscordInviteUrl("javascript:alert(1)")).toEqual({ ok: false, reason: "not-https" });
+    expect(parseDiscordInviteUrl(`https://discord.com/channels/${GUILD}/${THREAD}`)).toEqual({
+      ok: false,
+      reason: "not-discord-invite",
     });
   });
 });

@@ -1,6 +1,6 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
-import { type ComponentPropsWithoutRef, type ElementRef, forwardRef, type HTMLAttributes } from "react";
+import { type ComponentPropsWithoutRef, type ElementRef, forwardRef, type HTMLAttributes, useEffect } from "react";
 import { cn } from "../../lib/utils";
 
 const Dialog = DialogPrimitive.Root;
@@ -26,6 +26,12 @@ const DialogContent = forwardRef<
   ElementRef<typeof DialogPrimitive.Content>,
   ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
 >(function DialogContent({ className, children, ...props }, ref) {
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      document.dispatchEvent(new CustomEvent("dismissableLayer.update"));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
   return (
     <DialogPortal>
       <DialogOverlay />

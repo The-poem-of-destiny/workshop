@@ -62,7 +62,7 @@
 - **契约与权限强制**：
   - `GET /api/v1/me` 返回 `user` 与 `policy: { currentVersion, acceptedVersion, acceptedAt, accepted }`。
   - `POST /api/v1/me/policy-acceptance` 校验 `version === CURRENT_POLICY_VERSION`、`agreed === true` 且 3 题答案全部正确后，更新 `users` 记录并写入 `member.policy_accept` 审计事件。
-  - **后端铁壁门禁**：凡 `accepted === false` 的会话，除 `GET /api/v1/me`、`POST /api/v1/me/policy-acceptance` 与 `DELETE /api/v1/sessions/current` 外，所有需登录接口（下载/安装票据 `acquisitions`/`downloads`、登录正文预览 `preview/:kind`、点赞/订阅/推荐/版本备忘、个人项目与创作送审、合集写入、审核与管理接口）一律在服务端拦截并返回 `403 forbidden`（`policy_acceptance_required`），确保未通过问答前在系统边界上严格等价于只读游客。
+  - **后端铁壁门禁**：凡 `accepted === false` 的会话，除 `GET /api/v1/me`、`POST /api/v1/me/policy-acceptance` 与 `DELETE /api/v1/sessions/current` 外，所有需登录接口（下载/安装票据 `acquisitions`/`downloads`、登录正文预览 `preview/:kind`、点赞/订阅/推荐/版本备忘、个人项目与创作送审、合集写入、审核与管理接口）一律在服务端拦截并返回 `403 forbidden`，确保未通过问答前在系统边界上严格等价于只读游客。
 
 ### 3. 合集模型与目录筛选管线复用
 

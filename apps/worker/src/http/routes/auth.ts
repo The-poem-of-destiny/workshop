@@ -376,7 +376,7 @@ authRoutes.get("/callback", async (c) => {
   }
   if (oauthError) {
     const message = "Discord 未完成授权。";
-    await c.executionCtx.exports.DataService.identityFlowError(flow.id, `Discord 返回错误：${oauthError}`);
+    await c.executionCtx.exports.DataService.identityFlowError(flow.id, message);
     const openerPayload =
       flow.mode === "browser"
         ? JSON.stringify({

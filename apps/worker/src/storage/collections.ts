@@ -36,17 +36,16 @@ interface CollectionRow {
 
 async function hydrateAuthorCollections(db: D1Database, rows: CollectionRow[]): Promise<AuthorCollection[]> {
   if (rows.length === 0) return [];
-  const placeholders = rows.map(() => "?").join(", ");
   const members = await db
     .prepare(`
       SELECT cp.collection_id, cp.project_id,
              CASE WHEN ${PUBLIC_PROJECT_SQL} THEN 1 ELSE 0 END AS is_public
       FROM collection_projects cp
       JOIN projects p ON p.id = cp.project_id
-      WHERE cp.collection_id IN (${placeholders}) AND p.deleted_at IS NULL
+      WHERE cp.collection_id IN (SELECT value FROM json_each(?)) AND p.deleted_at IS NULL
       ORDER BY cp.position ASC, cp.added_at ASC, cp.project_id ASC
     `)
-    .bind(...rows.map((row) => row.id))
+    .bind(JSON.stringify(rows.map((row) => row.id)))
     .all<{ collection_id: string; project_id: string; is_public: number }>();
 
   const byCollection = new Map<string, { projectIds: string[]; publicCount: number }>();
@@ -73,12 +72,11 @@ async function hydrateAuthorCollections(db: D1Database, rows: CollectionRow[]): 
 
 async function verifyOwnedProjects(db: D1Database, authorId: string, projectIds: string[]): Promise<boolean> {
   if (projectIds.length === 0) return true;
-  const placeholders = projectIds.map(() => "?").join(", ");
   const owned = await db
     .prepare(
-      `SELECT COUNT(*) AS count FROM projects WHERE author_id = ? AND deleted_at IS NULL AND id IN (${placeholders})`,
+      "SELECT COUNT(*) AS count FROM projects WHERE author_id = ? AND deleted_at IS NULL AND id IN (SELECT value FROM json_each(?))",
     )
-    .bind(authorId, ...projectIds)
+    .bind(authorId, JSON.stringify(projectIds))
     .first<{ count: number }>();
   return (owned?.count ?? 0) === projectIds.length;
 }
@@ -269,15 +267,14 @@ export async function setProjectCollections(
   }
 
   if (collectionIds.length > 0) {
-    const placeholders = collectionIds.map(() => "?").join(", ");
     const rows = await db
       .prepare(`
         SELECT c.id,
                (SELECT COUNT(*) FROM collection_projects cp WHERE cp.collection_id = c.id AND cp.project_id <> ?) AS other_count
         FROM collections c
-        WHERE c.author_id = ? AND c.deleted_at IS NULL AND c.id IN (${placeholders})
+        WHERE c.author_id = ? AND c.deleted_at IS NULL AND c.id IN (SELECT value FROM json_each(?))
       `)
-      .bind(project.id, project.author_id, ...collectionIds)
+      .bind(project.id, project.author_id, JSON.stringify(collectionIds))
       .all<{ id: string; other_count: number }>();
     if (rows.results.length !== collectionIds.length) {
       return { kind: "forbidden_collection" as const };
@@ -366,16 +363,15 @@ export async function listAuthorCollectionIdsByProjects(
 ): Promise<Map<string, string[]>> {
   const map = new Map<string, string[]>();
   if (projectIds.length === 0) return map;
-  const placeholders = projectIds.map(() => "?").join(", ");
   const rows = await db
     .prepare(`
       SELECT cp.project_id, cp.collection_id
       FROM collection_projects cp
       JOIN collections c ON c.id = cp.collection_id
-      WHERE cp.project_id IN (${placeholders}) AND c.deleted_at IS NULL
+      WHERE cp.project_id IN (SELECT value FROM json_each(?)) AND c.deleted_at IS NULL
       ORDER BY c.updated_at DESC, c.id DESC
     `)
-    .bind(...projectIds)
+    .bind(JSON.stringify(projectIds))
     .all<{ project_id: string; collection_id: string }>();
   for (const row of rows.results) {
     const list = map.get(row.project_id) ?? [];

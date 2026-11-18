@@ -5,6 +5,7 @@
 ## 通用约定
 
 - 登录和维护接口以外，受保护请求使用 `Authorization: Bearer <session token>`。角色为 `member`、`reviewer`、`owner`；reviewer 接口也允许 owner。作者操作要求项目作者或 owner，权限不足的项目通常表现为 404，而非披露其存在。
+- 用户会话除有效令牌外，还必须已同意当前版本的工坊使用政策并通过准入问答（`policy_accepted_version = CURRENT_POLICY_VERSION`）。未完成当前政策确认的登录会话仅允许调用 `GET /api/v1/me`、`POST /api/v1/me/policy-acceptance` 与 `DELETE /api/v1/sessions/current`；访问其余所有需登录接口（互动、预览、下载、作者创作、合集写入、管理与审核、私有资源读取）均返回 403 `forbidden`，匿名公开接口仍可正常作为游客浏览。
 - API JSON 错误格式为 `{ "error": { "code": "...", "message": "...", "details": ... } }`，`details` 可省略。状态映射见 [errors.ts](../../packages/contracts/src/errors.ts)：400 `bad_request`、401 `unauthorized`、403 `forbidden`、404 `not_found`、409 `conflict`、412 `precondition_failed`、413 `payload_too_large`、415 `unsupported_media_type`、426 `upgrade_required`、429 `rate_limited`、500 `internal`。校验错误可能带 Zod details；未捕获异常返回 500。callback 返回 HTML 而不是此 JSON 格式。
 - 非公开缓存路径默认 `Cache-Control: private, no-store`；入口白名单中的匿名公开响应和静态资源具有不同缓存语义，详见[运行时配置](runtime-configuration.md#公开缓存和私有绕过)。API 的 OPTIONS 仅对 `ALLOWED_ORIGINS` 中精确匹配的 Origin 返回 204，否则 403；允许的方法为 GET、POST、PUT、PATCH、DELETE、OPTIONS，允许的请求头为 `authorization,content-type,if-match,idempotency-key,x-client-version,x-client-channel`。普通 API 响应对允许的 Origin 设置 CORS；不应假设预检支持其他头。
 - 项目列表使用不透明 `cursor` 和 `nextCursor`；下一页保留原有排序与筛选条件，传入返回的 cursor。`total` 为完整筛选集数量，不是本页数量。管理列表也返回 `nextCursor`；其参数和响应分别见 [admin.ts](../../packages/contracts/src/admin.ts) 与 [admin-dto.ts](../../packages/contracts/src/admin-dto.ts)。无更多结果时 cursor 为 null。
@@ -31,7 +32,7 @@
 | --- | --- |
 | GET `/api/v1/auth/flows/:id` | 查询状态和过期时间。device 需 `?deviceCode=...` 或 `x-device-secret`，device/embed 还需原浏览器绑定 cookie；不匹配 404。browser 状态查询不要求绑定。浏览器跨源预检不允许 `x-device-secret`，可使用查询参数。 |
 | POST `/api/v1/auth/flows/:id/redeem` | JSON 见 `authFlowRedeemSchema`。device 使用 `deviceCode`；embed 使用 callback 交付的 `code` 和原 `verifier`。需原绑定 cookie，成功返回 token、expiresAt、user；错误 secret 403，未授权、过期或已兑换 409。browser 不走此兑换流程。 |
-| GET `/api/v1/auth/callback` | Discord 回调的 `state`、`code` 或 `error`；返回 HTML，向 opener 发送消息。browser 的 `oauth-success` 包含 session token 和 state；embed 的 `oauth-code` 包含 code、flowId、state；device 的 `oauth-authorized` 通知授权完成。回调错误为 HTML 400，重复使用可为 409。 |
+| GET `/api/v1/auth/callback` | Discord 回调的 `state`、`code` 或 `error`；返回 HTML，向 opener 发送消息。browser 的 `oauth-success` 包含 session token 和 state；embed 的 `oauth-code` 包含 code、flowId、state；device 的 `oauth-authorized` 通知授权完成。验证失败（如缺少 Discord 服务器成员身份或身份组）返回 HTML 400 并向 opener 发送 `oauth-error`；当原因为未加入服务器或缺少身份组时，回调页与错误消息附带站点配置的低调社区邀请说明。重复使用可为 409。 |
 | DELETE `/api/v1/sessions/current` | Bearer 会话；撤销后 204，无会话 401。 |
 
 例如，同源浏览器创建 browser 流后打开响应中的 URL；校验 callback 消息的来源和 state，使用消息中的 token 请求 `/api/v1/me`。device/embed 必须保留创建流时的绑定 cookie，让 OAuth callback 和兑换请求使用同一浏览器上下文；device 状态查询还要提供 deviceCode。不要把 token、deviceCode 或兑换 code 写入日志。
@@ -49,13 +50,14 @@
 
 ### 目录筛选与游标
 
-`GET /api/v1/projects` 使用以下组合规则，分类、标签、作者和搜索条件之间为 AND：
+`GET /api/v1/projects` 使用以下组合规则，分类、标签、作者、合集和搜索条件之间为 AND：
 
 - 可以重复传入 `projectType`，所选主类之间为 OR。默认 `includeContained=false`，只匹配项目主分类；设为 `true` 才同时匹配 `includedTypes`。
+- 可以传入 `authorId` 或 `collectionId`（可与分类、标签、搜索、排序组合使用），分别将目录限定为指定作者的公开已发布作品或指定合集内的公开已发布作品。
 - 可以重复传入 `tag`。按上述输入规则规范化并去重后，预设词和自定义词合计最多 12 个；第 13 个重复词不增加名额，第 13 个唯一词返回 400。
 - 同一预设组内为 OR、不同预设组之间为 AND；每个自定义词各自为 AND。手输词只要命中预设词表，也按其预设组处理，不按输入来源变成自定义词。例如 `tag=人类&tag=精灵/半精灵&tag=温柔&tag=旅程甲` 表示“人类或精灵/半精灵”，且“温柔”，且“旅程甲”。
 - 主类集合按枚举顺序、标签集合按规范化后的去重排序生成统一查询身份；参数重排、重复以及显式 `includeContained=false` 不改变其语义。目录查询、cursor scope 和[公开缓存身份](cache-design.md#目录筛选的规范化缓存身份)使用相同的规范化筛选值。
-- 同一筛选集合的重排或重复可以继续使用原 cursor。改变主类集合、`includeContained`、标签、作者、搜索、排序或有效统计周期后，旧 cursor 返回 400，应从第一页重新查询。
+- 同一筛选集合的重排或重复可以继续使用原 cursor。改变主类集合、`includeContained`、标签、作者、合集、搜索、排序或有效统计周期后，旧 cursor 返回 400，应从第一页重新查询。
 
 ## 发现、项目和下载
 
@@ -67,10 +69,12 @@
 | --- | --- |
 | GET `/health` | 服务版本和 DB、R2、ASSETS 绑定是否存在；不是依赖连通性检查。 |
 | GET `/home` | 返回 `site`、`discovery`、`projects` 三段；每段为 `{ok:true,data}` 或 `{ok:false,error}`。全部成功为公开 200，部分失败为 no-store 200，全部失败为 no-store 500。默认项目列表等价于无筛选的 `/projects`。 |
-| GET `/projects` | `limit` 1–50 默认 25；`cursor`、`sort`、`period`、可重复的 `projectType`、`includeContained`、`authorId`、可重复的 `tag`、`search`；组合语义和 12 词上限见[目录筛选与游标](#目录筛选与游标)。非法查询或 cursor 400。 |
+| GET `/projects` | `limit` 1–50 默认 25；`cursor`、`sort`、`period`、可重复的 `projectType`、`includeContained`、`authorId`、`collectionId`、可重复的 `tag`、`search`；组合语义和 12 词上限见[目录筛选与游标](#目录筛选与游标)。非法查询或 cursor 400。 |
+| GET `/collections/:id` | 公开合集摘要（含作者、公开已发布项目数量与更新时间，见 `collectionSummarySchema`）；无公开已发布项目或不存在时返回 404。 |
+| GET `/authors/:id` | 作者公开主页摘要（作者资料、公开已发布项目数及名下包含至少 1 个公开已发布项目的公开合集列表）；作者不存在或无公开已发布作品时返回 404。 |
 | GET `/projects/batch` | 唯一 `ids` 参数为逗号分隔的 1–50 个 ID，trim、去重并按字典序排列；响应 `{items,missingIds}`，隐藏或不存在的项目只列入 missingIds。空项、重复参数或未知非 tracking 参数为 400。 |
 | GET `/projects/discovery` | 发现项目列表。 |
-| GET `/projects/:id` | 已发布项目详情；不存在或不可公开访问 404。 |
+| GET `/projects/:id` | 已发布项目详情（含该项目所属的公开合集徽标 `collections`）；不存在或不可公开访问 404。 |
 | GET `/projects/:id/entries` | 已发布项目条目索引；不存在 404。 |
 | GET `/projects/:id/preview/:kind` | Bearer；kind 为 `worldbook` 或 `regex`，返回预览；无会话 401，kind 无效 400，不存在 404。 |
 | POST `/projects/:id/downloads` | Bearer、`Idempotency-Key` UUID v4；返回当前可访问发布版的 201 `{versionId, files:[{kind,url}]}`。缺少或非法幂等键 400；日获取上限 429；不可访问 404。 |
@@ -113,8 +117,10 @@ URL=$(jq -r '.files[0].url // empty' /tmp/workshop-downloads.json)
 
 | 方法和路径（`/api/v1/me` 下） | 输入与结果 |
 | --- | --- |
-| GET `/` | 当前用户及角色，见 `meResponseSchema`。 |
-| GET `/projects` | 当前用户可管理的作者项目列表。 |
+| GET `/` | 当前用户、角色与使用政策确认状态（`policy.currentVersion`、`acceptedVersion`、`acceptedAt`、`accepted`），见 `meResponseSchema`。未完成政策确认时仍返回 200 供客户端拉起确认流程。 |
+| POST `/policy-acceptance` | JSON `policyAcceptanceInputSchema`（`agreed: true`、`version` 为当前要求版本、`answers` 为 3 道单选题选项 ID）；全部答对记录同意版本与时间并写审计事件 `member.policy_accept`，返回 `policyAcceptanceResponseSchema`（`{ policy }`）；版本不匹配或任一题答错返回 400（`details.incorrectQuestionIds`）。 |
+| GET `/collections` | 当前作者名下全部合集列表（含项目 ID 顺序与公开项目数）。 |
+| GET `/projects` | 当前用户可管理的作者项目列表（每项含 `collectionIds`）。 |
 | GET `/projects/:id/submissions` | 项目投稿历史，无权或不存在 404。 |
 | GET `/subscriptions` | 当前仍订阅且可公开访问的项目 `{items}`。 |
 | GET `/state` | `ids` 为逗号分隔项目 ID，最多 50 个；返回本人互动状态，不返回评分或体验文字。`subscribed` 为当前订阅状态，`recommendationEligible` 为服务端确认的当前订阅资格，与 `subscribed` 一致；`recommendation` 为本人对当前发布版的 `{projectVersionId,comment}` 或 `null`，取消订阅后仍返回已有记录供撤回。不会返回他人的推荐草稿。 |
@@ -142,7 +148,7 @@ URL=$(jq -r '.files[0].url // empty' /tmp/workshop-downloads.json)
 | 方法和路径 | 输入及结果 |
 | --- | --- |
 | POST `/` | `createProjectSchema`，必填主分类，`includedTypes` 省略为 `[]`；201 返回 project、rowVersion、workingVersionId；[分类／标签](#项目分类与标签)、其他元数据或 Discord 线程 URL 不合法 400。 |
-| GET `/:id/draft` | 返回项目、rowVersion、workingVersionId、latestSubmission；不存在或无权 404。 |
+| GET `/:id/draft` | 返回项目、rowVersion、workingVersionId、latestSubmission、`collectionIds`；不存在或无权 404。 |
 | PATCH `/:id` | If-Match、`patchProjectSchema`；省略的分类／标签字段保留原值，合并后仍须满足[分类／标签合同](#项目分类与标签)；成功返回 versionId、rowVersion，需重读 draft 获取完整项目；冻结 409。 |
 | DELETE `/:id` | If-Match；软删除，204。 |
 | PATCH `/:id/visibility` | If-Match、`{"visibility":"public"}` 或 `private`；返回 rowVersion。 |
@@ -156,6 +162,15 @@ URL=$(jq -r '.files[0].url // empty' /tmp/workshop-downloads.json)
 | POST `/:id/versions/:versionId/submit` | If-Match、`submitProjectSchema` JSON；201 返回 submissionId、status、checkStatus、rowVersion。仅工作版本可提交，冻结或状态冲突 409；验证服务不可用 500。 |
 | GET `/:id/versions/:versionId/change-evidence` | 作者会话、当前工作版本；返回当前／上一发布版不可变条目目录与 manifestHash，任一目录缺失或无上一版 404，不回退读取完整内容。 |
 | POST `/:id/submissions/:submissionId/withdraw` | If-Match；返回结果，已处理或状态变化 409。 |
+| PUT `/:id/collections` | JSON `projectCollectionsUpdateSchema`（`collectionIds`）；项目作者或 owner 可将项目加入或移出该项目作者名下的合集，不消耗或递增项目 `rowVersion`；传入非项目作者名下合集返回 403。 |
+
+此外，作者合集管理位于 `/api/v1/collections` 下（需已通过政策确认的 Bearer 会话，契约见 [collections.ts](../../packages/contracts/src/collections.ts)，上限见 [collections.ts](../../packages/domain/src/collections.ts)）：
+
+| 方法和路径（`/api/v1/collections` 下） | 输入及结果 |
+| --- | --- |
+| POST `/` | `createCollectionSchema`（标题、可选简介、可选本人项目 ID 列表）；每位作者最多 50 个合集、每合集最多 200 个本人未软删项目；包含非本人项目返回 403；201 返回 `AuthorCollection` 并写审计 `collection.create`。 |
+| PATCH `/:id` | `patchCollectionSchema`；合集作者或 owner 可更新标题、简介或有序 `projectIds`（仅限该合集作者拥有的未软删项目，否则 403）；返回更新后的 `AuthorCollection` 并写审计 `collection.update`，不存在或无权 404。 |
+| DELETE `/:id` | 合集作者或 owner 可删除合集（不删除其中的项目）；204 并写审计 `collection.delete`，不存在或无权 404。 |
 
 文件上传需正数 `Content-Length`。worldbook 和 regex 接受 `application/json` 或 `text/plain`，上限 10 MiB，服务端验证内容；cover 和 gallery 接受 PNG、JPEG、WebP，上限 1 MiB。cover 的内容格式必须匹配 MIME，尺寸上限 4096×4096；gallery 另由存储层校验图片和 slot。超限 413，MIME 不支持 415。请求体直接为文件，不是 multipart。
 

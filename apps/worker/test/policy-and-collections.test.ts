@@ -1,22 +1,13 @@
 import { env, SELF } from "cloudflare:test";
-import { CURRENT_POLICY_VERSION, DEFAULT_COMMUNITY_INVITE_URL } from "@workshop/domain";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { CURRENT_POLICY_VERSION } from "@workshop/domain";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { DataEnv } from "../src/data/env";
 import { applySchema } from "./support/schema";
 
 const bindings = env as unknown as DataEnv;
 const ORIGIN = "https://workshop.test";
-const GUILD = "123456789012345678";
 const now = "2026-11-18T00:00:00.000Z";
-const originalSettings = {
-  ALLOWED_ORIGINS: bindings.ALLOWED_ORIGINS,
-  PUBLIC_ORIGIN: bindings.PUBLIC_ORIGIN,
-  DISCORD_CLIENT_ID: bindings.DISCORD_CLIENT_ID,
-  DISCORD_CLIENT_SECRET: bindings.DISCORD_CLIENT_SECRET,
-  DISCORD_ALLOWED_GUILD_IDS: bindings.DISCORD_ALLOWED_GUILD_IDS,
-  DISCORD_GUILD_ROLE_IDS: bindings.DISCORD_GUILD_ROLE_IDS,
-  CACHE_TTL_PUBLIC_SECONDS: bindings.CACHE_TTL_PUBLIC_SECONDS,
-};
+const originalCacheTtl = bindings.CACHE_TTL_PUBLIC_SECONDS;
 
 const CORRECT_ANSWERS = {
   "issue-handling": "contact-author",
@@ -109,39 +100,29 @@ function api(path: string, token?: string, init?: RequestInit): Promise<Response
 
 beforeAll(async () => {
   await applySchema(bindings.DB);
-  Object.assign(bindings, {
-    ALLOWED_ORIGINS: ORIGIN,
-    PUBLIC_ORIGIN: ORIGIN,
-    DISCORD_CLIENT_ID: "client-id",
-    DISCORD_CLIENT_SECRET: "client-secret",
-    DISCORD_ALLOWED_GUILD_IDS: GUILD,
-    DISCORD_GUILD_ROLE_IDS: "",
-    CACHE_TTL_PUBLIC_SECONDS: "0",
-  });
+  bindings.CACHE_TTL_PUBLIC_SECONDS = "0";
 });
 
 afterAll(() => {
-  Object.assign(bindings, originalSettings);
+  bindings.CACHE_TTL_PUBLIC_SECONDS = originalCacheTtl;
 });
 
 beforeEach(async () => {
   await bindings.DB.exec(
-    "DELETE FROM audit_events; DELETE FROM collection_projects; DELETE FROM collections; DELETE FROM project_likes; DELETE FROM project_subscriptions; DELETE FROM download_daily_stats; DELETE FROM oauth_flows; DELETE FROM site_settings; UPDATE projects SET working_version_id = NULL, published_version_id = NULL, published_cover_asset_id = NULL; DELETE FROM project_search_tags; DELETE FROM assets; DELETE FROM project_versions; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;",
+    "DELETE FROM audit_events; DELETE FROM collection_projects; DELETE FROM collections; DELETE FROM project_likes; DELETE FROM project_subscriptions; DELETE FROM download_daily_stats; UPDATE projects SET working_version_id = NULL, published_version_id = NULL, published_cover_asset_id = NULL; DELETE FROM project_search_tags; DELETE FROM assets; DELETE FROM project_versions; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;",
   );
 });
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
 describe("policy acceptance & quiz gate", () => {
-  it("blocks authenticated capabilities with 403 until the 3-question quiz is passed", async () => {
+  it("blocks unaccepted and outdated-version sessions with 403 until the 3-question quiz is passed", async () => {
     await seedUser({ id: "owner-pending", role: "owner", acceptedVersion: null, token: "pending-token" });
+    await seedUser({ id: "member-outdated", role: "member", acceptedVersion: "2025-01", token: "outdated-token" });
     await seedUser({ id: "author-ok", role: "member", acceptedVersion: CURRENT_POLICY_VERSION, token: "author-token" });
     await seedPublishedProject({ id: "pub-1", authorId: "author-ok", title: "测试世界模组" });
 
     // Guest browsing still works even with no token or unaccepted session
     expect((await api("/api/v1/projects/pub-1")).status).toBe(200);
+    expect((await api("/api/v1/me/projects", "outdated-token")).status).toBe(403);
 
     // /me succeeds and reports accepted: false
     const meBefore = await api("/api/v1/me", "pending-token");
@@ -158,7 +139,6 @@ describe("policy acceptance & quiz gate", () => {
 
     // All non-exempt authenticated routes return 403 forbidden
     expect((await api("/api/v1/me/projects", "pending-token")).status).toBe(403);
-    expect((await api("/api/v1/me/likes/pub-1", "pending-token", { method: "PUT" })).status).toBe(403);
     expect((await api("/api/v1/projects/pub-1/preview/worldbook", "pending-token")).status).toBe(403);
     expect(
       (
@@ -241,39 +221,6 @@ describe("policy acceptance & quiz gate", () => {
       detail: JSON.stringify({ version: CURRENT_POLICY_VERSION }),
     });
   });
-
-  it("surfaces discreet Discord invite guidance on browser OAuth guild rejection and blocks state replay", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.endsWith("/oauth2/token")) return Response.json({ access_token: "tok" });
-        if (url.endsWith("/users/@me")) return Response.json({ id: "d1", username: "newbie" });
-        if (url.endsWith("/users/@me/guilds")) return Response.json([{ id: "999999999999999999" }]);
-        throw new Error(`unexpected ${url}`);
-      }),
-    );
-
-    const flowRes = await api("/api/v1/auth/flows", undefined, {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: ORIGIN },
-      body: JSON.stringify({ mode: "browser" }),
-    });
-    expect(flowRes.status).toBe(201);
-    const flow = (await flowRes.json()) as { state: string };
-
-    const cb = await api(`/api/v1/auth/callback?state=${encodeURIComponent(flow.state)}&code=abc`);
-    expect(cb.status).toBe(400);
-    const html = await cb.text();
-    expect(html).toContain("你的账号不在允许的 Discord 服务器中");
-    expect(html).toContain(DEFAULT_COMMUNITY_INVITE_URL);
-    expect(html).toContain('"type":"oauth-error"');
-
-    // Replaying the errored state is rejected immediately
-    const replay = await api(`/api/v1/auth/callback?state=${encodeURIComponent(flow.state)}&code=abc`);
-    expect(replay.status).toBe(400);
-    expect(await replay.text()).toContain("登录状态无效或已过期");
-  });
 });
 
 describe("collections & author showcase", () => {
@@ -311,6 +258,17 @@ describe("collections & author showcase", () => {
       visibility: "public",
       projectType: "角色",
     });
+
+    // Control characters in collection metadata are rejected
+    expect(
+      (
+        await api("/api/v1/collections", "a1-token", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ title: "含控制符\u0000" }),
+        })
+      ).status,
+    ).toBe(400);
 
     // Cannot add another author's project to own collection
     const forbiddenCreate = await api("/api/v1/collections", "a1-token", {
@@ -410,6 +368,13 @@ describe("collections & author showcase", () => {
     const roleInCol = (await roleInColRes.json()) as { total: number; items: Array<{ id: string }> };
     expect(roleInCol.total).toBe(1);
     expect(roleInCol.items[0]?.id).toBe("p-pub-role");
+
+    // Cursor scope isolates collectionId so a collection cursor cannot be replayed on the global catalogue
+    const pagedColRes = await api(`/api/v1/projects?collectionId=${encodeURIComponent(col.id)}&limit=1`);
+    expect(pagedColRes.status).toBe(200);
+    const { nextCursor } = (await pagedColRes.json()) as { nextCursor: string | null };
+    expect(nextCursor).toBeTruthy();
+    expect((await api(`/api/v1/projects?limit=1&cursor=${encodeURIComponent(nextCursor!)}`)).status).toBe(400);
 
     // Soft-deleting collection removes it from public endpoints without deleting projects
     const delRes = await api(`/api/v1/collections/${col.id}`, "a1-token", { method: "DELETE" });

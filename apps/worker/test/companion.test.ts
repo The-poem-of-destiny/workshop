@@ -1,4 +1,5 @@
 import { env, SELF } from "cloudflare:test";
+import { CURRENT_POLICY_VERSION } from "@workshop/domain";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { DataEnv } from "../src/data/env";
@@ -23,9 +24,9 @@ beforeEach(async () => {
   );
   for (const role of ["owner", "reviewer", "member"]) {
     await bindings.DB.prepare(
-      "INSERT INTO users (id, username, role, policy_accepted_version, policy_accepted_at) VALUES (?, ?, ?, '2026-11-v1', '2026-11-18T00:00:00.000Z')",
+      "INSERT INTO users (id, username, role, policy_accepted_version, policy_accepted_at) VALUES (?, ?, ?, ?, '2026-11-18T00:00:00.000Z')",
     )
-      .bind(role, role, role)
+      .bind(role, role, role, CURRENT_POLICY_VERSION)
       .run();
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${role}-token`));
     const hash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");

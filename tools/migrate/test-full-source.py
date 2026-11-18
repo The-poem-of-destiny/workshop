@@ -27,11 +27,22 @@ def create_current_snapshot(path, migrations=MIGRATIONS):
         for name, in db.execute("SELECT name FROM sqlite_schema WHERE type='trigger'").fetchall():
             db.execute("DROP TRIGGER " + taxonomy.quote(name))
         db.executescript("""
+            PRAGMA foreign_keys = OFF;
             DROP VIEW project_search_short_source;
             DROP TABLE collection_projects;
             DROP TABLE collections;
             DROP TABLE project_experience_notes;
             DROP TABLE project_unversioned_notes;
+            DROP TABLE users;
+            CREATE TABLE users (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                global_name TEXT,
+                avatar TEXT,
+                role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('member', 'reviewer', 'owner')),
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
             CREATE TABLE project_ratings (
                 project_id TEXT NOT NULL, user_id TEXT NOT NULL, rating INTEGER NOT NULL,
                 comment_text TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,

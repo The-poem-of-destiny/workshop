@@ -1,5 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import type { ExperienceNotesResponse } from "@workshop/contracts";
+import { CURRENT_POLICY_VERSION } from "@workshop/domain";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { DataEnv } from "../src/data/env";
 import { identityMe } from "../src/data/identity-operations";
@@ -35,9 +36,9 @@ beforeEach(async () => {
     DELETE FROM users;
   `);
   await bindings.DB.prepare(
-    "INSERT INTO users (id, username, global_name, avatar, role, policy_accepted_version, policy_accepted_at, created_at, updated_at) VALUES (?, ?, ?, ?, 'member', '2026-11-v1', ?, ?, ?)",
+    "INSERT INTO users (id, username, global_name, avatar, role, policy_accepted_version, policy_accepted_at, created_at, updated_at) VALUES (?, ?, ?, ?, 'member', ?, ?, ?, ?)",
   )
-    .bind("u1", "tester", "测试用户", "avatar-hash", now, now, now)
+    .bind("u1", "tester", "测试用户", "avatar-hash", CURRENT_POLICY_VERSION, now, now, now)
     .run();
   await bindings.DB.prepare(`
     INSERT INTO projects (id, author_id, visibility, updated_at)
@@ -104,8 +105,8 @@ describe("identity and interactions", () => {
         role: "member",
       },
       policy: {
-        currentVersion: "2026-11-v1",
-        acceptedVersion: "2026-11-v1",
+        currentVersion: CURRENT_POLICY_VERSION,
+        acceptedVersion: CURRENT_POLICY_VERSION,
         acceptedAt: now,
         accepted: true,
       },

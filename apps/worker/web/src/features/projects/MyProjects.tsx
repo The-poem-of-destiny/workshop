@@ -120,17 +120,21 @@ export function MyProjects({
     setBusy(true);
     try {
       const withdrawn = await api.withdrawSubmission(entry.project.id, submission.id, entry.rowVersion);
+      setWithdrawPrompt(null);
       if (continueEdit) {
-        await api.createVersion(
-          entry.project.id,
-          withdrawn.rowVersion,
-          metadataPayload(projectForm(entry.project, entry)),
-        );
-        onNotice("已撤回审核并创建新版本，现在可以直接修改并重新送审。");
+        try {
+          await api.createVersion(
+            entry.project.id,
+            withdrawn.rowVersion,
+            metadataPayload(projectForm(entry.project, entry)),
+          );
+          onNotice("已撤回审核并创建新版本，现在可以直接修改并重新送审。");
+        } catch (versionError) {
+          onError(`审核已撤回，但自动创建新版本失败，请点击「新建版本」继续修改：${String(versionError)}`);
+        }
       } else {
         onNotice("提交已撤回，线上已发布版本不受影响。");
       }
-      setWithdrawPrompt(null);
       await refresh();
     } catch (reason) {
       onError(String(reason));

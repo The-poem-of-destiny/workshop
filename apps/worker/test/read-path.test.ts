@@ -5,6 +5,7 @@ import {
   projectPreviewSchema,
   siteSettingsSchema,
 } from "@workshop/contracts";
+import { CURRENT_POLICY_VERSION } from "@workshop/domain";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { download } from "../src/data/download";
 import type { DataEnv } from "../src/data/env";
@@ -36,9 +37,9 @@ beforeEach(async () => {
 
 async function seed() {
   await bindings.DB.prepare(
-    "INSERT INTO users (id, username, global_name, avatar, role, policy_accepted_version, policy_accepted_at, created_at, updated_at) VALUES (?, ?, ?, ?, 'member', '2026-11-v1', ?, ?, ?)",
+    "INSERT INTO users (id, username, global_name, avatar, role, policy_accepted_version, policy_accepted_at, created_at, updated_at) VALUES (?, ?, ?, ?, 'member', ?, ?, ?, ?)",
   )
-    .bind("u1", "author", "作者", "avatar.png", now, now, now)
+    .bind("u1", "author", "作者", "avatar.png", CURRENT_POLICY_VERSION, now, now, now)
     .run();
 
   await bindings.DB.prepare(`
@@ -102,9 +103,9 @@ async function seed() {
     .bind(tokenHash, now, now)
     .run();
   await bindings.DB.prepare(
-    "INSERT INTO users (id, username, role, policy_accepted_version, policy_accepted_at, created_at, updated_at) VALUES ('u2', 'other', 'member', '2026-11-v1', ?, ?, ?)",
+    "INSERT INTO users (id, username, role, policy_accepted_version, policy_accepted_at, created_at, updated_at) VALUES ('u2', 'other', 'member', ?, ?, ?, ?)",
   )
-    .bind(now, now, now)
+    .bind(CURRENT_POLICY_VERSION, now, now, now)
     .run();
   const otherHash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("other-token")))]
     .map((byte) => byte.toString(16).padStart(2, "0"))

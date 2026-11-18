@@ -1,5 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { type ProjectType, projectListQuerySchema, projectListResponseSchema } from "@workshop/contracts";
+import { CURRENT_POLICY_VERSION } from "@workshop/domain";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DataEnv } from "../src/data/env";
@@ -17,8 +18,10 @@ beforeEach(async () => {
     "DELETE FROM download_daily_stats; UPDATE projects SET working_version_id=NULL, published_version_id=NULL, published_cover_asset_id=NULL; DELETE FROM assets; DELETE FROM project_versions; DELETE FROM projects; DELETE FROM users;",
   );
   await bindings.DB.prepare(
-    "INSERT INTO users (id, username, policy_accepted_version, policy_accepted_at) VALUES ('u', 'author', '2026-11-v1', '2026-10-26T00:00:00.000Z')",
-  ).run();
+    "INSERT INTO users (id, username, policy_accepted_version, policy_accepted_at) VALUES ('u', 'author', ?, '2026-10-26T00:00:00.000Z')",
+  )
+    .bind(CURRENT_POLICY_VERSION)
+    .run();
   await bindings.R2.delete("catalog/wb");
 });
 afterEach(() => vi.useRealTimers());
