@@ -205,7 +205,7 @@ def source_reconcile(data, dump, manifest_path, *, migrations=None):
             failures.append({"kind": "source_difference", "check": label})
 
     tables = data["tables"]
-    required_targets = {"users", "projects", "project_versions", "project_likes",
+    required_targets = {"users", "projects", "project_versions", "collections", "collection_projects", "project_likes",
                         "project_subscriptions", "project_experience_notes", "project_unversioned_notes", "project_metrics_daily",
                         "site_settings",
                         "audit_events", "recommendations", "assets"}
@@ -286,6 +286,8 @@ def source_reconcile(data, dump, manifest_path, *, migrations=None):
                   for row in tables.get(target_name, []))
         compare(target_name, expected, actual)
     compare("project_experience_notes", (), (stable(row) for row in tables.get("project_experience_notes", [])))
+    compare("collections", (), (stable(row) for row in tables.get("collections", [])))
+    compare("collection_projects", (), (stable(row) for row in tables.get("collection_projects", [])))
 
     for source_name, target_name, rename in (
         ("site_settings", "site_settings", {}),

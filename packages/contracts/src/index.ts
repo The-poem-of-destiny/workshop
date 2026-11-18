@@ -2,6 +2,7 @@ export * from "./admin.js";
 export * from "./admin-dto.js";
 export * from "./audit.js";
 export * from "./authoring.js";
+export * from "./collections.js";
 export * from "./companion.js";
 export * from "./errors.js";
 export * from "./health.js";

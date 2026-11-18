@@ -110,7 +110,7 @@ def main():
               for name in names}
     db.close()
     tables = defaultdict(list)
-    for name in ("users", "projects", "project_versions", "project_likes", "project_subscriptions",
+    for name in ("users", "projects", "project_versions", "collections", "collection_projects", "project_likes", "project_subscriptions",
                  "project_experience_notes", "project_unversioned_notes", "project_metrics_daily", "audit_events", "recommendations", "assets",
                  "version_entry_index", "site_settings"):
         tables[name] = []

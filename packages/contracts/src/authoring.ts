@@ -134,6 +134,7 @@ export const authorProjectSchema = z.object({
   workingVersionId: z.string().nullable(),
   latestSubmission: authorSubmissionSchema.nullable(),
   requirements: requirementsSchema.nullable().optional(),
+  collectionIds: z.array(z.string()).default([]),
 });
 export type AuthorProject = z.infer<typeof authorProjectSchema>;
 

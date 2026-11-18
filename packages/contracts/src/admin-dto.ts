@@ -165,6 +165,7 @@ export const adminProjectSchema = z.object({
   projectType: projectTypeSchema,
   includedTypes: includedTypesSchema,
   visibility: z.enum(["public", "private"]),
+  rowVersion: z.number().int().positive().default(1),
   author: z.object({ id: z.string(), name: z.string() }),
   publishedVersionId: z.string().nullable(),
   deletedAt: z.string().nullable(),

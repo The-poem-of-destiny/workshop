@@ -51,6 +51,24 @@ CREATE TABLE automated_reviews (
   CHECK(report_cleaned_at IS NULL OR (report_r2_key IS NULL AND report_hash IS NOT NULL AND checked_at IS NOT NULL))
 );
 
+CREATE TABLE collections (
+  id TEXT PRIMARY KEY,
+  author_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  title TEXT NOT NULL CHECK (length(trim(title)) BETWEEN 1 AND 120),
+  description TEXT NOT NULL DEFAULT '' CHECK (length(description) <= 2000),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  deleted_at TEXT
+);
+
+CREATE TABLE collection_projects (
+  collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL DEFAULT 0 CHECK (position >= 0),
+  added_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (collection_id, project_id)
+);
+
 CREATE TABLE download_daily_stats (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
@@ -331,9 +349,18 @@ CREATE TABLE users (
   global_name TEXT,
   avatar TEXT,
   role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('member', 'reviewer', 'owner')),
+  policy_accepted_version TEXT,
+  policy_accepted_at TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  CHECK ((policy_accepted_version IS NULL) = (policy_accepted_at IS NULL))
 );
+
+CREATE INDEX idx_collections_author ON collections(author_id, updated_at DESC) WHERE deleted_at IS NULL;
+
+CREATE INDEX idx_collection_projects_project ON collection_projects(project_id, collection_id);
+
+CREATE INDEX idx_collection_projects_order ON collection_projects(collection_id, position, added_at);
 
 CREATE INDEX idx_recommendation_activations_time ON recommendation_batch_activations(activated_at);
 
@@ -399,16 +426,18 @@ FROM projects p JOIN "project_versions" r ON r.id=p.published_version_id
 JOIN users u ON u.id=p.author_id;
 
 CREATE TRIGGER audit_action_insert BEFORE INSERT ON audit_events
-WHEN NEW.action NOT IN ('member.role_change','site.update','project.patch','project.delete',
+WHEN NEW.action NOT IN ('member.role_change','member.policy_accept','site.update','project.patch','project.delete',
   'submission.withdraw','submission.cutover_supersede','companion.publish',
+  'collection.create','collection.update','collection.delete',
   'recommendation.update','recommendation.delete','legacy.admin_added','legacy.admin_removed',
   'legacy.character_reference_created','legacy.character_reference_version_created',
   'legacy.editor_pick_removed','legacy.editor_pick_saved')
 BEGIN SELECT RAISE(ABORT,'unsupported audit action'); END;
 
 CREATE TRIGGER audit_action_update BEFORE UPDATE OF action ON audit_events
-WHEN NEW.action NOT IN ('member.role_change','site.update','project.patch','project.delete',
+WHEN NEW.action NOT IN ('member.role_change','member.policy_accept','site.update','project.patch','project.delete',
   'submission.withdraw','submission.cutover_supersede','companion.publish',
+  'collection.create','collection.update','collection.delete',
   'recommendation.update','recommendation.delete','legacy.admin_added','legacy.admin_removed',
   'legacy.character_reference_created','legacy.character_reference_version_created',
   'legacy.editor_pick_removed','legacy.editor_pick_saved')

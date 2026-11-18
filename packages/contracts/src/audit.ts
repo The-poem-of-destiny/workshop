@@ -2,12 +2,16 @@ import { z } from "zod";
 
 export const auditActionSchema = z.enum([
   "member.role_change",
+  "member.policy_accept",
   "site.update",
   "project.patch",
   "project.delete",
   "submission.withdraw",
   "submission.cutover_supersede",
   "companion.publish",
+  "collection.create",
+  "collection.update",
+  "collection.delete",
   "recommendation.update",
   "recommendation.delete",
   "legacy.admin_added",
@@ -57,6 +61,11 @@ export const adminAuditEventSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     ...base,
+    action: z.literal("member.policy_accept"),
+    detail: z.object({ version: z.string() }),
+  }),
+  z.object({
+    ...base,
     action: z.literal("site.update"),
     detail: z.object({ before: z.record(z.string(), z.json()), after: z.record(z.string(), z.json()) }),
   }),
@@ -76,6 +85,13 @@ export const adminAuditEventSchema = z.discriminatedUnion("action", [
     detail: z.object({ reason: z.literal("publication_baseline_unavailable") }),
   }),
   z.object({ ...base, action: z.literal("companion.publish"), detail: z.object({ version: z.string() }) }),
+  z.object({ ...base, action: z.literal("collection.create"), detail: z.object({ title: z.string() }) }),
+  z.object({
+    ...base,
+    action: z.literal("collection.update"),
+    detail: z.object({ fields: z.array(z.string()) }),
+  }),
+  z.object({ ...base, action: z.literal("collection.delete"), detail: z.object({ soft: z.literal(true) }) }),
   z.object({
     ...base,
     action: z.literal("recommendation.update"),

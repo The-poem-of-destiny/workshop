@@ -11,9 +11,35 @@ export const sessionSchema = z.object({
   role: roleSchema,
   sessionVersion: z.number().int().nonnegative(),
   expiresAt: z.string().datetime(),
+  policyAccepted: z.boolean().optional(),
 });
 
 export type Session = z.infer<typeof sessionSchema>;
+
+export const userPolicyStateSchema = z.object({
+  currentVersion: z.string().min(1),
+  acceptedVersion: z.string().nullable(),
+  acceptedAt: z.string().nullable(),
+  accepted: z.boolean(),
+});
+
+export type UserPolicyState = z.infer<typeof userPolicyStateSchema>;
+
+export const policyAcceptanceInputSchema = z
+  .object({
+    version: z.string().trim().min(1).max(64),
+    agreed: z.literal(true),
+    answers: z.record(z.string().min(1).max(64), z.string().min(1).max(64)),
+  })
+  .strict();
+
+export type PolicyAcceptanceInput = z.infer<typeof policyAcceptanceInputSchema>;
+
+export const policyAcceptanceResponseSchema = z.object({
+  policy: userPolicyStateSchema,
+});
+
+export type PolicyAcceptanceResponse = z.infer<typeof policyAcceptanceResponseSchema>;
 
 export const meResponseSchema = z.object({
   user: z.object({
@@ -23,6 +49,7 @@ export const meResponseSchema = z.object({
     avatarUrl: z.string().nullable(),
     role: roleSchema,
   }),
+  policy: userPolicyStateSchema,
 });
 
 export type MeResponse = z.infer<typeof meResponseSchema>;
