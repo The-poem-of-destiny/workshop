@@ -202,36 +202,6 @@ export function App() {
         />
       ) : null}
 
-      <div className="page-stage" inert={isMobile && sidebarOpen}>
-        <WorkshopMessages
-          site={site}
-          view={view}
-          error={error}
-          setError={setError}
-          authInviteHint={authInviteHint}
-          clearAuthInviteHint={clearAuthInviteHint}
-          pendingPolicyUser={pendingPolicyUser}
-          onOpenPolicy={() => setPolicyDialogOpen(true)}
-          sessionError={sessionError}
-          retrySession={() => void refreshMe()}
-          loginFallback={loginFallback}
-          notice={notice}
-          setNotice={setNotice}
-        />
-
-        {view === "browse" && !hasFilters ? (
-          <div className="discovery-stage">
-            <Discovery
-              home={home}
-              onOpen={(project, opener) => {
-                detailOpener.current = opener;
-                setSelected(project);
-              }}
-            />
-          </div>
-        ) : null}
-      </div>
-
       <div className={`shell-body${sidebarCollapsed || !showDesktopSidebar ? " sidebar-collapsed" : ""}`}>
         {showDesktopSidebar || isMobile ? (
           <WorkshopSidebar
@@ -264,6 +234,34 @@ export function App() {
         ) : null}
 
         <main className="workshop-main" inert={isMobile && sidebarOpen}>
+          <WorkshopMessages
+            site={site}
+            view={view}
+            error={error}
+            setError={setError}
+            authInviteHint={authInviteHint}
+            clearAuthInviteHint={clearAuthInviteHint}
+            pendingPolicyUser={pendingPolicyUser}
+            onOpenPolicy={() => setPolicyDialogOpen(true)}
+            sessionError={sessionError}
+            retrySession={() => void refreshMe()}
+            loginFallback={loginFallback}
+            notice={notice}
+            setNotice={setNotice}
+          />
+
+          {view === "browse" && !hasFilters ? (
+            <div className="discovery-stage">
+              <Discovery
+                home={home}
+                onOpen={(project, opener) => {
+                  detailOpener.current = opener;
+                  setSelected(project);
+                }}
+              />
+            </div>
+          ) : null}
+
           <WorkshopWorkspaces
             view={view}
             onDirtyChange={onDirtyChange}

@@ -173,12 +173,11 @@ export function Installed({
       ) : null}
       {scan ? (
         <section className="installed-scope" aria-label="扫描范围">
-          <h2>本次扫描范围</h2>
-          <p>世界书：{scan.scope.worldbooks.join("、") || "无"}</p>
-          <p>当前角色：{scan.scope.character ?? "未选择角色"}；正则仅扫描当前角色，其他角色未扫描，不代表没有安装。</p>
+          <h2>当前扫描范围</h2>
           <p>
-            旧格式转换仅处理当前可见世界书中的工坊旧项目；有歧义或冲突的项目会跳过，不处理角色正则或其他世界书。请先备份世界书。
+            世界书：{scan.scope.worldbooks.join("、") || "无"} · 当前角色：{scan.scope.character ?? "未选择角色"}
           </p>
+          <p className="hint">转换旧格式前请先备份相关世界书。</p>
           <Button
             type="button"
             variant="secondary"
@@ -198,7 +197,7 @@ export function Installed({
           </Button>
           {scan.failures.length ? (
             <>
-              <h3>扫描失败（不能据此判断未安装）</h3>
+              <h3>读取异常项</h3>
               <ul>
                 {scanEntryKeys(scan.failures).map(({ entry: failure, key }) => (
                   <li key={key}>
@@ -210,7 +209,7 @@ export function Installed({
           ) : null}
           {scan.ambiguous.length ? (
             <>
-              <h3>疑似内容（未认定为安装实例）</h3>
+              <h3>待核对内容</h3>
               <ul>
                 {scanEntryKeys(scan.ambiguous).map(({ entry: item, key }) => (
                   <li key={key}>
@@ -219,7 +218,7 @@ export function Installed({
                   </li>
                 ))}
               </ul>
-              <p>不支持手工认领。请先备份并检查疑似内容，再从项目详情重新安装到明确目标，避免重复条目。</p>
+              <p className="hint">建议先备份世界书并核对上述条目，再从作品详情页重新安装。</p>
               {onReinstall ? (
                 <Button type="button" variant="secondary" onClick={onReinstall} disabled={mutating}>
                   浏览项目并重新安装
@@ -229,7 +228,7 @@ export function Installed({
           ) : null}
         </section>
       ) : !loading ? (
-        <p className="installed-empty">尚无扫描结果，请重新扫描；不能据此判断未安装。</p>
+        <p className="installed-empty">尚无扫描记录，请点击右上角「重新扫描」。</p>
       ) : null}
       {loading ? (
         <p role="status">正在读取实例及项目信息…</p>

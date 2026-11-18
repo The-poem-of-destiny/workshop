@@ -88,16 +88,16 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
-.panel label {
+:where(.panel) label:not(.included-type-option):not(.collection-check-row):not(.file-button):not(.cover-zoom-slider) {
   display: grid;
   gap: 5px;
   margin: 10px 0;
   color: #c4c2bd;
   font-size: 12px;
 }
-.panel input,
-.panel textarea,
-.panel select {
+:where(.panel) input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+:where(.panel) textarea,
+:where(.panel) select {
   width: 100%;
   border: 1px solid var(--border-strong);
   border-radius: 5px;
@@ -105,8 +105,8 @@
   color: #e5e4e1;
   font-size: 12px;
 }
-.panel input,
-.panel select {
+:where(.panel) input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+:where(.panel) select {
   min-height: 34px;
   padding: 6px 8px;
 }

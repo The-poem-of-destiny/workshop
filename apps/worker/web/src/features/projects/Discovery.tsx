@@ -1,4 +1,4 @@
-import { BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, History, Upload } from "lucide-react";
+import { BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, History } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { DiscoveryResponse, ProjectSummary } from "../../api";
 import type { HomeLoadState } from "../../useWorkshopHome";
@@ -306,9 +306,15 @@ function DiscoveryBrowser({
             </div>
             <div className="discovery-copy" key={project.id}>
               <div className="discovery-copy-content">
-                <span className="discovery-type" data-type={project.projectType}>
-                  {project.projectType}
-                </span>
+                <div className="discovery-meta-head">
+                  <span className="discovery-type" data-type={project.projectType}>
+                    {project.projectType}
+                  </span>
+                  <span className="discovery-dates">
+                    <History aria-hidden="true" />
+                    <time dateTime={project.updatedAt}>{project.updatedAt.slice(0, 10)}</time>
+                  </span>
+                </div>
                 <h3>
                   <button type="button" onClick={(event) => onOpen(project, event.currentTarget)}>
                     {project.title}
@@ -328,21 +334,7 @@ function DiscoveryBrowser({
                   </span>
                   <span>{project.author.name}</span>
                 </p>
-                <p className="discovery-description">{excerpt(project.description)}</p>
-                <div className="discovery-dates">
-                  {project.publishedAt ? (
-                    <span>
-                      <Upload aria-hidden="true" />
-                      <span>首次上传 </span>
-                      <time dateTime={project.publishedAt}>{project.publishedAt.slice(0, 10)}</time>
-                    </span>
-                  ) : null}
-                  <span>
-                    <History aria-hidden="true" />
-                    <span>更新 </span>
-                    <time dateTime={project.updatedAt}>{project.updatedAt.slice(0, 10)}</time>
-                  </span>
-                </div>
+                <p className="discovery-description">{excerpt(project.description, 120)}</p>
                 <DiscoveryRecommendations key={project.id} recommendations={project.recommendations} />
               </div>
             </div>
@@ -364,23 +356,11 @@ export function Discovery({
     return (
       <section className="discovery discovery-status" aria-busy="true">
         <h2>发现</h2>
-        <p className="hint">正在整理发现内容…</p>
+        <span className="hint">正在加载推荐…</span>
       </section>
     );
-  if (home.status === "error" || !home.data.discovery.ok)
-    return (
-      <section className="discovery discovery-status">
-        <h2>发现</h2>
-        <p className="hint">暂时无法加载发现内容，主列表不受影响。</p>
-      </section>
-    );
+  if (home.status === "error" || !home.data.discovery.ok) return null;
   const items = home.data.discovery.data.items;
-  if (!items.length)
-    return (
-      <section className="discovery discovery-status">
-        <h2>发现</h2>
-        <p className="hint">暂无可展示的发现项目，可继续浏览下方主列表。</p>
-      </section>
-    );
+  if (!items.length) return null;
   return <DiscoveryBrowser items={items} onOpen={onOpen} />;
 }

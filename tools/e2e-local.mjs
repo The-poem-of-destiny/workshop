@@ -1225,7 +1225,7 @@ async function main() {
             };
             await openDetail();
             const form = page.getByRole("region", { name: "版本推荐", exact: true });
-            const ineligible = "请先订阅此项目，再推荐当前版本；取消订阅后不可新增或编辑，仍可撤回已有推荐。";
+            const ineligible = "订阅作品后即可推荐当前版本。";
             await form.getByText(ineligible, { exact: true }).waitFor();
             assert(
               (await page.locator(".detail").getByRole("textbox", { name: /推荐/ }).count()) === 1,
@@ -1453,10 +1453,8 @@ async function main() {
           await page.locator(".workspace-create").getByRole("button", { name: "返回我的项目", exact: true }).click();
           await page.locator(".workspace-projects").waitFor({ state: "visible", timeout: 10_000 });
           await page.getByText("E2E Project", { exact: true }).first().click();
-          const editor = page.getByRole("dialog", { name: "E2E Project · 编辑任务", exact: true });
-          await editor
-            .getByRole("button", { name: "资料、封面与内容统一送审", exact: true })
-            .waitFor({ state: "visible" });
+          const editor = page.getByRole("dialog", { name: "E2E Project · 编辑项目", exact: true });
+          await editor.getByRole("button", { name: "提交审核", exact: true }).waitFor({ state: "visible" });
           await screenshot(page, "author-workspace");
           await editor.getByRole("button", { name: "返回我的项目", exact: true }).click();
           await editor.waitFor({ state: "hidden" });
@@ -1570,7 +1568,7 @@ async function main() {
             !("extensionType" in submitted) && !("displayTags" in submitted) && !("facets" in submitted),
             "creation sends no obsolete taxonomy semantics",
           );
-          let editor = page.getByRole("dialog", { name: "E2E Taxonomy Draft · 编辑任务", exact: true });
+          let editor = page.getByRole("dialog", { name: "E2E Taxonomy Draft · 编辑项目", exact: true });
           await editor.waitFor({ state: "visible", timeout: 10_000 });
           await editor.getByRole("combobox", { name: "主要分类（必选）", exact: true }).selectOption("玩法");
           const editIncluded = editor.getByRole("group", { name: "包含的其他类型（可选）", exact: true });
@@ -1610,7 +1608,7 @@ async function main() {
           await page.reload({ waitUntil: "networkidle" });
           await page.getByRole("button", { name: "我的项目", exact: true }).click();
           await page.locator(".workspace-project-row").filter({ hasText: "E2E Taxonomy Draft" }).click();
-          editor = page.getByRole("dialog", { name: "E2E Taxonomy Draft · 编辑任务", exact: true });
+          editor = page.getByRole("dialog", { name: "E2E Taxonomy Draft · 编辑项目", exact: true });
           await editor.waitFor({ state: "visible" });
           assert(
             (await editor.getByRole("combobox", { name: "主要分类（必选）", exact: true }).inputValue()) === "玩法",
@@ -1835,8 +1833,8 @@ async function main() {
               return /\/submit$/.test(url.pathname) && response.request().method() === "POST";
             }),
             page
-              .getByRole("dialog", { name: "E2E Pending · 编辑任务", exact: true })
-              .getByRole("button", { name: "资料、封面与内容统一送审", exact: true })
+              .getByRole("dialog", { name: "E2E Pending · 编辑项目", exact: true })
+              .getByRole("button", { name: "提交审核", exact: true })
               .click(),
           ]);
           assert(
@@ -1982,7 +1980,7 @@ async function main() {
             await page.goto(`${base}/`, { waitUntil: "networkidle" });
             await page.getByRole("button", { name: "我的项目", exact: true }).click();
             await page.locator(".workspace-project-row").filter({ hasText: "E2E Taxonomy Draft" }).click();
-            const editor = page.getByRole("dialog", { name: "E2E Taxonomy Draft · 编辑任务", exact: true });
+            const editor = page.getByRole("dialog", { name: "E2E Taxonomy Draft · 编辑项目", exact: true });
             const titleBox = editor.getByRole("textbox", { name: "标题", exact: true });
             await editor.waitFor({ state: "visible" });
             assert(await titleBox.isDisabled(), "editor is frozen while submission is pending review");

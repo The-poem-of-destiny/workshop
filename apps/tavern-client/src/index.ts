@@ -82,63 +82,64 @@ function showOverlay() {
   if (typeof host$ !== "function") throw new Error("SillyTavern jQuery 未就绪");
 
   closeOverlay();
+  const applyResponsiveShell = (overlayEl: HTMLElement | undefined, cardEl: HTMLElement | undefined) => {
+    if (!overlayEl || !cardEl) return;
+    const narrow = hostWindow.innerWidth <= 768;
+    overlayEl.style.padding = narrow ? "0" : "12px";
+    cardEl.style.width = narrow ? "100vw" : "min(1720px, calc(100vw - 24px))";
+    cardEl.style.height = narrow ? "100dvh" : "100%";
+    cardEl.style.borderRadius = narrow ? "0" : "14px";
+    cardEl.style.border = narrow ? "0" : "1px solid rgba(200, 174, 130, 0.2)";
+  };
+
   const $overlay = host$(`<div id="${OVERLAY_ID}">`).css({
     position: "fixed",
     inset: "0",
     zIndex: 2147483600,
-    background: "rgba(0,0,0,.72)",
+    background: "rgba(6, 7, 10, .76)",
     display: "flex",
     alignItems: "stretch",
     justifyContent: "center",
-    padding: "16px",
+    padding: "12px",
     boxSizing: "border-box",
-    backdropFilter: "blur(4px)",
+    backdropFilter: "blur(6px)",
   });
   const $card = host$("<div>").css({
     position: "relative",
     display: "flex",
     flexDirection: "column",
-    width: "min(1680px, calc(100vw - 40px))",
+    width: "min(1720px, calc(100vw - 24px))",
     height: "100%",
-    background: "#0f1012",
-    borderRadius: "18px",
+    background: "#111318",
+    borderRadius: "14px",
     overflow: "hidden",
-    boxShadow: "0 24px 80px rgba(0,0,0,.5)",
-  });
-  const $bar = host$("<div>").css({
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    flex: "0 0 46px",
-    padding: "0 8px 0 16px",
-    background: "#1b1d22",
-    color: "#e5e7eb",
-    font: "600 13px system-ui",
-  });
-  const $close = host$("<button type='button' aria-label='关闭'>×</button>").css({
-    width: "40px",
-    height: "40px",
-    border: "0",
-    borderRadius: "9px",
-    background: "transparent",
-    color: "#d1d5db",
-    fontSize: "26px",
-    cursor: "pointer",
+    boxShadow: "0 24px 72px rgba(0,0,0,.55)",
   });
   const $frame = host$("<iframe frameborder='0'>").css({
     flex: "1 1 0",
     minHeight: "0",
     width: "100%",
     border: "0",
-    background: "#0f1012",
+    background: "#111318",
   });
-  $bar.append(host$("<span>命定创意工坊</span>"), $close);
-  $card.append($bar, $frame);
+  $card.append($frame);
   $overlay.append($card).appendTo(hostDocument.body);
+  applyResponsiveShell($overlay[0], $card[0]);
   activeFrame = $frame[0];
 
-  const close = () => closeOverlay();
-  $close.on("click", close);
+  const onResize = () => {
+    if (!hostDocument.getElementById(OVERLAY_ID)) {
+      hostWindow.removeEventListener("resize", onResize);
+      return;
+    }
+    applyResponsiveShell($overlay[0], $card[0]);
+  };
+  hostWindow.addEventListener("resize", onResize);
+
+  const close = () => {
+    hostWindow.removeEventListener("resize", onResize);
+    closeOverlay();
+  };
   $overlay.on("click", (event: Event) => {
     if (event.target === $overlay[0]) close();
   });
@@ -164,15 +165,37 @@ function showOverlay() {
         console.warn("[CreativeWorkshop] 当前渠道尚未发布客户端，已进入引导模式。");
       } else if (version.compatible === false) {
         $frame.remove();
+        const $fallbackBar = host$("<div>").css({
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "12px 16px",
+          borderBottom: "1px solid rgba(255,255,255,.08)",
+          color: "#efeee9",
+          font: "600 14px system-ui",
+        });
+        const $fallbackClose = host$("<button type='button' aria-label='关闭'>关闭</button>").css({
+          minHeight: "36px",
+          padding: "6px 12px",
+          border: "1px solid rgba(255,255,255,.16)",
+          borderRadius: "8px",
+          background: "transparent",
+          color: "#e5e7eb",
+          fontSize: "13px",
+          cursor: "pointer",
+        });
+        $fallbackClose.on("click", close);
+        $fallbackBar.append(host$("<span>命定创意工坊</span>"), $fallbackClose);
         $card.append(
+          $fallbackBar,
           host$("<div>")
             .css({
-              padding: "32px",
+              padding: "28px 24px",
               color: "#fbbf24",
               font: "14px/1.7 system-ui",
             })
             .text(
-              `客户端版本 ${CLIENT_VERSION} 与工坊要求不一致，需要 ${version.required ?? "更新版本"}。请刷新页面或更新脚本。`,
+              `当前酒馆脚本版本（${CLIENT_VERSION}）需要升级至 ${version.required ?? "最新版本"}，请刷新页面或更新脚本后重试。`,
             ),
         );
         return;

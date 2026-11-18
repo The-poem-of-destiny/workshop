@@ -64,9 +64,9 @@ export function AdminPanel({
     <div className="review-workbench" data-testid="review-workbench">
       <header className="review-header">
         <div>
-          <p className="review-eyebrow">CONTENT REVIEW</p>
+          <p className="review-eyebrow">内容审核</p>
           <h2>审核台</h2>
-          <p className="review-subtitle">只显示待审核提交。先确认检查证据，再决定是否发布。</p>
+          <p className="review-subtitle">核对提交内容与检查报告，确认无误后放行发布。</p>
         </div>
         <button
           className="review-button review-button-secondary"
@@ -91,7 +91,7 @@ export function AdminPanel({
               <b>{counts.approved}</b> 已通过
             </span>
             <span>
-              <b>{counts.rejected}</b> 已拒绝
+              <b>{counts.rejected}</b> 已退回
             </span>
           </>
         ) : (
@@ -106,7 +106,7 @@ export function AdminPanel({
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="项目、作者、提交 ID 或 gate"
+          placeholder="搜索项目、作者或提交编号…"
           autoComplete="off"
         />
         <span className="review-search-count">

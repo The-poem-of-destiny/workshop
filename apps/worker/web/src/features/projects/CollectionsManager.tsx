@@ -94,9 +94,7 @@ export function CollectionsManager({
         <div>
           <p className="workspace-kicker">系列整理</p>
           <h2 id="author-collections-heading">我的作品合集</h2>
-          <p className="workspace-muted">
-            将同一世界观或同系列作品归入合集；包含至少 1 个已公开发布作品的合集会在作品详情页和作者主页公开展示。
-          </p>
+          <p className="workspace-muted">将同世界观或同系列作品归入合集，公开作品详情页会自动展示所属合集。</p>
         </div>
         <div className="workspace-actions">
           <button type="button" className="workspace-primary" onClick={openCreate}>
@@ -108,7 +106,7 @@ export function CollectionsManager({
 
       {loading && collections.length === 0 ? <p className="workspace-state">正在加载合集…</p> : null}
       {!loading && collections.length === 0 ? (
-        <p className="workspace-muted">还没有创建合集。点击右上角「新建合集」即可把多个作品串联成系列。</p>
+        <p className="workspace-muted">还没有合集，点击右上角「新建合集」即可串联多个作品。</p>
       ) : null}
 
       {collections.length > 0 ? (
@@ -138,10 +136,10 @@ export function CollectionsManager({
       ) : null}
 
       <Dialog open={editing !== null} onOpenChange={(next) => (next || saving ? undefined : setEditing(null))}>
-        <DialogContent className="collection-editor-dialog max-w-[560px]">
+        <DialogContent className="collection-editor-dialog mobile-sheet max-w-[560px]">
           <DialogHeader>
             <DialogTitle>{editing === "create" ? "新建作品合集" : "编辑作品合集"}</DialogTitle>
-            <DialogDescription>只能将你自己创建的作品加入合集；未公开的草稿不会对外泄露。</DialogDescription>
+            <DialogDescription>勾选要收入本合集的作品（未公开草稿不会对外显示）。</DialogDescription>
           </DialogHeader>
           <div className="collection-editor-body">
             <label>
@@ -269,10 +267,10 @@ export function ProjectCollectionsField({
     <section className="workspace-section authoring-section">
       <h3>所属作品合集</h3>
       {collections.length === 0 ? (
-        <p className="workspace-muted">你还没有创建合集。返回「我的项目」可在「我的作品合集」区域新建系列合集。</p>
+        <p className="workspace-muted">暂无合集，可在「我的项目」页面新建系列合集。</p>
       ) : (
         <>
-          <p className="workspace-muted">勾选此作品所属的合集（调整合集归属无需重新送审，保存后立即生效）：</p>
+          <p className="workspace-muted">勾选所属合集，保存后立即生效：</p>
           <div className="collection-project-checklist">
             {collections.map((collection) => (
               <label key={collection.id} className="collection-check-row">

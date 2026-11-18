@@ -14,7 +14,7 @@ export function WorkshopFaqDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="faq-dialog max-w-[600px]">
+      <DialogContent className="faq-dialog mobile-sheet max-w-[600px]">
         <DialogHeader>
           <DialogTitle>使用帮助与常见问题</DialogTitle>
           <DialogDescription>关于账号验证、模组安装机制、反馈渠道与工坊规范的简要说明</DialogDescription>

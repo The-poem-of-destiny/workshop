@@ -217,7 +217,7 @@ export function WorkshopSidebar({
             {tagLimitMessage ??
               (tags.length > 0
                 ? `已选 ${tags.length} / ${MAX_SELECTED_TAGS} 个标签${atTagLimit ? "，请先移除再添加。" : ""}`
-                : "同组任一匹配，跨组同时满足")}
+                : "可多选标签组合筛选")}
           </p>
           {tags.length > 0 ? (
             <section className="sidebar-selected-tags" aria-label="已选筛选标签">
@@ -227,7 +227,7 @@ export function WorkshopSidebar({
                   key={value}
                   className="filter-chip active"
                   aria-label={`移除筛选标签 ${value}`}
-                  title={presetTagGroup(value) ? `预设 · ${presetTagGroup(value)}` : "自定义标签 · AND"}
+                  title={presetTagGroup(value) ? `预设 · ${presetTagGroup(value)}` : "自定义标签"}
                   onClick={() => removeTag(value)}
                 >
                   {value}
@@ -237,33 +237,36 @@ export function WorkshopSidebar({
             </section>
           ) : null}
           <div className="sidebar-tag-groups">
-            {groups.map((group) => (
-              <details
-                key={group.name}
-                className="sidebar-tag-group"
-                open={group.tags.some((value) => tags.includes(value))}
-              >
-                <summary>
-                  {group.name}
-                  <span>{group.tags.length}</span>
-                </summary>
-                <fieldset className="sidebar-tags" aria-label={`${group.name}标签`}>
-                  {group.tags.map((value) => (
-                    <button
-                      type="button"
-                      key={value}
-                      aria-pressed={tags.includes(value)}
-                      disabled={atTagLimit && !tags.includes(value)}
-                      onClick={() => {
-                        if (setView("browse")) toggleTag(value);
-                      }}
-                    >
-                      {value}
-                    </button>
-                  ))}
-                </fieldset>
-              </details>
-            ))}
+            {groups.map((group) => {
+              const selectedCount = group.tags.filter((value) => tags.includes(value)).length;
+              return (
+                <details
+                  key={group.name}
+                  className={`sidebar-tag-group${selectedCount > 0 ? " has-active" : ""}`}
+                  open={selectedCount > 0}
+                >
+                  <summary>
+                    {group.name}
+                    <span>{selectedCount > 0 ? `已选 ${selectedCount}` : group.tags.length}</span>
+                  </summary>
+                  <fieldset className="sidebar-tags" aria-label={`${group.name}标签`}>
+                    {group.tags.map((value) => (
+                      <button
+                        type="button"
+                        key={value}
+                        aria-pressed={tags.includes(value)}
+                        disabled={atTagLimit && !tags.includes(value)}
+                        onClick={() => {
+                          if (setView("browse")) toggleTag(value);
+                        }}
+                      >
+                        {value}
+                      </button>
+                    ))}
+                  </fieldset>
+                </details>
+              );
+            })}
           </div>
           {pageTags.length > 0 ? (
             <details className="sidebar-tag-group">

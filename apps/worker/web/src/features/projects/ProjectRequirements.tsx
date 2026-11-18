@@ -67,8 +67,7 @@ export function ProjectRequirements({ value }: { value: Requirements }) {
     <>
       {recommended.length > 0 ? (
         <section className="detail-section detail-suggest">
-          <h3>建议搭配</h3>
-          <p className="detail-suggest-note">作者觉得一起用效果更好，不是安装条件；单独安装也能正常使用。</p>
+          <h3>推荐搭配</h3>
           <ul className="detail-suggest-list">
             {keyedItems(recommended).map(({ item, key }: { item: Recommended; key: string }) => (
               <li key={key}>
@@ -81,11 +80,11 @@ export function ProjectRequirements({ value }: { value: Requirements }) {
       ) : null}
       {hasHard ? (
         <section className="detail-section detail-warning">
-          <h3>依赖与冲突声明</h3>
+          <h3>安装前置与冲突说明</h3>
           {value.notes.trim() ? <Markdown text={value.notes} /> : null}
           {value.dependencies.length ? (
             <>
-              <h4>依赖</h4>
+              <h4>前置依赖</h4>
               <ul>
                 {keyedItems(value.dependencies).map(({ item: target, key }) => (
                   <li key={key}>{targetLabel(target)}</li>
@@ -95,18 +94,17 @@ export function ProjectRequirements({ value }: { value: Requirements }) {
           ) : null}
           {value.conflicts.length ? (
             <>
-              <h4>冲突／覆盖</h4>
+              <h4>冲突与覆盖</h4>
               <ul>
                 {keyedItems(value.conflicts).map(({ item, key }) => (
                   <li key={key}>
-                    {item.mode === "override" ? "当前项目覆盖：" : "不能正常共存："}
+                    {item.mode === "override" ? "覆盖：" : "冲突："}
                     {targetLabel(item.target)}
                   </li>
                 ))}
               </ul>
             </>
           ) : null}
-          <p className="field-hint">以上为作者声明；不代表已自动解析、安装依赖或验证兼容性。</p>
         </section>
       ) : null}
     </>

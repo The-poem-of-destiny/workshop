@@ -16,8 +16,7 @@ export function SubmissionHistory({
   return (
     <section className="submission-history">
       <div className="submission-history-heading">
-        <h3>提交历史</h3>
-        <p className="field-hint">每次提交的检查与审核结果都会保留在这里。</p>
+        <h3>提交与审核记录</h3>
       </div>
       {error ? (
         <p className="asset-error" role="alert">
@@ -35,7 +34,7 @@ export function SubmissionHistory({
             <p className="submission-meta">
               检查：{CHECK_STATUS_LABELS[item.checkStatus]}
               {item.checkedAt ? `（${formatDateTime(item.checkedAt)}）` : ""}
-              {item.gate ? ` · 客户端门禁：${GATE_TEXT[item.gate] ?? item.gate}` : ""}
+              {item.gate ? ` · 本地预检：${GATE_TEXT[item.gate] ?? item.gate}` : ""}
             </p>
             {item.withdrawnAt ? <p className="submission-meta">撤回于 {formatDateTime(item.withdrawnAt)}</p> : null}
             {item.status === "pending" || item.status === "checking" ? (

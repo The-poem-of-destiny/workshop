@@ -82,6 +82,18 @@ export function WorkshopHeader({
   return (
     <header ref={headerRef} className="site-header" inert={isMobile && sidebarOpen}>
       <div className="header-brand">
+        <button
+          ref={drawerToggle}
+          type="button"
+          className="drawer-toggle"
+          aria-expanded={sidebarOpen}
+          aria-controls="workshop-sidebar"
+          aria-label="打开导航与筛选"
+          onClick={() => setSidebarOpen(true)}
+        >
+          <Menu aria-hidden="true" />
+          {hasFilters ? <span className="drawer-toggle-dot" aria-hidden="true" /> : null}
+        </button>
         {view === "browse" ? (
           <button
             type="button"
@@ -107,19 +119,21 @@ export function WorkshopHeader({
       </div>
 
       <div className="header-center">
-        <div className="header-search">
-          <Search aria-hidden="true" />
-          <Input
-            type="search"
-            value={search}
-            onChange={(event) => {
-              if (!setView("browse")) return;
-              setSearch(event.target.value);
-            }}
-            placeholder="搜索作品、作者、标签…"
-            aria-label="搜索"
-          />
-        </div>
+        {!isMobile || view === "browse" ? (
+          <div className="header-search">
+            <Search aria-hidden="true" />
+            <Input
+              type="search"
+              value={search}
+              onChange={(event) => {
+                if (!setView("browse")) return;
+                setSearch(event.target.value);
+              }}
+              placeholder="搜索作品、作者、标签…"
+              aria-label="搜索"
+            />
+          </div>
+        ) : null}
         {me ? (
           <nav className="personal-nav" aria-label="个人导航">
             <button
@@ -185,19 +199,21 @@ export function WorkshopHeader({
           <CircleHelp aria-hidden="true" />
           <span>帮助</span>
         </button>
-        <span
-          role="status"
-          className={`tavern-status ${connectionStatus}`}
-          aria-label={`SillyTavern ${connectionLabel}`}
-          title={connectionTitle}
-        >
-          {connectionStatus === "connected" || connectionStatus === "connecting" ? (
-            <Link2 aria-hidden="true" />
-          ) : (
-            <Link2Off aria-hidden="true" />
-          )}
-          <span>{connectionLabel}</span>
-        </span>
+        {embedded || connectionStatus === "connected" || connectionStatus === "connecting" ? (
+          <span
+            role="status"
+            className={`tavern-status ${connectionStatus}`}
+            aria-label={`SillyTavern ${connectionLabel}`}
+            title={connectionTitle}
+          >
+            {connectionStatus === "connected" || connectionStatus === "connecting" ? (
+              <Link2 aria-hidden="true" />
+            ) : (
+              <Link2Off aria-hidden="true" />
+            )}
+            <span>{connectionLabel}</span>
+          </span>
+        ) : null}
         {embedded ? (
           <Button
             type="button"
@@ -208,7 +224,7 @@ export function WorkshopHeader({
               if (confirmLeave()) postToHost({ type: "cw:close" });
             }}
           >
-            关闭工坊
+            {isMobile ? "关闭" : "关闭工坊"}
           </Button>
         ) : null}
         {me ? (
@@ -227,7 +243,7 @@ export function WorkshopHeader({
           <div className="account account-pending-policy">
             <button type="button" className="policy-pending-trigger" onClick={onOpenPolicy}>
               <ShieldAlert aria-hidden="true" />
-              <span>完成政策确认</span>
+              <span>完成确认</span>
             </button>
             <Button type="button" size="sm" variant="ghost" onClick={logout}>
               退出
@@ -236,21 +252,9 @@ export function WorkshopHeader({
         ) : (
           <Button type="button" className="login" onClick={login}>
             <img className="discord-icon" src="/discord.svg" alt="" />
-            Discord 登录
+            <span>{isMobile ? "登录" : "Discord 登录"}</span>
           </Button>
         )}
-        <button
-          ref={drawerToggle}
-          type="button"
-          className="drawer-toggle"
-          aria-expanded={sidebarOpen}
-          aria-controls="workshop-sidebar"
-          aria-label="打开导航与筛选"
-          onClick={() => setSidebarOpen(true)}
-        >
-          <Menu aria-hidden="true" />
-          {hasFilters ? <span className="drawer-toggle-dot" aria-hidden="true" /> : null}
-        </button>
       </div>
     </header>
   );

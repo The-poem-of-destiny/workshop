@@ -134,7 +134,7 @@ export function AdminTools({
       {section === null ? (
         <section className="management-index" aria-labelledby="management-index-title">
           <h2 id="management-index-title">管理工具</h2>
-          <p className="hint">选择一项任务。返回工具索引会保留当前输入、筛选和已加载的记录。</p>
+          <p className="hint">站点配置、成员权限、项目索引与编辑精选管理。</p>
           <nav className="management-index-links" aria-label="管理任务">
             {MANAGEMENT_SECTIONS.map((item) => (
               <button

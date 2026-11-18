@@ -15,7 +15,7 @@ const DialogOverlay = forwardRef<
   return (
     <DialogPrimitive.Overlay
       ref={ref}
-      className={cn("fixed inset-0 z-50 bg-black/80 backdrop-blur-sm", className)}
+      className={cn("dialog-overlay fixed inset-0 z-50 bg-black/75 backdrop-blur-xs", className)}
       {...props}
     />
   );
@@ -38,13 +38,15 @@ const DialogContent = forwardRef<
       <DialogPrimitive.Content
         ref={ref}
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 grid w-[calc(100vw-32px)] max-w-[860px] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[14px] border border-white/[.09] bg-[#18191c] text-[#ececea] shadow-[0_28px_80px_rgba(0,0,0,.5)]",
+          "dialog-surface fixed left-1/2 top-1/2 z-50 grid w-[calc(100vw-32px)] max-w-[860px] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[12px] border border-white/[.1] bg-[#161920] text-[#efeee9] shadow-[0_24px_72px_rgba(0,0,0,.55)]",
+          className?.includes("mobile-sheet") &&
+            "max-md:inset-0 max-md:left-0 max-md:top-0 max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-none max-md:border-0",
           className,
         )}
         {...props}
       >
         {children}
-        <DialogPrimitive.Close className="close absolute right-3 top-3 rounded-md p-2 text-[#aaa8a3] transition-colors hover:bg-white/[.05] hover:text-[#ececea] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#bea47d]">
+        <DialogPrimitive.Close className="close absolute right-2.5 top-2.5 inline-grid size-9 place-items-center rounded-md text-[#b5b2aa] transition-colors hover:bg-white/[.07] hover:text-[#efeee9] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#c8ae82]">
           <X className="size-4" />
           <span className="sr-only">关闭</span>
         </DialogPrimitive.Close>

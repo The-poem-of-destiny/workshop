@@ -93,8 +93,8 @@ export function ProjectCommunity({
         }
         const message =
           reason instanceof ApiError && reason.status === 403
-            ? "请先订阅此项目，再推荐当前版本；取消订阅后不可新增或编辑，仍可撤回已有推荐。"
-            : `推荐保存失败：${String(reason)}`;
+            ? "订阅作品后即可撰写或更新本版推荐。"
+            : `保存失败：${String(reason)}`;
         setRecommendationError(message);
       })
       .finally(() => {
@@ -240,21 +240,17 @@ function VersionRecommendation({
   return (
     <section className="rating-block" aria-label="版本推荐">
       <h4>推荐当前版本</h4>
-      <p className="hint">推荐会公开展示，且只属于当前版本；新版本发布后需重新明确推荐。订阅不会自动推荐。</p>
       {!loggedIn ? (
-        <p className="hint">登录并订阅此项目后可推荐；取消订阅后仍可撤回已有推荐。</p>
+        <p className="hint">登录并订阅后可向其他玩家安利当前版本。</p>
       ) : ready ? (
         <>
-          {!interaction?.recommendationEligible ? (
-            <p className="hint">请先订阅此项目，再推荐当前版本；取消订阅后不可新增或编辑，仍可撤回已有推荐。</p>
-          ) : (
-            <p className="hint">你当前已订阅此项目，可以推荐当前版本。</p>
-          )}
+          {!interaction?.recommendationEligible ? <p className="hint">订阅作品后即可推荐当前版本。</p> : null}
           <label className="rating-comment">
             <span>公开推荐说明（可选）</span>
             <textarea
-              rows={3}
+              rows={2}
               maxLength={2000}
+              placeholder="写一句游玩感受或推荐理由（公开展示）"
               value={comment}
               disabled={!interaction?.recommendationEligible || saving}
               onChange={(event) => onCommentChange(event.target.value)}
