@@ -164,15 +164,27 @@
   justify-content: space-between;
   gap: 8px;
 }
-.card-date-compact {
+.card-date-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3.5px;
   flex: none;
   color: var(--dim);
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.card-date-compact .date-short {
+.card-date-chip .card-date-icon {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  opacity: 0.76;
+}
+.card-date-chip .date-short {
   display: none;
+}
+.card-date-published {
+  margin-left: auto;
 }
 .card-more {
   position: relative;
@@ -332,6 +344,9 @@
   line-height: 1.3;
   font-variant-numeric: tabular-nums;
 }
+.project-card--cards .card-signals {
+  flex-wrap: nowrap;
+}
 .card-stat-group {
   display: flex;
   align-items: center;
@@ -421,7 +436,12 @@
   color: #d3e0ac;
 }
 
-@container (max-width: 220px) {
+@container (max-width: 235px) {
+  .catalogue-grid:not(.catalogue-list) .project-card--cards .card-content-counts {
+    gap: 6px;
+    padding: 4px 8px 3px;
+    font-size: 10.5px;
+  }
   .catalogue-grid:not(.catalogue-list) .project-card--cards .card-body {
     gap: 4px;
     padding: 8px 9px 7px;
@@ -435,10 +455,18 @@
     font-size: 11.5px;
     gap: 4px;
   }
-  .catalogue-grid:not(.catalogue-list) .project-card--cards .card-date-compact .date-full {
+  .catalogue-grid:not(.catalogue-list) .project-card--cards .card-date-chip {
+    gap: 2.5px;
+    font-size: 10.5px;
+  }
+  .catalogue-grid:not(.catalogue-list) .project-card--cards .card-date-chip .card-date-icon {
+    width: 11px;
+    height: 11px;
+  }
+  .catalogue-grid:not(.catalogue-list) .project-card--cards .card-date-chip .date-full {
     display: none;
   }
-  .catalogue-grid:not(.catalogue-list) .project-card--cards .card-date-compact .date-short {
+  .catalogue-grid:not(.catalogue-list) .project-card--cards .card-date-chip .date-short {
     display: inline;
   }
   .catalogue-grid:not(.catalogue-list) .project-card--cards .card-note {
@@ -454,11 +482,15 @@
   .catalogue-grid:not(.catalogue-list) .project-card--cards .card-footer {
     padding: 6px 9px 7px;
   }
-  .catalogue-grid:not(.catalogue-list) .project-card--cards .card-stat-group {
-    gap: 7px;
-    font-size: 11px;
+  .catalogue-grid:not(.catalogue-list) .project-card--cards .card-signals {
+    gap: 4px;
   }
-  .catalogue-grid:not(.catalogue-list) .project-card--cards .card-compatibility {
-    display: none;
+  .catalogue-grid:not(.catalogue-list) .project-card--cards .card-stat-group {
+    gap: 5.5px;
+    font-size: 10.5px;
+  }
+  .catalogue-grid:not(.catalogue-list) .project-card--cards .card-stat-group svg {
+    width: 11.5px;
+    height: 11.5px;
   }
 }

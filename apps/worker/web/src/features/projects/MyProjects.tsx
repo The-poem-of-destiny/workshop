@@ -292,7 +292,7 @@ export function MyProjects({
                   </span>
                   <span className="workspace-row-metrics" aria-hidden="true">
                     <span className="workspace-row-entries">
-                      书 {p.entries.worldbook} · 正则 {p.entries.regex}
+                      世界书 {p.entries.worldbook} · 正则 {p.entries.regex}
                     </span>
                     {p.publishedVersionId ? (
                       <span className="workspace-row-stats">

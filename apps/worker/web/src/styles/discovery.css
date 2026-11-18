@@ -1,12 +1,12 @@
 .discovery {
-  --discovery-height: clamp(244px, 25svh, 276px);
+  --discovery-height: clamp(304px, 31svh, 328px);
   position: relative;
   isolation: isolate;
   height: var(--discovery-height);
   display: flex;
   flex-direction: column;
   margin: 0;
-  padding: 11px 16px 12px;
+  padding: 13px 18px 15px;
   border: 1px solid rgba(207, 169, 110, 0.22);
   border-radius: 12px;
   background: #171a22;
@@ -222,7 +222,7 @@
   display: block;
   height: 100%;
   aspect-ratio: 16 / 9;
-  max-width: min(360px, 38vw);
+  max-width: min(448px, 40vw);
   padding: 0;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -249,17 +249,16 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-  padding-right: 4px;
+  overflow: hidden;
+  padding-right: 2px;
 }
 .discovery-copy-content {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   width: 100%;
+  min-height: 0;
+  max-height: 100%;
   margin-block: auto;
 }
 .discovery-meta-head {
@@ -323,18 +322,23 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  flex: none;
   margin: 0;
   color: var(--muted);
-  font-size: 12.5px;
-  line-height: 1.42;
+  font-size: 13px;
+  line-height: 1.48;
   overflow-wrap: anywhere;
 }
 .discovery-recommendation {
-  margin-top: 2px;
-  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  margin-top: 4px;
+  padding: 7px 12px 8px;
   border-left: 2px solid var(--accent);
-  background: rgba(15, 17, 22, 0.6);
-  border-radius: 0 6px 6px 0;
+  background: rgba(15, 17, 22, 0.68);
+  border-radius: 0 7px 7px 0;
 }
 .discovery-recommendation-heading {
   display: flex;
@@ -398,16 +402,31 @@
   object-fit: cover;
 }
 .discovery-recommendation blockquote {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  margin: 3px 0 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #dcdad3;
+  display: block;
+  min-height: 0;
+  max-height: 98px;
+  overflow-y: auto;
+  touch-action: pan-y;
+  margin: 4px 0 0;
+  padding-right: 6px;
+  font-size: 12.5px;
+  line-height: 1.56;
+  color: #e2e0d9;
   white-space: pre-line;
   overflow-wrap: anywhere;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(207, 169, 110, 0.45) rgba(255, 255, 255, 0.04);
+}
+.discovery-recommendation blockquote::-webkit-scrollbar {
+  width: 5px;
+}
+.discovery-recommendation blockquote::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 999px;
+}
+.discovery-recommendation blockquote::-webkit-scrollbar-thumb {
+  background: rgba(207, 169, 110, 0.45);
+  border-radius: 999px;
 }
 .discovery button:focus-visible {
   outline: 2px solid var(--accent);
@@ -507,10 +526,11 @@
     font-size: 11.5px;
   }
   .discovery-recommendation {
-    padding: 5px 8px;
+    padding: 6px 9px 7px;
   }
   .discovery-recommendation blockquote {
-    -webkit-line-clamp: 1;
-    font-size: 11px;
+    max-height: 76px;
+    font-size: 11.5px;
+    line-height: 1.5;
   }
 }

@@ -310,7 +310,7 @@ function DiscoveryBrowser({
                   <span className="discovery-type" data-type={project.projectType}>
                     {project.projectType}
                   </span>
-                  <span className="discovery-dates">
+                  <span className="discovery-dates" title={`最近更新：${project.updatedAt.slice(0, 10)}`}>
                     <History aria-hidden="true" />
                     <time dateTime={project.updatedAt}>{project.updatedAt.slice(0, 10)}</time>
                   </span>
@@ -334,7 +334,7 @@ function DiscoveryBrowser({
                   </span>
                   <span>{project.author.name}</span>
                 </p>
-                <p className="discovery-description">{excerpt(project.description, 120)}</p>
+                <p className="discovery-description">{excerpt(project.description, 170)}</p>
                 <DiscoveryRecommendations key={project.id} recommendations={project.recommendations} />
               </div>
             </div>
