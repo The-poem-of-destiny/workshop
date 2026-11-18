@@ -36,9 +36,9 @@ beforeEach(async () => {
 
 async function seed() {
   await bindings.DB.prepare(
-    "INSERT INTO users (id, username, global_name, avatar, role, created_at, updated_at) VALUES (?, ?, ?, ?, 'member', ?, ?)",
+    "INSERT INTO users (id, username, global_name, avatar, role, policy_accepted_version, policy_accepted_at, created_at, updated_at) VALUES (?, ?, ?, ?, 'member', '2026-11-v1', ?, ?, ?)",
   )
-    .bind("u1", "author", "作者", "avatar.png", now, now)
+    .bind("u1", "author", "作者", "avatar.png", now, now, now)
     .run();
 
   await bindings.DB.prepare(`
@@ -102,9 +102,9 @@ async function seed() {
     .bind(tokenHash, now, now)
     .run();
   await bindings.DB.prepare(
-    "INSERT INTO users (id, username, role, created_at, updated_at) VALUES ('u2', 'other', 'member', ?, ?)",
+    "INSERT INTO users (id, username, role, policy_accepted_version, policy_accepted_at, created_at, updated_at) VALUES ('u2', 'other', 'member', '2026-11-v1', ?, ?, ?)",
   )
-    .bind(now, now)
+    .bind(now, now, now)
     .run();
   const otherHash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("other-token")))]
     .map((byte) => byte.toString(16).padStart(2, "0"))

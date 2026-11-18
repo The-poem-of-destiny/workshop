@@ -18,7 +18,11 @@ beforeEach(async () => {
     "DELETE FROM audit_events; DELETE FROM recommendations; DELETE FROM recommendation_batches; UPDATE projects SET working_version_id=NULL, published_version_id=NULL, published_cover_asset_id=NULL; DELETE FROM project_versions; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;",
   );
   for (const id of ["author", "player", "player-two"]) {
-    await bindings.DB.prepare("INSERT INTO users(id,username,role) VALUES(?,?,'member')").bind(id, id).run();
+    await bindings.DB.prepare(
+      "INSERT INTO users(id,username,role,policy_accepted_version,policy_accepted_at) VALUES(?,?,'member','2026-11-v1',?)",
+    )
+      .bind(id, id, now)
+      .run();
     const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(id))), (b) =>
       b.toString(16).padStart(2, "0"),
     ).join("");

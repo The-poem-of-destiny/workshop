@@ -7,7 +7,7 @@ async function privateImageHash(request: Request, env: DataEnv, key: string, gal
   const session = authorization?.startsWith("Bearer ")
     ? await getSessionByToken(env.DB, authorization.slice(7), env.SESSION_HASH_SECRET)
     : null;
-  if (!session) return null;
+  if (!session || !session.policyAccepted) return null;
   const sql = gallery
     ? `SELECT g.sha256 FROM assets g JOIN projects p ON p.id = g.project_id WHERE g.r2_key = ? AND g.version_id IS NULL AND g.kind IN ('gallery_1','gallery_2') AND p.deleted_at IS NULL AND (p.author_id = ? OR ? = 'owner') LIMIT 1`
     : `SELECT a.sha256 FROM assets a JOIN projects p ON p.id = a.project_id WHERE a.r2_key = ? AND a.kind = 'cover' AND p.deleted_at IS NULL AND (((p.author_id = ? OR ? = 'owner') AND (a.version_id = p.working_version_id OR a.id = p.published_cover_asset_id)) OR (? IN ('reviewer', 'owner') AND a.version_id IS NOT NULL AND EXISTS (SELECT 1 FROM submissions s WHERE s.version_id = a.version_id AND s.status IN ('pending', 'checking')))) LIMIT 1`;

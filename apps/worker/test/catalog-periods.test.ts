@@ -16,7 +16,9 @@ beforeEach(async () => {
   await bindings.DB.exec(
     "DELETE FROM download_daily_stats; UPDATE projects SET working_version_id=NULL, published_version_id=NULL, published_cover_asset_id=NULL; DELETE FROM assets; DELETE FROM project_versions; DELETE FROM projects; DELETE FROM users;",
   );
-  await bindings.DB.prepare("INSERT INTO users (id, username) VALUES ('u', 'author')").run();
+  await bindings.DB.prepare(
+    "INSERT INTO users (id, username, policy_accepted_version, policy_accepted_at) VALUES ('u', 'author', '2026-11-v1', '2026-10-26T00:00:00.000Z')",
+  ).run();
   await bindings.R2.delete("catalog/wb");
 });
 afterEach(() => vi.useRealTimers());

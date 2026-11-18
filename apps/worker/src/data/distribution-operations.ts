@@ -6,10 +6,11 @@ import {
   companionVersionSchema,
   siteSettingsSchema,
 } from "@workshop/contracts";
+import { parseDiscordInviteUrl } from "@workshop/domain";
 import { updateAdminSite } from "../storage/admin-site.js";
 import { getClientChannel } from "../storage/client.js";
 import { getCompanionVersion, publishCompanionVersion } from "../storage/companion.js";
-import { getBanner, getSiteContent, listRecommendations } from "../storage/home.js";
+import { getBanner, getCommunityInviteUrl, getSiteContent, listRecommendations } from "../storage/home.js";
 import { getSessionByToken } from "../storage/sessions.js";
 import type { DataEnv } from "./env.js";
 
@@ -18,8 +19,12 @@ async function owner(env: DataEnv, authorization: string | null | undefined) {
     ? await getSessionByToken(env.DB, authorization.slice(7), env.SESSION_HASH_SECRET)
     : null;
   if (!session) return { kind: "unauthorized" as const };
-  if (session.role !== "owner") return { kind: "forbidden" as const };
+  if (!session.policyAccepted || session.role !== "owner") return { kind: "forbidden" as const };
   return { kind: "ok" as const, session };
+}
+
+export function distributionCommunityInviteUrl(env: DataEnv) {
+  return getCommunityInviteUrl(env.DB);
 }
 
 export async function distributionSite(env: DataEnv) {
@@ -75,6 +80,32 @@ export async function distributionUpdateSite(
     return { kind: "invalid" as const, formErrors: flattened.formErrors, fieldErrors };
   }
   if (parsed.data.banner === undefined && parsed.data.siteContent === undefined) return { kind: "empty" as const };
+  if (
+    parsed.data.siteContent &&
+    typeof parsed.data.siteContent === "object" &&
+    !Array.isArray(parsed.data.siteContent) &&
+    "communityInviteUrl" in parsed.data.siteContent
+  ) {
+    const rawInvite = (parsed.data.siteContent as Record<string, unknown>).communityInviteUrl;
+    if (rawInvite !== null && rawInvite !== undefined) {
+      if (typeof rawInvite !== "string") {
+        return {
+          kind: "invalid" as const,
+          formErrors: ["社区邀请链接必须是字符串"],
+          fieldErrors: [{ field: "communityInviteUrl", messages: ["社区邀请链接必须是字符串"] }],
+        };
+      }
+      const checked = parseDiscordInviteUrl(rawInvite);
+      if (!checked.ok) {
+        return {
+          kind: "invalid" as const,
+          formErrors: [checked.reason],
+          fieldErrors: [{ field: "communityInviteUrl", messages: [checked.reason] }],
+        };
+      }
+      (parsed.data.siteContent as Record<string, unknown>).communityInviteUrl = checked.value;
+    }
+  }
   const result = await updateAdminSite(env.DB, auth.session.userId, parsed.data.banner, parsed.data.siteContent);
   return {
     kind: "ok" as const,

@@ -37,10 +37,10 @@ beforeEach(async () => {
     DELETE FROM assets; DELETE FROM project_versions; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;
   `);
   const seedSql = `
-    INSERT INTO users (id, username, global_name, role, created_at, updated_at) VALUES
-      ('owner', 'owner', 'Owner', 'owner', '${now}', '${now}'),
-      ('reviewer', 'reviewer', 'Reviewer', 'reviewer', '${now}', '${now}'),
-      ('member', 'member', 'Member', 'member', '${now}', '${now}');
+    INSERT INTO users (id, username, global_name, role, policy_accepted_version, policy_accepted_at, created_at, updated_at) VALUES
+      ('owner', 'owner', 'Owner', 'owner', '2026-11-v1', '${now}', '${now}', '${now}'),
+      ('reviewer', 'reviewer', 'Reviewer', 'reviewer', '2026-11-v1', '${now}', '${now}', '${now}'),
+      ('member', 'member', 'Member', 'member', '2026-11-v1', '${now}', '${now}', '${now}');
     INSERT INTO projects (id, author_id, visibility, updated_at)
       VALUES ('p1', 'member', 'public', '${now}');
     INSERT INTO project_versions(id,project_id,version_no,title,description,project_type,included_types,created_by)

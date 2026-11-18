@@ -10,6 +10,11 @@ export async function download(request: Request, env: DataEnv, context: Executio
   const session = token ? await getSessionByToken(env.DB, token, env.SESSION_HASH_SECRET) : null;
   if (!session)
     return Response.json({ error: { code: "unauthorized", message: "Login required" } }, { status: 401, headers });
+  if (!session.policyAccepted)
+    return Response.json(
+      { error: { code: "forbidden", message: "请先阅读并同意工坊使用政策并完成准入问答" } },
+      { status: 403, headers },
+    );
   const match = /^\/api\/v1\/downloads\/([^/]+)\/([^/]+)\/(worldbook|regex)$/.exec(new URL(request.url).pathname);
   const missing = () =>
     Response.json({ error: { code: "not_found", message: "Download not found" } }, { status: 404, headers });
@@ -33,9 +38,10 @@ export async function download(request: Request, env: DataEnv, context: Executio
     body = object.body;
   }
   const currentSession = await getSessionByToken(env.DB, token, env.SESSION_HASH_SECRET);
-  const current = currentSession
-    ? await getReleaseAssets(env.DB, decodeURIComponent(match[1]!), decodeURIComponent(match[2]!), currentSession)
-    : null;
+  const current =
+    currentSession && currentSession.policyAccepted
+      ? await getReleaseAssets(env.DB, decodeURIComponent(match[1]!), decodeURIComponent(match[2]!), currentSession)
+      : null;
   if (
     !current?.files.some((file) => file.kind === row.kind && file.r2Key === row.r2Key && file.sha256 === row.sha256)
   ) {

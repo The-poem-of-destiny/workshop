@@ -1,7 +1,7 @@
-import type { ExperienceNoteInput } from "@workshop/contracts";
+import type { ExperienceNoteInput, PolicyAcceptanceInput } from "@workshop/contracts";
 import { listAuthorProjects, listAuthorSubmissions } from "../storage/authoring.js";
 import * as experienceNotes from "../storage/experience-notes.js";
-import { getMe, revokeSessionByToken, sha256Hex } from "../storage/identity.js";
+import { acceptUserPolicy, getMe, revokeSessionByToken, sha256Hex } from "../storage/identity.js";
 import * as interactions from "../storage/interactions.js";
 import type { NewOAuthFlow } from "../storage/oauth.js";
 import * as oauth from "../storage/oauth.js";
@@ -95,6 +95,7 @@ export async function identityRedeemFlow(
 
 export type IdentityMeOperation =
   | { kind: "me" }
+  | { kind: "accept_policy"; input: PolicyAcceptanceInput }
   | { kind: "projects" }
   | { kind: "submissions"; projectId: string }
   | { kind: "subscriptions" }
@@ -127,11 +128,17 @@ export async function identityMe(env: DataEnv, token: string, operation: Identit
   if (!token) return { ok: false as const, error: "unauthorized" as const };
   const session = await getSessionByToken(env.DB, token, env.SESSION_HASH_SECRET);
   if (!session) return { ok: false as const, error: "unauthorized" as const };
+  if (operation.kind === "me") {
+    const data = await getMe(env.DB, session.userId);
+    return data ? { ok: true as const, data } : { ok: false as const, error: "unauthorized" as const };
+  }
+  if (operation.kind === "accept_policy") {
+    return acceptUserPolicy(env.DB, session.userId, operation.input);
+  }
+  if (!session.policyAccepted) {
+    return { ok: false as const, error: "policy_required" as const };
+  }
   switch (operation.kind) {
-    case "me": {
-      const data = await getMe(env.DB, session.userId);
-      return data ? { ok: true as const, data } : { ok: false as const, error: "unauthorized" as const };
-    }
     case "projects":
       return { ok: true as const, data: { items: await listAuthorProjects(env.DB, session) } };
     case "submissions": {

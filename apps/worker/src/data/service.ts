@@ -1,6 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { authorAdminFilesFetch } from "./author-admin-files";
 import * as authorAdmin from "./author-admin-operations";
+import * as collections from "./collection-operations";
 import type { RunTarget } from "./content-operations";
 import * as content from "./content-operations";
 import { distributionImage } from "./distribution-images";
@@ -59,6 +60,38 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
 
   distributionClientChannel(...args: OperationArgs<Parameters<typeof distribution.distributionClientChannel>>) {
     return distribution.distributionClientChannel(this.guardedEnv, ...args);
+  }
+
+  distributionCommunityInviteUrl() {
+    return distribution.distributionCommunityInviteUrl(this.guardedEnv);
+  }
+
+  collectionPublicGet(...args: OperationArgs<Parameters<typeof collections.collectionPublicGet>>) {
+    return collections.collectionPublicGet(this.guardedEnv, ...args);
+  }
+
+  authorPublicProfile(...args: OperationArgs<Parameters<typeof collections.authorPublicProfile>>) {
+    return collections.authorPublicProfile(this.guardedEnv, ...args);
+  }
+
+  authorListCollections(...args: OperationArgs<Parameters<typeof collections.authorListCollections>>) {
+    return collections.authorListCollections(this.guardedEnv, ...args);
+  }
+
+  authorCreateCollection(...args: OperationArgs<Parameters<typeof collections.authorCreateCollection>>) {
+    return collections.authorCreateCollection(this.guardedEnv, ...args);
+  }
+
+  authorPatchCollection(...args: OperationArgs<Parameters<typeof collections.authorPatchCollection>>) {
+    return collections.authorPatchCollection(this.guardedEnv, ...args);
+  }
+
+  authorDeleteCollection(...args: OperationArgs<Parameters<typeof collections.authorDeleteCollection>>) {
+    return collections.authorDeleteCollection(this.guardedEnv, ...args);
+  }
+
+  authorSetProjectCollections(...args: OperationArgs<Parameters<typeof collections.authorSetProjectCollections>>) {
+    return collections.authorSetProjectCollections(this.guardedEnv, ...args);
   }
 
   distributionCompanion(...args: OperationArgs<Parameters<typeof distribution.distributionCompanion>>) {

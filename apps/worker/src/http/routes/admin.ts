@@ -22,6 +22,7 @@ export const adminRoutes = new Hono<{ Bindings: Env }>();
 async function requireReviewer(c: Parameters<typeof requireSession>[0]) {
   const session = await requireSession(c);
   if (!session) return null;
+  if (!session.policyAccepted) return false;
   if (session.role !== "reviewer" && session.role !== "owner") return false;
   return session;
 }

@@ -1,13 +1,16 @@
 import type { Session } from "@workshop/contracts";
+import { hasAcceptedCurrentPolicy } from "@workshop/domain";
 import { hashSessionToken } from "./session-hash.js";
 
 export interface AuthenticatedSession extends Session {
   tokenHash: string;
+  policyAccepted: boolean;
 }
 
 interface SessionRow {
   user_id: string;
   role: Session["role"];
+  policy_accepted_version: string | null;
   session_version: number;
   expires_at: string;
   last_seen_at: string;
@@ -25,7 +28,7 @@ export async function getSessionByToken(
   const tokenHash = await hashSessionToken(token, secret);
   const row = await db
     .prepare(`
-    SELECT s.user_id, u.role, s.session_version, s.expires_at, s.last_seen_at, s.revoked_at
+    SELECT s.user_id, u.role, u.policy_accepted_version, s.session_version, s.expires_at, s.last_seen_at, s.revoked_at
     FROM sessions s
     JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = ?
@@ -53,5 +56,6 @@ export async function getSessionByToken(
     role: row.role,
     sessionVersion: row.session_version,
     expiresAt,
+    policyAccepted: hasAcceptedCurrentPolicy(row.policy_accepted_version),
   };
 }

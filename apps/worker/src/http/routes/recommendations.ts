@@ -26,6 +26,7 @@ recommendationRoutes.post("/changes", async (c) => {
   if (!input.success) return jsonError(c, "bad_request", "Invalid content change signal");
   const result = await c.executionCtx.exports.DataService.projectChangeSignal(sessionToken(c), input.data);
   if (result.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+  if (result.kind === "policy_required") return jsonError(c, "forbidden", "请先阅读并同意工坊使用政策并完成准入问答");
   if (result.kind === "not_found") return jsonError(c, "not_found", "Content change evidence unavailable");
   return c.json(result);
 });
@@ -41,6 +42,7 @@ for (const method of ["put", "delete"] as const) {
       method === "delete",
     );
     if (result.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+    if (result.kind === "policy_required") return jsonError(c, "forbidden", "请先阅读并同意工坊使用政策并完成准入问答");
     if (result.kind === "not_found") return jsonError(c, "not_found", "Published version not found");
     if (result.kind === "forbidden")
       return jsonError(c, "forbidden", "请先订阅此项目，再推荐当前版本；取消订阅后不可新增或编辑，仍可撤回已有推荐。");

@@ -126,8 +126,8 @@ function seedAccounts() {
                ORDER BY p.id LIMIT 1)
              `
           : `'${id}'`;
-      return `INSERT INTO users (id,username,global_name,role) VALUES ('${id}','${id}','Debug ${role}','${role}')
-        ON CONFLICT(id) DO UPDATE SET role=excluded.role;
+      return `INSERT INTO users (id,username,global_name,role,policy_accepted_version,policy_accepted_at) VALUES ('${id}','${id}','Debug ${role}','${role}','2026-11-v1','2026-11-18T00:00:00.000Z')
+        ON CONFLICT(id) DO UPDATE SET role=excluded.role, policy_accepted_version='2026-11-v1', policy_accepted_at='2026-11-18T00:00:00.000Z';
         INSERT INTO sessions (token_hash,user_id,expires_at) VALUES ('${createHash("sha256").update(token).digest("hex")}',COALESCE(${user},'${id}'),strftime('%Y-%m-%dT%H:%M:%fZ','now','+1 day'));`;
     })
     .join("\n");

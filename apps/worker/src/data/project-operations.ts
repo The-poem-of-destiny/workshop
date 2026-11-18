@@ -34,6 +34,7 @@ export async function projectRecommendation(
 ) {
   const session = await getSessionByToken(env.DB, token, env.SESSION_HASH_SECRET);
   if (!session) return { kind: "unauthorized" as const };
+  if (!session.policyAccepted) return { kind: "policy_required" as const };
   return remove
     ? deleteAdminRecommendation(env.DB, projectId, session.userId, input.projectVersionId)
     : updateAdminRecommendation(env.DB, projectId, session.userId, input, true);
@@ -46,6 +47,7 @@ export async function projectChangeSignal(
 ) {
   const session = await getSessionByToken(env.DB, token, env.SESSION_HASH_SECRET);
   if (!session) return { kind: "unauthorized" as const };
+  if (!session.policyAccepted) return { kind: "policy_required" as const };
   return recordProjectChange(env.DB, session.userId, input);
 }
 
@@ -57,6 +59,7 @@ export async function projectPreviewTarget(
 ) {
   const session = await getSessionByToken(env.DB, token, env.SESSION_HASH_SECRET);
   if (!session) return { ok: false as const, error: "unauthorized" as const };
+  if (!session.policyAccepted) return { ok: false as const, error: "forbidden" as const };
   if (!kind) return { ok: false as const, error: "invalid_kind" as const };
   const target = await resolveProjectPreviewTarget(env.DB, projectId, kind);
   return target ? { ok: true as const, target } : { ok: false as const, error: "not_found" as const };
@@ -65,6 +68,7 @@ export async function projectPreviewTarget(
 export async function projectDownloads(env: DataEnv, token: string, projectId: string, acquisitionId: string) {
   const session = await getSessionByToken(env.DB, token, env.SESSION_HASH_SECRET);
   if (!session) return { ok: false as const, error: "unauthorized" as const };
+  if (!session.policyAccepted) return { ok: false as const, error: "forbidden" as const };
   const release = await getReleaseAssets(env.DB, projectId, null, session);
   if (!release) return { ok: false as const, error: "not_found" as const };
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(acquisitionId))
@@ -90,6 +94,7 @@ export async function projectAcquisition(
 ) {
   const session = await getSessionByToken(env.DB, token, env.SESSION_HASH_SECRET);
   if (!session) return { ok: false as const, error: "unauthorized" as const };
+  if (!session.policyAccepted) return { ok: false as const, error: "forbidden" as const };
   if (!clientVersion || (clientChannel !== "stable" && clientChannel !== "staging")) {
     return {
       ok: false as const,

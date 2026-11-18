@@ -94,8 +94,10 @@ function json(method: string, body: unknown, version?: number): RequestInit {
   };
 }
 async function seedUser(id: string, role: string) {
-  await bindings.DB.prepare("INSERT INTO users (id, username, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
-    .bind(id, id, role, now, now)
+  await bindings.DB.prepare(
+    "INSERT INTO users (id, username, role, policy_accepted_version, policy_accepted_at, created_at, updated_at) VALUES (?, ?, ?, '2026-11-v1', ?, ?, ?)",
+  )
+    .bind(id, id, role, now, now, now)
     .run();
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${id}-token`));
   const hash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");

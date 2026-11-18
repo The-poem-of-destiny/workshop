@@ -1,4 +1,5 @@
 import { homeResponseSchema, projectBatchQuerySchema, projectListQuerySchema } from "@workshop/contracts";
+import { getPublicAuthorProfile, getPublicCollection } from "../storage/collections";
 import { getHome } from "../storage/home";
 import { getPublishedProjectsByIds } from "../storage/projects";
 import { distributionImage } from "./distribution-images";
@@ -29,11 +30,23 @@ async function projectBatch(url: URL, env: DataEnv): Promise<Response> {
 
 async function projectionDetail(path: string, env: DataEnv): Promise<Response> {
   const project = /^\/api\/v1\/projects\/([^/]+)(\/entries)?$/.exec(path);
+  const collection = /^\/api\/v1\/collections\/([^/]+)$/.exec(path);
+  const author = /^\/api\/v1\/authors\/([^/]+)$/.exec(path);
   try {
     if (project) {
       const id = decodeURIComponent(project[1]!);
       const data = project[2] ? await projects.projectEntries(env, id) : await projects.projectDetail(env, id);
       return data ? Response.json(data) : error(404, "not_found", "Project not found");
+    }
+    if (collection) {
+      const id = decodeURIComponent(collection[1]!);
+      const data = await getPublicCollection(env.DB, id);
+      return data ? Response.json(data) : error(404, "not_found", "Collection not found");
+    }
+    if (author) {
+      const id = decodeURIComponent(author[1]!);
+      const data = await getPublicAuthorProfile(env.DB, id);
+      return data ? Response.json(data) : error(404, "not_found", "Author not found");
     }
   } catch (cause) {
     if (cause instanceof URIError) return error(400, "bad_request", "Invalid path");

@@ -35,9 +35,9 @@ beforeEach(async () => {
     DELETE FROM users;
   `);
   await bindings.DB.prepare(
-    "INSERT INTO users (id, username, global_name, avatar, role, created_at, updated_at) VALUES (?, ?, ?, ?, 'member', ?, ?)",
+    "INSERT INTO users (id, username, global_name, avatar, role, policy_accepted_version, policy_accepted_at, created_at, updated_at) VALUES (?, ?, ?, ?, 'member', '2026-11-v1', ?, ?, ?)",
   )
-    .bind("u1", "tester", "测试用户", "avatar-hash", now, now)
+    .bind("u1", "tester", "测试用户", "avatar-hash", now, now, now)
     .run();
   await bindings.DB.prepare(`
     INSERT INTO projects (id, author_id, visibility, updated_at)
@@ -102,6 +102,12 @@ describe("identity and interactions", () => {
         globalName: "测试用户",
         avatarUrl: "https://cdn.discordapp.com/avatars/u1/avatar-hash.png",
         role: "member",
+      },
+      policy: {
+        currentVersion: "2026-11-v1",
+        acceptedVersion: "2026-11-v1",
+        acceptedAt: now,
+        accepted: true,
       },
     });
   });

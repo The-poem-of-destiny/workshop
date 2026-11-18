@@ -55,8 +55,10 @@ async function upsertAsset(
 }
 
 async function seedUser(id: string, role: "member" | "owner" = "member", token = `${id}-token`) {
-  await bindings.DB.prepare("INSERT INTO users (id, username, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
-    .bind(id, id, role, now, now)
+  await bindings.DB.prepare(
+    "INSERT INTO users (id, username, role, policy_accepted_version, policy_accepted_at, created_at, updated_at) VALUES (?, ?, ?, '2026-11-v1', ?, ?, ?)",
+  )
+    .bind(id, id, role, now, now, now)
     .run();
   await bindings.DB.prepare(`INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)`)
     .bind(await tokenHash(token), id, "2099-01-01T00:00:00.000Z")

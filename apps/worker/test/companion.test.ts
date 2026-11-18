@@ -22,7 +22,11 @@ beforeEach(async () => {
     "DELETE FROM audit_events; DELETE FROM site_settings; DELETE FROM sessions; DELETE FROM users;",
   );
   for (const role of ["owner", "reviewer", "member"]) {
-    await bindings.DB.prepare("INSERT INTO users (id, username, role) VALUES (?, ?, ?)").bind(role, role, role).run();
+    await bindings.DB.prepare(
+      "INSERT INTO users (id, username, role, policy_accepted_version, policy_accepted_at) VALUES (?, ?, ?, '2026-11-v1', '2026-11-18T00:00:00.000Z')",
+    )
+      .bind(role, role, role)
+      .run();
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${role}-token`));
     const hash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
     await bindings.DB.prepare(`INSERT INTO sessions (token_hash, user_id, session_version, expires_at)

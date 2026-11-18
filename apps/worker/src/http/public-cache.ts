@@ -10,6 +10,7 @@ const PROJECT_LIST_PARAMETERS: Record<string, true> = {
   projectType: true,
   includeContained: true,
   authorId: true,
+  collectionId: true,
   tag: true,
   search: true,
 };
@@ -79,6 +80,7 @@ function canonicalProjectListSearch(source: URLSearchParams): URLSearchParams | 
   for (const type of parsed.data.projectType) query.append("projectType", type);
   if (parsed.data.includeContained) query.set("includeContained", "true");
   if (parsed.data.authorId) query.set("authorId", parsed.data.authorId);
+  if (parsed.data.collectionId) query.set("collectionId", parsed.data.collectionId);
   for (const tag of parsed.data.tag) query.append("tag", tag);
   if (parsed.data.search) query.set("search", parsed.data.search);
   query.sort();
@@ -101,6 +103,8 @@ function canonicalPublicUrl(request: Request): URL | null | undefined {
     pathname === "/api/v1/recommendations" ||
     pathname === "/api/v1/site" ||
     /^\/api\/v1\/projects\/[^/]+(?:\/entries)?$/.test(pathname) ||
+    /^\/api\/v1\/collections\/[^/]+$/.test(pathname) ||
+    /^\/api\/v1\/authors\/[^/]+$/.test(pathname) ||
     /^\/api\/v1\/public-assets\/(?:covers|gallery|banners)\/.+/.test(pathname) ||
     /^\/client\/v\/[a-f0-9]{8,64}\/index\.js$/.test(pathname) ||
     /^\/client\/checker\/v\/[a-f0-9]{8,64}\/(?:browser-checker\.js|upload-checker\.mjs|review-checker\.mjs|manifest\.json|NOTICES\.txt)$/.test(

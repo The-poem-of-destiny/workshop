@@ -96,9 +96,9 @@ beforeEach(async () => {
     "DELETE FROM audit_events; DELETE FROM submissions; DELETE FROM assets; DELETE FROM project_versions; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;",
   );
   await bindings.DB.prepare(
-    "INSERT INTO users (id, username, role, created_at, updated_at) VALUES (?, 'Author', 'member', ?, ?)",
+    "INSERT INTO users (id, username, role, policy_accepted_version, policy_accepted_at, created_at, updated_at) VALUES (?, 'Author', 'member', '2026-11-v1', ?, ?, ?)",
   )
-    .bind(session.userId, now, now)
+    .bind(session.userId, now, now, now)
     .run();
   await bindings.DB.prepare("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)")
     .bind(await hash(token), session.userId, session.expiresAt)
