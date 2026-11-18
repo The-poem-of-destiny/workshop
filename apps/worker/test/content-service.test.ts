@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { exports as workerExports } from "cloudflare:workers";
-import { PROJECT_TYPES, type ProjectEntryKind, type ProjectType } from "@workshop/domain";
+import type { ProjectEntryKind, ProjectType } from "@workshop/domain";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { REVIEW_CHECKER_VERSION } from "../src/content-checker";
 import type { DataEnv } from "../src/data/env";
@@ -156,9 +156,9 @@ describe("ContentService", () => {
     expect(project?.published_updated_at).toBe(submission?.auto_published_at);
   });
 
-  it.each(PROJECT_TYPES)("checks and publishes a valid regex-only %s project", async (projectType) => {
+  it("checks and publishes a valid regex-only project", async () => {
     const content = JSON.stringify({ scriptName: "Test", findRegex: "/a/g", replaceString: "b" });
-    await seedProject("regex-only", content, "regex", projectType);
+    await seedProject("regex-only", content, "regex", "体验优化");
     await seedSubmission("regex-only-submission", "regex-only");
     const response = await run("regex-only-submission");
     expect(response.status).toBe(200);

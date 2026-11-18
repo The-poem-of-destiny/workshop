@@ -156,11 +156,13 @@ describe("identity and interactions", () => {
 
   it("uses HMAC session hashes when a secret is configured", async () => {
     const tokenValue = "hmac-session-token";
+    const hmacDigest = await hashSessionToken(tokenValue, "staging-secret");
+    expect(hmacDigest).toMatch(/^[a-f0-9]{64}$/);
     await bindings.DB.prepare("DELETE FROM sessions").run();
     await bindings.DB.prepare(
       "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, 'u1', '2099-01-01T00:00:00.000Z')",
     )
-      .bind(await hashSessionToken(tokenValue, "staging-secret"))
+      .bind(hmacDigest)
       .run();
     expect(
       (await identityMe({ ...bindings, SESSION_HASH_SECRET: "staging-secret" }, tokenValue, { kind: "me" })).ok,
@@ -168,6 +170,9 @@ describe("identity and interactions", () => {
     expect(
       (await identityMe({ ...bindings, SESSION_HASH_SECRET: "wrong-secret" }, tokenValue, { kind: "me" })).ok,
     ).toBe(false);
+    expect((await identityMe({ ...bindings, SESSION_HASH_SECRET: undefined }, tokenValue, { kind: "me" })).ok).toBe(
+      false,
+    );
   });
 
   it("applies idempotent likes and subscriptions without carrying personal scores in interaction state", async () => {
