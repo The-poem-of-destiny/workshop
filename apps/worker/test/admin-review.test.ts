@@ -37,7 +37,7 @@ async function seed() {
     INSERT INTO project_versions
       (id, project_id, version_no, title, description, project_type, included_types,
        tags, manifest_hash, created_by, created_at)
-    VALUES ('r1', 'p1', 1, 'Submitted title', 'Submitted description', '事件', '["玩法"]',
+    VALUES ('r1', 'p1', 1, 'Submitted title', 'Submitted description', '内容扩展', '["规则扩展"]',
       '["submitted"]', 'manifest-1', 'member', '${now}');
     UPDATE projects SET working_version_id = 'r1' WHERE id = 'p1';
     INSERT INTO assets (id, project_id, version_id, kind, r2_key, sha256, bytes, mime, created_at)
@@ -117,7 +117,7 @@ describe("admin review and publishing", () => {
       INSERT INTO projects (id, author_id, visibility, updated_at)
       VALUES ('p2', 'member', 'private', '2026-10-21T00:00:01.000Z');
       INSERT INTO project_versions (id, project_id, version_no, title, project_type, created_by)
-      VALUES ('r2', 'p2', 1, 'Second project', '事件', 'member');
+      VALUES ('r2', 'p2', 1, 'Second project', '内容扩展', 'member');
       UPDATE projects SET working_version_id = 'r2' WHERE id = 'p2';
       INSERT INTO submissions
         (id, project_id, version_id, status, submitted_by, submitted_at)
@@ -159,8 +159,8 @@ describe("admin review and publishing", () => {
     expect(body.version).toMatchObject({
       id: "r1",
       manifestHash: "manifest-1",
-      projectType: "事件",
-      includedTypes: ["玩法"],
+      projectType: "内容扩展",
+      includedTypes: ["规则扩展"],
       searchTags: ["submitted"],
     });
     expect(body.assets).toEqual(
@@ -303,7 +303,7 @@ describe("admin review and publishing", () => {
   it("maps checker findings to message and file and keeps distinct entries apart", async () => {
     const report = (findings: unknown[]) => JSON.stringify({ findings });
     await bindings.DB.prepare(`INSERT INTO project_versions
-      (id, project_id, version_no, title, project_type, created_by) VALUES ('r0', 'p1', 0, 'Previous public version', '事件', 'member')`).run();
+      (id, project_id, version_no, title, project_type, created_by) VALUES ('r0', 'p1', 0, 'Previous public version', '内容扩展', 'member')`).run();
     await bindings.DB.prepare("UPDATE submissions SET base_published_version_id = 'r0' WHERE id = 's1'").run();
     await bindings.DB.prepare(`
       INSERT INTO submissions (id, project_id, version_id, status, submitted_by, submitted_at)

@@ -200,17 +200,17 @@ async function seedExamples() {
   const examples = [
     {
       title: "港口贸易与航线",
-      type: "玩法",
+      type: "规则扩展",
       includedTypes: ["内容扩展"],
       tags: ["经济交易", "探索冒险", "金狮商会"],
       submit: true,
       approve: true,
     },
-    { title: "队伍宿营事件集", type: "事件", includedTypes: ["角色"], tags: ["事件链", "合集"], submit: true },
+    { title: "队伍宿营事件集", type: "内容扩展", includedTypes: ["角色"], tags: ["事件链", "合集"], submit: true },
     {
       title: "人物关系与声望",
       type: "系统核心",
-      includedTypes: ["玩法"],
+      includedTypes: ["规则扩展"],
       tags: ["日常陪伴", "好感社交"],
       submit: true,
       approve: true,
@@ -218,7 +218,7 @@ async function seedExamples() {
     {
       title: "群岛角色补充",
       type: "角色",
-      includedTypes: ["事件"],
+      includedTypes: ["内容扩展"],
       tags: ["人鱼", "冒险者", "温柔"],
       submit: true,
       approve: true,
@@ -226,7 +226,7 @@ async function seedExamples() {
     {
       title: "群岛人物与事件合集",
       type: "角色",
-      includedTypes: ["事件", "内容扩展"],
+      includedTypes: ["内容扩展"],
       tags: [
         "人类",
         "精灵/半精灵",
@@ -252,12 +252,11 @@ async function seedExamples() {
       submit: true,
       approve: true,
     },
-    { title: "本地冒险札记", type: "事件", tags: ["单次事件", "探索冒险"], submit: false },
+    { title: "本地冒险札记", type: "内容扩展", tags: ["单次事件", "探索冒险"], submit: false },
     { title: "装备属性整理", type: "内容扩展", tags: ["物品与装备"], submit: false },
     {
       title: "长篇世界观资料与地域风俗补充",
       type: "内容扩展",
-      includedTypes: ["事件"],
       tags: ["地区与城市", "饮食与文化", "异界与位面"],
       submit: true,
       approve: true,
@@ -267,7 +266,7 @@ async function seedExamples() {
       ],
     },
     { title: "待修改的对话样式", type: "体验优化", tags: ["提示词优化"], submit: true, reject: true },
-    { title: "航海开局事件", type: "事件", tags: ["开局剧本", "金狮商会"], submit: true, approve: true },
+    { title: "航海开局事件", type: "内容扩展", tags: ["开局剧本", "金狮商会"], submit: true, approve: true },
     {
       title: "冒险界面优化",
       type: "体验优化",

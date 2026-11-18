@@ -75,17 +75,17 @@ describe("catalog net windows on real D1", () => {
 
   it("matches repeated primary selections with OR and only includes contained categories when requested", async () => {
     await project("role", "角色");
-    await project("event", "事件");
-    await project("core", "系统核心", '["合集"]', ["角色", "玩法"]);
+    await project("event", "体验优化");
+    await project("core", "系统核心", '["合集"]', ["角色", "规则扩展"]);
     await project("content", "内容扩展");
     const selected = await SELF.fetch(
-      "https://workshop.test/api/v1/projects?projectType=事件&projectType=角色&projectType=角色",
+      "https://workshop.test/api/v1/projects?projectType=体验优化&projectType=角色&projectType=角色",
     );
     expect(selected.status).toBe(200);
     const primary = projectListResponseSchema.parse(await selected.json());
     expect(primary.items.map((item) => item.id).sort()).toEqual(["event", "role"]);
     const contained = await SELF.fetch(
-      "https://workshop.test/api/v1/projects?projectType=角色&projectType=事件&includeContained=true",
+      "https://workshop.test/api/v1/projects?projectType=角色&projectType=体验优化&includeContained=true",
     );
     expect(contained.status).toBe(200);
     const combined = projectListResponseSchema.parse(await contained.json());
@@ -93,7 +93,7 @@ describe("catalog net windows on real D1", () => {
     expect(combined.items.map((item) => item.id).sort()).toEqual(["core", "event", "role"]);
     expect(combined.items.find((item) => item.id === "core")).toMatchObject({
       projectType: "系统核心",
-      includedTypes: ["角色", "玩法"],
+      includedTypes: ["角色", "规则扩展"],
       tags: ["合集"],
     });
     const noFilter = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ includeContained: true }));
@@ -101,8 +101,8 @@ describe("catalog net windows on real D1", () => {
   });
 
   it("ORs presets within a group, ANDs groups and every custom tag, independent of primary category", async () => {
-    await project("human", "玩法", '["人类","战士","自定义甲","自定义乙"]');
-    await project("elf", "事件", '["精灵/半精灵","战士","自定义甲","自定义乙"]');
+    await project("human", "规则扩展", '["人类","战士","自定义甲","自定义乙"]');
+    await project("elf", "内容扩展", '["精灵/半精灵","战士","自定义甲","自定义乙"]');
     await project("wrong-identity", "角色", '["人类","法师","自定义甲","自定义乙"]');
     await project("missing-custom", "角色", '["人类","战士","自定义甲"]');
     await project("wrong-species", "角色", '["兽族","战士","自定义甲","自定义乙"]');
@@ -116,7 +116,7 @@ describe("catalog net windows on real D1", () => {
     const combined = await listPublishedProjects(
       bindings.DB,
       projectListQuerySchema.parse({
-        projectType: ["玩法", "体验优化"],
+        projectType: ["规则扩展", "体验优化"],
         tag: ["战士", "人类", "精灵/半精灵", "自定义甲", "自定义乙"],
       }),
     );
@@ -125,13 +125,13 @@ describe("catalog net windows on real D1", () => {
 
   it("keeps cursor scope stable for equivalent repeated selections and rejects a thirteenth unique tag", async () => {
     for (const id of ["a", "b", "c"]) await project(id, "角色", '["人类","战士"]');
-    const query = projectListQuerySchema.parse({ limit: 1, projectType: ["玩法", "角色"], tag: ["战士", "人类"] });
+    const query = projectListQuerySchema.parse({ limit: 1, projectType: ["规则扩展", "角色"], tag: ["战士", "人类"] });
     const first = await listPublishedProjects(bindings.DB, query);
     expect(first.nextCursor).not.toBeNull();
     const equivalent = projectListQuerySchema.parse({
       limit: 1,
       cursor: first.nextCursor!,
-      projectType: ["角色", "玩法", "角色"],
+      projectType: ["角色", "规则扩展", "角色"],
       tag: ["人类", "战士", "人类"],
     });
     expect(await isValidProjectListCursor(equivalent)).toBe(true);
@@ -267,7 +267,7 @@ describe("catalog net windows on real D1", () => {
     for (const change of [
       { sort: "downloads" as const },
       { period: "7d" as const },
-      { projectType: ["事件"] },
+      { projectType: ["内容扩展"] },
       { includeContained: true },
       { tag: ["科幻"] },
       { search: "别的" },

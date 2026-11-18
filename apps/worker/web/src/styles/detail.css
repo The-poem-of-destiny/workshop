@@ -776,13 +776,7 @@ button.detail-badge:hover {
   color: #e4cc91;
 }
 
-.detail-header .project-type-tag[data-type="事件"] {
-  background: #432d35;
-  border-color: transparent;
-  color: #edb5c4;
-}
-
-.detail-header .project-type-tag[data-type="玩法"] {
+.detail-header .project-type-tag[data-type="规则扩展"] {
   background: #253b4b;
   border-color: transparent;
   color: #aed5ef;

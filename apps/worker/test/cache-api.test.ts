@@ -113,13 +113,13 @@ describe("Cache API read behavior", () => {
   });
 
   it("shares canonical repeated selections while separating contained-category cache identity", async () => {
-    await publishTitle("Taxonomy original", "角色", ["玩法"], ["人类", "战士"]);
+    await publishTitle("Taxonomy original", "角色", ["规则扩展"], ["人类", "战士"]);
     const first = canonicalPublicRequest(
-      new Request("https://workshop.test/api/v1/projects?projectType=事件&projectType=角色&tag=战士&tag=人类"),
+      new Request("https://workshop.test/api/v1/projects?projectType=内容扩展&projectType=角色&tag=战士&tag=人类"),
     );
     const equivalent = canonicalPublicRequest(
       new Request(
-        "https://workshop.test/api/v1/projects?tag=人类&tag=战士&tag=人类&projectType=角色&projectType=事件&projectType=角色&includeContained=false",
+        "https://workshop.test/api/v1/projects?tag=人类&tag=战士&tag=人类&projectType=角色&projectType=内容扩展&projectType=角色&includeContained=false",
       ),
     );
     expect(first.kind).toBe("public");
@@ -131,7 +131,7 @@ describe("Cache API read behavior", () => {
     expect(equivalentUrl.search).toBe(firstUrl.search);
     const cached = await read(`/public/v1${firstUrl.pathname}${firstUrl.search}`);
     expect(await cached.json()).toMatchObject({ items: [{ title: "Taxonomy original" }], total: 1 });
-    await publishTitle("Taxonomy changed", "角色", ["玩法"], ["人类", "战士"]);
+    await publishTitle("Taxonomy changed", "角色", ["规则扩展"], ["人类", "战士"]);
     const hit = await read(`/public/v1${equivalentUrl.pathname}${equivalentUrl.search}`);
     expect(await hit.json()).toMatchObject({ items: [{ title: "Taxonomy original" }], total: 1 });
     const contained = canonicalPublicRequest(new Request(`${first.request.url}&includeContained=true`));
@@ -142,10 +142,10 @@ describe("Cache API read behavior", () => {
       items: [{ title: "Taxonomy changed" }],
       total: 1,
     });
-    const onlyContained = new URLSearchParams({ includeContained: "true", projectType: "玩法" });
+    const onlyContained = new URLSearchParams({ includeContained: "true", projectType: "规则扩展" });
     expect(await (await read(`/public/v1/api/v1/projects?${onlyContained}`)).json()).toMatchObject({ total: 1 });
     expect(
-      await (await read(`/public/v1/api/v1/projects?${new URLSearchParams({ projectType: "玩法" })}`)).json(),
+      await (await read(`/public/v1/api/v1/projects?${new URLSearchParams({ projectType: "规则扩展" })}`)).json(),
     ).toMatchObject({ total: 0 });
   });
 

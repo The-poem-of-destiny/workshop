@@ -392,7 +392,7 @@ class SourceIndexTest(unittest.TestCase):
                     self.assertEqual(prepared["unresolved"], len(document["records"]))
                     self.assertTrue(all(row["reviewed"] is False and row["tagsAcknowledged"] is False for row in document["records"]))
                     for row in document["records"]:
-                        row.update(projectType="玩法", includedTypes=["事件"], reviewed=True, tagsAcknowledged=True)
+                        row.update(projectType="规则扩展", includedTypes=["内容扩展"], reviewed=True, tagsAcknowledged=True)
                     review.write_text(taxonomy.stable(document), encoding="utf-8")
                     without_evidence = self.directory / (name + "-no-provenance")
                     self.taxonomy_cli("build", "--source", source, "--review", review, "--migrations", MIGRATIONS,

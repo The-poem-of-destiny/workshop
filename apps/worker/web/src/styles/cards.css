@@ -423,11 +423,7 @@
   background: #3f3420;
   color: #ebd296;
 }
-.project-type-tag[data-type="事件"] {
-  background: #422b34;
-  color: #f0b8c7;
-}
-.project-type-tag[data-type="玩法"] {
+.project-type-tag[data-type="规则扩展"] {
   background: #23394a;
   color: #b0d8f2;
 }

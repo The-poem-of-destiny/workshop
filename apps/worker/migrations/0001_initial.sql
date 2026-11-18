@@ -193,7 +193,7 @@ CREATE TABLE "project_versions" (
   version_no INTEGER NOT NULL,
   title TEXT NOT NULL,
   description TEXT,
-  project_type TEXT NOT NULL CHECK(project_type IN ('系统核心','角色','内容扩展','玩法','事件','体验优化')),
+  project_type TEXT NOT NULL CHECK(project_type IN ('系统核心','角色','内容扩展','规则扩展','体验优化')),
   included_types TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(included_types) AND json_type(included_types) = 'array'),
   tags TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(tags) AND json_type(tags) = 'array' AND json_array_length(tags) <= 20),
   manifest_hash TEXT,
@@ -220,7 +220,7 @@ CREATE TABLE "project_versions" (
 -- The explicit trim set matches JavaScript trim(), including BOM but not U+0085.
 CREATE TRIGGER project_versions_taxonomy_insert BEFORE INSERT ON project_versions
 WHEN EXISTS(SELECT 1 FROM json_each(NEW.included_types)
-    WHERE type <> 'text' OR value NOT IN ('角色','内容扩展','玩法','事件','体验优化') OR value = NEW.project_type)
+    WHERE type <> 'text' OR value NOT IN ('角色','内容扩展','规则扩展','体验优化') OR value = NEW.project_type)
   OR (SELECT COUNT(*) FROM json_each(NEW.included_types)) <> (SELECT COUNT(DISTINCT value) FROM json_each(NEW.included_types))
   OR EXISTS(SELECT 1 FROM json_each(replace(NEW.tags, '\u0000', '\u0001'))
     WHERE type <> 'text' OR length(value) NOT BETWEEN 1 AND 100
@@ -230,7 +230,7 @@ BEGIN SELECT RAISE(ABORT,'invalid project taxonomy or tags'); END;
 
 CREATE TRIGGER project_versions_taxonomy_update BEFORE UPDATE OF project_type,included_types,tags ON project_versions
 WHEN EXISTS(SELECT 1 FROM json_each(NEW.included_types)
-    WHERE type <> 'text' OR value NOT IN ('角色','内容扩展','玩法','事件','体验优化') OR value = NEW.project_type)
+    WHERE type <> 'text' OR value NOT IN ('角色','内容扩展','规则扩展','体验优化') OR value = NEW.project_type)
   OR (SELECT COUNT(*) FROM json_each(NEW.included_types)) <> (SELECT COUNT(DISTINCT value) FROM json_each(NEW.included_types))
   OR EXISTS(SELECT 1 FROM json_each(replace(NEW.tags, '\u0000', '\u0001'))
     WHERE type <> 'text' OR length(value) NOT BETWEEN 1 AND 100

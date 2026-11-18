@@ -19,7 +19,7 @@ from pathlib import Path
 import sqlite3
 import sys
 
-PROJECT_TYPES = ("系统核心", "角色", "内容扩展", "玩法", "事件", "体验优化")
+PROJECT_TYPES = ("系统核心", "角色", "内容扩展", "规则扩展", "体验优化")
 REVIEW_FORMAT = "workshop-taxonomy-review-v1"
 CANDIDATE_FORMAT = "workshop-taxonomy-candidate-v2"
 DERIVED = {"project_search", "project_search_short", "project_search_tags"}
@@ -212,7 +212,10 @@ def review_records(db, kind):
         if kind == "preview" and source.get("tags") is None:
             source["tags"] = parent.get("search_tags")
         old = source.get("project_type")
-        primary = "系统核心" if old == "系统" else old if old in PROJECT_TYPES else None
+        primary = ("系统核心" if old == "系统"
+                   else "内容扩展" if old == "事件"
+                   else "规则扩展" if old == "玩法"
+                   else old if old in PROJECT_TYPES else None)
         reasons = []
         if primary is None:
             reasons.append("ambiguous_extension_or_unknown_primary")
@@ -221,14 +224,20 @@ def review_records(db, kind):
         if source.get("extension_type") not in (None, ""):
             reasons.append("obsolete_extension_subtype_requires_accounting")
         try:
-            included = string_array(source.get("included_types"), "included_types")
+            raw_included = string_array(source.get("included_types"), "included_types")
         except (TypeError, ValueError):
-            included = []
+            raw_included = []
             reasons.append("invalid_existing_secondary_categories")
-        if not valid_classification(primary, included):
-            if included:
+        included = []
+        if raw_included:
+            remapped = ["内容扩展" if item == "事件" else "规则扩展" if item == "玩法" else item for item in raw_included]
+            if (primary is not None and len(raw_included) == len(set(raw_included))
+                    and all(item != old for item in raw_included)
+                    and all(item in PROJECT_TYPES and item != "系统核心" for item in remapped)):
+                included = [item for item in PROJECT_TYPES
+                            if item in remapped and item not in ("系统核心", primary)]
+            else:
                 reasons.append("invalid_existing_secondary_categories")
-            included = []
         tags = tag_accounting(source, kind)
         result.append({
             "table": table, "id": str(row["id"]), "sourceRowSha256": row_digest(row),
@@ -370,7 +379,7 @@ def check_shapes(source, target):
         dropped_columns(table, columns(source, source_table), columns(target, table))
     version_columns = set(columns(target, "project_versions"))
     if not {"project_type", "included_types"} <= version_columns or version_columns & OBSOLETE:
-        raise ValueError("target migrations do not define the final six-category schema")
+        raise ValueError("target migrations do not define the final five-category schema")
     return source_tables, target_names
 
 

@@ -57,7 +57,7 @@ async function seed() {
        tags, worldbook_count, regex_count, schema_version, discord_thread_url, created_by, created_at)
     VALUES (?, ?, 1, ?, ?, ?, ?, ?, 12, 4, '4.3', 'https://discord.com/channels/1/2', ?, ?)
   `)
-    .bind("r1", "p1", "命定之诗测试项目", "公开描述", "系统核心", '["角色","玩法"]', '["奇幻","测试"]', "u1", now)
+    .bind("r1", "p1", "命定之诗测试项目", "公开描述", "系统核心", '["角色","规则扩展"]', '["奇幻","测试"]', "u1", now)
     .run();
 
   await bindings.DB.prepare(`
@@ -177,7 +177,7 @@ describe("public read path", () => {
       id: "p1",
       title: "命定之诗测试项目",
       projectType: "系统核心",
-      includedTypes: ["角色", "玩法"],
+      includedTypes: ["角色", "规则扩展"],
       entries: { worldbook: 12, regex: 4 },
       schemaVersion: "4.3",
       counts: { downloads: 12, likes: 3, subscriptions: 2 },

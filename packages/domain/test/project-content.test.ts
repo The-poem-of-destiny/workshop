@@ -25,8 +25,8 @@ describe("project content presence", () => {
 });
 
 describe("project taxonomy vocabulary", () => {
-  it("exposes six primaries and independent selection, authoring and display limits", () => {
-    expect(PROJECT_TYPES).toEqual(["系统核心", "角色", "内容扩展", "玩法", "事件", "体验优化"]);
+  it("exposes five primaries and independent selection, authoring and display limits", () => {
+    expect(PROJECT_TYPES).toEqual(["系统核心", "角色", "内容扩展", "规则扩展", "体验优化"]);
     expect([MAX_CUSTOM_TAGS, MAX_SELECTED_TAGS, MAX_DISPLAY_TAGS]).toEqual([20, 12, 4]);
   });
 
@@ -43,11 +43,16 @@ describe("project taxonomy vocabulary", () => {
   });
 
   it("orders selected-category groups before common groups and retains every other group", () => {
-    const groups = orderedPresetTagGroups(["角色", "玩法"]);
+    const groups = orderedPresetTagGroups(["角色", "规则扩展"]);
     expect(groups.slice(0, 5).map((group) => group.name)).toEqual(["种族", "身份", "个性", "外貌特征", "玩法方向"]);
     expect(groups.slice(5, 8).map((group) => group.name)).toEqual(["组织", "势力", "组成形式"]);
     expect(groups).toHaveLength(PRESET_TAG_GROUPS.length);
     expect(new Set(groups)).toEqual(new Set(PRESET_TAG_GROUPS));
+    expect(
+      orderedPresetTagGroups(["内容扩展"])
+        .slice(0, 2)
+        .map((group) => group.name),
+    ).toEqual(["内容类型", "事件形式"]);
     expect(
       orderedPresetTagGroups([])
         .slice(0, 3)

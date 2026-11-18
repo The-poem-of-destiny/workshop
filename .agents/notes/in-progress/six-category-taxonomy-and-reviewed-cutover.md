@@ -4,6 +4,7 @@
 - 确认日期：2026-11-13
 - 决策负责人：项目所有者；契约维护者：Domain/Contracts 与 Worker；界面维护者：Web；迁移维护者：离线工具；交付与安全边界：Integration。
 - 本记录保存已接受设计及其取舍，不是部署许可、操作运行簿或验收日志。当前行为分别由 [API 参考](../../../docs/reference/worker-api.md)、[使用指南](../../../docs/guides/using-workshop.md)、[迁移说明](../../../docs/operations/legacy-data-migration.md)和[部署安全规则](../../../docs/operations/deployment-safety.md)维护。
+- 局部取代（2026-11-18）：主分类枚举已由 [社区低调入口、政策问答准入、合集体系与界面体验精修](community-access-collections-and-ux-refinement.md) 收敛为五分类（`系统核心`、`角色`、`内容扩展`、`规则扩展`、`体验优化`；原`事件`并入`内容扩展`，原`玩法`更名为`规则扩展`，12 组预设标签完整保留）；本记录其余结构化包含关系、普通标签上限、筛选分组语义与离线审阅/对账机制保持有效。
 - 生命周期核对（2026-11-17）：源码、空库 schema、API/Web 和完整离线候选工具已由 [PR #90](https://github.com/The-poem-of-destiny/workshop/pull/90) 合并；四普通标签上限 [PR #89](https://github.com/The-poem-of-destiny/workshop/pull/89) 也已合并。现有本地验收及精确 main CI 见[当前状态](../../../docs/plans/refactor-2026-10/state.md)。本记录保持 in-progress 的原因是当前 schema／taxonomy 的真实数据切换未执行，并非源码仍未交付；历史 staging 210/210 验收不关闭此门槛。
 
 ## 背景与取代范围
