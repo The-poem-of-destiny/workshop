@@ -5,7 +5,7 @@ import {
   type Session,
   uploadResponseSchema,
 } from "@workshop/contracts";
-import { CURRENT_POLICY_VERSION, PROJECT_TYPES } from "@workshop/domain";
+import { CURRENT_POLICY_VERSION } from "@workshop/domain";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { DataEnv } from "../src/data/env";
 
