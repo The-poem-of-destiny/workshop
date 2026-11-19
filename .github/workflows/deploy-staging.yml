@@ -24,8 +24,8 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
       HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-      # PR #80 records the independently accepted staging cutover; not an application deployment baseline.
-      ACCEPTED_SCHEMA_SHA: f2491599cfb97a6405b5f73ead73227387786478
+      # Existing staging D1 was reset in place and verified against this commit's empty baseline.
+      ACCEPTED_SCHEMA_SHA: 143ee219458a4ca2b6d34071371a3456b2ca4423
     steps:
       - name: Detect deployable changes and freshness
         id: filter
