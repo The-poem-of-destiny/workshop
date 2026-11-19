@@ -1,5 +1,5 @@
 import type { InteractionStateItem } from "@workshop/contracts";
-import { Bookmark, ExternalLink, Heart, RefreshCcw } from "lucide-react";
+import { Bookmark, ExternalLink, Heart, MessageSquarePlus, RefreshCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api, type ProjectSummary } from "../../api";
 import type { DiscordPromptTarget } from "../policy/DiscordLinkPrompt";
@@ -37,10 +37,12 @@ export function ProjectCommunity({
   const [recommendationSaving, setRecommendationSaving] = useState(false);
   const [recommendationStatus, setRecommendationStatus] = useState<string | null>(null);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
+  const [recommendationOpen, setRecommendationOpen] = useState(false);
   useEffect(() => {
     setRecommendationComment("");
     setRecommendationStatus(null);
     setRecommendationError(null);
+    setRecommendationOpen(false);
     if (!loggedIn) {
       setInteraction(null);
       return;
@@ -198,6 +200,8 @@ export function ProjectCommunity({
         interaction={interaction}
         ready={interactionStatus === "ready"}
         loggedIn={loggedIn}
+        open={recommendationOpen}
+        onToggleOpen={() => setRecommendationOpen((value) => !value)}
         projectVersionId={project.publishedVersionId}
         comment={recommendationComment}
         saving={recommendationSaving}
@@ -218,6 +222,8 @@ function VersionRecommendation({
   interaction,
   ready,
   loggedIn,
+  open,
+  onToggleOpen,
   projectVersionId,
   comment,
   saving,
@@ -229,6 +235,8 @@ function VersionRecommendation({
   interaction: Interaction | null;
   ready: boolean;
   loggedIn: boolean;
+  open: boolean;
+  onToggleOpen: () => void;
   projectVersionId: string | null | undefined;
   comment: string;
   saving: boolean;
@@ -237,43 +245,65 @@ function VersionRecommendation({
   onCommentChange: (value: string) => void;
   onSave: (remove: boolean) => void;
 }) {
+  const hasRec = Boolean(interaction?.recommendation);
   return (
     <section className="rating-block" aria-label="版本推荐">
-      <h4>推荐当前版本</h4>
+      <div className="rating-block-head">
+        <h4>推荐当前版本</h4>
+        {loggedIn && ready ? (
+          <button type="button" className="rail-toggle-btn" aria-expanded={open} onClick={onToggleOpen}>
+            <MessageSquarePlus aria-hidden="true" />
+            <span>{open ? "收起" : hasRec ? "编辑推荐语" : "写推荐语"}</span>
+          </button>
+        ) : null}
+      </div>
       {!loggedIn ? (
         <p className="hint">登录并订阅后可向其他玩家安利当前版本。</p>
       ) : ready ? (
-        <>
-          {!interaction?.recommendationEligible ? <p className="hint">订阅作品后即可推荐当前版本。</p> : null}
-          <label className="rating-comment">
-            <span>公开推荐说明（可选）</span>
-            <textarea
-              rows={2}
-              maxLength={2000}
-              placeholder="写一句游玩感受或推荐理由（公开展示）"
-              value={comment}
-              disabled={!interaction?.recommendationEligible || saving}
-              onChange={(event) => onCommentChange(event.target.value)}
-            />
-          </label>
-          <div className="actions">
-            <button
-              type="button"
-              className="primary"
-              disabled={!interaction?.recommendationEligible || saving || !projectVersionId}
-              onClick={() => onSave(false)}
-            >
-              {saving ? "处理中…" : interaction?.recommendation ? "更新当前版本推荐" : "推荐当前版本"}
-            </button>
-            {interaction?.recommendation ? (
-              <button type="button" disabled={saving} onClick={() => onSave(true)}>
-                撤回当前版本推荐
+        open ? (
+          <>
+            {!interaction?.recommendationEligible ? <p className="hint">订阅作品后即可推荐当前版本。</p> : null}
+            <label className="rating-comment">
+              <span>公开推荐说明（可选）</span>
+              <textarea
+                rows={2}
+                maxLength={2000}
+                placeholder="写一句游玩感受或推荐理由（公开展示）"
+                value={comment}
+                disabled={!interaction?.recommendationEligible || saving}
+                onChange={(event) => onCommentChange(event.target.value)}
+              />
+            </label>
+            <div className="actions">
+              <button
+                type="button"
+                className="primary"
+                disabled={!interaction?.recommendationEligible || saving || !projectVersionId}
+                onClick={() => onSave(false)}
+              >
+                {saving ? "处理中…" : hasRec ? "更新当前版本推荐" : "推荐当前版本"}
               </button>
+              {hasRec ? (
+                <button type="button" disabled={saving} onClick={() => onSave(true)}>
+                  撤回当前版本推荐
+                </button>
+              ) : null}
+            </div>
+            {status ? <p role="status">{status}</p> : null}
+            {error ? <p role="alert">{error}</p> : null}
+          </>
+        ) : (
+          <>
+            {hasRec ? (
+              <p className="rail-rec-preview">
+                {interaction?.recommendation?.comment || "已推荐当前版本（未填写说明）"}
+              </p>
+            ) : !interaction?.recommendationEligible ? (
+              <p className="hint">订阅作品后即可推荐当前版本。</p>
             ) : null}
-          </div>
-          {status ? <p role="status">{status}</p> : null}
-          {error ? <p role="alert">{error}</p> : null}
-        </>
+            {status ? <p role="status">{status}</p> : null}
+          </>
+        )
       ) : null}
     </section>
   );

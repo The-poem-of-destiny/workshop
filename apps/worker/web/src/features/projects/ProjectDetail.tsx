@@ -1,5 +1,17 @@
 import type { ProjectType } from "@workshop/domain";
-import { ArrowLeft, Bookmark, BookOpen, Code2, Download, FolderOpen, GitBranch, Heart, RefreshCcw } from "lucide-react";
+import {
+  ArrowLeft,
+  Bookmark,
+  BookOpen,
+  Code2,
+  Download,
+  FolderOpen,
+  GitBranch,
+  Heart,
+  PanelRightClose,
+  PanelRightOpen,
+  RefreshCcw,
+} from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { api, type ProjectDetail as ProjectDetailResponse, type ProjectSummary } from "../../api";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
@@ -67,6 +79,7 @@ export function ProjectDetail({
   const [detailReload, setDetailReload] = useState(0);
   const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
   const [selectedMedia, setSelectedMedia] = useState(0);
+  const [railCollapsed, setRailCollapsed] = useState(false);
 
   const detailRequest = useRef<{ generation: number } | null>(null);
   useEffect(() => {
@@ -123,6 +136,17 @@ export function ProjectDetail({
               <span>返回</span>
             </button>
             <DialogTitle>{project.title}</DialogTitle>
+            <button
+              type="button"
+              className="detail-rail-toggle"
+              aria-expanded={!railCollapsed}
+              aria-controls="detail-summary-rail"
+              title={railCollapsed ? "展开右侧信息栏" : "收起右侧信息栏"}
+              onClick={() => setRailCollapsed((value) => !value)}
+            >
+              {railCollapsed ? <PanelRightOpen aria-hidden="true" /> : <PanelRightClose aria-hidden="true" />}
+              <span>{railCollapsed ? "展开信息栏" : "收起信息栏"}</span>
+            </button>
           </div>
           <DialogDescription className="sr-only">项目详情</DialogDescription>
         </DialogHeader>
@@ -179,14 +203,14 @@ export function ProjectDetail({
               </fieldset>
             ) : null}
           </div>
-          <div className="detail-layout">
+          <div className={`detail-layout${railCollapsed ? " is-rail-collapsed" : ""}`}>
             <ProjectMedia
               project={project}
               gallery={detail?.gallery}
               selectedMedia={selectedMedia}
               setSelectedMedia={setSelectedMedia}
             />
-            <aside className="summary-rail" aria-label="项目信息与操作">
+            <aside id="detail-summary-rail" className="summary-rail" aria-label="项目信息与操作">
               <section className="rail-section rail-install-card" aria-label="安装与状态">
                 {installedWorldbook ? <p className="installed">已安装至：{installedWorldbook}</p> : null}
                 {installState === "upToDate" ? (
