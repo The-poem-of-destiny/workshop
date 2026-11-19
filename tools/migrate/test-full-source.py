@@ -27,9 +27,22 @@ def create_current_snapshot(path, migrations=MIGRATIONS):
         for name, in db.execute("SELECT name FROM sqlite_schema WHERE type='trigger'").fetchall():
             db.execute("DROP TRIGGER " + taxonomy.quote(name))
         db.executescript("""
+            PRAGMA foreign_keys = OFF;
             DROP VIEW project_search_short_source;
+            DROP TABLE collection_projects;
+            DROP TABLE collections;
             DROP TABLE project_experience_notes;
             DROP TABLE project_unversioned_notes;
+            DROP TABLE users;
+            CREATE TABLE users (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                global_name TEXT,
+                avatar TEXT,
+                role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('member', 'reviewer', 'owner')),
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
             CREATE TABLE project_ratings (
                 project_id TEXT NOT NULL, user_id TEXT NOT NULL, rating INTEGER NOT NULL,
                 comment_text TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
@@ -45,7 +58,7 @@ def create_current_snapshot(path, migrations=MIGRATIONS):
                 created_at TEXT NOT NULL, version_label TEXT, cover_position_x REAL NOT NULL DEFAULT 50,
                 cover_position_y REAL NOT NULL DEFAULT 50, cover_zoom REAL NOT NULL DEFAULT 1,
                 entry_index TEXT, requirements TEXT, UNIQUE(project_id,version_no), UNIQUE(project_id,id));
-            INSERT INTO users VALUES
+            INSERT INTO users (id, username, global_name, avatar, role, created_at, updated_at) VALUES
                 ('author','Writer','Displayed writer',NULL,'member','2026-01-01','2026-01-02'),
                 ('reviewer','Reviewer',NULL,NULL,'reviewer','2026-01-01','2026-01-02');
             INSERT INTO projects (id,author_id,visibility,working_version_id,published_version_id,
@@ -181,7 +194,7 @@ class SourceReconciliationTest(unittest.TestCase):
         """)
         self.dump = "\n".join(db.iterdump()) + "\n"
         self.tables = {name: [] for name in (
-            "users", "projects", "project_versions", "project_likes", "project_subscriptions",
+            "users", "projects", "project_versions", "collections", "collection_projects", "project_likes", "project_subscriptions",
             "project_experience_notes", "project_unversioned_notes", "project_metrics_daily", "site_settings", "audit_events", "recommendations", "assets")}
         self.tables["users"] = [{"id": "u1", "username": "synthetic", "global_name": None, "avatar": None, "role": "member", "created_at": "t1", "updated_at": "t2"}]
         self.tables["projects"] = [{"id": "p1", "author_id": "u1", "working_version_id": REVISION, "published_version_id": REVISION, "visibility": "public", "published_at": "t1", "published_updated_at": "t1", "downloads_count": 0, "likes_count": 0, "subscriptions_count": 0, "created_at": "t1", "updated_at": "t2"}]

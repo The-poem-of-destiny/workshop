@@ -98,7 +98,7 @@ function showOverlay() {
     position: "relative",
     display: "flex",
     flexDirection: "column",
-    width: "min(1200px, 100%)",
+    width: "min(1680px, calc(100vw - 40px))",
     height: "100%",
     background: "#0f1012",
     borderRadius: "18px",
@@ -273,7 +273,7 @@ function showAgreement(): Promise<boolean> {
     $card.append(host$("<h3>使用前说明</h3>").css({ margin: "0 0 10px", fontSize: "18px" }));
     $card.append(
       host$("<p>").text(
-        "创意工坊会把你选择的世界书与正则安装到当前 SillyTavern 角色。安装前请备份角色卡；卸载会移除工坊写入的条目，但不会恢复已被你覆盖的原条目。",
+        "从创意工坊安装模组时，会向你选择的目标世界书或当前角色追加该模组的条目；更新所选实例会整体替换该模组的条目（不会保留你对该模组条目的本地修改），卸载则移除该模组的条目。执行安装、更新、转换或卸载前，请务必先备份角色卡与相关世界书。",
       ),
     );
     $card.append(host$("<p>").text("服务地址默认为官方工坊。仅在自建或测试环境修改；地址必须与你信任的工坊一致。"));

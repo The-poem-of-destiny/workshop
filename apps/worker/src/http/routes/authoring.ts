@@ -1,6 +1,7 @@
 import {
   createProjectSchema,
   patchProjectSchema,
+  projectCollectionsUpdateSchema,
   submitProjectSchema,
   visibilityUpdateSchema,
 } from "@workshop/contracts";
@@ -15,6 +16,8 @@ import { ifMatchVersion } from "../if-match.js";
 import { registerAuthoringGalleryRoutes } from "./authoring-gallery.js";
 import { sessionOrError } from "./authoring-request.js";
 
+const POLICY_REQUIRED_MESSAGE = "请先阅读并同意工坊使用政策并完成准入问答";
+
 export const authoringRoutes = new Hono<{ Bindings: Env }>();
 
 authoringRoutes.get("/:id/versions/:versionId/change-evidence", async (c) => {
@@ -24,6 +27,7 @@ authoringRoutes.get("/:id/versions/:versionId/change-evidence", async (c) => {
     c.req.param("versionId"),
   );
   if (result.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+  if (result.kind === "forbidden") return jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE);
   if (result.kind === "not_found") return jsonError(c, "not_found", "Change evidence unavailable");
   return c.json(result.data);
 });
@@ -79,6 +83,7 @@ authoringRoutes.post("/", async (c) => {
       parsed.data,
     );
     if (result.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+    if (result.kind === "forbidden") return jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE);
     return c.json(result.data, 201);
   } catch {
     return jsonError(c, "internal", "Unable to create project");
@@ -93,8 +98,27 @@ authoringRoutes.get("/:id/draft", async (c) => {
     c.req.param("id"),
   );
   if (result.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+  if (result.kind === "forbidden") return jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE);
   if (result.kind === "not_found") return jsonError(c, "not_found", "Project not found");
   return c.json(result.data);
+});
+
+authoringRoutes.put("/:id/collections", async (c) => {
+  const auth = await sessionOrError(c);
+  if (!auth.session) return auth.response;
+  const parsed = projectCollectionsUpdateSchema.safeParse(await bodyJson(c));
+  if (!parsed.success) return jsonError(c, "bad_request", "合集列表格式无效", parsed.error.flatten());
+  const result = await c.executionCtx.exports.DataService.authorSetProjectCollections(
+    c.req.header("authorization"),
+    c.req.param("id"),
+    parsed.data.collectionIds,
+  );
+  if (result.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+  if (result.kind === "forbidden") return jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE);
+  if (result.kind === "not_found") return jsonError(c, "not_found", "Project not found");
+  if (result.kind === "forbidden_collection") return jsonError(c, "forbidden", "只能选择自己创建的合集");
+  if (result.kind === "invalid") return jsonError(c, "bad_request", result.message);
+  return c.json({ collectionIds: result.collectionIds });
 });
 
 authoringRoutes.patch("/:id", async (c) => {
@@ -115,6 +139,7 @@ authoringRoutes.patch("/:id", async (c) => {
     parsed.data,
   );
   if (result.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+  if (result.kind === "forbidden") return jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE);
   if (result.kind === "not_found") return jsonError(c, "not_found", "Project not found");
   if (result.kind === "version_conflict") return versionConflict(c, "project", expectedVersion, result.actual);
   if (result.kind === "cas_conflict") return versionConflict(c, "project", expectedVersion, result.actual);
@@ -150,6 +175,7 @@ authoringRoutes.delete("/:id/versions/:versionId/entries/:kind/:entryKey", async
     expectedVersion,
   );
   if (response.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+  if (response.kind === "forbidden") return jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE);
   const result = response.data;
   if (!result) return jsonError(c, "conflict", "Entry cannot be deleted from this revision");
   return c.json(result);
@@ -165,6 +191,7 @@ authoringRoutes.delete("/:id", async (c) => {
     expectedVersion,
   );
   if (result.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+  if (result.kind === "forbidden") return jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE);
   if (result.kind === "not_found") return jsonError(c, "not_found", "Project not found");
   if (result.kind === "version_conflict") return versionConflict(c, "project", expectedVersion, result.actual);
   return c.body(null, 204);
@@ -183,6 +210,7 @@ authoringRoutes.patch("/:id/visibility", async (c) => {
     parsed.data,
   );
   if (result.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+  if (result.kind === "forbidden") return jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE);
   if (result.kind === "not_found") return jsonError(c, "not_found", "Project not found");
   if (result.kind === "version_conflict") return versionConflict(c, "project", expectedVersion, result.actual);
   return c.json({ rowVersion: result.rowVersion });
@@ -206,6 +234,7 @@ authoringRoutes.post("/:id/versions", async (c) => {
     parsed.data,
   );
   if (result.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+  if (result.kind === "forbidden") return jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE);
   if (result.kind === "not_found") return jsonError(c, "not_found", "Project not found");
   if (result.kind === "version_conflict") return jsonError(c, "precondition_failed", "Project version does not match");
   if (result.kind === "cas_conflict") return versionConflict(c, "project", expectedVersion, result.actual);
@@ -234,6 +263,7 @@ authoringRoutes.post("/:id/versions/:versionId/submit", async (c) => {
     expectedVersion,
   );
   if (prepared.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+  if (prepared.kind === "forbidden") return jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE);
   if (prepared.kind === "not_found") return jsonError(c, "not_found", prepared.message);
   if (prepared.kind === "version_conflict") return versionConflict(c, "project", expectedVersion, prepared.actual);
   if (prepared.kind === "conflict") return jsonError(c, "conflict", prepared.message);
@@ -254,6 +284,7 @@ authoringRoutes.post("/:id/versions/:versionId/submit", async (c) => {
     prevalidated,
   );
   if (response.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+  if (response.kind === "forbidden") return jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE);
   if (response.kind === "not_found") return jsonError(c, "not_found", response.message);
   if (response.kind === "version_conflict") return versionConflict(c, "project", expectedVersion, response.actual);
   if (response.kind === "conflict") return jsonError(c, "conflict", response.message);
@@ -298,6 +329,7 @@ authoringRoutes.post("/:id/submissions/:submissionId/withdraw", async (c) => {
     expectedVersion,
   );
   if (response.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+  if (response.kind === "forbidden") return jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE);
   if (response.kind === "not_found") return jsonError(c, "not_found", "Project not found");
   if (response.kind === "version_conflict") return versionConflict(c, "project", expectedVersion, response.actual);
   const result = response.data;

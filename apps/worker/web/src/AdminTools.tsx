@@ -25,9 +25,11 @@ type ManagementSection = (typeof MANAGEMENT_SECTIONS)[number]["id"];
 export function AdminTools({
   onError,
   onNotice,
+  onOpenProject,
 }: {
   onError: (message: string) => void;
   onNotice: (message: string) => void;
+  onOpenProject?: (projectId: string) => void;
 }) {
   // Hooks stay mounted so returning to the index retains drafts, filters and loaded pages.
   const [section, setSection] = useState<ManagementSection | null>(null);
@@ -185,12 +187,16 @@ export function AdminTools({
           }}
           banner={banner}
           setBanner={setBanner}
+          communityInviteInput={data.communityInviteInput}
+          setCommunityInviteInput={data.setCommunityInviteInput}
+          announcementInput={data.announcementInput}
+          setAnnouncementInput={data.setAnnouncementInput}
           siteText={siteText}
           setSiteText={setSiteText}
           saveSite={async () => {
             setPendingWrite({
               title: "保存站点设置",
-              description: "Banner 与站点文案将立即生效。请确认输入内容。",
+              description: "Banner、社区邀请链接与顶部公告将立即生效。请确认输入内容。",
               run: saveSite,
             });
           }}
@@ -204,6 +210,22 @@ export function AdminTools({
           searchProjects={data.searchProjects}
           projectBusy={data.projectBusy}
           projectError={data.projectError}
+          onOpenProject={onOpenProject}
+          onToggleVisibility={(project) => {
+            const nextLabel = project.visibility === "public" ? "设为私有（从公开列表下架）" : "恢复公开展示";
+            setPendingWrite({
+              title: nextLabel,
+              description: `确定将《${project.title}》${nextLabel}吗？`,
+              run: () => data.toggleProjectVisibility(project),
+            });
+          }}
+          onDeleteProject={(project) => {
+            setPendingWrite({
+              title: "删除项目",
+              description: `确定删除项目《${project.title}》（作者：${project.author.name}）吗？删除后该项目将不再在公开目录和作者工作区显示。`,
+              run: () => data.removeAdminProject(project),
+            });
+          }}
         />
       ) : null}
       {section === "members" && !busy && !data.loadError ? (

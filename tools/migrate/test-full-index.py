@@ -49,7 +49,7 @@ class SourceIndexTest(unittest.TestCase):
             REGEX: b'[{"id":"r1","scriptName":"Replacement","replaceString":"B"}]',
         }
         tables = {name: [] for name in (
-            "users", "projects", "project_versions", "project_likes", "project_subscriptions",
+            "users", "projects", "project_versions", "collections", "collection_projects", "project_likes", "project_subscriptions",
             "project_experience_notes", "project_unversioned_notes", "project_metrics_daily", "site_settings", "audit_events", "recommendations", "assets", "version_entry_index")}
         tables["users"] = [{"id": "u1", "username": "synthetic", "global_name": None, "avatar": None,
                             "role": "member", "created_at": "t1", "updated_at": "t2"}]

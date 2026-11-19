@@ -1,4 +1,5 @@
 import type { AuthFlowMode, Session } from "@workshop/contracts";
+import { hasAcceptedCurrentPolicy } from "@workshop/domain";
 import { z } from "zod";
 import { sha256Hex } from "./identity.js";
 import { hashSessionToken } from "./session-hash.js";
@@ -87,7 +88,7 @@ export async function markFlowAuthorized(
     .prepare(`
     UPDATE oauth_flows
     SET status = 'authorized', user_id = ?, detail = ?, redeem_hash = COALESCE(?, redeem_hash), authorized_at = ?, error = NULL
-    WHERE id = ? AND status = 'pending' AND expires_at > ? AND consumed_at IS NULL
+    WHERE id = ? AND status = 'pending' AND error IS NULL AND expires_at > ? AND consumed_at IS NULL
   `)
     .bind(
       userId,
@@ -159,11 +160,20 @@ export async function createOpaqueSession(
   `)
     .bind(await hashSessionToken(token, sessionSecret), userId, now, now, expiresAt)
     .run();
-  const role = await db.prepare("SELECT role FROM users WHERE id = ?").bind(userId).first<{ role: Session["role"] }>();
-  if (!role) throw new Error("Session user not found");
+  const userRow = await db
+    .prepare("SELECT role, policy_accepted_version FROM users WHERE id = ?")
+    .bind(userId)
+    .first<{ role: Session["role"]; policy_accepted_version: string | null }>();
+  if (!userRow) throw new Error("Session user not found");
   return {
     token,
     expiresAt,
-    session: { userId, role: role.role, sessionVersion: 1, expiresAt },
+    session: {
+      userId,
+      role: userRow.role,
+      sessionVersion: 1,
+      expiresAt,
+      policyAccepted: hasAcceptedCurrentPolicy(userRow.policy_accepted_version),
+    },
   };
 }

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
-import { type AuthorProject, api } from "../../api";
+import { type AuthorCollection, type AuthorProject, api } from "../../api";
+import { ConfirmDialog } from "../../components/ui/confirm-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../../components/ui/dialog";
 import "../../styles/workspaces.css";
 import "../../styles/task-workspaces.css";
 import { ProjectStatusBanner } from "./authoring/StatusBanner";
+import { CollectionsManager } from "./CollectionsManager";
 import { ProjectEditor } from "./ProjectEditor";
 import { metadataPayload, projectForm } from "./projectMetadata";
 
@@ -40,12 +42,17 @@ export function MyProjects({
   onInitialSelectionConsumed?: () => void;
 }) {
   const [items, setItems] = useState<AuthorProject[]>([]);
+  const [collections, setCollections] = useState<AuthorCollection[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | ProjectStatus>("all");
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [withdrawPrompt, setWithdrawPrompt] = useState<{
+    entry: AuthorProject;
+    continueEdit: boolean;
+  } | null>(null);
   const editorOpener = useRef<HTMLButtonElement | null>(null);
   const reportError = useRef(onError);
   useEffect(() => {
@@ -55,10 +62,14 @@ export function MyProjects({
   const refresh = useCallback(async (): Promise<void> => {
     setLoading(true);
     try {
-      const result = await api.myProjects();
-      setItems(result.items);
+      const [projectResult, collectionResult] = await Promise.all([
+        api.myProjects(),
+        api.myCollections().catch(() => ({ items: [] as AuthorCollection[] })),
+      ]);
+      setItems(projectResult.items);
+      setCollections(collectionResult.items);
       setSelectedId((current) =>
-        current && !result.items.some((item) => item.project.id === current) ? null : current,
+        current && !projectResult.items.some((item) => item.project.id === current) ? null : current,
       );
     } catch (reason) {
       reportError.current(String(reason));
@@ -88,12 +99,42 @@ export function MyProjects({
     if (dirty && !window.confirm("有尚未保存的资料或未上传的文件，确定放弃并新建版本？")) return;
     setBusy(true);
     try {
-      const result = await api.createVersion(
-        entry.project.id,
-        entry.rowVersion,
-        metadataPayload(projectForm(entry.project, entry)),
-      );
-      onNotice(`已创建新版本（版本 ${result.rowVersion}），现在可以继续修改并上传文件。`);
+      await api.createVersion(entry.project.id, entry.rowVersion, metadataPayload(projectForm(entry.project, entry)));
+      onNotice("已创建新版本，现在可以继续修改资料与上传文件。");
+      await refresh();
+    } catch (reason) {
+      onError(String(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmBannerWithdraw(): Promise<void> {
+    if (!withdrawPrompt || busy) return;
+    const { entry, continueEdit } = withdrawPrompt;
+    const submission = entry.latestSubmission;
+    if (!submission) {
+      setWithdrawPrompt(null);
+      return;
+    }
+    setBusy(true);
+    try {
+      const withdrawn = await api.withdrawSubmission(entry.project.id, submission.id, entry.rowVersion);
+      setWithdrawPrompt(null);
+      if (continueEdit) {
+        try {
+          await api.createVersion(
+            entry.project.id,
+            withdrawn.rowVersion,
+            metadataPayload(projectForm(entry.project, entry)),
+          );
+          onNotice("已撤回审核并创建新版本，现在可以直接修改并重新送审。");
+        } catch (versionError) {
+          onError(`审核已撤回，但自动创建新版本失败，请点击「新建版本」继续修改：${String(versionError)}`);
+        }
+      } else {
+        onNotice("提交已撤回，线上已发布版本不受影响。");
+      }
       await refresh();
     } catch (reason) {
       onError(String(reason));
@@ -208,6 +249,16 @@ export function MyProjects({
           </div>
         ) : null}
       </section>
+
+      <CollectionsManager
+        projects={items}
+        collections={collections}
+        loading={loading}
+        onReload={refresh}
+        onNotice={onNotice}
+        onError={onError}
+      />
+
       <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && closeEditor()}>
         {selected ? (
           <DialogContent
@@ -230,9 +281,16 @@ export function MyProjects({
               </button>
             </header>
             <div className="task-workspace-body">
-              <ProjectStatusBanner entry={selected} busy={busy} onNewVersion={() => void createVersion(selected)} />
+              <ProjectStatusBanner
+                entry={selected}
+                busy={busy}
+                onNewVersion={() => void createVersion(selected)}
+                onWithdrawAndEdit={() => setWithdrawPrompt({ entry: selected, continueEdit: true })}
+                onWithdrawOnly={() => setWithdrawPrompt({ entry: selected, continueEdit: false })}
+              />
               <ProjectEditor
                 entry={selected}
+                collections={collections}
                 onRefresh={refresh}
                 onError={onError}
                 onNotice={onNotice}
@@ -242,6 +300,20 @@ export function MyProjects({
           </DialogContent>
         ) : null}
       </Dialog>
+
+      <ConfirmDialog
+        open={withdrawPrompt !== null}
+        title={withdrawPrompt?.continueEdit ? "撤回审核并继续修改" : "撤回本次审核"}
+        description={
+          withdrawPrompt?.continueEdit
+            ? "撤回后本次送审快照不会发布，系统会立即为你新建一个可编辑版本以便继续修改；线上已发布的公开版本不受影响。"
+            : "撤回后本次送审快照即使自动检查完成也不会发布；线上已发布的公开版本不受影响。"
+        }
+        confirmLabel={withdrawPrompt?.continueEdit ? "确认撤回并修改" : "确认撤回"}
+        busy={busy}
+        onConfirm={() => void confirmBannerWithdraw()}
+        onCancel={() => setWithdrawPrompt(null)}
+      />
     </div>
   );
 }

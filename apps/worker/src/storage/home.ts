@@ -5,6 +5,7 @@ import {
   type Recommendation,
   siteSettingsSchema,
 } from "@workshop/contracts";
+import { DEFAULT_COMMUNITY_INVITE_URL, parseDiscordInviteUrl } from "@workshop/domain";
 import { getPublishedProjectsByIds, listPublishedProjects } from "./projects.js";
 import { readRecommendationBatch } from "./recommendation-batches.js";
 
@@ -57,6 +58,18 @@ export async function getSiteContent(db: D1Database): Promise<unknown> {
   } catch {
     return null;
   }
+}
+
+export async function getCommunityInviteUrl(db: D1Database): Promise<string> {
+  const content = await getSiteContent(db);
+  if (content && typeof content === "object" && "communityInviteUrl" in content) {
+    const raw = (content as { communityInviteUrl?: unknown }).communityInviteUrl;
+    if (typeof raw === "string") {
+      const parsed = parseDiscordInviteUrl(raw);
+      if (parsed.ok && parsed.value) return parsed.value;
+    }
+  }
+  return DEFAULT_COMMUNITY_INVITE_URL;
 }
 
 export async function listRecommendations(db: D1Database): Promise<Recommendation[]> {

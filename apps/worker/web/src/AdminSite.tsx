@@ -1,3 +1,4 @@
+import { DEFAULT_COMMUNITY_INVITE_URL } from "@workshop/domain";
 import type { useAdminData } from "./useAdminData";
 
 export function AdminSite({
@@ -7,6 +8,10 @@ export function AdminSite({
   uploadBanner,
   banner,
   setBanner,
+  communityInviteInput,
+  setCommunityInviteInput,
+  announcementInput,
+  setAnnouncementInput,
   siteText,
   setSiteText,
   saveSite,
@@ -17,6 +22,10 @@ export function AdminSite({
   uploadBanner: ReturnType<typeof useAdminData>["uploadBanner"];
   banner: ReturnType<typeof useAdminData>["banner"];
   setBanner: ReturnType<typeof useAdminData>["setBanner"];
+  communityInviteInput: string;
+  setCommunityInviteInput: (value: string) => void;
+  announcementInput: string;
+  setAnnouncementInput: (value: string) => void;
   siteText: ReturnType<typeof useAdminData>["siteText"];
   setSiteText: ReturnType<typeof useAdminData>["setSiteText"];
   saveSite: ReturnType<typeof useAdminData>["saveSite"];
@@ -29,8 +38,8 @@ export function AdminSite({
           刷新
         </button>
       </div>
-      {site ? <p className="hint">Banner 与站点文案写入 `site_settings`，保存即生效。</p> : null}
-      <h3>Banner</h3>
+      {site ? <p className="hint">Banner、社区邀请链接与站点公告保存后立即生效。</p> : null}
+      <h3>顶部横幅 Banner</h3>
       <label className="file-button">
         上传 Banner
         <input
@@ -113,10 +122,38 @@ export function AdminSite({
           />
         </label>
       </div>
+
+      <h3>社区指引与站点公告</h3>
       <label>
-        站点内容 JSON
-        <textarea value={siteText} onChange={(event) => setSiteText(event.target.value)} rows={8} />
+        社区 Discord 邀请链接（留空则默认使用 {DEFAULT_COMMUNITY_INVITE_URL}）
+        <input
+          type="url"
+          value={communityInviteInput}
+          placeholder={DEFAULT_COMMUNITY_INVITE_URL}
+          onChange={(event) => setCommunityInviteInput(event.target.value)}
+        />
+        <small className="hint">
+          不在首页显著公开暴露，仅在登录验证失败、点击讨论帖提示及「帮助与常见问题」中低调提供。
+        </small>
       </label>
+      <label>
+        全站顶部提示公告（可选，留空则不显示）
+        <textarea
+          rows={2}
+          maxLength={400}
+          value={announcementInput}
+          placeholder="例如：工坊政策已更新，首次互动前请完成简短确认问答。"
+          onChange={(event) => setAnnouncementInput(event.target.value)}
+        />
+      </label>
+      <details>
+        <summary>高级扩展配置（JSON）</summary>
+        <label>
+          其他扩展字段
+          <textarea value={siteText} onChange={(event) => setSiteText(event.target.value)} rows={5} />
+        </label>
+      </details>
+
       <button type="button" className="primary" onClick={() => void saveSite()}>
         保存站点设置
       </button>

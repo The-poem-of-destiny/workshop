@@ -1013,3 +1013,173 @@
     align-items: flex-start;
   }
 }
+
+/* Banner actions, gallery slots, danger zone, collections manager, and admin project controls */
+.workspace-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.gallery-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+.gallery-slot-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+.gallery-slot-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+.link-danger {
+  border-color: rgba(229, 138, 131, 0.38);
+  color: var(--danger);
+}
+.danger-zone {
+  border-color: rgba(229, 138, 131, 0.28);
+  background: rgba(151, 50, 43, 0.06);
+}
+.danger-zone-summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+.danger-zone-body {
+  display: grid;
+  gap: 14px;
+  margin-top: 12px;
+}
+.danger-zone-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.danger-zone-destructive {
+  border-color: rgba(229, 138, 131, 0.35);
+}
+.danger-confirm-input {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+.confirm-dialog .danger-confirm-input input,
+.collection-editor-dialog .collection-editor-body input,
+.collection-editor-dialog .collection-editor-body textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+.author-collections-list {
+  display: grid;
+  gap: 10px;
+}
+.author-collection-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.author-collection-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.author-collection-main p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.author-collection-main small {
+  color: var(--dim);
+  font-size: 12px;
+}
+.author-collection-actions {
+  display: flex;
+  gap: 8px;
+}
+.author-collection-actions button,
+.collections-manager .workspace-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.author-collection-actions svg,
+.collections-manager .workspace-primary svg {
+  width: 14px;
+  height: 14px;
+}
+.collection-editor-body {
+  display: grid;
+  gap: 12px;
+  padding: 16px 20px;
+  max-height: 65dvh;
+  overflow-y: auto;
+}
+.collection-editor-body > label {
+  display: grid;
+  gap: 5px;
+  font-size: 13px;
+}
+.collection-project-picker {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.collection-project-picker legend {
+  padding: 0 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.collection-project-checklist {
+  display: grid;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.collection-check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.collection-check-row small {
+  margin-left: auto;
+  color: var(--dim);
+}
+.admin-project-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.admin-project-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

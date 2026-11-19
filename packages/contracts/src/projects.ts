@@ -1,5 +1,6 @@
 import { MAX_CUSTOM_TAGS, MAX_SELECTED_TAGS, PROJECT_TYPES } from "@workshop/domain";
 import { z } from "zod";
+import { projectCollectionBadgeSchema } from "./collections.js";
 import { visibilitySchema } from "./identity.js";
 import { recommendationMetadataSchema } from "./recommendation-metadata.js";
 import { requirementsSchema } from "./requirements.js";
@@ -74,6 +75,7 @@ export type ProjectSummary = z.infer<typeof projectSummarySchema>;
 export const projectDetailSchema = projectSummarySchema.extend({
   requirements: requirementsSchema.nullable().optional(),
   discordThreadUrl: z.string().nullable(),
+  collections: z.array(projectCollectionBadgeSchema).default([]),
 });
 
 export type ProjectDetail = z.infer<typeof projectDetailSchema>;
@@ -147,6 +149,7 @@ export const projectListQuerySchema = z.object({
     .union([z.boolean(), z.enum(["true", "false"]).transform((value) => value === "true")])
     .default(false),
   authorId: z.string().trim().min(1).max(64).optional(),
+  collectionId: z.string().trim().min(1).max(80).optional(),
   tag: z
     .union([z.string().trim().min(1).max(100), z.array(z.string().trim().min(1).max(100))])
     .optional()

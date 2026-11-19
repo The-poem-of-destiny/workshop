@@ -1,4 +1,5 @@
 import { env, SELF } from "cloudflare:test";
+import { DEFAULT_COMMUNITY_INVITE_URL } from "@workshop/domain";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DataEnv } from "../src/data/env";
@@ -253,6 +254,15 @@ describe("OAuth flows", () => {
       status: "pending",
       error: "你的账号不在允许的 Discord 服务器中",
     });
+
+    const browserCreated = await createFlow({ mode: "browser" });
+    const browserFlow = (await browserCreated.json()) as { state: string };
+    const browserDone = await callback(browserFlow.state);
+    expect(browserDone.status).toBe(400);
+    const browserHtml = await browserDone.text();
+    expect(browserHtml).toContain(DEFAULT_COMMUNITY_INVITE_URL);
+    expect(browserHtml).toContain('"type":"oauth-error"');
+    expect((await callback(browserFlow.state)).status).toBe(400);
   });
 
   it("requires a configured role in the matching guild", async () => {

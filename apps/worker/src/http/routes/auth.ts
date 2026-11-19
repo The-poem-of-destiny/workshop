@@ -171,10 +171,26 @@ try {
 </script></body>`;
 }
 
-function errorHtml(message: string): string {
+function errorHtml(message: string, options?: { inviteUrl?: string; openerPayload?: string }): string {
+  const inviteBlock = options?.inviteUrl
+    ? `<div style="margin-top:16px;padding:12px 14px;border:1px solid #3a3222;border-radius:8px;background:#1a1814;max-width:440px">
+<p style="margin:0 0 8px;color:#b8b0a0;font-size:13px">尚未加入社区服务器，或尚未完成服务器内身份验证？</p>
+<a href="${escapeHtml(options.inviteUrl)}" target="_blank" rel="noopener noreferrer" style="color:#d4b36a;text-decoration:none;font-weight:600">前往 Discord 社区服务器 →</a>
+</div>`
+    : "";
+  const scriptBlock = options?.openerPayload
+    ? `<script>
+try {
+  const payload = ${options.openerPayload};
+  if (window.opener) window.opener.postMessage(payload, payload.targetOrigin || "*");
+} catch {}
+</script>`
+    : "";
   return `<!doctype html><meta charset="utf-8"><title>登录失败</title>
-<body style="font:14px system-ui;background:#111;color:#ddd;padding:24px">
-<p>${escapeHtml(message)}</p><p>可以关闭此页面并回到创意工坊重试。</p></body>`;
+<body style="font:14px/1.6 system-ui;background:#111215;color:#e5e1d8;padding:24px">
+<p style="margin:0 0 8px;font-weight:600">${escapeHtml(message)}</p>
+<p style="margin:0;color:#9c9689">可以关闭此页面并回到创意工坊重试。</p>
+${inviteBlock}${scriptBlock}</body>`;
 }
 
 async function exchangeDiscord(c: { env: Env; req: { url: string } }, flow: AuthFlowRow, code: string) {
@@ -359,10 +375,21 @@ authRoutes.get("/callback", async (c) => {
     return htmlResponse(errorHtml("登录状态无效或已过期。"), 400);
   }
   if (oauthError) {
-    await c.executionCtx.exports.DataService.identityFlowError(flow.id, `Discord 返回错误：${oauthError}`);
-    return htmlResponse(errorHtml("Discord 未完成授权。"), 400);
+    const message = "Discord 未完成授权。";
+    await c.executionCtx.exports.DataService.identityFlowError(flow.id, message);
+    const openerPayload =
+      flow.mode === "browser"
+        ? JSON.stringify({
+            type: "oauth-error",
+            source: "creative-workshop-auth-callback",
+            state,
+            error: message,
+            targetOrigin: flow.origin,
+          })
+        : undefined;
+    return htmlResponse(errorHtml(message, { openerPayload }), 400);
   }
-  if (flow.status !== "pending" || Date.parse(flow.expires_at) <= Date.now()) {
+  if (flow.status !== "pending" || flow.error || Date.parse(flow.expires_at) <= Date.now()) {
     return htmlResponse(errorHtml("登录状态无效或已过期。"), 400);
   }
   if (!code) return htmlResponse(errorHtml("缺少 Discord 授权码。"), 400);
@@ -418,6 +445,22 @@ authRoutes.get("/callback", async (c) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : "登录失败";
     await c.executionCtx.exports.DataService.identityFlowError(flow.id, message);
-    return htmlResponse(errorHtml(message), 400);
+    const needsGuildInvite =
+      message.includes("不在允许的 Discord 服务器中") || message.includes("缺少允许的 Discord 身份组");
+    const inviteUrl = needsGuildInvite
+      ? await c.executionCtx.exports.DataService.distributionCommunityInviteUrl().catch(() => undefined)
+      : undefined;
+    const openerPayload =
+      flow.mode === "browser"
+        ? JSON.stringify({
+            type: "oauth-error",
+            source: "creative-workshop-auth-callback",
+            state,
+            error: message,
+            ...(inviteUrl ? { inviteUrl } : {}),
+            targetOrigin: flow.origin,
+          })
+        : undefined;
+    return htmlResponse(errorHtml(message, { inviteUrl, openerPayload }), 400);
   }
 });

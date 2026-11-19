@@ -24,6 +24,7 @@ import { deleteProjectEntry } from "../storage/authoring-assets.js";
 import { getAuthoringProject, parseIncludedTypes, parseRequirements, parseTags } from "../storage/authoring-model.js";
 import { submitVersion, withdrawSubmission } from "../storage/authoring-submissions.js";
 import { createVersion, patchProject } from "../storage/authoring-versions.js";
+import { listAuthorCollectionIdsByProjects } from "../storage/collections.js";
 import { getSubmissionDiff } from "../storage/diff.js";
 import { deleteGalleryImage, getAuthorGallery } from "../storage/project-gallery.js";
 import { getSessionByToken } from "../storage/sessions.js";
@@ -34,6 +35,7 @@ async function reviewer(env: DataEnv, authorization: string | undefined, owner =
     ? await getSessionByToken(env.DB, authorization.slice(7), env.SESSION_HASH_SECRET)
     : null;
   if (!session) return { kind: "unauthorized" as const };
+  if (!session.policyAccepted) return { kind: "forbidden" as const };
   if (owner ? session.role !== "owner" : session.role !== "reviewer" && session.role !== "owner") {
     return { kind: "forbidden" as const };
   }
@@ -204,9 +206,12 @@ export async function authorAdminFetch(request: Request, env: DataEnv, context: 
 }
 
 async function author(env: DataEnv, authorization: string | undefined) {
-  return authorization?.startsWith("Bearer ")
-    ? getSessionByToken(env.DB, authorization.slice(7), env.SESSION_HASH_SECRET)
+  const session = authorization?.startsWith("Bearer ")
+    ? await getSessionByToken(env.DB, authorization.slice(7), env.SESSION_HASH_SECRET)
     : null;
+  if (!session) return { kind: "unauthorized" as const };
+  if (!session.policyAccepted) return { kind: "forbidden" as const };
+  return { kind: "ok" as const, session };
 }
 
 export async function authorAdminCreateProject(
@@ -214,34 +219,37 @@ export async function authorAdminCreateProject(
   authorization: string | undefined,
   input: Parameters<typeof createProject>[2],
 ) {
-  const session = await author(env, authorization);
-  if (!session) return { kind: "unauthorized" as const };
-  return { kind: "ok" as const, data: await createProject(env.DB, session, input) };
+  const auth = await author(env, authorization);
+  if (auth.kind !== "ok") return auth;
+  return { kind: "ok" as const, data: await createProject(env.DB, auth.session, input) };
 }
 
 export async function authorAdminGetDraft(env: DataEnv, authorization: string | undefined, id: string) {
-  const session = await author(env, authorization);
-  if (!session) return { kind: "unauthorized" as const };
-  const project = await getAuthoringProject(env.DB, id, session);
+  const auth = await author(env, authorization);
+  if (auth.kind !== "ok") return auth;
+  const project = await getAuthoringProject(env.DB, id, auth.session);
   if (!project) return { kind: "not_found" as const };
   const summary = await getProjectSummary(env.DB, project.id);
   if (!summary) return { kind: "not_found" as const };
-  const latestSubmission = await env.DB.prepare(`
-    SELECT s.id, s.version_id, s.status, ar.status AS check_status, s.resolved_at, r.decision, r.reason
-    FROM submissions s JOIN automated_reviews ar ON ar.submission_id = s.id
-    LEFT JOIN manual_reviews r ON r.submission_id = s.id
-    WHERE s.project_id = ? ORDER BY s.submitted_at DESC LIMIT 1
-  `)
-    .bind(project.id)
-    .first<{
-      id: string;
-      version_id: string;
-      status: string;
-      check_status: string;
-      resolved_at: string | null;
-      decision: string | null;
-      reason: string | null;
-    }>();
+  const [latestSubmission, collectionMap] = await Promise.all([
+    env.DB.prepare(`
+      SELECT s.id, s.version_id, s.status, ar.status AS check_status, s.resolved_at, r.decision, r.reason
+      FROM submissions s JOIN automated_reviews ar ON ar.submission_id = s.id
+      LEFT JOIN manual_reviews r ON r.submission_id = s.id
+      WHERE s.project_id = ? ORDER BY s.submitted_at DESC LIMIT 1
+    `)
+      .bind(project.id)
+      .first<{
+        id: string;
+        version_id: string;
+        status: string;
+        check_status: string;
+        resolved_at: string | null;
+        decision: string | null;
+        reason: string | null;
+      }>(),
+    listAuthorCollectionIdsByProjects(env.DB, [project.id]),
+  ]);
   return {
     kind: "ok" as const,
     data: {
@@ -249,6 +257,7 @@ export async function authorAdminGetDraft(env: DataEnv, authorization: string | 
       rowVersion: project.row_version,
       workingVersionId: project.working_version_id,
       latestSubmission: latestSubmission ?? null,
+      collectionIds: collectionMap.get(project.id) ?? [],
     },
   };
 }
@@ -262,18 +271,18 @@ export async function authorAdminDeleteEntry(
   entryKey: string,
   expectedVersion: number,
 ) {
-  const session = await author(env, authorization);
-  if (!session) return { kind: "unauthorized" as const };
+  const auth = await author(env, authorization);
+  if (auth.kind !== "ok") return auth;
   return {
     kind: "ok" as const,
-    data: await deleteProjectEntry(env.DB, env.R2, session, projectId, versionId, kind, entryKey, expectedVersion),
+    data: await deleteProjectEntry(env.DB, env.R2, auth.session, projectId, versionId, kind, entryKey, expectedVersion),
   };
 }
 
 export async function authorAdminGetGallery(env: DataEnv, authorization: string | undefined, projectId: string) {
-  const session = await author(env, authorization);
-  if (!session) return { kind: "unauthorized" as const };
-  return { kind: "ok" as const, data: await getAuthorGallery(env.DB, projectId, session) };
+  const auth = await author(env, authorization);
+  if (auth.kind !== "ok") return auth;
+  return { kind: "ok" as const, data: await getAuthorGallery(env.DB, projectId, auth.session) };
 }
 
 export async function authorAdminDeleteGallery(
@@ -283,14 +292,14 @@ export async function authorAdminDeleteGallery(
   slot: number,
   expectedVersion: number | null,
 ) {
-  const session = await author(env, authorization);
-  if (!session) return { kind: "unauthorized" as const };
-  const project = await getAuthoringProject(env.DB, projectId, session);
+  const auth = await author(env, authorization);
+  if (auth.kind !== "ok") return auth;
+  const project = await getAuthoringProject(env.DB, projectId, auth.session);
   if (!project) return { kind: "not_found" as const };
   if (expectedVersion === null) return { kind: "version_conflict" as const, actual: project.row_version };
-  const result = await deleteGalleryImage(env.DB, session, project.id, slot, expectedVersion);
+  const result = await deleteGalleryImage(env.DB, auth.session, project.id, slot, expectedVersion);
   if (result.kind === "conflict") {
-    const latest = await getAuthoringProject(env.DB, project.id, session);
+    const latest = await getAuthoringProject(env.DB, project.id, auth.session);
     return { kind: "version_conflict" as const, actual: latest?.row_version ?? project.row_version };
   }
   return { kind: "ok" as const, data: result };
@@ -302,13 +311,13 @@ export async function authorAdminDeleteProject(
   projectId: string,
   expectedVersion: number | null,
 ) {
-  const session = await author(env, authorization);
-  if (!session) return { kind: "unauthorized" as const };
-  const project = await getAuthoringProject(env.DB, projectId, session);
+  const auth = await author(env, authorization);
+  if (auth.kind !== "ok") return auth;
+  const project = await getAuthoringProject(env.DB, projectId, auth.session);
   if (!project) return { kind: "not_found" as const };
   if (expectedVersion === null || expectedVersion !== project.row_version)
     return { kind: "version_conflict" as const, actual: project.row_version };
-  if (!(await softDeleteProject(env.DB, session, project.id, expectedVersion)))
+  if (!(await softDeleteProject(env.DB, auth.session, project.id, expectedVersion)))
     return { kind: "version_conflict" as const, actual: project.row_version };
   return { kind: "ok" as const };
 }
@@ -320,13 +329,13 @@ export async function authorAdminUpdateVisibility(
   expectedVersion: number | null,
   input: Parameters<typeof updateVisibility>[4],
 ) {
-  const session = await author(env, authorization);
-  if (!session) return { kind: "unauthorized" as const };
-  const project = await getAuthoringProject(env.DB, projectId, session);
+  const auth = await author(env, authorization);
+  if (auth.kind !== "ok") return auth;
+  const project = await getAuthoringProject(env.DB, projectId, auth.session);
   if (!project) return { kind: "not_found" as const };
   if (expectedVersion === null || expectedVersion !== project.row_version)
     return { kind: "version_conflict" as const, actual: project.row_version };
-  const rowVersion = await updateVisibility(env.DB, session, project.id, expectedVersion, input);
+  const rowVersion = await updateVisibility(env.DB, auth.session, project.id, expectedVersion, input);
   if (!rowVersion) return { kind: "version_conflict" as const, actual: project.row_version };
   return { kind: "ok" as const, rowVersion };
 }
@@ -339,8 +348,9 @@ async function authorAdminEditMetadata(
   input: Parameters<typeof patchProject>[4],
   revision: boolean,
 ) {
-  const session = await author(env, authorization);
-  if (!session) return { kind: "unauthorized" as const };
+  const auth = await author(env, authorization);
+  if (auth.kind !== "ok") return auth;
+  const { session } = auth;
   const project = await getAuthoringProject(env.DB, projectId, session);
   if (!project) return { kind: "not_found" as const };
   if (expectedVersion === null || expectedVersion !== project.row_version)
@@ -417,8 +427,9 @@ export async function authorAdminSubmit(
   input: Parameters<typeof submitVersion>[6],
   prevalidated: Parameters<typeof submitVersion>[7],
 ) {
-  const session = await author(env, authorization);
-  if (!session) return { kind: "unauthorized" as const };
+  const auth = await author(env, authorization);
+  if (auth.kind !== "ok") return auth;
+  const { session } = auth;
   const project = await getAuthoringProject(env.DB, projectId, session);
   if (!project) return { kind: "not_found" as const, message: "Project not found" };
   if (expectedVersion !== project.row_version)
@@ -455,8 +466,9 @@ export async function authorAdminWithdraw(
   submissionId: string,
   expectedVersion: number,
 ) {
-  const session = await author(env, authorization);
-  if (!session) return { kind: "unauthorized" as const };
+  const auth = await author(env, authorization);
+  if (auth.kind !== "ok") return auth;
+  const { session } = auth;
   const project = await getAuthoringProject(env.DB, projectId, session);
   if (!project) return { kind: "not_found" as const };
   if (expectedVersion !== project.row_version)
@@ -472,9 +484,9 @@ export async function authorAdminPrepareSubmission(
   versionId: string,
   expectedVersion: number,
 ) {
-  const session = await author(env, authorization);
-  if (!session) return { kind: "unauthorized" as const };
-  const project = await getAuthoringProject(env.DB, projectId, session);
+  const auth = await author(env, authorization);
+  if (auth.kind !== "ok") return auth;
+  const project = await getAuthoringProject(env.DB, projectId, auth.session);
   if (!project) return { kind: "not_found" as const, message: "Project not found" };
   if (expectedVersion !== project.row_version)
     return { kind: "version_conflict" as const, actual: project.row_version };
@@ -491,8 +503,9 @@ export async function authorAdminChangeEvidence(
   projectId: string,
   versionId: string,
 ) {
-  const session = await author(env, authorization);
-  if (!session) return { kind: "unauthorized" as const };
+  const auth = await author(env, authorization);
+  if (auth.kind !== "ok") return auth;
+  const { session } = auth;
   const project = await getAuthoringProject(env.DB, projectId, session);
   if (
     !project ||

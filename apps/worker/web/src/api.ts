@@ -10,11 +10,15 @@ import type {
   AdminSubmissionListResponse,
   AuditAction,
   AuthFlowResponse,
+  AuthorCollection,
+  AuthorCollectionListResponse,
+  AuthorProfileResponse,
   AuthorProject,
   AuthorProjectListResponse,
   AuthorSubmission,
   AuthorSubmissionListResponse,
   Banner,
+  CollectionSummary,
   DiffKind,
   DiscoveryResponse,
   ExperienceNotesResponse,
@@ -24,7 +28,10 @@ import type {
   JsonValue,
   MeResponse,
   MeStateResponse,
+  PolicyAcceptanceInput,
+  PolicyAcceptanceResponse,
   ProjectBatchResponse,
+  ProjectCollectionBadge,
   ProjectDetail,
   ProjectGalleryResponse,
   ProjectListResponse,
@@ -36,6 +43,8 @@ import type {
   SubmissionDiff,
   SubmitResponse,
   UploadResponse,
+  UserPolicyState,
+  Visibility,
 } from "@workshop/contracts";
 import { projectBatchQuerySchema, projectBatchResponseSchema } from "@workshop/contracts";
 import { MAX_SELECTED_TAGS, PROJECT_TYPES, type ProjectType } from "@workshop/domain";
@@ -51,9 +60,13 @@ export type {
   AdminSubmissionDetail,
   AdminSubmissionListResponse,
   AuditAction,
+  AuthorCollection,
+  AuthorCollectionListResponse,
+  AuthorProfileResponse,
   AuthorProject,
   AuthorProjectListResponse,
   AuthorSubmission,
+  CollectionSummary,
   DiffKind,
   DiscoveryResponse,
   FindingDiff,
@@ -61,7 +74,10 @@ export type {
   HomeResponse,
   JsonValue,
   MeResponse,
+  PolicyAcceptanceInput,
+  PolicyAcceptanceResponse,
   ProjectBatchResponse,
+  ProjectCollectionBadge,
   ProjectDetail,
   ProjectGalleryResponse,
   ProjectListResponse,
@@ -71,6 +87,8 @@ export type {
   Recommendation,
   SiteSettings,
   SubmissionDiff,
+  UserPolicyState,
+  Visibility,
 };
 
 export type AcquisitionPayload = AcquisitionResponse;
@@ -160,6 +178,36 @@ async function requestJson<T>(path: string, init: RequestInit = {}, publicRead =
 export const api = {
   hasSession: () => Boolean(token()),
   me: () => requestJson<MeResponse>("/api/v1/me"),
+  acceptPolicy: (body: PolicyAcceptanceInput) =>
+    requestJson<PolicyAcceptanceResponse>("/api/v1/me/policy-acceptance", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  myCollections: () => requestJson<AuthorCollectionListResponse>("/api/v1/me/collections"),
+  createCollection: (body: { title: string; description?: string; projectIds?: string[] }) =>
+    requestJson<AuthorCollection>("/api/v1/collections", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  patchCollection: (id: string, body: { title?: string; description?: string; projectIds?: string[] }) =>
+    requestJson<AuthorCollection>(`/api/v1/collections/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  deleteCollection: (id: string) =>
+    requestJson<void>(`/api/v1/collections/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  setProjectCollections: (id: string, collectionIds: string[]) =>
+    requestJson<{ collectionIds: string[] }>(`/api/v1/projects/${encodeURIComponent(id)}/collections`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ collectionIds }),
+    }),
+  collection: (id: string) => requestJson<CollectionSummary>(`/api/v1/collections/${encodeURIComponent(id)}`, {}, true),
+  authorProfile: (id: string) =>
+    requestJson<AuthorProfileResponse>(`/api/v1/authors/${encodeURIComponent(id)}`, {}, true),
   home: () => requestJson<HomeResponse>("/api/v1/home", {}, true),
   projectsByIds: async (ids: string[]): Promise<ProjectBatchResponse> => {
     if (ids.length === 0) return { items: [], missingIds: [] };
@@ -212,6 +260,7 @@ export const api = {
     projectTypes?: readonly ProjectType[];
     includeContained?: boolean;
     authorId?: string;
+    collectionId?: string;
     tags?: readonly string[];
   }) => {
     const tags = [...new Set((params.tags ?? []).map((tag) => tag.trim()).filter(Boolean))].sort();
@@ -231,6 +280,7 @@ export const api = {
     }
     if (params.includeContained) query.set("includeContained", "true");
     if (params.authorId?.trim()) query.set("authorId", params.authorId.trim());
+    if (params.collectionId?.trim()) query.set("collectionId", params.collectionId.trim());
     for (const tag of tags) query.append("tag", tag);
     query.sort();
     const search = query.toString();
@@ -290,6 +340,12 @@ export const api = {
     requestJson<void>("/api/v1/projects/" + encodeURIComponent(id), {
       method: "DELETE",
       headers: { "if-match": String(rowVersion) },
+    }),
+  setVisibility: (id: string, rowVersion: number, visibility: Visibility) =>
+    requestJson<{ rowVersion: number }>(`/api/v1/projects/${encodeURIComponent(id)}/visibility`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "if-match": String(rowVersion) },
+      body: JSON.stringify({ visibility }),
     }),
   authorAsset: (id: string, versionId: string, kind: "worldbook" | "regex") =>
     requestJson<unknown>(

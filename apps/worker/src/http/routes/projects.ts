@@ -16,6 +16,7 @@ projectsRoutes.get("/", async (c) => {
     projectType: c.req.queries("projectType"),
     includeContained: c.req.query("includeContained"),
     authorId: c.req.query("authorId"),
+    collectionId: c.req.query("collectionId"),
     tag: c.req.queries("tag"),
     search: c.req.query("search"),
   });
@@ -42,9 +43,9 @@ projectsRoutes.post("/:id/downloads", async (c) => {
   if (!result.ok) {
     if (result.error === "bad_request") return jsonError(c, "bad_request", "Idempotency-Key must be a UUID v4");
     else if (result.error === "rate_limited") return jsonError(c, "rate_limited", "Daily acquisition limit reached");
-    return result.error === "unauthorized"
-      ? jsonError(c, "unauthorized", "Login required")
-      : jsonError(c, "not_found", "Release not found");
+    if (result.error === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+    if (result.error === "forbidden") return jsonError(c, "forbidden", "请先阅读并同意工坊使用政策并完成准入问答");
+    return jsonError(c, "not_found", "Release not found");
   }
   return c.json(result.data, 201);
 });
@@ -65,6 +66,8 @@ projectsRoutes.get("/:id/preview/:kind", async (c) => {
     kind.success ? kind.data : null,
   );
   if (!result.ok && result.error === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+  if (!result.ok && result.error === "forbidden")
+    return jsonError(c, "forbidden", "请先阅读并同意工坊使用政策并完成准入问答");
   if (!kind.success) return jsonError(c, "bad_request", "Unknown preview kind");
   if (!result.ok) return jsonError(c, "not_found", "Project preview not found");
   if (!result.target.r2Key)
@@ -89,6 +92,7 @@ projectsRoutes.post("/:id/acquisitions", async (c) => {
     if (result.error === "bad_request") return jsonError(c, "bad_request", "Idempotency-Key must be a UUID v4");
     if (result.error === "rate_limited") return jsonError(c, "rate_limited", "Daily acquisition limit reached");
     if (result.error === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+    if (result.error === "forbidden") return jsonError(c, "forbidden", "请先阅读并同意工坊使用政策并完成准入问答");
     if (result.error === "upgrade_required") return jsonError(c, "upgrade_required", result.message, result.details);
     return jsonError(c, "not_found", "Release not found");
   }

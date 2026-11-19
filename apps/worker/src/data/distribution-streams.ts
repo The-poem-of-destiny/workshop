@@ -14,7 +14,7 @@ export async function distributionBannerUpload(request: Request, env: DataEnv): 
     ? await getSessionByToken(env.DB, authorization.slice(7), env.SESSION_HASH_SECRET)
     : null;
   if (!session) return error(401, "unauthorized", "Login required");
-  if (session.role !== "owner") return error(403, "forbidden", "Owner role required");
+  if (!session.policyAccepted || session.role !== "owner") return error(403, "forbidden", "Owner role required");
   const mime = (request.headers.get("content-type") ?? "").split(";", 1)[0]!.trim().toLowerCase();
   if (!["image/png", "image/jpeg", "image/webp"].includes(mime))
     return error(415, "unsupported_media_type", "Unsupported content type");

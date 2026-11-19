@@ -1,8 +1,41 @@
+.catalogue-section {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.catalogue-toolbar-lead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+  margin-right: auto;
+}
+
+.catalogue-heading {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 680;
+  color: var(--text);
+}
+
+.catalogue-toolbar .list-range {
+  margin: 0;
+}
+
+.catalogue-toolbar {
+  padding-bottom: 12px;
+  margin-bottom: 18px;
+}
+
 .grid.catalogue-grid:not(.catalogue-list) {
-  --catalogue-gap: 18px;
-  --catalogue-half-gap: 9px;
+  --catalogue-gap: 24px;
+  --catalogue-half-gap: 12px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(260px, calc(50% - var(--catalogue-half-gap))), 1fr));
+  grid-template-columns: repeat(
+      auto-fill,
+      minmax(min(clamp(348px, 16vw, 400px), calc(50% - var(--catalogue-half-gap))), 1fr)
+    );
   gap: var(--catalogue-gap);
 }
 
@@ -19,10 +52,164 @@
   flex-shrink: 0;
 }
 
+/* Collection & Author Showcase Banner */
+.showcase-banner {
+  margin-bottom: 18px;
+  padding: 18px 20px;
+  border: 1px solid rgba(200, 174, 130, 0.28);
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(200, 174, 130, 0.1), rgba(29, 32, 39, 0.92) 55%);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
+}
+
+.showcase-banner-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.showcase-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-width: 0;
+  flex: 1;
+}
+
+.showcase-icon,
+.showcase-avatar {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  flex: none;
+  overflow: hidden;
+  border: 1px solid rgba(200, 174, 130, 0.35);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  color: var(--accent-strong);
+}
+
+.showcase-avatar {
+  border-radius: 50%;
+}
+
+.showcase-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.showcase-kicker {
+  margin: 0 0 2px;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.showcase-identity h2 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.35;
+}
+
+.showcase-desc {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  max-width: 78ch;
+}
+
+.showcase-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-top: 6px;
+  color: var(--dim);
+  font-size: 13px;
+}
+
+.showcase-author-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.showcase-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.showcase-back svg {
+  width: 15px;
+  height: 15px;
+}
+
+.showcase-collections-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.showcase-strip-label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.showcase-strip-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.showcase-collection-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid rgba(200, 174, 130, 0.32);
+  border-radius: 999px;
+  background: rgba(200, 174, 130, 0.1);
+  color: var(--accent-strong);
+  font-size: 13px;
+}
+
+.showcase-collection-pill:hover {
+  background: rgba(200, 174, 130, 0.2);
+}
+
+.showcase-collection-pill svg {
+  width: 14px;
+  height: 14px;
+}
+
+.showcase-collection-pill small {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.28);
+  font-size: 11px;
+}
+
 @container (max-width: 220px) {
   .catalogue-grid:not(.catalogue-list) .project-card--cards .card-body {
     gap: 3px;
-    padding: 6px;
+    padding: 8px;
   }
   .catalogue-grid:not(.catalogue-list) .project-card--cards h3 {
     font-size: 13px;

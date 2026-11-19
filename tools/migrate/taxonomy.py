@@ -348,7 +348,9 @@ def dropped_columns(table, source_columns, target_columns):
     if extra - permitted:
         raise ValueError("unaccounted source columns in " + table + ": " + ",".join(sorted(extra - permitted)))
     added = set(target_columns) - set(source_columns)
-    permitted_added = {"project_type", "included_types"} if table == "project_versions" else set()
+    permitted_added = ({"project_type", "included_types"} if table == "project_versions"
+                       else {"policy_accepted_version", "policy_accepted_at"} if table == "users"
+                       else set())
     if added - permitted_added:
         raise ValueError("unexpected target-only columns in " + table + ": " + ",".join(sorted(added)))
     return extra
@@ -497,7 +499,10 @@ def build(source_path, review_path, migrations, output, legacy_provenance=()):
                     row = dict(value)
                     if table == "project_versions":
                         row.update(decisions[str(row["id"])])
-                    values = [row[key] for key in target_columns]
+                    elif table == "users":
+                        row["policy_accepted_version"] = None
+                        row["policy_accepted_at"] = None
+                    values = [row.get(key) for key in target_columns]
                     target.execute("INSERT INTO " + quote(table) + " (" + ",".join(map(quote, target_columns))
                                    + ") VALUES (" + ",".join("?" for _ in values) + ")", values)
             for row in target.execute("SELECT id FROM projects ORDER BY id").fetchall():
@@ -550,11 +555,18 @@ def independent_rows(source, candidate, decisions):
         excluded = (set(columns(source, source_table)) - set(columns(candidate, table)))
         if table == "project_versions":
             excluded.update({"project_type", "included_types", "tags"})
+        elif table == "users":
+            excluded.update({"policy_accepted_version", "policy_accepted_at"})
         keys = sorted(set(columns(source, source_table)) - excluded)
         expected = row_counts(source, source_table, keys)
         actual = row_counts(candidate, table, keys)
         if expected != actual:
             raise ValueError("non-taxonomy row/field difference in " + table)
+        if table == "users":
+            if candidate.execute(
+                "SELECT count(*) FROM users WHERE policy_accepted_version IS NOT NULL OR policy_accepted_at IS NOT NULL"
+            ).fetchone()[0]:
+                raise ValueError("migrated users must start with unaccepted policy state")
         if table == "project_versions":
             actual_types = {str(row[0]): (row[1], row[2], row[3]) for row in candidate.execute(
                 "SELECT id,project_type,included_types,tags FROM project_versions")}

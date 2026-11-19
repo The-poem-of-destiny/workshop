@@ -31,6 +31,11 @@ const screenshotDir = process.env.E2E_SCREENSHOT_DIR ?? "";
 const authorToken = "e2e-author-token";
 const ownerToken = "e2e-owner-token";
 const memberToken = "e2e-member-token";
+const unacceptedToken = "e2e-unaccepted-token";
+const policyVersion = /CURRENT_POLICY_VERSION = "([^"]+)"/.exec(
+  readFileSync(path.join(root, "packages/domain/src/policy.ts"), "utf8"),
+)?.[1];
+if (!policyVersion) throw new Error("Missing CURRENT_POLICY_VERSION in packages/domain/src/policy.ts");
 const taxonomyTags = [
   "人类",
   "冒险者",
@@ -168,17 +173,22 @@ async function main() {
       DELETE FROM submissions WHERE submitted_by IN ('e2e-author','e2e-owner');
       DELETE FROM project_experience_notes WHERE project_id IN (SELECT id FROM projects WHERE author_id = 'e2e-author');
       DELETE FROM project_unversioned_notes WHERE project_id IN (SELECT id FROM projects WHERE author_id = 'e2e-author');
+      DELETE FROM collection_projects WHERE collection_id IN (SELECT id FROM collections WHERE author_id IN ('e2e-author','e2e-owner','e2e-member'));
+      DELETE FROM collections WHERE author_id IN ('e2e-author','e2e-owner','e2e-member');
       DELETE FROM assets WHERE project_id IN (SELECT id FROM projects WHERE author_id = 'e2e-author');
       DELETE FROM project_versions WHERE project_id IN (SELECT id FROM projects WHERE author_id = 'e2e-author');
       DELETE FROM projects WHERE author_id = 'e2e-author';
-      DELETE FROM sessions WHERE user_id IN ('e2e-author','e2e-owner','e2e-member');
-      DELETE FROM users WHERE id IN ('e2e-author','e2e-owner','e2e-member');
-      INSERT INTO users (id, username, global_name, role) VALUES ('e2e-author','e2e-author','E2E Author','member');
-      INSERT INTO users (id, username, global_name, role) VALUES ('e2e-owner','e2e-owner','E2E Owner','owner');
-      INSERT INTO users (id, username, global_name, role) VALUES ('e2e-member','e2e-member','E2E Member','member');
+      DELETE FROM sessions WHERE user_id IN ('e2e-author','e2e-owner','e2e-member','e2e-unaccepted');
+      DELETE FROM audit_events WHERE actor_id IN ('e2e-author','e2e-owner','e2e-member','e2e-unaccepted');
+      DELETE FROM users WHERE id IN ('e2e-author','e2e-owner','e2e-member','e2e-unaccepted');
+      INSERT INTO users (id, username, global_name, role, policy_accepted_version, policy_accepted_at) VALUES ('e2e-author','e2e-author','E2E Author','member','${policyVersion}','2026-11-18T00:00:00.000Z');
+      INSERT INTO users (id, username, global_name, role, policy_accepted_version, policy_accepted_at) VALUES ('e2e-owner','e2e-owner','E2E Owner','owner','${policyVersion}','2026-11-18T00:00:00.000Z');
+      INSERT INTO users (id, username, global_name, role, policy_accepted_version, policy_accepted_at) VALUES ('e2e-member','e2e-member','E2E Member','member','${policyVersion}','2026-11-18T00:00:00.000Z');
+      INSERT INTO users (id, username, global_name, role, policy_accepted_version, policy_accepted_at) VALUES ('e2e-unaccepted','e2e-unaccepted','E2E Unaccepted','member',NULL,NULL);
       INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ('${hash(authorToken)}','e2e-author','2099-01-01T00:00:00.000Z');
       INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ('${hash(ownerToken)}','e2e-owner','2099-01-01T00:00:00.000Z');
       INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ('${hash(memberToken)}','e2e-member','2099-01-01T00:00:00.000Z');
+      INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ('${hash(unacceptedToken)}','e2e-unaccepted','2099-01-01T00:00:00.000Z');
     `,
     ]);
 
@@ -230,6 +240,7 @@ async function main() {
           body: JSON.stringify({
             title: "E2E Project",
             description: "e2e",
+            discordThreadUrl: "https://discord.com/channels/1417861565679669272/222222222222222222",
             projectType: "角色",
             includedTypes: ["内容扩展", "玩法"],
             tags: taxonomyTags,
@@ -1621,6 +1632,176 @@ async function main() {
           assert(entry?.latestSubmission?.checkStatus === "done", "resubmit checker completed");
           await context.close();
         });
+
+        await check("browser policy gate enforces guest mode until 3-question quiz passes", async () => {
+          const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+          await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), unacceptedToken);
+          const page = await context.newPage();
+          observePage(page);
+          await page.goto(`${base}/`, { waitUntil: "networkidle" });
+          const policyDialog = page.getByRole("dialog", { name: "创意工坊使用政策与须知", exact: true });
+          await policyDialog.waitFor({ state: "visible", timeout: 10_000 });
+          assert(
+            (await page.getByRole("button", { name: "我的项目", exact: true }).count()) === 0,
+            "unaccepted user has no authenticated workspace nav",
+          );
+          await policyDialog.getByRole("button", { name: "暂以游客身份浏览", exact: true }).click();
+          await policyDialog.waitFor({ state: "hidden" });
+          await page.getByRole("button", { name: "立即完成确认", exact: true }).click();
+          await policyDialog.waitFor({ state: "visible" });
+          await policyDialog.locator('input[type="checkbox"]').check();
+          await policyDialog.locator('input[name="policy-q-issue-handling"][value="contact-author"]').check();
+          await policyDialog.locator('input[name="policy-q-content-liability"][value="author-responsible"]').check();
+          await policyDialog.locator('input[name="policy-q-install-behavior"][value="append-and-backup"]').check();
+          const [acceptedAttempt] = await Promise.all([
+            page.waitForResponse((response) => new URL(response.url()).pathname === "/api/v1/me/policy-acceptance"),
+            policyDialog.getByRole("button", { name: "提交并启用账号", exact: true }).click(),
+          ]);
+          assert(acceptedAttempt.ok(), `valid quiz accepted ${acceptedAttempt.status()}`);
+          await policyDialog.waitFor({ state: "hidden" });
+          await page.getByRole("button", { name: "我的项目", exact: true }).waitFor({ state: "visible" });
+          await context.close();
+        });
+
+        await check("browser author creates collection and filters catalogue via detail badge", async () => {
+          const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+          await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), authorToken);
+          const page = await context.newPage();
+          observePage(page);
+          await page.goto(`${base}/`, { waitUntil: "networkidle" });
+          await page.getByRole("button", { name: "我的项目", exact: true }).click();
+          await page.getByRole("button", { name: "新建合集", exact: true }).click();
+          const collectionEditor = page.getByRole("dialog", { name: "新建作品合集", exact: true });
+          await collectionEditor.waitFor({ state: "visible" });
+          await collectionEditor.getByRole("textbox", { name: "合集名称（必填）", exact: true }).fill("E2E 系列合集");
+          await collectionEditor.getByRole("checkbox", { name: /E2E Pending/ }).check();
+          await collectionEditor.getByRole("checkbox", { name: /E2E Project/ }).check();
+          const [createdCollectionRes] = await Promise.all([
+            page.waitForResponse(
+              (response) =>
+                new URL(response.url()).pathname === "/api/v1/collections" && response.request().method() === "POST",
+            ),
+            collectionEditor.getByRole("button", { name: "保存合集", exact: true }).click(),
+          ]);
+          assert(createdCollectionRes.status() === 201, `create collection ${createdCollectionRes.status()}`);
+          const createdCollection = await createdCollectionRes.json();
+          await collectionEditor.waitFor({ state: "hidden" });
+
+          await page.getByRole("button", { name: /命定之诗与黄昏之歌/ }).click();
+          await page.getByRole("searchbox", { name: "搜索" }).fill("E2E Pending");
+          await page.locator(".card", { hasText: "E2E Pending" }).first().locator(".card-title").click();
+          const detail = page.getByRole("dialog", { name: "E2E Pending", exact: true });
+          await detail.waitFor({ state: "visible" });
+          const collectionBadge = detail
+            .getByRole("region", { name: "所属合集", exact: true })
+            .getByRole("button", { name: /E2E 系列合集/ });
+          await collectionBadge.waitFor({ state: "visible" });
+          const [collectionCatalogueRes] = await Promise.all([
+            page.waitForResponse((response) => {
+              const url = new URL(response.url());
+              return (
+                url.pathname === "/api/v1/projects" && url.searchParams.get("collectionId") === createdCollection.id
+              );
+            }),
+            collectionBadge.click(),
+          ]);
+          assert(collectionCatalogueRes.ok(), "collection filter query succeeds");
+          await page.getByRole("region", { name: "作品合集展示", exact: true }).waitFor({ state: "visible" });
+          await page.getByRole("searchbox", { name: "搜索" }).fill("");
+          await page.waitForFunction(() => document.querySelectorAll(".card").length === 2);
+          await page.getByRole("button", { name: "返回全部作品", exact: true }).click();
+          await page.getByRole("region", { name: "作品合集展示", exact: true }).waitFor({ state: "hidden" });
+          await context.close();
+        });
+
+        await check(
+          "browser withdraw-and-revise unlocks editor and danger zone requires exact title match",
+          async () => {
+            const mineRes = await api("/api/v1/me/projects", {}, authorToken);
+            const draftEntry = JSON.parse(mineRes.body).items.find(
+              (item) => item.project.title === "E2E Taxonomy Draft",
+            );
+            assert(draftEntry, "E2E Taxonomy Draft exists");
+            const wbBody = JSON.stringify({ entries: [{ uid: 1, key: ["withdraw-test"], content: "withdraw" }] });
+            const wbRes = await api(
+              `/api/v1/projects/${draftEntry.project.id}/versions/${draftEntry.workingVersionId}/files/worldbook`,
+              {
+                method: "PUT",
+                headers: {
+                  "content-type": "application/json",
+                  "content-length": String(Buffer.byteLength(wbBody)),
+                  "if-match": String(draftEntry.rowVersion),
+                },
+                body: wbBody,
+              },
+              authorToken,
+            );
+            assert(wbRes.response.status === 200, `draft worldbook upload ${wbRes.response.status}`);
+            const nextRow = JSON.parse(wbRes.body).rowVersion;
+            const subRes = await api(
+              `/api/v1/projects/${draftEntry.project.id}/versions/${draftEntry.workingVersionId}/submit`,
+              {
+                method: "POST",
+                headers: { "content-type": "application/json", "if-match": String(nextRow) },
+                body: JSON.stringify({ gate: "missing", acknowledged: true }),
+              },
+              authorToken,
+            );
+            assert(subRes.response.status === 201, `draft manual submit ${subRes.response.status}`);
+
+            const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+            await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), authorToken);
+            const page = await context.newPage();
+            observePage(page);
+            await page.goto(`${base}/`, { waitUntil: "networkidle" });
+            await page.getByRole("button", { name: "我的项目", exact: true }).click();
+            await page.locator(".workspace-project-row").filter({ hasText: "E2E Taxonomy Draft" }).click();
+            const editor = page.getByRole("dialog", { name: "E2E Taxonomy Draft · 编辑任务", exact: true });
+            const titleBox = editor.getByRole("textbox", { name: "标题", exact: true });
+            await editor.waitFor({ state: "visible" });
+            assert(await titleBox.isDisabled(), "editor is frozen while submission is pending review");
+            await editor.getByRole("button", { name: "撤回审核并继续修改", exact: true }).click();
+            const [withdrawRes, versionRes] = await Promise.all([
+              page.waitForResponse((response) => response.url().endsWith("/withdraw")),
+              page.waitForResponse(
+                (response) => response.url().endsWith("/versions") && response.request().method() === "POST",
+              ),
+              page.getByRole("button", { name: "确认撤回并修改", exact: true }).click(),
+            ]);
+            assert(
+              withdrawRes.ok() && versionRes.status() === 201,
+              "withdraw-and-revise withdraws and opens successor",
+            );
+            const titleHandle = await titleBox.elementHandle();
+            await page.waitForFunction((el) => el instanceof HTMLInputElement && !el.disabled, titleHandle);
+
+            await editor.locator("summary", { hasText: "项目可见性与危险操作" }).click();
+            await editor.getByRole("button", { name: "删除项目…", exact: true }).click();
+            const confirmDeleteBtn = page.getByRole("button", { name: "确认永久删除", exact: true });
+            await confirmDeleteBtn.waitFor({ state: "visible" });
+            assert(await confirmDeleteBtn.isDisabled(), "delete button disabled before typing project title");
+            const confirmInput = page.getByRole("textbox", { name: /请输入 E2E Taxonomy Draft 以确认删除/ });
+            await confirmInput.fill("wrong title");
+            assert(await confirmDeleteBtn.isDisabled(), "delete button stays disabled on wrong title");
+            await confirmInput.fill("E2E Taxonomy Draft");
+            assert(await confirmDeleteBtn.isEnabled(), "exact title match enables permanent delete");
+            const [deleteRes] = await Promise.all([
+              page.waitForResponse(
+                (response) =>
+                  new URL(response.url()).pathname === `/api/v1/projects/${draftEntry.project.id}` &&
+                  response.request().method() === "DELETE",
+              ),
+              confirmDeleteBtn.click(),
+            ]);
+            assert(deleteRes.status() === 204, `delete project ${deleteRes.status()}`);
+            await editor.waitFor({ state: "hidden" });
+            assert(
+              (await page.locator(".workspace-project-row").filter({ hasText: "E2E Taxonomy Draft" }).count()) === 0,
+              "deleted project removed from author workspace",
+            );
+            await context.close();
+          },
+        );
       } catch (error) {
         console.error(browserDiagnostics.join("\n"));
         for (const context of browser.contexts()) {

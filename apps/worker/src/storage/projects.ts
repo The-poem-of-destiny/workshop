@@ -7,6 +7,7 @@ import {
 } from "@workshop/contracts";
 import { presetTagGroup } from "@workshop/domain";
 import { parseIncludedTypes, parseRequirements } from "./authoring-model.js";
+import { listPublicCollectionsForProject } from "./collections.js";
 import { sha256Hex } from "./identity.js";
 
 interface ProjectRow {
@@ -159,11 +160,12 @@ function toSummary(row: ProjectRow): ProjectSummary {
   };
 }
 
-function toDetail(row: ProjectRow): ProjectDetail {
+function toDetail(row: ProjectRow, collections: ProjectDetail["collections"]): ProjectDetail {
   return {
     ...toSummary(row),
     requirements: parseRequirements(row.requirements),
     discordThreadUrl: row.discord_thread_url,
+    collections,
   };
 }
 
@@ -182,6 +184,7 @@ function cursorScope(query: ProjectListQuery): Promise<string> {
       query.projectType,
       query.includeContained,
       query.authorId ?? null,
+      query.collectionId ?? null,
       query.tag,
       query.search ?? null,
     ]),
@@ -283,6 +286,17 @@ export async function listPublishedProjects(
     where.push("p.author_id = ?");
     bindings.push(query.authorId);
   }
+  if (query.collectionId) {
+    where.push(
+      `EXISTS (
+        SELECT 1
+        FROM collection_projects cp
+        JOIN collections c ON c.id = cp.collection_id
+        WHERE cp.collection_id = ? AND cp.project_id = p.id AND c.deleted_at IS NULL
+      )`,
+    );
+    bindings.push(query.collectionId);
+  }
   const tagGroups: Record<string, string[]> = Object.create(null);
   for (const tag of query.tag) {
     const group = presetTagGroup(tag);
@@ -355,7 +369,9 @@ export async function listPublishedProjects(
 
 export async function getPublishedProject(db: D1Database, id: string) {
   const row = await db.prepare(`${SELECT_PROJECT} WHERE p.id = ? AND ${PUBLIC_PROJECT}`).bind(id).first<ProjectRow>();
-  return row ? projectDetailSchema.parse(toDetail(row)) : null;
+  if (!row) return null;
+  const collections = await listPublicCollectionsForProject(db, row.id);
+  return projectDetailSchema.parse(toDetail(row, collections));
 }
 
 export async function getPublishedProjectsByIds(db: D1Database, ids: string[]) {

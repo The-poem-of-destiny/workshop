@@ -33,7 +33,7 @@
 - **真实环境验收及生产切换未完成**：真实 Discord 完整登录／准入和真实 SillyTavern 安装／更新／卸载见 [user-actions.md](user-actions.md)；生产备份恢复、停写、迁移、回滚和精确版本验收仍需授权。不因这些人工门槛把已实现核心客户端重新列为代码待办。
 - **最新交付授权**：版本备忘 #94 已正常合并；文档 [PR #92](https://github.com/The-poem-of-destiny/workshop/pull/92) 与纠正后的推荐资格 #93 在必要验证和 exact-head required checks 通过后正常合并，不启用 auto-merge、不绕过分支保护。没有 release／tag／部署授权，不使用个人 Cloudflare token，不读写真实 D1/R2／备份或修改绑定、secrets、workflow、schema checkpoint；PR 合并不表示线上已启用。
 
-当前可执行与人工验收边界见 [Checklist](checklist.md) 和 [用户事项](user-actions.md)。只读 legacy 结构参考固定为 `../workshop-legacy` 的 `15303df5e3b30aa7f3fc924296ae57497a7ad09a`；经典界面迁移不是本轮待办。
+当前可执行与人工验收边界见 [Checklist](checklist.md) 和 [用户事项](user-actions.md)。只读 legacy 结构参考固定为 `worktrees/workshop-legacy` 的 `15303df5e3b30aa7f3fc924296ae57497a7ad09a`；经典界面迁移不是本轮待办。
 
 ## 历史记录阅读口径
 

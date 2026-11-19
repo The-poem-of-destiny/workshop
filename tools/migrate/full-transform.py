@@ -110,7 +110,7 @@ def main():
               for name in names}
     db.close()
     tables = defaultdict(list)
-    for name in ("users", "projects", "project_versions", "project_likes", "project_subscriptions",
+    for name in ("users", "projects", "project_versions", "collections", "collection_projects", "project_likes", "project_subscriptions",
                  "project_experience_notes", "project_unversioned_notes", "project_metrics_daily", "audit_events", "recommendations", "assets",
                  "version_entry_index", "site_settings"):
         tables[name] = []
@@ -151,8 +151,9 @@ def main():
             continue
         users[uid] = row
         tables["users"].append({"id": uid, "username": row["username"], "global_name": row.get("global_name"),
-                                "avatar": row.get("avatar"), "role": "member", "created_at": row["created_at"],
-                                "updated_at": row["updated_at"]})
+                                "avatar": row.get("avatar"), "role": "member",
+                                "policy_accepted_version": None, "policy_accepted_at": None,
+                                "created_at": row["created_at"], "updated_at": row["updated_at"]})
         if uid in privileged or row.get("is_admin"):
             omit("users", {"id": uid}, "legacy privileges not migrated")
 

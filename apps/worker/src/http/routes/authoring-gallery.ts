@@ -13,6 +13,7 @@ export function registerAuthoringGalleryRoutes(authoringRoutes: Hono<{ Bindings:
       c.req.param("id"),
     );
     if (response.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+    if (response.kind === "forbidden") return jsonError(c, "forbidden", "请先阅读并同意工坊使用政策并完成准入问答");
     const gallery = response.data;
     if (!gallery) return jsonError(c, "not_found", "Project not found");
     return c.json(gallery);
@@ -31,6 +32,7 @@ export function registerAuthoringGalleryRoutes(authoringRoutes: Hono<{ Bindings:
       expectedVersion,
     );
     if (response.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
+    if (response.kind === "forbidden") return jsonError(c, "forbidden", "请先阅读并同意工坊使用政策并完成准入问答");
     if (response.kind === "not_found") return jsonError(c, "not_found", "Project not found");
     if (response.kind === "version_conflict") return versionConflict(c, "project", expectedVersion, response.actual);
     const result = response.data;

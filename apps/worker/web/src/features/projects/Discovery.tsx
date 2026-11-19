@@ -1,4 +1,4 @@
-import { BookOpen, ChevronLeft, ChevronRight, History, Upload } from "lucide-react";
+import { BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, History, Upload } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { DiscoveryResponse, ProjectSummary } from "../../api";
 import type { HomeLoadState } from "../../useWorkshopHome";
@@ -157,6 +157,7 @@ function DiscoveryBrowser({
   onOpen: (project: ProjectSummary, opener: HTMLElement) => void;
 }) {
   const [selectedId, setSelectedId] = useState(items[0]!.id);
+  const [collapsed, setCollapsed] = useState(false);
   const [failedAuthorAvatar, setFailedAuthorAvatar] = useState<string | null>(null);
   const buttons = useRef(new Map<string, HTMLButtonElement>());
   const panelId = useId();
@@ -200,138 +201,154 @@ function DiscoveryBrowser({
     }
   }
   return (
-    <section className="discovery" aria-labelledby={`${panelId}-heading`}>
-      <DiscoveryBackdrop coverUrl={project.coverUrl} />
+    <section className={`discovery${collapsed ? " discovery-collapsed" : ""}`} aria-labelledby={`${panelId}-heading`}>
+      {!collapsed ? <DiscoveryBackdrop coverUrl={project.coverUrl} /> : null}
       <header className="discovery-heading">
         <h2 id={`${panelId}-heading`}>发现</h2>
-        <span className="discovery-caption">试试看~</span>
+        <span className="discovery-caption">精选与新鲜推荐 · 试试看~</span>
         <div className="discovery-navigation">
-          <span aria-live="polite" aria-atomic="true">
-            {selectedIndex + 1} / {items.length}
-          </span>
+          {!collapsed ? (
+            <>
+              <span aria-live="polite" aria-atomic="true">
+                {selectedIndex + 1} / {items.length}
+              </span>
+              <button
+                type="button"
+                aria-label="上一个发现项目"
+                disabled={items.length < 2}
+                onClick={() => select(selectedIndex - 1)}
+              >
+                <ChevronLeft aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                aria-label="下一个发现项目"
+                disabled={items.length < 2}
+                onClick={() => select(selectedIndex + 1)}
+              >
+                <ChevronRight aria-hidden="true" />
+              </button>
+            </>
+          ) : null}
           <button
             type="button"
-            aria-label="上一个发现项目"
-            disabled={items.length < 2}
-            onClick={() => select(selectedIndex - 1)}
+            className="discovery-fold-toggle"
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "展开发现栏" : "收起发现栏"}
+            title={collapsed ? "展开发现栏" : "收起发现栏"}
+            onClick={() => setCollapsed((prev) => !prev)}
           >
-            <ChevronLeft aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            aria-label="下一个发现项目"
-            disabled={items.length < 2}
-            onClick={() => select(selectedIndex + 1)}
-          >
-            <ChevronRight aria-hidden="true" />
+            {collapsed ? <ChevronDown aria-hidden="true" /> : <ChevronUp aria-hidden="true" />}
           </button>
         </div>
       </header>
-      <div className="discovery-layout">
-        <div
-          className="discovery-directory"
-          role="tablist"
-          aria-label="发现项目"
-          aria-orientation={compact ? "horizontal" : "vertical"}
-        >
-          {items.map((item, index) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              id={`${panelId}-tab-${index}`}
-              aria-selected={item.id === project.id}
-              aria-controls={`${panelId}-detail`}
-              tabIndex={item.id === project.id ? 0 : -1}
-              ref={(node) => {
-                if (node) buttons.current.set(item.id, node);
-                else buttons.current.delete(item.id);
-              }}
-              className="discovery-directory-item"
-              onClick={() => select(index)}
-              onKeyDown={(event) => {
-                const offset =
-                  event.key === "ArrowDown" || event.key === "ArrowRight"
-                    ? 1
-                    : event.key === "ArrowUp" || event.key === "ArrowLeft"
-                      ? -1
-                      : 0;
-                if (offset || event.key === "Home" || event.key === "End") {
-                  event.preventDefault();
-                  select(event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : index + offset, true);
-                }
-              }}
-            >
-              <Cover project={item} />
-              <span className="discovery-directory-text">
-                <strong>{item.title}</strong>
-                <small>{item.author.name}</small>
-              </span>
-            </button>
-          ))}
-        </div>
-        <div
-          key={project.id}
-          className="discovery-detail"
-          id={`${panelId}-detail`}
-          role="tabpanel"
-          aria-labelledby={`${panelId}-tab-${selectedIndex}`}
-        >
-          <div className="discovery-visual">
-            <button
-              type="button"
-              className="discovery-main-image"
-              onClick={(event) => onOpen(project, event.currentTarget)}
-              aria-label={`查看 ${project.title} 详情`}
-            >
-              <Cover project={project} />
-              <span className="discovery-image-link">查看详情 ↗</span>
-            </button>
+      {!collapsed ? (
+        <div className="discovery-layout">
+          <div
+            className="discovery-directory"
+            role="tablist"
+            aria-label="发现项目"
+            aria-orientation={compact ? "horizontal" : "vertical"}
+          >
+            {items.map((item, index) => (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                id={`${panelId}-tab-${index}`}
+                aria-selected={item.id === project.id}
+                aria-controls={`${panelId}-detail`}
+                tabIndex={item.id === project.id ? 0 : -1}
+                ref={(node) => {
+                  if (node) buttons.current.set(item.id, node);
+                  else buttons.current.delete(item.id);
+                }}
+                className="discovery-directory-item"
+                onClick={() => select(index)}
+                onKeyDown={(event) => {
+                  const offset =
+                    event.key === "ArrowDown" || event.key === "ArrowRight"
+                      ? 1
+                      : event.key === "ArrowUp" || event.key === "ArrowLeft"
+                        ? -1
+                        : 0;
+                  if (offset || event.key === "Home" || event.key === "End") {
+                    event.preventDefault();
+                    select(event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : index + offset, true);
+                  }
+                }}
+              >
+                <Cover project={item} />
+                <span className="discovery-directory-text">
+                  <strong>{item.title}</strong>
+                  <small>{item.author.name}</small>
+                </span>
+              </button>
+            ))}
           </div>
-          <div className="discovery-copy" key={project.id}>
-            <div className="discovery-copy-content">
-              <span className="discovery-type" data-type={project.projectType}>
-                {project.projectType}
-              </span>
-              <h3>
-                <button type="button" onClick={(event) => onOpen(project, event.currentTarget)}>
-                  {project.title}
-                </button>
-              </h3>
-              <p className="discovery-author">
-                <span className="discovery-author-avatar" aria-hidden="true">
-                  {project.author.avatarUrl && project.author.avatarUrl !== failedAuthorAvatar ? (
-                    <img
-                      src={project.author.avatarUrl}
-                      alt=""
-                      onError={() => setFailedAuthorAvatar(project.author.avatarUrl)}
-                    />
-                  ) : (
-                    project.author.name.slice(0, 1)
-                  )}
+          <div
+            key={project.id}
+            className="discovery-detail"
+            id={`${panelId}-detail`}
+            role="tabpanel"
+            aria-labelledby={`${panelId}-tab-${selectedIndex}`}
+          >
+            <div className="discovery-visual">
+              <button
+                type="button"
+                className="discovery-main-image"
+                onClick={(event) => onOpen(project, event.currentTarget)}
+                aria-label={`查看 ${project.title} 详情`}
+              >
+                <Cover project={project} />
+                <span className="discovery-image-link">查看详情 ↗</span>
+              </button>
+            </div>
+            <div className="discovery-copy" key={project.id}>
+              <div className="discovery-copy-content">
+                <span className="discovery-type" data-type={project.projectType}>
+                  {project.projectType}
                 </span>
-                <span>{project.author.name}</span>
-              </p>
-              <p className="discovery-description">{excerpt(project.description)}</p>
-              <div className="discovery-dates">
-                {project.publishedAt ? (
-                  <span>
-                    <Upload aria-hidden="true" />
-                    <span>首次上传 </span>
-                    <time dateTime={project.publishedAt}>{project.publishedAt.slice(0, 10)}</time>
+                <h3>
+                  <button type="button" onClick={(event) => onOpen(project, event.currentTarget)}>
+                    {project.title}
+                  </button>
+                </h3>
+                <p className="discovery-author">
+                  <span className="discovery-author-avatar" aria-hidden="true">
+                    {project.author.avatarUrl && project.author.avatarUrl !== failedAuthorAvatar ? (
+                      <img
+                        src={project.author.avatarUrl}
+                        alt=""
+                        onError={() => setFailedAuthorAvatar(project.author.avatarUrl)}
+                      />
+                    ) : (
+                      project.author.name.slice(0, 1)
+                    )}
                   </span>
-                ) : null}
-                <span>
-                  <History aria-hidden="true" />
-                  <span>更新 </span>
-                  <time dateTime={project.updatedAt}>{project.updatedAt.slice(0, 10)}</time>
-                </span>
+                  <span>{project.author.name}</span>
+                </p>
+                <p className="discovery-description">{excerpt(project.description)}</p>
+                <div className="discovery-dates">
+                  {project.publishedAt ? (
+                    <span>
+                      <Upload aria-hidden="true" />
+                      <span>首次上传 </span>
+                      <time dateTime={project.publishedAt}>{project.publishedAt.slice(0, 10)}</time>
+                    </span>
+                  ) : null}
+                  <span>
+                    <History aria-hidden="true" />
+                    <span>更新 </span>
+                    <time dateTime={project.updatedAt}>{project.updatedAt.slice(0, 10)}</time>
+                  </span>
+                </div>
+                <DiscoveryRecommendations key={project.id} recommendations={project.recommendations} />
               </div>
-              <DiscoveryRecommendations key={project.id} recommendations={project.recommendations} />
             </div>
           </div>
         </div>
-      </div>
+      ) : null}
     </section>
   );
 }

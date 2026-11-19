@@ -1,10 +1,11 @@
-import type {
-  AuthorProject,
-  AuthorSubmission,
-  CreateProject,
-  ProjectSummary,
-  Session,
-  VisibilityUpdate,
+import {
+  type AuthorProject,
+  type AuthorSubmission,
+  type CreateProject,
+  type ProjectSummary,
+  type Session,
+  serializeAuditDetail,
+  type VisibilityUpdate,
 } from "@workshop/contracts";
 import {
   getAuthoringProject,
@@ -13,6 +14,7 @@ import {
   parseTags,
   type VersionValues,
 } from "./authoring-model.js";
+import { listAuthorCollectionIdsByProjects } from "./collections.js";
 
 interface SummaryRow {
   id: string;
@@ -200,12 +202,17 @@ export async function listAuthorProjects(db: D1Database, session: Session): Prom
   `)
     .bind(session.userId)
     .all<AuthorProjectRow>();
+  const collectionMap = await listAuthorCollectionIdsByProjects(
+    db,
+    result.results.map((row) => row.id),
+  );
   return result.results.map((row) => ({
     project: toSummary(row),
     rowVersion: row.row_version,
     workingVersionId: row.working_version_id,
     latestSubmission: toAuthorSubmission(row),
     requirements: parseRequirements(row.requirements),
+    collectionIds: collectionMap.get(row.id) ?? [],
   }));
 }
 
@@ -356,10 +363,26 @@ export async function updateVisibility(
 ): Promise<number | null> {
   const current = await getAuthoringProject(db, projectId, session);
   if (!current || current.row_version !== expectedVersion) return null;
+  const now = new Date().toISOString();
+  const nextVersion = expectedVersion + 1;
   const result = await db
     .prepare(`UPDATE projects SET visibility = ?, row_version = row_version + 1, updated_at = ?
     WHERE id = ? AND row_version = ?`)
-    .bind(input.visibility, new Date().toISOString(), projectId, expectedVersion)
+    .bind(input.visibility, now, projectId, expectedVersion)
     .run();
-  return result.meta.changes === 0 ? null : expectedVersion + 1;
+  if (result.meta.changes === 0) return null;
+  await db
+    .prepare(`
+      INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
+      VALUES (?, 'project.patch', 'project', ?, ?, ?, ?)
+    `)
+    .bind(
+      crypto.randomUUID(),
+      projectId,
+      session.userId,
+      serializeAuditDetail("project.patch", { fields: ["visibility"], rowVersion: nextVersion }),
+      now,
+    )
+    .run();
+  return nextVersion;
 }

@@ -16,6 +16,8 @@ const expectedTables = [
   "oauth_flows",
   "projects",
   "project_versions",
+  "collections",
+  "collection_projects",
   "assets",
   "submissions",
   "manual_reviews",
@@ -249,6 +251,29 @@ rejects("UPDATE submissions SET version_id='r2' WHERE id='s1'", "cross-project s
 rejects("UPDATE submissions SET base_published_version_id='r2' WHERE id='s1'", "cross-project baseline accepted");
 rejects("DELETE FROM project_versions WHERE id='r1'", "referenced version was deleted");
 rejects("DELETE FROM users WHERE id='u1'", "historical author was deleted");
+rejects(
+  "UPDATE users SET policy_accepted_version='2026-11-v1', policy_accepted_at=NULL WHERE id='u1'",
+  "policy version without timestamp accepted",
+);
+rejects(
+  "UPDATE users SET policy_accepted_version=NULL, policy_accepted_at='2026-11-18T00:00:00.000Z' WHERE id='u1'",
+  "policy timestamp without version accepted",
+);
+db.prepare("UPDATE users SET policy_accepted_version='2026-11-v1', policy_accepted_at=? WHERE id='u1'").run(now);
+db.prepare(
+  "INSERT INTO collections (id, author_id, title, description, created_at, updated_at) VALUES ('c1', 'u1', '测试合集', '说明', ?, ?)",
+).run(now, now);
+rejects(
+  "INSERT INTO collections (id, author_id, title) VALUES ('c-empty', 'u1', '   ')",
+  "blank collection title accepted",
+);
+db.prepare(
+  "INSERT INTO collection_projects (collection_id, project_id, position, added_at) VALUES ('c1', 'p1', 0, ?)",
+).run(now);
+db.prepare("DELETE FROM collections WHERE id = 'c1'").run();
+if (db.prepare("SELECT COUNT(*) AS n FROM collection_projects").get().n !== 0) {
+  throw new Error("collection_projects retained rows after collection delete");
+}
 rejects(
   "UPDATE automated_reviews SET report_hash='hash' WHERE submission_id='s1'",
   "ambiguous hash-only report accepted",

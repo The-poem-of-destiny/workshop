@@ -1,5 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import type { Session } from "@workshop/contracts";
+import { CURRENT_POLICY_VERSION } from "@workshop/domain";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { DataEnv } from "../src/data/env";
 import { upsertStreamedAsset } from "../src/storage/authoring-assets";
@@ -96,9 +97,9 @@ beforeEach(async () => {
     "DELETE FROM audit_events; DELETE FROM submissions; DELETE FROM assets; DELETE FROM project_versions; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;",
   );
   await bindings.DB.prepare(
-    "INSERT INTO users (id, username, role, created_at, updated_at) VALUES (?, 'Author', 'member', ?, ?)",
+    "INSERT INTO users (id, username, role, policy_accepted_version, policy_accepted_at, created_at, updated_at) VALUES (?, 'Author', 'member', ?, ?, ?, ?)",
   )
-    .bind(session.userId, now, now)
+    .bind(session.userId, CURRENT_POLICY_VERSION, now, now, now)
     .run();
   await bindings.DB.prepare("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)")
     .bind(await hash(token), session.userId, session.expiresAt)

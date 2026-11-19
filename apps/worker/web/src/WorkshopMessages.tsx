@@ -1,7 +1,7 @@
-import { X } from "lucide-react";
-
+import { Megaphone, ShieldAlert, X } from "lucide-react";
 import type { CSSProperties } from "react";
-import type { SiteSettings } from "./api";
+import type { MeResponse, SiteSettings } from "./api";
+import { parseSiteContent } from "./lib/siteContent";
 import type { useWorkshopNavigation } from "./useWorkshopNavigation";
 import type { useWorkshopSession } from "./useWorkshopSession";
 
@@ -10,6 +10,10 @@ export function WorkshopMessages({
   view,
   error,
   setError,
+  authInviteHint,
+  clearAuthInviteHint,
+  pendingPolicyUser,
+  onOpenPolicy,
   sessionError,
   retrySession,
   loginFallback,
@@ -20,14 +24,19 @@ export function WorkshopMessages({
   view: ReturnType<typeof useWorkshopNavigation>["view"];
   error: string | null;
   setError: (message: string | null) => void;
+  authInviteHint?: boolean;
+  clearAuthInviteHint?: () => void;
+  pendingPolicyUser?: MeResponse["user"] | null;
+  onOpenPolicy?: () => void;
   sessionError: boolean;
   retrySession: () => void;
   loginFallback: ReturnType<typeof useWorkshopSession>["loginFallback"];
   notice: string | null;
   setNotice: (message: string | null) => void;
 }) {
+  const { communityInviteUrl, announcement } = parseSiteContent(home);
   return (
-    <>
+    <div className="workshop-messages">
       {home?.banner?.imageUrl && view === "browse" ? (
         <div
           className="banner"
@@ -47,13 +56,49 @@ export function WorkshopMessages({
           }
         />
       ) : null}
+      {announcement && view === "browse" ? (
+        <section className="site-announcement" aria-label="站点公告">
+          <Megaphone aria-hidden="true" />
+          <span>{announcement}</span>
+        </section>
+      ) : null}
+      {pendingPolicyUser ? (
+        <div className="notice policy-guest-banner" role="status">
+          <span className="policy-guest-banner-text">
+            <ShieldAlert aria-hidden="true" />
+            <span>
+              当前以游客身份只读浏览（账号：{pendingPolicyUser.globalName || pendingPolicyUser.username}
+              ）。完成使用政策确认与 3 道简短问答后即可点赞、订阅、安装与投稿。
+            </span>
+          </span>
+          {onOpenPolicy ? (
+            <button type="button" className="policy-guest-banner-btn" onClick={onOpenPolicy}>
+              立即完成确认
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       {error ? (
-        <p className="error" role="alert">
-          {error}
-          <button type="button" onClick={() => setError(null)} aria-label="关闭提示">
+        <div className="error" role="alert">
+          <div className="error-main">
+            <span>{error}</span>
+            {authInviteHint ? (
+              <a className="error-invite-link" href={communityInviteUrl} target="_blank" rel="noopener noreferrer">
+                尚未加入社区服务器？前往 Discord 社区服务器 →
+              </a>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              clearAuthInviteHint?.();
+            }}
+            aria-label="关闭提示"
+          >
             ×
           </button>
-        </p>
+        </div>
       ) : null}
       {sessionError ? (
         <p className="error" role="alert">
@@ -78,6 +123,6 @@ export function WorkshopMessages({
           </button>
         </div>
       ) : null}
-    </>
+    </div>
   );
 }

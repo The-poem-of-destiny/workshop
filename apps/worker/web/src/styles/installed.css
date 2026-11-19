@@ -267,3 +267,18 @@
 .installed-scope li + li {
   margin-top: 8px;
 }
+
+.installed-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.installed-tech-details {
+  margin-top: 6px;
+  color: var(--dim);
+  font-size: 12px;
+}
+.installed-tech-details summary {
+  cursor: pointer;
+}

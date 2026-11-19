@@ -55,6 +55,7 @@ files.use("*", async (c, next) => {
     ? await getSessionByToken(c.env.DB, authorization.slice(7), c.env.SESSION_HASH_SECRET)
     : null;
   if (!session) return jsonError(c, "unauthorized", "Login required");
+  if (!session.policyAccepted) return jsonError(c, "forbidden", "请先阅读并同意工坊使用政策并完成准入问答");
   c.set("session", session);
   await next();
 });

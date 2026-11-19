@@ -38,7 +38,7 @@ export function useDraftMetadataActions({
       const result = await api.patchProject(entry.project.id, rowVersion, metadataPayload(form));
       setRowVersion(result.rowVersion);
       setSavedForm(JSON.stringify(form));
-      onNotice(`已保存（版本 ${result.rowVersion}）。`);
+      onNotice("草稿资料已保存。");
       await onRefresh();
     } catch (reason) {
       onError(String(reason));
@@ -47,19 +47,5 @@ export function useDraftMetadataActions({
     }
   }
 
-  async function remove(): Promise<void> {
-    if (!window.confirm(`确定删除「${entry.project.title}」？此操作不可撤销。`)) return;
-    setBusy(true);
-    try {
-      await api.deleteProject(entry.project.id, rowVersion);
-      onNotice("项目已删除。");
-      await onRefresh();
-    } catch (reason) {
-      onError(String(reason));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return { save, remove };
+  return { save };
 }

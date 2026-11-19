@@ -3,14 +3,20 @@ import { Bookmark, BookOpen, Download, History, MoreHorizontal, ThumbsUp, Upload
 import { type MouseEvent, type PointerEvent, useEffect, useRef, useState } from "react";
 import type { ProjectSummary } from "../../api";
 
+import type { DiscordPromptTarget } from "../policy/DiscordLinkPrompt";
+
 export function ProjectCard({
   project,
   onOpen,
+  onAuthor,
+  onDiscordPrompt,
   layout = "cards",
 }: {
   project: ProjectSummary;
   layout?: "cards" | "list";
   onOpen: (p: ProjectSummary, opener: HTMLElement) => void;
+  onAuthor?: (author: { id: string; name: string }) => void;
+  onDiscordPrompt?: (target: DiscordPromptTarget) => void;
 }) {
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [failedCoverUrl, setFailedCoverUrl] = useState<string | null>(null);
@@ -91,8 +97,18 @@ export function ProjectCard({
           查看详情
         </button>
         {project.discordThreadUrl ? (
-          <a href={project.discordThreadUrl} target="_blank" rel="noreferrer">
-            Discord
+          <a
+            href={project.discordThreadUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(event) => {
+              if (!onDiscordPrompt || !project.discordThreadUrl) return;
+              event.preventDefault();
+              if (menuRef.current) menuRef.current.open = false;
+              onDiscordPrompt({ projectTitle: project.title, threadUrl: project.discordThreadUrl });
+            }}
+          >
+            Discord 讨论
           </a>
         ) : null}
       </div>
@@ -151,14 +167,30 @@ export function ProjectCard({
           </h3>
           {layout === "list" ? moreMenu : null}
         </div>
-        <p className="byline">
-          {project.author.avatarUrl && !avatarFailed ? (
-            <img src={project.author.avatarUrl} alt="" loading="lazy" onError={() => setAvatarFailed(true)} />
-          ) : (
-            <span className="avatar-fallback">{project.author.name.slice(0, 1)}</span>
-          )}
-          <span>{project.author.name}</span>
-        </p>
+        {onAuthor ? (
+          <button
+            type="button"
+            className="byline byline-button"
+            title={`查看 ${project.author.name} 的全部公开作品`}
+            onClick={() => onAuthor(project.author)}
+          >
+            {project.author.avatarUrl && !avatarFailed ? (
+              <img src={project.author.avatarUrl} alt="" loading="lazy" onError={() => setAvatarFailed(true)} />
+            ) : (
+              <span className="avatar-fallback">{project.author.name.slice(0, 1)}</span>
+            )}
+            <span>{project.author.name}</span>
+          </button>
+        ) : (
+          <p className="byline">
+            {project.author.avatarUrl && !avatarFailed ? (
+              <img src={project.author.avatarUrl} alt="" loading="lazy" onError={() => setAvatarFailed(true)} />
+            ) : (
+              <span className="avatar-fallback">{project.author.name.slice(0, 1)}</span>
+            )}
+            <span>{project.author.name}</span>
+          </p>
+        )}
         {layout === "cards" ? dateMeta : null}
         <p className="card-note">{preview}</p>
         <div className="tags" title={[project.projectType, ...project.tags].join("、")}>
