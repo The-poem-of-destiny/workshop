@@ -259,11 +259,11 @@ D1 与 R2 不跨服务原子：单次 SELECT 无引用不防止删除瞬间重�
 | GET `/api/v1/client/compatibility` | 公开，同上 channel 和可选 `version`；返回 compatible、bootstrap、required、revision、reason；频道不存在时返回 200 且 `channel_unavailable`，无效频道 404。已配置频道的成功响应缓存 5 秒，不可用和错误响应 `no-store`。 |
 | GET `/client/stable/index.js`、`/client/staging/index.js` | 公开频道入口；`no-store`，CORS `*`；对象不存在 404。 |
 | GET `/client/v/:revision/index.js` | 公开版本文件，revision 为 8–64 位小写十六进制；默认一年 immutable，支持 ETag 和 `If-None-Match` 304，CORS `*`。TTL 可配置，设为 0 或非法值时 no-store。 |
-| GET `/client/checker/v/:revision/:file` | 同上版本格式和默认 immutable 缓存；file 仅允许 `browser-checker.js`、`upload-checker.mjs`、`review-checker.mjs`、`manifest.json`、`NOTICES.txt`。响应带 ETag，但入口重建请求时丢弃 `If-None-Match`，不要依赖源站返回 304。 |
+| GET `/client/checker/v/:revision/:file` | 同上版本格式和默认 immutable 缓存；file 仅允许 `browser-checker.js`、`upload-checker.mjs`、`review-checker.mjs`、`manifest.json`、`NOTICES.txt`。响应带 ETag；网关对匹配的 `If-None-Match` 返回 304。 |
 | GET `/test-dist/CreativeWorkshop/index.js` | 旧地址兼容脚本，导入 stable 入口；`public, max-age=0, must-revalidate`，CORS `*`。 |
 | GET `/assets/*` | ASSETS 绑定提供的前端静态文件，成功为一年 immutable；未配置或不存在 404。 |
 | GET `/api/v1/public-assets/*` | 仅当前公开发布的 cover/gallery 或当前注册 banner；成功默认最多 60 秒，`stale-if-error=0`，CORS `*`；TTL 可配置，设为 0 或非法值时 no-store。权限不满足或对象缺失 404。 |
 | GET `/api/v1/assets/*` | 公开图片也可读取；私有 cover 对作者、owner 及符合待审条件的 reviewer/owner 可见，私有 gallery 对作者或 owner 可见；当前 banner 可见。成功 `private, no-store`、`Vary: Authorization`，无权或不存在 404。 |
-| GET `/` | 正常部署由 Static Assets 返回 Web 首页 HTML；Worker 后备 handler 返回纯文本 `workshop`。 |
+| GET `/` | Static Assets 优先返回 Web 首页 HTML。维护时静态首页仍可加载，前端根据首页 API 的 `503 maintenance` 显示维护提示。 |
 
-未匹配的 `/api/*` 返回 JSON 404；其他未知路径返回纯文本 404。版本文件设置 immutable 缓存头及 cache tag；checker 经过公开入口时会移除 CDN 专用缓存头。响应头不保证平台缓存一定命中。
+未匹配的 `/api/*` 返回 JSON 404；其他未知路径返回纯文本 404。版本文件设置 immutable 缓存头。响应头不保证平台缓存一定命中。
