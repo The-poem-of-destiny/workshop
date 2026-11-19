@@ -1,6 +1,15 @@
 # 自定义域名、缓存与资源消耗上线计划
 
-状态：待执行。沿用 [D-49](decisions.md#d-49-分类-ttl-cache-api)；本计划不授权修改 DNS、Cloudflare、Discord 或真实数据，不改变[人工门槛](user-actions.md)和[发布安全流程](../../operations/deployment-safety.md)。按 staging → production 分别验收；最终记录精确 Worker version、Web／client revision、schema、规则版本、UTC 观察窗口和回退责任人。
+状态：staging 部分配置，尚未完成验收。沿用 [D-49](decisions.md#d-49-分类-ttl-cache-api)；本计划不授权修改 DNS、Cloudflare、Discord 或真实数据，不改变[人工门槛](user-actions.md)和[发布安全流程](../../operations/deployment-safety.md)。按 staging → production 分别验收；最终记录精确 Worker version、Web／client revision、schema、规则版本、UTC 观察窗口和回退责任人。
+
+## Staging 执行记录（2026-11-19）
+
+- `workshop-staging.poem-of-destiny.3378469.xyz` 已绑定现有 staging Worker，公开 DNS、HTTPS 和健康检查通过；旧入口及 Discord 回调未切换。
+- PR #99 已合并到 `143ee219458a4ca2b6d34071371a3456b2ca4423`，合并后 CI 通过。[Staging 工作流](https://github.com/The-poem-of-destiny/workshop/actions/runs/44546621108) 因 `0001_initial.sql` 相对已验收基线有变化，跳过构建和部署。未变更门禁、未迁移；不能用旧版响应作为新版缓存或静态分流证据。
+- 已写入并回读 `assets-staging.poem-of-destiny.3378469.xyz/immutable/*` 边缘 TTL 规则：`200` 30 天、源站 `403/404` 5 分钟。尚未建桶或绑定资源域；限流未启用，因为当前 Free zone 的限流表达式不能限定 hostname。防盗链未启用。
+- 新令牌的 R2 列桶返回 `401 / 10000`；2026-11-18 UTC 的 Workers 和 D1 基线查询均被拒绝。没有当前版实耗数据，不能把历史流量估计当验收。恢复条件：确认账户级 R2 写入和 Analytics 读取权限，并取得经过 schema 门禁的新版本部署；隔离空库预览须另行授权，不替代现有 staging 数据验收。生产保持不动，按既有发布流程另行审批。
+- 随后经用户授权，在关闭并排空维护屏障后原地重建现有 staging D1，不换绑定、不改 GitHub 凭据或 `0001_initial.sql`。只处理了五条已核实的旧 `d1.batch` 票据；重置前保存 Time Travel 回退点。重置后 82 个业务 schema 对象与空库执行 `0001` 的结果逐项一致，外键检查为空，项目和用户均为零。
+- 已手动部署不含临时恢复入口的 staging Worker `746600e0-331b-45fa-833e-0dd718ff2ce2`，恢复入口返回 400，维护屏障已重新开放。自定义域首页、健康检查、首页 API 和带一年 immutable 的构建脚本均返回 200。GitHub 自动部署检查点仍需走受保护 PR；此结果不证明边缘命中或账单节省。
 
 ## 1. DNS、应用缓存与静态分流
 
