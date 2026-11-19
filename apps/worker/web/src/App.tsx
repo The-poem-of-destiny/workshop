@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
-import type { ProjectSummary } from "./api";
+import { ApiError, type ProjectSummary } from "./api";
 import { InstallDialog } from "./features/installed/InstallDialog";
 import { DiscordLinkPrompt, type DiscordPromptTarget } from "./features/policy/DiscordLinkPrompt";
 import { PolicyGateDialog } from "./features/policy/PolicyGateDialog";
@@ -154,6 +154,15 @@ export function App() {
     apply();
     setSelected(null);
   };
+
+  if (home.status === "error" && home.error instanceof ApiError && home.error.status === 503 && home.error.code === "maintenance") {
+    return (
+      <main role="status">
+        <h1>工坊维护中</h1>
+        <p>请稍后刷新页面再试。</p>
+      </main>
+    );
+  }
 
   return (
     <div className={`shell${embedded ? " embedded" : ""}${me ? " authenticated" : ""}`}>
