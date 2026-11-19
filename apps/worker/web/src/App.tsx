@@ -22,6 +22,15 @@ import { WorkshopMessages } from "./WorkshopMessages";
 import { WorkshopSidebar } from "./WorkshopSidebar";
 import { WorkshopWorkspaces } from "./WorkshopWorkspaces";
 
+function MaintenanceNotice() {
+  return (
+    <main role="status">
+      <h1>工坊维护中</h1>
+      <p>请稍后刷新页面再试。</p>
+    </main>
+  );
+}
+
 export function App() {
   const home = useWorkshopHome();
   const site = home.status === "ready" && home.data.site.ok ? home.data.site.data : null;
@@ -161,12 +170,7 @@ export function App() {
     home.error.status === 503 &&
     home.error.code === "maintenance"
   ) {
-    return (
-      <main role="status">
-        <h1>工坊维护中</h1>
-        <p>请稍后刷新页面再试。</p>
-      </main>
-    );
+    return <MaintenanceNotice />;
   }
 
   return (
