@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { normalizeDiscordThreadUrl, parseDiscordThreadUrl } from "./discord.js";
-import { DEFAULT_COMMUNITY_INVITE_URL, parseDiscordInviteUrl } from "./policy.js";
+import { normalizeDiscordThreadUrl, parseDiscordThreadUrl } from "../src/discord.js";
+import { DEFAULT_COMMUNITY_INVITE_URL, parseDiscordInviteUrl } from "../src/policy.js";
 
 const GUILD = "123456789012345678";
 const THREAD = "223456789012345678";

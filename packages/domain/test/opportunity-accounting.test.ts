@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { estimateOpportunities, type OpportunityBatch } from "./opportunity-accounting.js";
+import { estimateOpportunities, type OpportunityBatch } from "../src/opportunity-accounting.js";
 
 const hour = 3_600_000;
 const midnight = Date.parse("2026-11-02T00:00:00Z");

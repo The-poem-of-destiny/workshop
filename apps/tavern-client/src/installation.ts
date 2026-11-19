@@ -1,4 +1,4 @@
-import type { InstallInstance } from "../../../packages/contracts/src/install.js";
+import type { InstallInstance } from "@workshop/contracts/install";
 import { capture, discover } from "./install-discovery.js";
 import { copy, type InstallHost, type Plan, type Row, type Snapshot, stable } from "./install-model.js";
 import { plannedBookRows } from "./install-preview.js";

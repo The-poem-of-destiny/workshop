@@ -76,15 +76,20 @@ function scanFile(base, dir, file, names, errors) {
     }
     if (!target) return;
     const owner = ownerOf(target);
+    const typeOnly =
+      (ts.isImportDeclaration(node) && node.importClause?.isTypeOnly) ||
+      (ts.isExportDeclaration(node) && node.isTypeOnly) ||
+      ts.isImportTypeNode(node);
     if (owner && owner !== dir && !policy[dir].includes(owner)) report(node, `forbidden dependency on '${specifier}'`);
+    else if (owner && owner !== dir && specifier.startsWith("."))
+      report(node, `cross-workspace relative import is forbidden: '${specifier}'`);
     if (inside(relative, "apps/worker/web/src") && (target === "apps/worker" || inside(target, "apps/worker/src"))) {
       report(node, `Web cannot import Worker implementation '${specifier}'`);
     }
+    if (inside(relative, "apps/worker/web/src") && owner === "packages/contracts" && !typeOnly) {
+      report(node, `Web may only import contracts as types: '${specifier}'`);
+    }
     if (inside(relative, "apps/worker/src/storage") && inside(target, "apps/worker/src/data")) {
-      const typeOnly =
-        (ts.isImportDeclaration(node) && node.importClause?.isTypeOnly) ||
-        (ts.isExportDeclaration(node) && node.isTypeOnly) ||
-        ts.isImportTypeNode(node);
       if (target !== "apps/worker/src/data/contracts.ts" || !typeOnly)
         report(node, `storage may only import data contracts as types: '${specifier}'`);
     }

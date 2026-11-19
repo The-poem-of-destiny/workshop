@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inspectProjectMetadata } from "./metadata.js";
+import { inspectProjectMetadata } from "../src/metadata.js";
 
 describe("project metadata", () => {
   it("passes valid metadata", () => {

@@ -1,27 +1,8 @@
+import { AUDIT_ACTIONS, type AuditAction } from "@workshop/domain";
 import { z } from "zod";
 
-export const auditActionSchema = z.enum([
-  "member.role_change",
-  "member.policy_accept",
-  "site.update",
-  "project.patch",
-  "project.delete",
-  "submission.withdraw",
-  "submission.cutover_supersede",
-  "companion.publish",
-  "collection.create",
-  "collection.update",
-  "collection.delete",
-  "recommendation.update",
-  "recommendation.delete",
-  "legacy.admin_added",
-  "legacy.admin_removed",
-  "legacy.character_reference_created",
-  "legacy.character_reference_version_created",
-  "legacy.editor_pick_removed",
-  "legacy.editor_pick_saved",
-]);
-export type AuditAction = z.infer<typeof auditActionSchema>;
+export { AUDIT_ACTIONS, type AuditAction };
+export const auditActionSchema = z.enum(AUDIT_ACTIONS);
 
 const roleSchema = z.enum(["member", "reviewer", "owner"]);
 const base = {

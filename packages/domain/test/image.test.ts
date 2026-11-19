@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectImageDimensions } from "./image.js";
+import { detectImageDimensions } from "../src/image.js";
 
 function decodeImage(data: string): Uint8Array {
   return Uint8Array.from(atob(data), (value) => value.charCodeAt(0));

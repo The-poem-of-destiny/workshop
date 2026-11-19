@@ -1,4 +1,4 @@
-import { type AuditAction, auditActionSchema } from "@workshop/contracts";
+import { type AuditAction, isAuditAction } from "@workshop/domain";
 import { useRef, useState } from "react";
 import { type AdminAuditEvent, api } from "./api";
 
@@ -41,7 +41,10 @@ export function useAdminAudit({ onError }: AdminAuditOptions) {
   }
 
   function changeAuditAction(action: string): void {
-    const parsed = action === "" ? "" : auditActionSchema.parse(action);
+    if (action !== "" && !isAuditAction(action)) {
+      throw new Error(`Invalid audit action: ${action}`);
+    }
+    const parsed: AuditAction | "" = action;
     setAuditAction(parsed);
     void loadAudit(parsed);
   }

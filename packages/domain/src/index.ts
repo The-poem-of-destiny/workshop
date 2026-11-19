@@ -1,3 +1,4 @@
+export * from "./audit.js";
 export * from "./collections.js";
 export * from "./discord.js";
 export * from "./image.js";

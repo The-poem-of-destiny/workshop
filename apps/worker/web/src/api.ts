@@ -46,8 +46,7 @@ import type {
   UserPolicyState,
   Visibility,
 } from "@workshop/contracts";
-import { projectBatchQuerySchema, projectBatchResponseSchema } from "@workshop/contracts";
-import { MAX_SELECTED_TAGS, PROJECT_TYPES, type ProjectType } from "@workshop/domain";
+import { MAX_SELECTED_TAGS, normalizeProjectBatchIds, PROJECT_TYPES, type ProjectType } from "@workshop/domain";
 import { newId } from "./lib/newId";
 
 export type {
@@ -210,14 +209,21 @@ export const api = {
     requestJson<AuthorProfileResponse>(`/api/v1/authors/${encodeURIComponent(id)}`, {}, true),
   home: () => requestJson<HomeResponse>("/api/v1/home", {}, true),
   projectsByIds: async (ids: string[]): Promise<ProjectBatchResponse> => {
-    if (ids.length === 0) return { items: [], missingIds: [] };
-    if (ids.length > 50 || ids.some((id) => id.includes(","))) throw new Error("Invalid project batch IDs");
-    const normalized = projectBatchQuerySchema.parse({ ids: ids.join(",") }).ids;
+    const normalized = normalizeProjectBatchIds(ids);
+    if (normalized.length === 0) return { items: [], missingIds: [] };
     const query = new URLSearchParams({ ids: normalized.join(",") });
-    const response = projectBatchResponseSchema.parse(
-      await requestJson<unknown>(`/api/v1/projects/batch?${query}`, {}, true),
-    );
-    const returned = [...response.items.map((item) => item.id), ...response.missingIds];
+    const raw = await requestJson<ProjectBatchResponse>(`/api/v1/projects/batch?${query}`, {}, true);
+    if (
+      !raw ||
+      typeof raw !== "object" ||
+      !Array.isArray(raw.items) ||
+      !Array.isArray(raw.missingIds) ||
+      raw.items.some((item) => !item || typeof item !== "object" || typeof item.id !== "string") ||
+      raw.missingIds.some((id) => typeof id !== "string")
+    ) {
+      throw new Error("Invalid project batch response");
+    }
+    const returned = [...raw.items.map((item) => item.id), ...raw.missingIds];
     if (
       returned.length !== normalized.length ||
       new Set(returned).size !== normalized.length ||
@@ -225,7 +231,7 @@ export const api = {
     ) {
       throw new Error("Invalid project batch response");
     }
-    return response;
+    return raw;
   },
   project: (id: string) => requestJson<ProjectDetail>(`/api/v1/projects/${encodeURIComponent(id)}`, {}, true),
   projectPreview: (id: string, kind: ProjectPreviewKind) =>

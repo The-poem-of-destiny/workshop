@@ -1,4 +1,4 @@
-import { type AuditAction, auditActionSchema } from "@workshop/contracts";
+import { AUDIT_ACTIONS, type AuditAction } from "@workshop/domain";
 import type { JsonValue } from "./api";
 
 import type { useAdminAudit } from "./useAdminAudit";
@@ -25,7 +25,7 @@ const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   "legacy.editor_pick_saved": "历史：保存编辑精选",
 };
 
-const AUDIT_ACTION_OPTIONS = auditActionSchema.options;
+const AUDIT_ACTION_OPTIONS = AUDIT_ACTIONS;
 
 function formatDateTime(value: string): string {
   const parsed = new Date(value);

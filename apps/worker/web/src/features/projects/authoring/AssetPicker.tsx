@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { identifyOccurrences } from "../listIdentity";
+import { keyedItems } from "../../../lib/keyedItems";
 import { fileKey, formatBytes, type RegexAsset, type WorldbookAsset } from "./preview";
 
 function Dropzone({
@@ -133,7 +133,7 @@ export function AssetPicker({
                 </p>
               ) : (
                 <ul className="asset-entry-list">
-                  {identifyOccurrences(worldbook.entries).map(({ item: entry, key }) => (
+                  {keyedItems(worldbook.entries).map(({ item: entry, key }) => (
                     <li className="asset-entry" key={key}>
                       <div className="asset-entry-title">
                         <strong>{entry.name}</strong>
@@ -212,7 +212,7 @@ export function AssetPicker({
                     {asset.file.name} · {asset.entries.length} 条
                   </summary>
                   <ul className="asset-entry-list">
-                    {identifyOccurrences(asset.entries).map(({ item: entry, key }) => (
+                    {keyedItems(asset.entries).map(({ item: entry, key }) => (
                       <li className="asset-entry" key={key}>
                         <div className="asset-entry-title">
                           <strong>{entry.scriptName}</strong>

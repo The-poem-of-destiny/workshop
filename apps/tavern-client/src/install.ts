@@ -1,4 +1,4 @@
-import type { InstallIntent, InstallPreview } from "../../../packages/contracts/src/install.js";
+import type { InstallIntent, InstallPreview } from "@workshop/contracts/install";
 import { capture, discover } from "./install-discovery.js";
 import { copy, type InstallHost, identity, type Plan, stable } from "./install-model.js";
 import { preparePlan } from "./install-preview.js";

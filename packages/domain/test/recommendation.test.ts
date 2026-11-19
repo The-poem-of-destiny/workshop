@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type RecommendationCandidate, selectRecommendations } from "./recommendation.js";
+import { type RecommendationCandidate, selectRecommendations } from "../src/recommendation.js";
 
 const now = Date.parse("2026-11-02T00:00:00Z");
 const options = {

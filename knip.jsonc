@@ -6,7 +6,12 @@
   "rules": { "cycles": "error" },
   "workspaces": {
     ".": {
-      "entry": ["tools/migrate/full-r2.mjs", "tools/backup/verify.mjs"],
+      "entry": [
+        "tools/migrate/full-r2.mjs",
+        "tools/migrate/full-transform-content.mjs",
+        "tools/analyze-recommendations.mjs",
+        "tools/backup/verify.mjs"
+      ],
       "project": ["tools/**/*.mjs"],
       // Recursive `pnpm -r --if-present typecheck` is a workspace script, not
       // an npm executable. E2E invokes Wrangler through --filter @workshop/worker,
@@ -47,7 +52,7 @@
       "project": ["src/**/*.ts"]
     },
     "packages/domain": {
-      // Vitest discovers tests both beside source files and in test/.
+      // Vitest discovers domain tests in test/.
       "project": ["src/**/*.ts", "test/**/*.ts"]
     }
   }
