@@ -35,24 +35,6 @@ export async function getAuthorGallery(
   };
 }
 
-export async function getPublicGallery(db: D1Database, projectId: string): Promise<GalleryRow[] | null> {
-  const project = await db
-    .prepare(
-      `SELECT p.id FROM projects p JOIN project_versions r ON r.id = p.published_version_id AND r.project_id = p.id
-       WHERE p.id = ? AND p.deleted_at IS NULL AND p.visibility = 'public' AND p.published_version_id IS NOT NULL`,
-    )
-    .bind(projectId)
-    .first<{ id: string }>();
-  if (!project) return null;
-  const rows = await db
-    .prepare(
-      "SELECT CASE kind WHEN 'gallery_1' THEN 0 ELSE 1 END AS slot, r2_key, mime FROM assets WHERE project_id = ? AND version_id IS NULL AND kind IN ('gallery_1', 'gallery_2') ORDER BY kind",
-    )
-    .bind(projectId)
-    .all<GalleryRow>();
-  return rows.results;
-}
-
 export type GalleryWriteResult =
   | { kind: "ok"; rowVersion: number; sha256: string; bytes: number; mime: string; r2Key: string }
   | { kind: "conflict" }

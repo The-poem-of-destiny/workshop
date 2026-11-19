@@ -1,10 +1,9 @@
 import { env } from "cloudflare:test";
 import type { ProjectType } from "@workshop/contracts";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-
+import { canonicalPublicRequest } from "../src/cache/public-cache";
 import { CachedReads, type ReadProps } from "../src/data/cached-reads";
 import type { DataEnv } from "../src/data/env";
-import { canonicalPublicRequest } from "../src/http/public-cache";
 import { publicResponse } from "../src/http/public-response";
 import { applySchema } from "./support/schema";
 

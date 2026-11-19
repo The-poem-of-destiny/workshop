@@ -1,7 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { projectPreviewSchema } from "@workshop/contracts";
-import { cacheTtl, publicCacheClass } from "../http/cache-policy";
-import { canonicalPublicRequest } from "../http/public-cache";
+import { cacheTtl, publicCacheClass } from "../cache/cache-policy";
+import { canonicalPublicRequest } from "../cache/public-cache";
 import { loadProjectPreview } from "../storage/content-index";
 import type { ProjectPreviewTarget } from "./contracts";
 import type { DataEnv } from "./env";

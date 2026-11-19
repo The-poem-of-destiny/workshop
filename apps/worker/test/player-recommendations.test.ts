@@ -5,6 +5,7 @@ import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { CachedReads } from "../src/data/cached-reads";
 import type { DataEnv } from "../src/data/env";
 import { buildRecommendationBatch, readRecommendationBatch } from "../src/storage/recommendation-batches";
+import { FIXED_TRAFFIC_PROFILE } from "../src/traffic-profile";
 import { applySchema } from "./support/schema";
 
 const bindings = env as unknown as DataEnv;
@@ -78,7 +79,7 @@ async function seedRecommendation(
 }
 async function buildBatch() {
   const start = Date.now();
-  await buildRecommendationBatch(bindings.DB, start, undefined, { start, end: start + hourMs });
+  await buildRecommendationBatch(bindings.DB, start, undefined, { start, end: start + hourMs }, FIXED_TRAFFIC_PROFILE);
 }
 async function discovery() {
   // Exercise the public projection without retaining cache entries between live mutations.

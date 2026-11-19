@@ -1,7 +1,7 @@
 import { app } from "./app";
+import { canonicalPublicRequest } from "./cache/public-cache";
 import { fetchPublic } from "./data-client";
 import type { Env } from "./env";
-import { canonicalPublicRequest } from "./http/public-cache";
 import { publicResponse } from "./http/public-response";
 import { runScheduled } from "./scheduler";
 import { barrierControl, maintenanceDocument, maintenanceUnavailable, withWriteBarrier } from "./write-barrier";

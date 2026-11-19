@@ -1,209 +1,25 @@
-import {
-  type AuditAction,
-  type ProjectType,
-  projectEntryIndexDocumentSchema,
-  projectTaxonomySchema,
-} from "@workshop/contracts";
+import { projectEntryIndexDocumentSchema, projectTaxonomySchema } from "@workshop/contracts";
 import { inspectProjectMetadata } from "@workshop/domain";
-import { fetchImmutableObject } from "../data-client.js";
 import {
-  getAdminSubmission,
-  getSubmissionAsset,
-  listAdminSubmissions,
-  reviewAdminSubmission,
-} from "../storage/admin.js";
-import {
-  changeAdminMemberRole,
-  listAdminAuditEvents,
-  listAdminMembers,
-  listAdminProjects,
-} from "../storage/admin-directory.js";
-import { deleteAdminRecommendation, updateAdminRecommendation } from "../storage/admin-recommendations.js";
-import { createProject, getProjectSummary, softDeleteProject, updateVisibility } from "../storage/authoring.js";
+  createProject,
+  getLatestProjectSubmission,
+  getProjectSummary,
+  softDeleteProject,
+  updateVisibility,
+} from "../storage/authoring.js";
 import { deleteProjectEntry } from "../storage/authoring-assets.js";
 import { getAuthoringProject, parseIncludedTypes, parseRequirements, parseTags } from "../storage/authoring-model.js";
 import { submitVersion, withdrawSubmission } from "../storage/authoring-submissions.js";
-import { createVersion, patchProject } from "../storage/authoring-versions.js";
+import {
+  countRecentMetadataMutations,
+  createVersion,
+  listVersionsChangeEvidenceRows,
+  patchProject,
+} from "../storage/authoring-versions.js";
 import { listAuthorCollectionIdsByProjects } from "../storage/collections.js";
-import { getSubmissionDiff } from "../storage/diff.js";
 import { deleteGalleryImage, getAuthorGallery } from "../storage/project-gallery.js";
 import { getSessionByToken } from "../storage/sessions.js";
 import type { DataEnv } from "./env.js";
-
-async function reviewer(env: DataEnv, authorization: string | undefined, owner = false) {
-  const session = authorization?.startsWith("Bearer ")
-    ? await getSessionByToken(env.DB, authorization.slice(7), env.SESSION_HASH_SECRET)
-    : null;
-  if (!session) return { kind: "unauthorized" as const };
-  if (!session.policyAccepted) return { kind: "forbidden" as const };
-  if (owner ? session.role !== "owner" : session.role !== "reviewer" && session.role !== "owner") {
-    return { kind: "forbidden" as const };
-  }
-  return { kind: "ok" as const, session };
-}
-
-export async function authorAdminListProjects(
-  env: DataEnv,
-  authorization: string | undefined,
-  limit: number,
-  cursor: string | undefined,
-  filters: { search?: string; projectType?: ProjectType; includeDeleted?: boolean },
-) {
-  const auth = await reviewer(env, authorization);
-  if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await listAdminProjects(env.DB, limit, cursor, filters) };
-}
-
-export async function authorAdminListMembers(
-  env: DataEnv,
-  authorization: string | undefined,
-  limit: number,
-  cursor: string | undefined,
-) {
-  const auth = await reviewer(env, authorization);
-  if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await listAdminMembers(env.DB, limit, cursor) };
-}
-
-export async function authorAdminListAuditEvents(
-  env: DataEnv,
-  authorization: string | undefined,
-  limit: number,
-  cursor: string | undefined,
-  action: AuditAction | undefined,
-) {
-  const auth = await reviewer(env, authorization);
-  if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await listAdminAuditEvents(env.DB, limit, cursor, action) };
-}
-
-export async function authorAdminChangeMemberRole(
-  env: DataEnv,
-  authorization: string | undefined,
-  id: string,
-  role: "member" | "reviewer" | "owner",
-) {
-  const auth = await reviewer(env, authorization, true);
-  if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await changeAdminMemberRole(env.DB, id, role, auth.session.userId) };
-}
-
-export async function authorAdminListSubmissions(
-  env: DataEnv,
-  authorization: string | undefined,
-  query: Parameters<typeof listAdminSubmissions>[1],
-) {
-  const auth = await reviewer(env, authorization);
-  if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await listAdminSubmissions(env.DB, query) };
-}
-
-export async function authorAdminGetSubmission(env: DataEnv, authorization: string | undefined, id: string) {
-  const auth = await reviewer(env, authorization);
-  if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await getAdminSubmission(env.DB, env.R2, id) };
-}
-
-export async function authorAdminGetDiff(env: DataEnv, authorization: string | undefined, id: string) {
-  const auth = await reviewer(env, authorization);
-  if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await getSubmissionDiff(env.DB, env.R2, id) };
-}
-
-export async function authorAdminReview(
-  env: DataEnv,
-  authorization: string | undefined,
-  id: string,
-  request: Parameters<typeof reviewAdminSubmission>[3],
-) {
-  const auth = await reviewer(env, authorization);
-  if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await reviewAdminSubmission(env.DB, id, auth.session.userId, request) };
-}
-
-export async function authorAdminUpdateRecommendation(
-  env: DataEnv,
-  authorization: string | undefined,
-  id: string,
-  update: Parameters<typeof updateAdminRecommendation>[3],
-) {
-  const auth = await reviewer(env, authorization, true);
-  if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await updateAdminRecommendation(env.DB, id, auth.session.userId, update, false) };
-}
-
-export async function authorAdminDeleteRecommendation(env: DataEnv, authorization: string | undefined, id: string) {
-  const auth = await reviewer(env, authorization, true);
-  if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await deleteAdminRecommendation(env.DB, id, auth.session.userId) };
-}
-
-export async function authorAdminRecheck(env: DataEnv, authorization: string | undefined, id: string) {
-  const auth = await reviewer(env, authorization);
-  if (auth.kind !== "ok") return auth;
-  const [requeued] = await env.DB.batch([
-    env.DB.prepare(`
-      UPDATE automated_reviews SET status = 'queued', attempts = 0, lease_until = NULL, lease_token = NULL, error = NULL,
-        checker_version = NULL, route_gate = NULL, report_r2_key = NULL, report_hash = NULL, report_cleaned_at = NULL, checked_at = NULL, duration_ms = NULL
-      WHERE submission_id = ? AND status NOT IN ('queued','running')
-        AND EXISTS(SELECT 1 FROM submissions s WHERE s.id = submission_id AND s.status IN ('pending','checking'))
-    `).bind(id),
-    env.DB.prepare(`UPDATE submissions SET status = 'pending' WHERE id = ? AND changes() = 1
-      AND status IN ('pending','checking')`).bind(id),
-  ]);
-  if ((requeued?.meta.changes ?? 0) !== 0) return { kind: "ok" as const };
-
-  const target = await env.DB.prepare("SELECT status FROM submissions WHERE id = ?")
-    .bind(id)
-    .first<{ status: string }>();
-  if (!target) return { kind: "not_found" as const };
-  if (target.status !== "pending" && target.status !== "checking") return { kind: "resolved" as const };
-  return { kind: "running" as const };
-}
-
-export async function authorAdminFetch(request: Request, env: DataEnv, context: ExecutionContext): Promise<Response> {
-  const url = new URL(request.url);
-  const match = /^\/api\/v1\/admin\/submissions\/([^/]+)\/files\/(worldbook|regex|cover)$/.exec(url.pathname);
-  if (request.method !== "GET" || !match) return new Response(null, { status: 404 });
-  const auth = await reviewer(env, request.headers.get("authorization") ?? undefined);
-  if (auth.kind !== "ok") {
-    const status = auth.kind === "unauthorized" ? 401 : 403;
-    return Response.json({ error: { code: auth.kind, message: "Reviewer access required" } }, { status });
-  }
-  const kind = match[2] as "worldbook" | "regex" | "cover";
-  const asset = await getSubmissionAsset(env.DB, decodeURIComponent(match[1]!), kind);
-  if (!asset) return Response.json({ error: { code: "not_found", message: "File not found" } }, { status: 404 });
-  const cacheable =
-    /^[a-f0-9]{64}$/.test(asset.sha256) && asset.r2_key.split("/").pop()?.includes(`-${asset.sha256}.`) === true;
-  let body: ReadableStream<Uint8Array>;
-  if (cacheable) {
-    const object = await fetchImmutableObject(context, {
-      r2Key: asset.r2_key,
-      sha256: asset.sha256,
-      identity: asset.r2_key,
-    });
-    if (object.status === 404) {
-      await object.body?.cancel();
-      return Response.json({ error: { code: "not_found", message: "File not found" } }, { status: 404 });
-    }
-    if (!object.ok || !object.body) {
-      await object.body?.cancel();
-      throw new Error("Failed to read submission file");
-    }
-    body = object.body;
-  } else {
-    const object = await env.R2.get(asset.r2_key);
-    if (!object) return Response.json({ error: { code: "not_found", message: "File not found" } }, { status: 404 });
-    body = object.body;
-  }
-  return new Response(body, {
-    headers: {
-      "content-type": asset.mime,
-      "content-length": String(asset.bytes),
-      "cache-control": "private, no-store",
-    },
-  });
-}
 
 async function author(env: DataEnv, authorization: string | undefined) {
   const session = authorization?.startsWith("Bearer ")
@@ -214,7 +30,7 @@ async function author(env: DataEnv, authorization: string | undefined) {
   return { kind: "ok" as const, session };
 }
 
-export async function authorAdminCreateProject(
+export async function authorCreateProject(
   env: DataEnv,
   authorization: string | undefined,
   input: Parameters<typeof createProject>[2],
@@ -224,7 +40,7 @@ export async function authorAdminCreateProject(
   return { kind: "ok" as const, data: await createProject(env.DB, auth.session, input) };
 }
 
-export async function authorAdminGetDraft(env: DataEnv, authorization: string | undefined, id: string) {
+export async function authorGetDraft(env: DataEnv, authorization: string | undefined, id: string) {
   const auth = await author(env, authorization);
   if (auth.kind !== "ok") return auth;
   const project = await getAuthoringProject(env.DB, id, auth.session);
@@ -232,22 +48,7 @@ export async function authorAdminGetDraft(env: DataEnv, authorization: string | 
   const summary = await getProjectSummary(env.DB, project.id);
   if (!summary) return { kind: "not_found" as const };
   const [latestSubmission, collectionMap] = await Promise.all([
-    env.DB.prepare(`
-      SELECT s.id, s.version_id, s.status, ar.status AS check_status, s.resolved_at, r.decision, r.reason
-      FROM submissions s JOIN automated_reviews ar ON ar.submission_id = s.id
-      LEFT JOIN manual_reviews r ON r.submission_id = s.id
-      WHERE s.project_id = ? ORDER BY s.submitted_at DESC LIMIT 1
-    `)
-      .bind(project.id)
-      .first<{
-        id: string;
-        version_id: string;
-        status: string;
-        check_status: string;
-        resolved_at: string | null;
-        decision: string | null;
-        reason: string | null;
-      }>(),
+    getLatestProjectSubmission(env.DB, project.id),
     listAuthorCollectionIdsByProjects(env.DB, [project.id]),
   ]);
   return {
@@ -262,7 +63,7 @@ export async function authorAdminGetDraft(env: DataEnv, authorization: string | 
   };
 }
 
-export async function authorAdminDeleteEntry(
+export async function authorDeleteEntry(
   env: DataEnv,
   authorization: string | undefined,
   projectId: string,
@@ -279,13 +80,13 @@ export async function authorAdminDeleteEntry(
   };
 }
 
-export async function authorAdminGetGallery(env: DataEnv, authorization: string | undefined, projectId: string) {
+export async function authorGetGallery(env: DataEnv, authorization: string | undefined, projectId: string) {
   const auth = await author(env, authorization);
   if (auth.kind !== "ok") return auth;
   return { kind: "ok" as const, data: await getAuthorGallery(env.DB, projectId, auth.session) };
 }
 
-export async function authorAdminDeleteGallery(
+export async function authorDeleteGallery(
   env: DataEnv,
   authorization: string | undefined,
   projectId: string,
@@ -305,7 +106,7 @@ export async function authorAdminDeleteGallery(
   return { kind: "ok" as const, data: result };
 }
 
-export async function authorAdminDeleteProject(
+export async function authorDeleteProject(
   env: DataEnv,
   authorization: string | undefined,
   projectId: string,
@@ -322,7 +123,7 @@ export async function authorAdminDeleteProject(
   return { kind: "ok" as const };
 }
 
-export async function authorAdminUpdateVisibility(
+export async function authorUpdateVisibility(
   env: DataEnv,
   authorization: string | undefined,
   projectId: string,
@@ -340,7 +141,7 @@ export async function authorAdminUpdateVisibility(
   return { kind: "ok" as const, rowVersion };
 }
 
-async function authorAdminEditMetadata(
+async function authorEditMetadata(
   env: DataEnv,
   authorization: string | undefined,
   projectId: string,
@@ -371,15 +172,9 @@ async function authorAdminEditMetadata(
     };
   }
   const cutoff = new Date(Date.now() - 60_000).toISOString();
-  const count = await env.DB.prepare(`
-    SELECT
-      (SELECT COUNT(*) FROM audit_events WHERE target_id = ? AND actor_id = ?
-        AND action IN ('project.patch', 'project.published_metadata.patch', 'project.published_cover.put') AND created_at > ?)
-      + (SELECT COUNT(*) FROM project_versions WHERE project_id = ? AND created_by = ? AND created_at > ?) AS total
-  `)
-    .bind(project.id, session.userId, cutoff, project.id, session.userId, cutoff)
-    .first<{ total: number }>();
-  if ((count?.total ?? 0) >= 20) return { kind: "rate_limited" as const };
+  if ((await countRecentMetadataMutations(env.DB, project.id, session.userId, cutoff)) >= 20) {
+    return { kind: "rate_limited" as const };
+  }
   const metadata = inspectProjectMetadata({
     title: input.title ?? project.title,
     description: input.description !== undefined ? input.description : project.description,
@@ -398,27 +193,27 @@ async function authorAdminEditMetadata(
   return { kind: "ok" as const, data: result };
 }
 
-export function authorAdminPatchProject(
+export function authorPatchProject(
   env: DataEnv,
   authorization: string | undefined,
   projectId: string,
   expectedVersion: number | null,
   input: Parameters<typeof patchProject>[4],
 ) {
-  return authorAdminEditMetadata(env, authorization, projectId, expectedVersion, input, false);
+  return authorEditMetadata(env, authorization, projectId, expectedVersion, input, false);
 }
 
-export function authorAdminCreateVersion(
+export function authorCreateVersion(
   env: DataEnv,
   authorization: string | undefined,
   projectId: string,
   expectedVersion: number | null,
   input: Parameters<typeof patchProject>[4],
 ) {
-  return authorAdminEditMetadata(env, authorization, projectId, expectedVersion, input, true);
+  return authorEditMetadata(env, authorization, projectId, expectedVersion, input, true);
 }
 
-export async function authorAdminSubmit(
+export async function authorSubmit(
   env: DataEnv,
   authorization: string | undefined,
   projectId: string,
@@ -459,7 +254,7 @@ export async function authorAdminSubmit(
   return { kind: "ok" as const, data: result };
 }
 
-export async function authorAdminWithdraw(
+export async function authorWithdraw(
   env: DataEnv,
   authorization: string | undefined,
   projectId: string,
@@ -477,7 +272,7 @@ export async function authorAdminWithdraw(
   return { kind: "ok" as const, data: result };
 }
 
-export async function authorAdminPrepareSubmission(
+export async function authorPrepareSubmission(
   env: DataEnv,
   authorization: string | undefined,
   projectId: string,
@@ -497,7 +292,7 @@ export async function authorAdminPrepareSubmission(
   return { kind: "ok" as const };
 }
 
-export async function authorAdminChangeEvidence(
+export async function authorChangeEvidence(
   env: DataEnv,
   authorization: string | undefined,
   projectId: string,
@@ -515,12 +310,8 @@ export async function authorAdminChangeEvidence(
     project.published_version_id === versionId
   )
     return { kind: "not_found" as const };
-  const rows = await env.DB.prepare(
-    "SELECT id,manifest_hash,entry_index FROM project_versions WHERE project_id=? AND id IN (?,?)",
-  )
-    .bind(projectId, versionId, project.published_version_id)
-    .all<{ id: string; manifest_hash: string | null; entry_index: string | null }>();
-  const evidence = rows.results.map((row) => ({
+  const rows = await listVersionsChangeEvidenceRows(env.DB, projectId, [versionId, project.published_version_id]);
+  const evidence = rows.map((row) => ({
     versionId: row.id,
     manifestHash: row.manifest_hash,
     index: row.entry_index ? projectEntryIndexDocumentSchema.parse(JSON.parse(row.entry_index)) : null,

@@ -1,6 +1,6 @@
-import { fetchImmutableObject } from "../data-client.js";
 import { getSessionByToken } from "../storage/sessions.js";
 import type { DataEnv } from "./env.js";
+import { fetchImmutableObject } from "./object-cache.js";
 
 async function privateImageHash(request: Request, env: DataEnv, key: string, gallery: boolean): Promise<string | null> {
   const authorization = request.headers.get("authorization");

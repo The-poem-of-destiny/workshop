@@ -5,8 +5,8 @@ import {
   projectDetailSchema,
   projectListResponseSchema,
 } from "@workshop/contracts";
-import { presetTagGroup } from "@workshop/domain";
-import { parseIncludedTypes, parseRequirements } from "./authoring-model.js";
+import { discordAvatarUrl, presetTagGroup } from "@workshop/domain";
+import { parseGallery, parseIncludedTypes, parseRequirements, parseTags } from "./authoring-model.js";
 import { listPublicCollectionsForProject } from "./collections.js";
 import { sha256Hex } from "./identity.js";
 
@@ -92,36 +92,7 @@ const PUBLIC_PROJECT = `
   AND p.deleted_at IS NULL
 `;
 
-function parseTags(value: string): string[] {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((tag): tag is string => typeof tag === "string") : [];
-  } catch {
-    return [];
-  }
-}
-function parseGallery(value: string): Array<{ slot: number; url: string }> {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (item): item is { slot: number; url: string } =>
-        typeof item === "object" &&
-        item !== null &&
-        "slot" in item &&
-        typeof item.slot === "number" &&
-        "url" in item &&
-        typeof item.url === "string",
-    );
-  } catch {
-    return [];
-  }
-}
-function avatarUrl(userId: string, avatar: string | null): string | null {
-  if (!avatar) return null;
-  if (avatar.startsWith("https://")) return avatar;
-  return `https://cdn.discordapp.com/avatars/${userId}/${avatar}.png`;
-}
+const avatarUrl = discordAvatarUrl;
 
 function toSummary(row: ProjectRow): ProjectSummary {
   return {

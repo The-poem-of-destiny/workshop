@@ -1,5 +1,5 @@
+import { canonicalPublicRequest } from "./cache/public-cache";
 import type { ProjectPreviewTarget } from "./data/contracts";
-import { canonicalPublicRequest } from "./http/public-cache";
 
 type LoopbackContext = { exports?: Cloudflare.Exports };
 
@@ -47,15 +47,5 @@ export function fetchProjectPreview(context: LoopbackContext, target: ProjectPre
   const path = `/preview/v1/${encodeURIComponent(target.projectId)}/${encodeURIComponent(target.versionId)}/${target.kind}/${target.sha256}`;
   return loopback(context)
     .CachedReads({ props: { kind: "preview", target } })
-    .fetch(`https://cached.workshop.invalid${path}`);
-}
-
-export function fetchImmutableObject(
-  context: LoopbackContext,
-  target: { r2Key: string; sha256: string; identity: string },
-): Promise<Response> {
-  const path = `/objects/v1/${encodeURIComponent(target.identity)}/${target.sha256}`;
-  return loopback(context)
-    .CachedReads({ props: { kind: "object", ...target } })
     .fetch(`https://cached.workshop.invalid${path}`);
 }

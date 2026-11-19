@@ -1,9 +1,10 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { authorAdminFilesFetch } from "./author-admin-files";
-import * as authorAdmin from "./author-admin-operations";
+import * as admin from "./admin-operations";
+import { authoringFilesFetch } from "./authoring-files";
+import * as authoring from "./authoring-operations";
 import * as collections from "./collection-operations";
-import type { RunTarget } from "./content-operations";
 import * as content from "./content-operations";
+import type { RunTarget } from "./contracts";
 import { distributionImage } from "./distribution-images";
 import * as distribution from "./distribution-operations";
 import { distributionBannerUpload, distributionClientAsset } from "./distribution-streams";
@@ -39,10 +40,10 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
       return distributionBannerUpload(request, this.guardedEnv);
     }
     if (/^\/api\/v1\/projects\/[^/]+\/(?:versions\/[^/]+\/files\/[^/]+|gallery\/[^/]+)$/.test(pathname)) {
-      return authorAdminFilesFetch(request, this.guardedEnv);
+      return authoringFilesFetch(request, this.guardedEnv);
     }
     if (pathname.startsWith("/api/v1/admin/submissions/")) {
-      return authorAdmin.authorAdminFetch(request, this.guardedEnv, this.ctx);
+      return admin.adminSubmissionFileFetch(request, this.guardedEnv, this.ctx);
     }
     if (pathname.startsWith("/api/v1/downloads/")) return download(request, this.guardedEnv, this.ctx);
     return Response.json(
@@ -143,75 +144,71 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     return identity.identityRedeemFlow(this.guardedEnv, ...args);
   }
 
-  authorAdminListProjects(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminListProjects>>) {
-    return authorAdmin.authorAdminListProjects(this.guardedEnv, ...args);
+  authorAdminListProjects(...args: OperationArgs<Parameters<typeof admin.adminListProjects>>) {
+    return admin.adminListProjects(this.guardedEnv, ...args);
   }
 
-  authorAdminListMembers(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminListMembers>>) {
-    return authorAdmin.authorAdminListMembers(this.guardedEnv, ...args);
+  authorAdminListMembers(...args: OperationArgs<Parameters<typeof admin.adminListMembers>>) {
+    return admin.adminListMembers(this.guardedEnv, ...args);
   }
 
-  authorAdminListAuditEvents(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminListAuditEvents>>) {
-    return authorAdmin.authorAdminListAuditEvents(this.guardedEnv, ...args);
+  authorAdminListAuditEvents(...args: OperationArgs<Parameters<typeof admin.adminListAuditEvents>>) {
+    return admin.adminListAuditEvents(this.guardedEnv, ...args);
   }
 
-  authorAdminChangeMemberRole(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminChangeMemberRole>>) {
-    return authorAdmin.authorAdminChangeMemberRole(this.guardedEnv, ...args);
+  authorAdminChangeMemberRole(...args: OperationArgs<Parameters<typeof admin.adminChangeMemberRole>>) {
+    return admin.adminChangeMemberRole(this.guardedEnv, ...args);
   }
 
-  authorAdminListSubmissions(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminListSubmissions>>) {
-    return authorAdmin.authorAdminListSubmissions(this.guardedEnv, ...args);
+  authorAdminListSubmissions(...args: OperationArgs<Parameters<typeof admin.adminListSubmissions>>) {
+    return admin.adminListSubmissions(this.guardedEnv, ...args);
   }
 
-  authorAdminGetSubmission(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminGetSubmission>>) {
-    return authorAdmin.authorAdminGetSubmission(this.guardedEnv, ...args);
+  authorAdminGetSubmission(...args: OperationArgs<Parameters<typeof admin.adminGetSubmission>>) {
+    return admin.adminGetSubmission(this.guardedEnv, ...args);
   }
 
-  authorAdminGetDiff(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminGetDiff>>) {
-    return authorAdmin.authorAdminGetDiff(this.guardedEnv, ...args);
+  authorAdminGetDiff(...args: OperationArgs<Parameters<typeof admin.adminGetDiff>>) {
+    return admin.adminGetDiff(this.guardedEnv, ...args);
   }
 
-  async authorAdminReview(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminReview>>) {
-    const result = await authorAdmin.authorAdminReview(this.guardedEnv, ...args);
+  async authorAdminReview(...args: OperationArgs<Parameters<typeof admin.adminReview>>) {
+    const result = await admin.adminReview(this.guardedEnv, ...args);
     return result;
   }
 
-  async authorAdminUpdateRecommendation(
-    ...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminUpdateRecommendation>>
-  ) {
-    const result = await authorAdmin.authorAdminUpdateRecommendation(this.guardedEnv, ...args);
+  async authorAdminUpdateRecommendation(...args: OperationArgs<Parameters<typeof admin.adminUpdateRecommendation>>) {
+    const result = await admin.adminUpdateRecommendation(this.guardedEnv, ...args);
     return result;
   }
 
-  async authorAdminDeleteRecommendation(
-    ...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminDeleteRecommendation>>
-  ) {
-    const result = await authorAdmin.authorAdminDeleteRecommendation(this.guardedEnv, ...args);
+  async authorAdminDeleteRecommendation(...args: OperationArgs<Parameters<typeof admin.adminDeleteRecommendation>>) {
+    const result = await admin.adminDeleteRecommendation(this.guardedEnv, ...args);
     return result;
   }
 
-  authorAdminRecheck(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminRecheck>>) {
-    return authorAdmin.authorAdminRecheck(this.guardedEnv, ...args);
+  authorAdminRecheck(...args: OperationArgs<Parameters<typeof admin.adminRecheck>>) {
+    return admin.adminRecheck(this.guardedEnv, ...args);
   }
 
-  authorAdminCreateProject(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminCreateProject>>) {
-    return authorAdmin.authorAdminCreateProject(this.guardedEnv, ...args);
+  authorAdminCreateProject(...args: OperationArgs<Parameters<typeof authoring.authorCreateProject>>) {
+    return authoring.authorCreateProject(this.guardedEnv, ...args);
   }
 
-  authorAdminGetDraft(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminGetDraft>>) {
-    return authorAdmin.authorAdminGetDraft(this.guardedEnv, ...args);
+  authorAdminGetDraft(...args: OperationArgs<Parameters<typeof authoring.authorGetDraft>>) {
+    return authoring.authorGetDraft(this.guardedEnv, ...args);
   }
 
-  authorAdminDeleteEntry(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminDeleteEntry>>) {
-    return authorAdmin.authorAdminDeleteEntry(this.guardedEnv, ...args);
+  authorAdminDeleteEntry(...args: OperationArgs<Parameters<typeof authoring.authorDeleteEntry>>) {
+    return authoring.authorDeleteEntry(this.guardedEnv, ...args);
   }
 
-  authorAdminGetGallery(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminGetGallery>>) {
-    return authorAdmin.authorAdminGetGallery(this.guardedEnv, ...args);
+  authorAdminGetGallery(...args: OperationArgs<Parameters<typeof authoring.authorGetGallery>>) {
+    return authoring.authorGetGallery(this.guardedEnv, ...args);
   }
 
-  async authorAdminDeleteGallery(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminDeleteGallery>>) {
-    const result = await authorAdmin.authorAdminDeleteGallery(this.guardedEnv, ...args);
+  async authorAdminDeleteGallery(...args: OperationArgs<Parameters<typeof authoring.authorDeleteGallery>>) {
+    const result = await authoring.authorDeleteGallery(this.guardedEnv, ...args);
     return result;
   }
 
@@ -243,41 +240,39 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     return projects.projectAcquisition(this.guardedEnv, ...args);
   }
 
-  async authorAdminDeleteProject(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminDeleteProject>>) {
-    const result = await authorAdmin.authorAdminDeleteProject(this.guardedEnv, ...args);
+  async authorAdminDeleteProject(...args: OperationArgs<Parameters<typeof authoring.authorDeleteProject>>) {
+    const result = await authoring.authorDeleteProject(this.guardedEnv, ...args);
     return result;
   }
 
-  async authorAdminUpdateVisibility(
-    ...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminUpdateVisibility>>
-  ) {
-    const result = await authorAdmin.authorAdminUpdateVisibility(this.guardedEnv, ...args);
+  async authorAdminUpdateVisibility(...args: OperationArgs<Parameters<typeof authoring.authorUpdateVisibility>>) {
+    const result = await authoring.authorUpdateVisibility(this.guardedEnv, ...args);
     return result;
   }
 
-  async authorAdminPatchProject(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminPatchProject>>) {
-    const result = await authorAdmin.authorAdminPatchProject(this.guardedEnv, ...args);
+  async authorAdminPatchProject(...args: OperationArgs<Parameters<typeof authoring.authorPatchProject>>) {
+    const result = await authoring.authorPatchProject(this.guardedEnv, ...args);
     return result;
   }
 
-  authorAdminCreateVersion(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminCreateVersion>>) {
-    return authorAdmin.authorAdminCreateVersion(this.guardedEnv, ...args);
+  authorAdminCreateVersion(...args: OperationArgs<Parameters<typeof authoring.authorCreateVersion>>) {
+    return authoring.authorCreateVersion(this.guardedEnv, ...args);
   }
 
-  authorAdminChangeEvidence(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminChangeEvidence>>) {
-    return authorAdmin.authorAdminChangeEvidence(this.guardedEnv, ...args);
+  authorAdminChangeEvidence(...args: OperationArgs<Parameters<typeof authoring.authorChangeEvidence>>) {
+    return authoring.authorChangeEvidence(this.guardedEnv, ...args);
   }
 
-  authorAdminPrepareSubmission(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminPrepareSubmission>>) {
-    return authorAdmin.authorAdminPrepareSubmission(this.guardedEnv, ...args);
+  authorAdminPrepareSubmission(...args: OperationArgs<Parameters<typeof authoring.authorPrepareSubmission>>) {
+    return authoring.authorPrepareSubmission(this.guardedEnv, ...args);
   }
 
-  authorAdminSubmit(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminSubmit>>) {
-    return authorAdmin.authorAdminSubmit(this.guardedEnv, ...args);
+  authorAdminSubmit(...args: OperationArgs<Parameters<typeof authoring.authorSubmit>>) {
+    return authoring.authorSubmit(this.guardedEnv, ...args);
   }
 
-  authorAdminWithdraw(...args: OperationArgs<Parameters<typeof authorAdmin.authorAdminWithdraw>>) {
-    return authorAdmin.authorAdminWithdraw(this.guardedEnv, ...args);
+  authorAdminWithdraw(...args: OperationArgs<Parameters<typeof authoring.authorWithdraw>>) {
+    return authoring.authorWithdraw(this.guardedEnv, ...args);
   }
 
   contentGetTarget(submissionId: string) {

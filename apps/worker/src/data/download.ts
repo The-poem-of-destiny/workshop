@@ -1,7 +1,7 @@
-import { fetchImmutableObject } from "../data-client";
 import { getReleaseAssets } from "../storage/releases";
 import { getSessionByToken } from "../storage/sessions";
 import type { DataEnv } from "./env";
+import { fetchImmutableObject } from "./object-cache";
 
 export async function download(request: Request, env: DataEnv, context: ExecutionContext): Promise<Response> {
   const headers = { "cache-control": "private, no-store" };

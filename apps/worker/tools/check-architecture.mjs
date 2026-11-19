@@ -89,9 +89,28 @@ function scanFile(base, dir, file, names, errors) {
     if (inside(relative, "apps/worker/web/src") && owner === "packages/contracts" && !typeOnly) {
       report(node, `Web may only import contracts as types: '${specifier}'`);
     }
-    if (inside(relative, "apps/worker/src/storage") && inside(target, "apps/worker/src/data")) {
-      if (target !== "apps/worker/src/data/contracts.ts" || !typeOnly)
-        report(node, `storage may only import data contracts as types: '${specifier}'`);
+    if (
+      inside(relative, "apps/worker/src/data") &&
+      (inside(target, "apps/worker/src/http") ||
+        target === "apps/worker/src/app.ts" ||
+        target === "apps/worker/src/index.ts" ||
+        target === "apps/worker/src/data-client.ts" ||
+        target === "apps/worker/src/scheduler.ts" ||
+        target === "apps/worker/src/content-service.ts")
+    ) {
+      report(node, `data layer cannot import HTTP or gateway module '${specifier}'`);
+    }
+    if (
+      inside(relative, "apps/worker/src/storage") &&
+      inside(target, "apps/worker/src") &&
+      !inside(target, "apps/worker/src/storage")
+    ) {
+      if (inside(target, "apps/worker/src/data")) {
+        if (target !== "apps/worker/src/data/contracts.ts" || !typeOnly)
+          report(node, `storage may only import data contracts as types: '${specifier}'`);
+      } else {
+        report(node, `storage cannot import outer Worker module '${specifier}'`);
+      }
     }
   }
   function visit(node) {

@@ -12,7 +12,7 @@ import {
   type Session,
   serializeAuditDetail,
 } from "@workshop/contracts";
-import { COLLECTION_LIMITS, validateCollectionMetadata } from "@workshop/domain";
+import { COLLECTION_LIMITS, discordAvatarUrl, validateCollectionMetadata } from "@workshop/domain";
 
 const PUBLIC_PROJECT_SQL = `
   p.visibility = 'public'
@@ -20,10 +20,7 @@ const PUBLIC_PROJECT_SQL = `
   AND p.deleted_at IS NULL
 `;
 
-function avatarUrl(userId: string, avatar: string | null): string | null {
-  if (!avatar) return null;
-  return avatar.startsWith("https://") ? avatar : `https://cdn.discordapp.com/avatars/${userId}/${avatar}.png`;
-}
+const avatarUrl = discordAvatarUrl;
 
 interface CollectionRow {
   id: string;

@@ -1,4 +1,4 @@
-import { deriveOpportunityWindows, FIXED_TRAFFIC_PROFILE } from "../traffic-profile.js";
+import { deriveOpportunityWindows, type TrafficProfile } from "@workshop/domain";
 import { buildRecommendationBatch } from "./recommendation-batches";
 
 const HOUR = 3_600_000;
@@ -8,10 +8,11 @@ const MAX_ATTEMPTS = 3;
 export async function runRecommendationSchedule(
   db: D1Database,
   timestamp: number,
+  trafficProfile: TrafficProfile,
   configuration?: string,
 ): Promise<void> {
   if (!Number.isFinite(timestamp)) throw new Error("Invalid recommendation schedule time");
-  const windows = deriveOpportunityWindows(FIXED_TRAFFIC_PROFILE);
+  const windows = deriveOpportunityWindows(trafficProfile);
   const dayStart = Math.floor(timestamp / DAY) * DAY;
   const hour = (timestamp - dayStart) / HOUR;
   const window = windows.find((item) => item.startHour <= hour && hour < item.endHour);
@@ -39,6 +40,6 @@ export async function runRecommendationSchedule(
       .bind(scheduledAt)
       .first<{ count: number; complete: number | null }>();
     if ((attempts?.count ?? 0) >= MAX_ATTEMPTS || attempts?.complete) continue;
-    await buildRecommendationBatch(db, timestamp, configuration, slot);
+    await buildRecommendationBatch(db, timestamp, configuration, slot, trafficProfile);
   }
 }

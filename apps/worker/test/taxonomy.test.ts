@@ -1,7 +1,7 @@
 import { createProjectSchema, patchProjectSchema, projectListQuerySchema } from "@workshop/contracts";
 import { PROJECT_TYPES } from "@workshop/domain";
 import { describe, expect, it } from "vitest";
-import { canonicalPublicRequest } from "../src/http/public-cache";
+import { canonicalPublicRequest } from "../src/cache/public-cache";
 
 describe("shared taxonomy contracts", () => {
   it.each(PROJECT_TYPES)("requires exactly one primary and defaults optional metadata for %s", (projectType) => {

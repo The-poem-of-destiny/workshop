@@ -1,5 +1,5 @@
-import { publicCacheClass } from "./cache-policy";
-import { canonicalPublicRequest } from "./public-cache";
+import { publicCacheClass } from "../cache/cache-policy";
+import { canonicalPublicRequest } from "../cache/public-cache";
 
 export function publicResponse(response: Response, request: Request): Response {
   const headers = new Headers(response.headers);

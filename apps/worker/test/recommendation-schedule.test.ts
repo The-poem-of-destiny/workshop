@@ -31,7 +31,7 @@ afterEach(() => {
 
 describe("recommendation scheduling", () => {
   it("prebuilds the next window without a five-minute display gap", async () => {
-    await runRecommendationSchedule(db, timestamp);
+    await runRecommendationSchedule(db, timestamp, FIXED_TRAFFIC_PROFILE);
     const next = await db
       .prepare(`SELECT b.display_start_at,a.activated_at FROM recommendation_batches b
       JOIN recommendation_batch_activations a ON a.batch_id=b.id
@@ -46,7 +46,10 @@ describe("recommendation scheduling", () => {
   });
 
   it("admits only one concurrent build per slot", async () => {
-    await Promise.all([runRecommendationSchedule(db, timestamp), runRecommendationSchedule(db, timestamp)]);
+    await Promise.all([
+      runRecommendationSchedule(db, timestamp, FIXED_TRAFFIC_PROFILE),
+      runRecommendationSchedule(db, timestamp, FIXED_TRAFFIC_PROFILE),
+    ]);
     const rows = await db
       .prepare(`SELECT scheduled_at,COUNT(*) AS count FROM recommendation_batches
       GROUP BY scheduled_at`)
@@ -61,13 +64,13 @@ describe("recommendation scheduling", () => {
       VALUES('active','discovery','building',?,?,?,?,?,?)`)
       .bind(start, start, end, start, end, new Date(timestamp).toISOString())
       .run();
-    await runRecommendationSchedule(db, timestamp);
+    await runRecommendationSchedule(db, timestamp, FIXED_TRAFFIC_PROFILE);
     expect(
       (await db.prepare("SELECT status FROM recommendation_batches WHERE id='active'").first<{ status: string }>())
         ?.status,
     ).toBe("building");
     vi.setSystemTime(timestamp + hour);
-    await runRecommendationSchedule(db, timestamp + hour);
+    await runRecommendationSchedule(db, timestamp + hour, FIXED_TRAFFIC_PROFILE);
     const rows = await db
       .prepare("SELECT status FROM recommendation_batches WHERE scheduled_at=? ORDER BY rowid")
       .bind(start)
@@ -83,7 +86,7 @@ describe("recommendation scheduling", () => {
         .bind(`failure-${index}`, start, start, end, start, end)
         .run();
     }
-    await runRecommendationSchedule(db, timestamp);
+    await runRecommendationSchedule(db, timestamp, FIXED_TRAFFIC_PROFILE);
     const rows = await db
       .prepare("SELECT status FROM recommendation_batches WHERE scheduled_at=? ORDER BY id")
       .bind(start)

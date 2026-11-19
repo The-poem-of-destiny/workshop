@@ -5,7 +5,7 @@ import {
   type Recommendation,
   siteSettingsSchema,
 } from "@workshop/contracts";
-import { DEFAULT_COMMUNITY_INVITE_URL, parseDiscordInviteUrl } from "@workshop/domain";
+import { DEFAULT_COMMUNITY_INVITE_URL, discordAvatarUrl, parseDiscordInviteUrl } from "@workshop/domain";
 import { getPublishedProjectsByIds, listPublishedProjects } from "./projects.js";
 import { readRecommendationBatch } from "./recommendation-batches.js";
 
@@ -99,9 +99,7 @@ export async function listRecommendations(db: D1Database): Promise<Recommendatio
         curator: {
           id: row.curator_id,
           name: row.curator_name,
-          avatarUrl: row.curator_avatar
-            ? `https://cdn.discordapp.com/avatars/${row.curator_id}/${row.curator_avatar}.png`
-            : null,
+          avatarUrl: discordAvatarUrl(row.curator_id, row.curator_avatar),
         },
         comment: row.comment,
         projectVersionId: row.project_version_id,
