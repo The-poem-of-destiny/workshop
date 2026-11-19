@@ -144,29 +144,6 @@ wrangler(["d1", "execute", database, "--remote", "--config", "wrangler.jsonc", "
 // record exist, so a failed publish cannot point at a missing artifact.
 await upload(channelKey);
 
-async function purgeChannel() {
-  const zone = process.env.CLOUDFLARE_ZONE_ID;
-  const token = process.env.CLOUDFLARE_API_TOKEN;
-  const publicUrl = process.env.WORKSHOP_PUBLIC_URL;
-  if (!zone || !token || !publicUrl) {
-    console.log(
-      "[purge skipped] set CLOUDFLARE_ZONE_ID, CLOUDFLARE_API_TOKEN and WORKSHOP_PUBLIC_URL to purge the channel",
-    );
-    return;
-  }
-  if (dryRun) {
-    console.log(`[dry-run] purge client:${channel} at ${publicUrl}`);
-    return;
-  }
-  const response = await fetch(`https://api.cloudflare.com/client/v4/zones/${zone}/purge_cache`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ tags: [`client:${channel}`] }),
-  });
-  if (!response.ok) throw new Error(`cache purge failed: ${response.status} ${await response.text()}`);
-}
-await purgeChannel();
-
 console.log(
   JSON.stringify({
     ok: true,

@@ -88,8 +88,6 @@ export async function distributionClientAsset(request: Request, env: DataEnv): P
     const headers = new Headers({
       "content-type": allowed[checker[2]!]!,
       "cache-control": "public, max-age=31536000, immutable",
-      "cloudflare-cdn-cache-control": "public, max-age=31536000, immutable",
-      "cache-tag": `checker:v:${checker[1]}`,
       "access-control-allow-origin": "*",
       "cross-origin-resource-policy": "cross-origin",
       "x-content-type-options": "nosniff",
@@ -114,10 +112,6 @@ export async function distributionClientAsset(request: Request, env: DataEnv): P
     "cache-control": versioned ? "public, max-age=31536000, immutable" : "no-store",
     etag: object.httpEtag,
   });
-  if (versioned) {
-    headers.set("cloudflare-cdn-cache-control", "public, max-age=31536000, immutable");
-    headers.set("cache-tag", `client:v:${versioned[1]}`);
-  }
   if (request.headers.get("if-none-match") === object.httpEtag) {
     await object.body.cancel();
     return new Response(null, { status: 304, headers });
