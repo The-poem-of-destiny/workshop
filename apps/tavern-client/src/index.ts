@@ -14,6 +14,7 @@ const OVERLAY_ID = "cw-overlay";
 const AGREEMENT_KEY = "cw_agreement_accepted";
 
 let activeFrame: HTMLIFrameElement | null = null;
+let cleanupResize: (() => void) | null = null;
 
 const SCRIPT_CHANNEL: "stable" | "staging" = (() => {
   try {
@@ -67,7 +68,10 @@ async function contextPayload() {
 function closeOverlay() {
   installations.cancelAll();
   activeFrame = null;
-  window.removeEventListener("message", onMessage);
+  cleanupResize?.();
+  cleanupResize = null;
+  const host = hostWindow();
+  host.removeEventListener("message", onMessage);
   hostJQuery()(`#${OVERLAY_ID}`).remove();
 }
 
@@ -127,18 +131,16 @@ function showOverlay() {
   activeFrame = $frame[0];
 
   const onResize = () => {
-    if (!hostDocument.getElementById(OVERLAY_ID)) {
+    if (!$overlay[0]?.isConnected) {
       host.removeEventListener("resize", onResize);
       return;
     }
     applyResponsiveShell($overlay[0], $card[0]);
   };
   host.addEventListener("resize", onResize);
+  cleanupResize = () => host.removeEventListener("resize", onResize);
 
-  const close = () => {
-    host.removeEventListener("resize", onResize);
-    closeOverlay();
-  };
+  const close = () => closeOverlay();
   $overlay.on("click", (event: Event) => {
     if (event.target === $overlay[0]) close();
   });
@@ -206,7 +208,7 @@ function showOverlay() {
     $frame.attr("src", target.toString());
   })();
 
-  window.addEventListener("message", onMessage);
+  host.addEventListener("message", onMessage);
 }
 
 function onMessage(

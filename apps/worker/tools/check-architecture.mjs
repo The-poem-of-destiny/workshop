@@ -83,20 +83,34 @@ function scanFile(base, dir, file, names, errors) {
     if (owner && owner !== dir && !policy[dir].includes(owner)) report(node, `forbidden dependency on '${specifier}'`);
     else if (owner && owner !== dir && specifier.startsWith("."))
       report(node, `cross-workspace relative import is forbidden: '${specifier}'`);
-    if (inside(relative, "apps/worker/web/src") && (target === "apps/worker" || inside(target, "apps/worker/src"))) {
+    if (
+      inside(relative, "apps/worker/web/src") &&
+      inside(target, "apps/worker") &&
+      !inside(target, "apps/worker/web")
+    ) {
       report(node, `Web cannot import Worker implementation '${specifier}'`);
     }
     if (inside(relative, "apps/worker/web/src") && owner === "packages/contracts" && !typeOnly) {
       report(node, `Web may only import contracts as types: '${specifier}'`);
     }
     if (
+      inside(relative, "apps/worker/src/cache") &&
+      inside(target, "apps/worker/src") &&
+      !inside(target, "apps/worker/src/cache") &&
+      !(target === "apps/worker/src/env.ts" && typeOnly)
+    ) {
+      report(node, `cache layer may only import env as types within Worker: '${specifier}'`);
+    }
+    if (
       inside(relative, "apps/worker/src/data") &&
-      (inside(target, "apps/worker/src/http") ||
-        target === "apps/worker/src/app.ts" ||
-        target === "apps/worker/src/index.ts" ||
-        target === "apps/worker/src/data-client.ts" ||
-        target === "apps/worker/src/scheduler.ts" ||
-        target === "apps/worker/src/content-service.ts")
+      inside(target, "apps/worker/src") &&
+      !inside(target, "apps/worker/src/data") &&
+      !inside(target, "apps/worker/src/storage") &&
+      !inside(target, "apps/worker/src/cache") &&
+      target !== "apps/worker/src/content-checker.ts" &&
+      target !== "apps/worker/src/traffic-profile.ts" &&
+      target !== "apps/worker/src/write-barrier.ts" &&
+      !(target === "apps/worker/src/env.ts" && typeOnly)
     ) {
       report(node, `data layer cannot import HTTP or gateway module '${specifier}'`);
     }

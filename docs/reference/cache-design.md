@@ -47,7 +47,7 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 
 `GET /api/v1/projects` 的[筛选合同](worker-api.md#目录筛选与游标)先经共享 schema 规范化，再用于目录 SQL、cursor scope 和公开缓存键，不以原始 query string 的拼写区分同义请求：
 
-- 重复 `projectType` 去重并按六类顺序排列；重复 `tag` 经 JavaScript `trim()`、去重、排序后合计最多 12 个。标签的预设同组 OR、跨组 AND、每个自定义词独立 AND 语义不因缓存而改变，手输预设词仍属其词表分组。
+- 重复 `projectType` 去重并按五类顺序排列；重复 `tag` 经 JavaScript `trim()`、去重、排序后合计最多 12 个。标签的预设同组 OR、跨组 AND、每个自定义词独立 AND 语义不因缓存而改变，手输预设词仍属其词表分组。
 - 省略 `includeContained` 与显式 `false` 采用同一身份；`true` 单独分区，不能把“仅主类”的结果误用于“还包含”。改变主类集合、标签、作者、合集、搜索、排序、有效统计周期或页游标也有各自的查询身份。
 - `limit=25`、`sort=published`、有效统计周期 `30d` 等默认值在规范化查询中省略；统计周期只对 likes／downloads 排序生效。参数顺序和重复选择不会创建额外缓存变体。非法筛选或不属于当前 scope 的 cursor 返回 400，不得作为其他筛选结果缓存。
 

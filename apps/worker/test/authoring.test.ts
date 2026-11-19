@@ -509,6 +509,16 @@ describe("authoring write paths", () => {
     expect(
       await (await request(`/${first.project.id}/versions/${inheritedVersion.versionId}/files/worldbook`)).text(),
     ).toBe(markedWorldbook);
+    const headFile = await request(`/${first.project.id}/versions/${inheritedVersion.versionId}/files/worldbook`, {
+      method: "HEAD",
+    });
+    expect(headFile.status).toBe(200);
+    expect(headFile.headers.get("content-type")).toBe("application/json");
+    expect(await headFile.text()).toBe("");
+    expect((await request(`/%E0%A4%A/versions/${inheritedVersion.versionId}/files/worldbook`)).status).toBe(404);
+    expect((await request(`/${first.project.id}/versions/${inheritedVersion.versionId}/files/%E0%A4%A`)).status).toBe(
+      400,
+    );
     const rows = await bindings.DB.prepare(
       "SELECT version_no FROM project_versions WHERE project_id = ? ORDER BY version_no",
     )

@@ -74,6 +74,7 @@ test("allows shared contracts and type-only storage/web contracts but blocks rev
   put("apps/tavern-client/src/relative.ts", 'import type { Install } from "../../../packages/contracts/src/index.js";');
   put("apps/worker/src/http/errors.ts", "export const err = 1;");
   put("apps/worker/src/data-client.ts", "export const client = 1;");
+  put("apps/worker/src/cache/bad-cache.ts", 'import { err } from "../http/errors.js";');
   put("apps/worker/src/data/bad-http.ts", 'import { err } from "../http/errors.js";');
   put("apps/worker/src/data/bad-client.ts", 'import { client } from "../data-client.js";');
   put("apps/worker/src/storage/bad.ts", 'export * from "../data/contracts.js";');
@@ -82,6 +83,7 @@ test("allows shared contracts and type-only storage/web contracts but blocks rev
   put("apps/worker/web/src/runtime-contract.ts", 'import { installSchema } from "@workshop/contracts";');
   const result = checkArchitecture(root).join("\n");
   assert.match(result, /cross-workspace relative import is forbidden/);
+  assert.match(result, /cache layer may only import env as types within Worker/);
   assert.match(result, /data layer cannot import HTTP or gateway module '\.\.\/http\/errors\.js'/);
   assert.match(result, /data layer cannot import HTTP or gateway module '\.\.\/data-client\.js'/);
   assert.match(result, /storage may only import data contracts as types/);

@@ -79,12 +79,21 @@ async function persistNormalizedWorldbook(
   }
 }
 
+function decodeParam(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 async function handleGetVersionFile(
   env: DataEnv,
   session: AuthenticatedSession,
   projectId: string,
   versionId: string,
   rawKind: string,
+  head: boolean,
 ): Promise<Response> {
   const kind = uploadKindSchema.safeParse(rawKind);
   if (!kind.success) return errorResponse("bad_request", "Unsupported file kind");
@@ -95,9 +104,16 @@ async function handleGetVersionFile(
   if (lookup.kind === "missing_asset") return errorResponse("not_found", "Asset not found");
   const object = await env.R2.get(lookup.r2_key);
   if (!object) return errorResponse("not_found", "Asset not found");
-  return new Response(object.body, {
-    headers: { "content-type": lookup.mime, "cache-control": "private, no-store", "x-content-type-options": "nosniff" },
-  });
+  const headers = {
+    "content-type": lookup.mime,
+    "cache-control": "private, no-store",
+    "x-content-type-options": "nosniff",
+  };
+  if (head) {
+    await object.body.cancel().catch(() => {});
+    return new Response(null, { headers });
+  }
+  return new Response(object.body, { headers });
 }
 
 async function stageValidatedContentUpload(
@@ -335,21 +351,17 @@ export async function authoringFilesFetch(request: Request, env: DataEnv): Promi
   const { pathname } = new URL(request.url);
   const versionMatch = /^\/api\/v1\/projects\/([^/]+)\/versions\/([^/]+)\/files\/([^/]+)$/.exec(pathname);
   if (versionMatch) {
-    const projectId = decodeURIComponent(versionMatch[1]!);
-    const versionId = decodeURIComponent(versionMatch[2]!);
-    const kind = decodeURIComponent(versionMatch[3]!);
-    if (request.method === "GET") return handleGetVersionFile(env, session, projectId, versionId, kind);
+    const projectId = decodeParam(versionMatch[1]!);
+    const versionId = decodeParam(versionMatch[2]!);
+    const kind = decodeParam(versionMatch[3]!);
+    if (request.method === "GET" || request.method === "HEAD") {
+      return handleGetVersionFile(env, session, projectId, versionId, kind, request.method === "HEAD");
+    }
     if (request.method === "PUT") return handlePutVersionFile(request, env, session, projectId, versionId, kind);
   }
   const galleryMatch = /^\/api\/v1\/projects\/([^/]+)\/gallery\/([^/]+)$/.exec(pathname);
   if (galleryMatch && request.method === "PUT") {
-    return handlePutGalleryImage(
-      request,
-      env,
-      session,
-      decodeURIComponent(galleryMatch[1]!),
-      decodeURIComponent(galleryMatch[2]!),
-    );
+    return handlePutGalleryImage(request, env, session, decodeParam(galleryMatch[1]!), decodeParam(galleryMatch[2]!));
   }
   return errorResponse("not_found", "Not found");
 }

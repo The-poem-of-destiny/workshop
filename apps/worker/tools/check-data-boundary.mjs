@@ -44,24 +44,11 @@ function moduleTarget(specifier, source) {
 }
 
 function typeOnlyImport(node) {
-  const clause = node.importClause;
-  if (!clause) return false;
-  if (clause.isTypeOnly) return true;
-  return (
-    !clause.name &&
-    clause.namedBindings &&
-    ts.isNamedImports(clause.namedBindings) &&
-    clause.namedBindings.elements.every((element) => element.isTypeOnly)
-  );
+  return Boolean(node.importClause?.isTypeOnly);
 }
 
 function typeOnlyExport(node) {
-  return (
-    node.isTypeOnly ||
-    (node.exportClause &&
-      ts.isNamedExports(node.exportClause) &&
-      node.exportClause.elements.every((element) => element.isTypeOnly))
-  );
+  return Boolean(node.isTypeOnly);
 }
 
 function entrypointExport(node, source, target) {

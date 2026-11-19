@@ -145,8 +145,14 @@ export async function adminSubmissionFileFetch(
     const status = auth.kind === "unauthorized" ? 401 : 403;
     return Response.json({ error: { code: auth.kind, message: "Reviewer access required" } }, { status });
   }
+  let submissionId: string;
+  try {
+    submissionId = decodeURIComponent(match[1]!);
+  } catch {
+    return Response.json({ error: { code: "not_found", message: "File not found" } }, { status: 404 });
+  }
   const kind = match[2] as "worldbook" | "regex" | "cover";
-  const asset = await getSubmissionAsset(env.DB, decodeURIComponent(match[1]!), kind);
+  const asset = await getSubmissionAsset(env.DB, submissionId, kind);
   if (!asset) return Response.json({ error: { code: "not_found", message: "File not found" } }, { status: 404 });
   const cacheable =
     /^[a-f0-9]{64}$/.test(asset.sha256) && asset.r2_key.split("/").pop()?.includes(`-${asset.sha256}.`) === true;
