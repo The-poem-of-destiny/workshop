@@ -155,7 +155,12 @@ export function App() {
     setSelected(null);
   };
 
-  if (home.status === "error" && home.error instanceof ApiError && home.error.status === 503 && home.error.code === "maintenance") {
+  if (
+    home.status === "error" &&
+    home.error instanceof ApiError &&
+    home.error.status === 503 &&
+    home.error.code === "maintenance"
+  ) {
     return (
       <main role="status">
         <h1>工坊维护中</h1>
