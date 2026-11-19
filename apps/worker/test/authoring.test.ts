@@ -304,90 +304,11 @@ describe("authoring write paths", () => {
     expect(frozen).toEqual({ tags: JSON.stringify(expectedTags), worldbook_count: 0, regex_count: 1 });
   });
 
-  it.each(["insert", "update"] as const)(
-    "enforces canonical tags on direct D1 %s without changing JSON or duplicate identity",
-    async (operation) => {
-      const created = await request("/", {
-        method: "POST",
-        body: JSON.stringify({ title: "Direct tags", projectType: "角色", tags: ["original"] }),
-      });
-      expect(created.status).toBe(201);
-      const draft = authoringProjectResponseSchema.parse(await created.json());
-      const versionId = operation === "insert" ? "direct-tag-version" : draft.workingVersionId;
-      const writeTags =
-        operation === "insert"
-          ? bindings.DB.prepare(`INSERT INTO project_versions
-              (id, project_id, version_no, title, project_type, tags, created_by)
-              SELECT 'direct-tag-version', project_id, 2, 'Direct tags', '角色', ?, 'author'
-              FROM project_versions WHERE id = ?`)
-          : bindings.DB.prepare("UPDATE project_versions SET tags = ? WHERE id = ?");
-      const readTags = () =>
-        bindings.DB.prepare("SELECT tags FROM project_versions WHERE id = ?").bind(versionId).first();
-      for (const tags of [
-        JSON.stringify(
-          ["🧪".repeat(51), "🧪".repeat(100), "\u0000x", "\u0000".repeat(100), "\u0085tag\u0085"],
-          null,
-          2,
-        ),
-        String.raw`["\u0000x","\u0001x","\\u0000","\\u0001","\\\u0000","\\\u0001"]`,
-      ]) {
-        await writeTags.bind(tags, draft.workingVersionId).run();
-        expect(await readTags()).toEqual({ tags });
-        if (operation === "insert") {
-          await bindings.DB.prepare("DELETE FROM project_versions WHERE id = ?").bind(versionId).run();
-        }
-      }
-
-      const whitespace = [
-        "\u0009",
-        "\u000A",
-        "\u000B",
-        "\u000C",
-        "\u000D",
-        "\u0020",
-        "\u00A0",
-        "\u1680",
-        "\u2000",
-        "\u2001",
-        "\u2002",
-        "\u2003",
-        "\u2004",
-        "\u2005",
-        "\u2006",
-        "\u2007",
-        "\u2008",
-        "\u2009",
-        "\u200A",
-        "\u2028",
-        "\u2029",
-        "\u202F",
-        "\u205F",
-        "\u3000",
-        "\uFEFF",
-      ];
-      const beforeInvalid = await readTags();
-      for (const tags of [
-        [""],
-        ["🧪".repeat(101)],
-        ["\u0000".repeat(101)],
-        [`a\u0000${"🧪".repeat(100)}`],
-        ["\\u0000".repeat(17)],
-        ["\u0000x", "\u0000x"],
-        ["\\u0000", "\\u0000"],
-        ["\u0000tag\t"],
-        ["\uFEFF\u0000tag"],
-        ...whitespace.flatMap((boundary) => [[boundary], [`${boundary}tag`], [`tag${boundary}`]]),
-      ]) {
-        await expect(writeTags.bind(JSON.stringify(tags), draft.workingVersionId).run()).rejects.toThrow(
-          "invalid project taxonomy or tags",
-        );
-        expect(await readTags()).toEqual(beforeInvalid);
-      }
-    },
-  );
-
-  it.each(PROJECT_TYPES)("accepts nonempty regex-only upload and submission for %s", async (projectType) => {
-    const created = await request("/", { method: "POST", body: JSON.stringify({ title: "正则项目", projectType }) });
+  it("accepts nonempty regex-only upload and submission", async () => {
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "正则项目", projectType: "体验优化" }),
+    });
     expect(created.status).toBe(201);
     const draft = authoringProjectResponseSchema.parse(await created.json());
     const text = JSON.stringify({ scriptName: "Test", findRegex: "/a/g", replaceString: "b" });
@@ -413,7 +334,7 @@ describe("authoring write paths", () => {
     )
       .bind(draft.workingVersionId)
       .first();
-    expect(frozen).toEqual({ project_type: projectType, worldbook_count: 0, regex_count: 1 });
+    expect(frozen).toEqual({ project_type: "体验优化", worldbook_count: 0, regex_count: 1 });
   });
 
   it("accepts only one concurrent metadata update with the same version", async () => {

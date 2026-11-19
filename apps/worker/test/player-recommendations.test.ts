@@ -16,7 +16,7 @@ beforeEach(async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date(now));
   await bindings.DB.exec(
-    "DELETE FROM audit_events; DELETE FROM recommendations; DELETE FROM recommendation_batches; UPDATE projects SET working_version_id=NULL, published_version_id=NULL, published_cover_asset_id=NULL; DELETE FROM project_versions; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;",
+    "DELETE FROM audit_events; DELETE FROM download_daily_stats; DELETE FROM recommendations; DELETE FROM recommendation_batches; UPDATE projects SET working_version_id=NULL, published_version_id=NULL, published_cover_asset_id=NULL; DELETE FROM project_versions; DELETE FROM projects; DELETE FROM sessions; DELETE FROM users;",
   );
   for (const id of ["author", "player", "player-two"]) {
     await bindings.DB.prepare(
@@ -99,6 +99,11 @@ it("requires current subscription for creates and edits without mutating frozen 
   await bindings.DB.prepare(
     "INSERT INTO project_unversioned_notes(project_id,user_id,rating) VALUES('p','player',5)",
   ).run();
+  await bindings.DB.prepare(
+    "INSERT INTO download_daily_stats(user_id,project_id,project_version_id,day_key,count,first_downloaded_at,last_downloaded_at,acquisition_ids) VALUES('player','p','v1','2026-10-21',1,?,?,json_array('acq-1'))",
+  )
+    .bind(now, now)
+    .run();
   await buildBatch();
   const frozen = (await bindings.DB.prepare("SELECT id,result FROM recommendation_batches").all()).results;
   const denied = await request("player", "v1", "not qualified");

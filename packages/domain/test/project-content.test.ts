@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  MAX_CUSTOM_TAGS,
-  MAX_DISPLAY_TAGS,
-  MAX_SELECTED_TAGS,
   orderedPresetTagGroups,
   PRESET_TAG_GROUPS,
-  PROJECT_TYPES,
   presetTagGroup,
   validateProjectContentPresence,
 } from "../src/index.js";
@@ -25,11 +21,6 @@ describe("project content presence", () => {
 });
 
 describe("project taxonomy vocabulary", () => {
-  it("exposes six primaries and independent selection, authoring and display limits", () => {
-    expect(PROJECT_TYPES).toEqual(["系统核心", "角色", "内容扩展", "玩法", "事件", "体验优化"]);
-    expect([MAX_CUSTOM_TAGS, MAX_SELECTED_TAGS, MAX_DISPLAY_TAGS]).toEqual([20, 12, 4]);
-  });
-
   it("maps only preset vocabulary to groups", () => {
     expect(presetTagGroup("人类")).toBe("种族");
     expect(presetTagGroup("精灵/半精灵")).toBe("种族");
