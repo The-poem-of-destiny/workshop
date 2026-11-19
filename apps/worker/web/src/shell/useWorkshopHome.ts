@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type HomeResponse } from "./api";
+import { api, type HomeResponse } from "../api";
 
 export type HomeLoadState =
   | { status: "loading" }

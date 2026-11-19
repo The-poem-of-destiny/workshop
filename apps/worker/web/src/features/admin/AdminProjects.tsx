@@ -1,4 +1,4 @@
-import type { AdminProject } from "./api";
+import type { AdminProject } from "../../api";
 import type { useAdminData } from "./useAdminData";
 
 export function AdminProjects({

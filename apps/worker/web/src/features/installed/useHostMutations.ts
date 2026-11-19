@@ -1,8 +1,8 @@
 import type { InstallIntent } from "@workshop/contracts";
 import { useEffect, useRef, useState } from "react";
-import { api, type MeResponse, type ProjectSummary } from "./api";
-import type { InstalledItem } from "./features/installed/Installed";
-import type { InstallBridge, InstallCompletion } from "./lib/install-bridge";
+import { api, type MeResponse, type ProjectSummary } from "../../api";
+import type { InstallBridge, InstallCompletion } from "../../lib/install-bridge";
+import type { InstalledItem } from "./Installed";
 import type { HostContext } from "./useHostConnection";
 
 type HostMutationOptions = {

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { type AdminMember, ApiError, api } from "./api";
+import { type AdminMember, ApiError, api } from "../../api";
 
 type Role = "member" | "reviewer" | "owner";
 

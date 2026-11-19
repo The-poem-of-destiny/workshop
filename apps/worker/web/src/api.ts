@@ -47,6 +47,17 @@ import type {
   Visibility,
 } from "@workshop/contracts";
 import { MAX_SELECTED_TAGS, normalizeProjectBatchIds, PROJECT_TYPES, type ProjectType } from "@workshop/domain";
+import {
+  ApiError,
+  getSessionGeneration,
+  hasSessionToken,
+  jsonRequest,
+  requestBlob,
+  requestJson,
+  requestText,
+  setSessionToken,
+  subscribeSessionChange,
+} from "./lib/api-client";
 import { newId } from "./lib/newId";
 
 export type {
@@ -89,124 +100,29 @@ export type {
   UserPolicyState,
   Visibility,
 };
+export { ApiError, getSessionGeneration, setSessionToken, subscribeSessionChange };
 
 export type AcquisitionPayload = AcquisitionResponse;
 export type SiteBanner = Banner;
 export type AdminSubmissionListItem = AdminSubmissionListResponse["items"][number];
 
-const TOKEN_KEY = "cw_session_token";
-let sessionGeneration = 0;
-const sessionListeners = new Set<() => void>();
-export function getSessionGeneration(): number {
-  return sessionGeneration;
-}
-export function subscribeSessionChange(listener: () => void): () => void {
-  sessionListeners.add(listener);
-  return () => {
-    sessionListeners.delete(listener);
-  };
-}
-function token(): string | null {
-  try {
-    return sessionStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null;
-  }
-}
-export function setSessionToken(value: string | null): void {
-  const previous = token();
-  try {
-    if (value) sessionStorage.setItem(TOKEN_KEY, value);
-    else sessionStorage.removeItem(TOKEN_KEY);
-  } catch {
-    /* sandboxed iframe */
-  }
-  if (previous !== token()) {
-    sessionGeneration += 1;
-    for (const listener of sessionListeners) listener();
-  }
-}
-function authHeaders(): Record<string, string> {
-  const value = token();
-  return value ? { authorization: `Bearer ${value}` } : {};
-}
-
-export class ApiError extends Error {
-  readonly status: number;
-  readonly code: string | null;
-  readonly details: unknown;
-
-  constructor(status: number, statusText: string, code: string | null, message: string, details: unknown) {
-    super(`${status} ${code ? `${code}: ` : ""}${message || statusText}`);
-    this.name = "ApiError";
-    this.status = status;
-    this.code = code;
-    this.details = details;
-  }
-}
-
-async function requestJson<T>(path: string, init: RequestInit = {}, publicRead = false): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    ...(publicRead ? { credentials: "omit" as const } : {}),
-    headers: { accept: "application/json", ...(publicRead ? {} : authHeaders()), ...(init.headers ?? {}) },
-  });
-  if (!response.ok) {
-    let message = "";
-    let code: string | null = null;
-    let details: unknown;
-    try {
-      const body: unknown = await response.json();
-      if (typeof body === "object" && body !== null && !Array.isArray(body)) {
-        if ("message" in body && typeof body.message === "string") message = body.message;
-        if ("error" in body && typeof body.error === "object" && body.error !== null && !Array.isArray(body.error)) {
-          if ("message" in body.error && typeof body.error.message === "string") message = body.error.message;
-          if ("code" in body.error && typeof body.error.code === "string") code = body.error.code;
-          if ("details" in body.error) details = body.error.details;
-        }
-      }
-    } catch {
-      /* non-json error */
-    }
-    throw new ApiError(response.status, response.statusText, code, message, details);
-  }
-  if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
-}
+const encode = encodeURIComponent;
 
 export const api = {
-  hasSession: () => Boolean(token()),
+  hasSession: hasSessionToken,
   me: () => requestJson<MeResponse>("/api/v1/me"),
   acceptPolicy: (body: PolicyAcceptanceInput) =>
-    requestJson<PolicyAcceptanceResponse>("/api/v1/me/policy-acceptance", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }),
+    jsonRequest<PolicyAcceptanceResponse>("/api/v1/me/policy-acceptance", "POST", body),
   myCollections: () => requestJson<AuthorCollectionListResponse>("/api/v1/me/collections"),
   createCollection: (body: { title: string; description?: string; projectIds?: string[] }) =>
-    requestJson<AuthorCollection>("/api/v1/collections", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }),
+    jsonRequest<AuthorCollection>("/api/v1/collections", "POST", body),
   patchCollection: (id: string, body: { title?: string; description?: string; projectIds?: string[] }) =>
-    requestJson<AuthorCollection>(`/api/v1/collections/${encodeURIComponent(id)}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }),
-  deleteCollection: (id: string) =>
-    requestJson<void>(`/api/v1/collections/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    jsonRequest<AuthorCollection>(`/api/v1/collections/${encode(id)}`, "PATCH", body),
+  deleteCollection: (id: string) => requestJson<void>(`/api/v1/collections/${encode(id)}`, { method: "DELETE" }),
   setProjectCollections: (id: string, collectionIds: string[]) =>
-    requestJson<{ collectionIds: string[] }>(`/api/v1/projects/${encodeURIComponent(id)}/collections`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ collectionIds }),
-    }),
-  collection: (id: string) => requestJson<CollectionSummary>(`/api/v1/collections/${encodeURIComponent(id)}`, {}, true),
-  authorProfile: (id: string) =>
-    requestJson<AuthorProfileResponse>(`/api/v1/authors/${encodeURIComponent(id)}`, {}, true),
+    jsonRequest<{ collectionIds: string[] }>(`/api/v1/projects/${encode(id)}/collections`, "PUT", { collectionIds }),
+  collection: (id: string) => requestJson<CollectionSummary>(`/api/v1/collections/${encode(id)}`, {}, true),
+  authorProfile: (id: string) => requestJson<AuthorProfileResponse>(`/api/v1/authors/${encode(id)}`, {}, true),
   home: () => requestJson<HomeResponse>("/api/v1/home", {}, true),
   projectsByIds: async (ids: string[]): Promise<ProjectBatchResponse> => {
     const normalized = normalizeProjectBatchIds(ids);
@@ -233,19 +149,14 @@ export const api = {
     }
     return raw;
   },
-  project: (id: string) => requestJson<ProjectDetail>(`/api/v1/projects/${encodeURIComponent(id)}`, {}, true),
+  project: (id: string) => requestJson<ProjectDetail>(`/api/v1/projects/${encode(id)}`, {}, true),
   projectPreview: (id: string, kind: ProjectPreviewKind) =>
-    requestJson<ProjectPreview>(`/api/v1/projects/${encodeURIComponent(id)}/preview/${encodeURIComponent(kind)}`),
-  projectGallery: (id: string) =>
-    requestJson<ProjectGalleryResponse>(`/api/v1/projects/${encodeURIComponent(id)}/gallery`),
-  galleryImage: async (url: string): Promise<Blob> => {
-    const response = await fetch(url, { headers: authHeaders() });
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-    return response.blob();
-  },
+    requestJson<ProjectPreview>(`/api/v1/projects/${encode(id)}/preview/${encode(kind)}`),
+  projectGallery: (id: string) => requestJson<ProjectGalleryResponse>(`/api/v1/projects/${encode(id)}/gallery`),
+  galleryImage: requestBlob,
   uploadGalleryImage: (id: string, slot: number, rowVersion: number, file: File) =>
     requestJson<{ rowVersion: number; sha256: string; bytes: number; mime: string }>(
-      `/api/v1/projects/${encodeURIComponent(id)}/gallery/${slot}`,
+      `/api/v1/projects/${encode(id)}/gallery/${slot}`,
       {
         method: "PUT",
         headers: { "content-type": file.type || "application/octet-stream", "if-match": String(rowVersion) },
@@ -253,7 +164,7 @@ export const api = {
       },
     ),
   deleteGalleryImage: (id: string, slot: number, rowVersion: number) =>
-    requestJson<{ rowVersion: number }>(`/api/v1/projects/${encodeURIComponent(id)}/gallery/${slot}`, {
+    requestJson<{ rowVersion: number }>(`/api/v1/projects/${encode(id)}/gallery/${slot}`, {
       method: "DELETE",
       headers: { "if-match": String(rowVersion) },
     }),
@@ -295,68 +206,46 @@ export const api = {
   myProjects: () => requestJson<AuthorProjectListResponse>("/api/v1/me/projects"),
   subscriptions: () => requestJson<{ items: ProjectSummary[] }>("/api/v1/me/subscriptions"),
   authorSubmissions: (id: string) =>
-    requestJson<AuthorSubmissionListResponse>(`/api/v1/me/projects/${encodeURIComponent(id)}/submissions`),
-  experienceNotes: (id: string) =>
-    requestJson<ExperienceNotesResponse>(`/api/v1/me/experience-notes/${encodeURIComponent(id)}`),
+    requestJson<AuthorSubmissionListResponse>(`/api/v1/me/projects/${encode(id)}/submissions`),
+  experienceNotes: (id: string) => requestJson<ExperienceNotesResponse>(`/api/v1/me/experience-notes/${encode(id)}`),
   setExperienceNote: (id: string, versionId: string, rating: number, comment?: string) =>
-    requestJson<null>(
-      `/api/v1/me/experience-notes/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}`,
-      {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ rating, comment }),
-      },
-    ),
+    jsonRequest<null>(`/api/v1/me/experience-notes/${encode(id)}/versions/${encode(versionId)}`, "PUT", {
+      rating,
+      comment,
+    }),
   deleteExperienceNote: (id: string, versionId: string) =>
-    requestJson<null>(
-      `/api/v1/me/experience-notes/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}`,
-      {
-        method: "DELETE",
-      },
-    ),
+    requestJson<null>(`/api/v1/me/experience-notes/${encode(id)}/versions/${encode(versionId)}`, { method: "DELETE" }),
   deleteUnversionedNote: (id: string) =>
-    requestJson<null>(`/api/v1/me/experience-notes/${encodeURIComponent(id)}/unversioned`, { method: "DELETE" }),
+    requestJson<null>(`/api/v1/me/experience-notes/${encode(id)}/unversioned`, { method: "DELETE" }),
   recommendations: () => requestJson<{ items: Recommendation[] }>("/api/v1/recommendations", {}, true),
-  meState: (ids: string[]) => requestJson<MeStateResponse>(`/api/v1/me/state?ids=${encodeURIComponent(ids.join(","))}`),
+  meState: (ids: string[]) => requestJson<MeStateResponse>(`/api/v1/me/state?ids=${encode(ids.join(","))}`),
   setLike: (id: string, liked: boolean) =>
-    requestJson<null>(`/api/v1/me/likes/${encodeURIComponent(id)}`, { method: liked ? "PUT" : "DELETE" }),
+    requestJson<null>(`/api/v1/me/likes/${encode(id)}`, { method: liked ? "PUT" : "DELETE" }),
   setSubscription: (id: string, subscribed: boolean) =>
-    requestJson<null>(`/api/v1/me/subscriptions/${encodeURIComponent(id)}`, {
-      method: subscribed ? "PUT" : "DELETE",
-    }),
-  createProject: (body: Record<string, unknown>) =>
-    requestJson<AuthorProject>("/api/v1/projects", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }),
+    requestJson<null>(`/api/v1/me/subscriptions/${encode(id)}`, { method: subscribed ? "PUT" : "DELETE" }),
+  createProject: (body: Record<string, unknown>) => jsonRequest<AuthorProject>("/api/v1/projects", "POST", body),
   patchProject: (id: string, rowVersion: number, body: Record<string, unknown>) =>
-    requestJson<{ rowVersion: number; versionId: string }>("/api/v1/projects/" + encodeURIComponent(id), {
-      method: "PATCH",
-      headers: { "content-type": "application/json", "if-match": String(rowVersion) },
-      body: JSON.stringify(body),
+    jsonRequest<{ rowVersion: number; versionId: string }>(`/api/v1/projects/${encode(id)}`, "PATCH", body, {
+      "if-match": String(rowVersion),
     }),
   createVersion: (id: string, rowVersion: number, body: Record<string, unknown>) =>
-    requestJson<{ rowVersion: number; versionId: string }>("/api/v1/projects/" + encodeURIComponent(id) + "/versions", {
-      method: "POST",
-      headers: { "content-type": "application/json", "if-match": String(rowVersion) },
-      body: JSON.stringify(body),
+    jsonRequest<{ rowVersion: number; versionId: string }>(`/api/v1/projects/${encode(id)}/versions`, "POST", body, {
+      "if-match": String(rowVersion),
     }),
   deleteProject: (id: string, rowVersion: number) =>
-    requestJson<void>("/api/v1/projects/" + encodeURIComponent(id), {
+    requestJson<void>(`/api/v1/projects/${encode(id)}`, {
       method: "DELETE",
       headers: { "if-match": String(rowVersion) },
     }),
   setVisibility: (id: string, rowVersion: number, visibility: Visibility) =>
-    requestJson<{ rowVersion: number }>(`/api/v1/projects/${encodeURIComponent(id)}/visibility`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json", "if-match": String(rowVersion) },
-      body: JSON.stringify({ visibility }),
-    }),
-  authorAsset: (id: string, versionId: string, kind: "worldbook" | "regex") =>
-    requestJson<unknown>(
-      `/api/v1/projects/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/files/${kind}`,
+    jsonRequest<{ rowVersion: number }>(
+      `/api/v1/projects/${encode(id)}/visibility`,
+      "PATCH",
+      { visibility },
+      { "if-match": String(rowVersion) },
     ),
+  authorAsset: (id: string, versionId: string, kind: "worldbook" | "regex") =>
+    requestJson<unknown>(`/api/v1/projects/${encode(id)}/versions/${encode(versionId)}/files/${kind}`),
   deleteProjectEntry: (
     id: string,
     versionId: string,
@@ -365,29 +254,20 @@ export const api = {
     entryKey: string,
   ) =>
     requestJson<{ rowVersion: number; versionId: string; entryCount: number }>(
-      `/api/v1/projects/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/entries/${kind}/${encodeURIComponent(entryKey)}`,
+      `/api/v1/projects/${encode(id)}/versions/${encode(versionId)}/entries/${kind}/${encode(entryKey)}`,
       { method: "DELETE", headers: { "if-match": String(rowVersion) } },
     ),
-  authorCover: async (id: string, versionId: string): Promise<Blob> => {
-    const response = await fetch(
-      `/api/v1/projects/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/files/cover`,
-      { headers: authHeaders() },
-    );
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-    return response.blob();
-  },
+  authorCover: (id: string, versionId: string) =>
+    requestBlob(`/api/v1/projects/${encode(id)}/versions/${encode(versionId)}/files/cover`),
   uploadFile: (id: string, versionId: string, rowVersion: number, kind: "worldbook" | "regex" | "cover", file: File) =>
-    requestJson<UploadResponse>(
-      `/api/v1/projects/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/files/${kind}`,
-      {
-        method: "PUT",
-        headers: { "content-type": file.type || "application/octet-stream", "if-match": String(rowVersion) },
-        body: file,
-      },
-    ),
+    requestJson<UploadResponse>(`/api/v1/projects/${encode(id)}/versions/${encode(versionId)}/files/${kind}`, {
+      method: "PUT",
+      headers: { "content-type": file.type || "application/octet-stream", "if-match": String(rowVersion) },
+      body: file,
+    }),
   withdrawSubmission: (id: string, submissionId: string, rowVersion: number) =>
     requestJson<{ rowVersion: number; submissionId: string; status: "superseded"; withdrawnAt: string }>(
-      `/api/v1/projects/${encodeURIComponent(id)}/submissions/${encodeURIComponent(submissionId)}/withdraw`,
+      `/api/v1/projects/${encode(id)}/submissions/${encode(submissionId)}/withdraw`,
       { method: "POST", headers: { "if-match": String(rowVersion) } },
     ),
   reportProjectChange: async (projectId: string, versionId: string) => {
@@ -397,25 +277,21 @@ export const api = {
       index: { entries: Array<{ kind: string; entryKey: string; contentHash: string }> };
     };
     const { current, previous } = await requestJson<{ current: Evidence; previous: Evidence }>(
-      `/api/v1/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}/change-evidence`,
+      `/api/v1/projects/${encode(projectId)}/versions/${encode(versionId)}/change-evidence`,
     );
     const before = new Map(previous.index.entries.map((e) => [`${e.kind}:${e.entryKey}`, e.contentHash]));
     const after = new Map(current.index.entries.map((e) => [`${e.kind}:${e.entryKey}`, e.contentHash]));
     const keys = new Set([...before.keys(), ...after.keys()]);
     const changedEntries = [...keys].filter((key) => before.get(key) !== after.get(key)).length;
     if (!changedEntries) return;
-    await requestJson("/api/v1/recommendations/changes", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        projectId,
-        projectVersionId: versionId,
-        previousVersionId: previous.versionId,
-        previousManifestHash: previous.manifestHash,
-        currentManifestHash: current.manifestHash,
-        changedEntries,
-        totalEntries: keys.size,
-      }),
+    await jsonRequest("/api/v1/recommendations/changes", "POST", {
+      projectId,
+      projectVersionId: versionId,
+      previousVersionId: previous.versionId,
+      previousManifestHash: previous.manifestHash,
+      currentManifestHash: current.manifestHash,
+      changedEntries,
+      totalEntries: keys.size,
     });
   },
   submitProject: (
@@ -424,32 +300,19 @@ export const api = {
     rowVersion: number,
     body: { gate?: "pass" | "warn" | "block"; checkerVersion?: string },
   ) =>
-    requestJson<SubmitResponse>(
-      `/api/v1/projects/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/submit`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json", "if-match": String(rowVersion) },
-        body: JSON.stringify(body),
-      },
-    ),
+    jsonRequest<SubmitResponse>(`/api/v1/projects/${encode(id)}/versions/${encode(versionId)}/submit`, "POST", body, {
+      "if-match": String(rowVersion),
+    }),
   adminSubmissions: (status: string, cursor?: string) =>
     requestJson<AdminSubmissionListResponse>(
-      `/api/v1/admin/submissions?status=${encodeURIComponent(status)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+      `/api/v1/admin/submissions?status=${encode(status)}${cursor ? `&cursor=${encode(cursor)}` : ""}`,
     ),
-  adminSubmission: (id: string) =>
-    requestJson<AdminSubmissionDetail>(`/api/v1/admin/submissions/${encodeURIComponent(id)}`),
-  adminDiff: (id: string) => requestJson<SubmissionDiff>(`/api/v1/admin/submissions/${encodeURIComponent(id)}/diff`),
+  adminSubmission: (id: string) => requestJson<AdminSubmissionDetail>(`/api/v1/admin/submissions/${encode(id)}`),
+  adminDiff: (id: string) => requestJson<SubmissionDiff>(`/api/v1/admin/submissions/${encode(id)}/diff`),
   adminFile: (id: string, kind: "worldbook" | "regex" | "cover") =>
-    fetch(`/api/v1/admin/submissions/${encodeURIComponent(id)}/files/${kind}`, { headers: authHeaders() }).then(
-      async (response) => {
-        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-        return response.blob();
-      },
-    ),
+    requestBlob(`/api/v1/admin/submissions/${encode(id)}/files/${kind}`),
   adminRecheck: (id: string) =>
-    requestJson<{ ok: boolean; status: string }>(`/api/v1/admin/submissions/${encodeURIComponent(id)}/recheck`, {
-      method: "POST",
-    }),
+    requestJson<{ ok: boolean; status: string }>(`/api/v1/admin/submissions/${encode(id)}/recheck`, { method: "POST" }),
   adminReview: (
     id: string,
     body: {
@@ -459,31 +322,18 @@ export const api = {
       manifestHash?: string;
       reportHash?: string;
     },
-  ) =>
-    requestJson<{ id: string; status: string }>(`/api/v1/admin/submissions/${encodeURIComponent(id)}/review`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }),
-  createFlow: async (mode: "browser" | "device" = "browser") =>
-    requestJson<AuthFlowResponse>("/api/v1/auth/flows", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mode }),
-    }),
+  ) => jsonRequest<{ id: string; status: string }>(`/api/v1/admin/submissions/${encode(id)}/review`, "POST", body),
+  createFlow: (mode: "browser" | "device" = "browser") =>
+    jsonRequest<AuthFlowResponse>("/api/v1/auth/flows", "POST", { mode }),
   authFlowStatus: (id: string, deviceCode?: string) =>
     requestJson<{
       status: "pending" | "authorized" | "redeemed" | "expired";
       expiresAt: string;
       error?: string | null;
-    }>(
-      `/api/v1/auth/flows/${encodeURIComponent(id)}${deviceCode ? `?deviceCode=${encodeURIComponent(deviceCode)}` : ""}`,
-    ),
+    }>(`/api/v1/auth/flows/${encode(id)}${deviceCode ? `?deviceCode=${encode(deviceCode)}` : ""}`),
   redeemFlow: (id: string, deviceCode: string) =>
-    requestJson<{ token: string; expiresAt: string }>(`/api/v1/auth/flows/${encodeURIComponent(id)}/redeem`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ deviceCode }),
+    jsonRequest<{ token: string; expiresAt: string }>(`/api/v1/auth/flows/${encode(id)}/redeem`, "POST", {
+      deviceCode,
     }),
   acquisitions: (projectId: string) => {
     const params = new URLSearchParams(location.search);
@@ -492,38 +342,24 @@ export const api = {
     const headers: Record<string, string> = { "Idempotency-Key": newId() };
     if (version) headers["x-client-version"] = version;
     if (channel === "stable" || channel === "staging") headers["x-client-channel"] = channel;
-    return requestJson<AcquisitionPayload>(`/api/v1/projects/${encodeURIComponent(projectId)}/acquisitions`, {
+    return requestJson<AcquisitionPayload>(`/api/v1/projects/${encode(projectId)}/acquisitions`, {
       method: "POST",
       headers,
     });
   },
-  downloadText: async (url: string) => {
-    const response = await fetch(url, { headers: authHeaders() });
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-    return response.text();
-  },
+  downloadText: requestText,
   downloads: (projectId: string) =>
     requestJson<{ versionId: string; files: { kind: string; url: string }[] }>(
-      `/api/v1/projects/${encodeURIComponent(projectId)}/downloads`,
+      `/api/v1/projects/${encode(projectId)}/downloads`,
       { method: "POST", headers: { "Idempotency-Key": newId() } },
     ),
-  downloadFile: async (url: string) => {
-    const response = await fetch(url, { headers: authHeaders() });
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-    return response.blob();
-  },
+  downloadFile: requestBlob,
   adminProjects: (search?: string) =>
-    requestJson<AdminProjectList>(
-      `/api/v1/admin/projects?limit=50${search ? `&search=${encodeURIComponent(search)}` : ""}`,
-    ),
+    requestJson<AdminProjectList>(`/api/v1/admin/projects?limit=50${search ? `&search=${encode(search)}` : ""}`),
   adminMembers: (cursor?: string) =>
-    requestJson<AdminMemberList>(`/api/v1/admin/members${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`),
+    requestJson<AdminMemberList>(`/api/v1/admin/members${cursor ? `?cursor=${encode(cursor)}` : ""}`),
   adminSetRole: (id: string, role: "member" | "reviewer" | "owner") =>
-    requestJson<{ ok: boolean }>(`/api/v1/admin/members/${encodeURIComponent(id)}/role`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ role }),
-    }),
+    jsonRequest<{ ok: boolean }>(`/api/v1/admin/members/${encode(id)}/role`, "PUT", { role }),
   site: () => requestJson<SiteSettings>("/api/v1/site", {}, true),
   uploadBanner: (file: File) =>
     requestJson<{ banner: SiteBanner }>("/api/v1/site/banner", {
@@ -532,44 +368,23 @@ export const api = {
       body: file,
     }),
   updateSite: (body: { banner?: SiteBanner; siteContent?: JsonValue }) =>
-    requestJson<SiteSettings>("/api/v1/site", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }),
+    jsonRequest<SiteSettings>("/api/v1/site", "PUT", body),
   auditEvents: (params: { action?: AuditAction; cursor?: string } = {}) => {
     const query = new URLSearchParams({ limit: "20" });
     if (params.action) query.set("action", params.action);
     if (params.cursor) query.set("cursor", params.cursor);
     return requestJson<AdminAuditList>(`/api/v1/admin/audit-events?${query}`);
   },
-  projectChangeSignal: (body: {
-    projectId: string;
-    projectVersionId: string;
-    previousVersionId: string;
-    previousManifestHash: string;
-    currentManifestHash: string;
-    changedEntries: number;
-    totalEntries: number;
-  }) =>
-    requestJson<{ kind: "ok" }>("/api/v1/recommendations/changes", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }),
   playerRecommendation: (projectId: string, body: { projectVersionId: string; comment?: string }, remove: boolean) =>
-    requestJson<{ kind: "ok" }>(`/api/v1/recommendations/${encodeURIComponent(projectId)}`, {
-      method: remove ? "DELETE" : "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }),
+    jsonRequest<{ kind: "ok" }>(`/api/v1/recommendations/${encode(projectId)}`, remove ? "DELETE" : "PUT", body),
   updateRecommendation: (projectId: string, body: { comment?: string; projectVersionId: string }) =>
-    requestJson<{ id: string; comment: string; projectVersionId: string }>(
-      `/api/v1/admin/recommendations/${encodeURIComponent(projectId)}`,
-      { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
+    jsonRequest<{ id: string; comment: string; projectVersionId: string }>(
+      `/api/v1/admin/recommendations/${encode(projectId)}`,
+      "PUT",
+      body,
     ),
   deleteRecommendation: (projectId: string) =>
-    requestJson<void>(`/api/v1/admin/recommendations/${encodeURIComponent(projectId)}`, { method: "DELETE" }),
+    requestJson<void>(`/api/v1/admin/recommendations/${encode(projectId)}`, { method: "DELETE" }),
   logout: async () => {
     const generation = getSessionGeneration();
     await requestJson<void>("/api/v1/sessions/current", { method: "DELETE" });

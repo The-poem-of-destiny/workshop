@@ -1,5 +1,5 @@
 import { type MutableRefObject, useEffect, useRef, useState } from "react";
-import { ApiError, api, getSessionGeneration, type MeResponse, setSessionToken, type UserPolicyState } from "./api";
+import { ApiError, api, getSessionGeneration, type MeResponse, setSessionToken, type UserPolicyState } from "../api";
 import type { WorkshopView } from "./useWorkshopNavigation";
 
 type Feedback = { setError: (message: string | null) => void; setNotice: (message: string | null) => void };

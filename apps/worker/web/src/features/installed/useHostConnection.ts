@@ -1,9 +1,9 @@
 import type { InstallScan } from "@workshop/contracts";
 import { useEffect, useState } from "react";
-import type { MeResponse, ProjectSummary } from "./api";
-import type { InstallState } from "./features/projects/ProjectDetail";
+import type { MeResponse, ProjectSummary } from "../../api";
+import { createInstallBridge, type InstallBridge, type InstallCompletion } from "../../lib/install-bridge";
+import type { InstallState } from "../projects/ProjectDetail";
 import { hostConnectionStatus } from "./hostConnectionStatus";
-import { createInstallBridge, type InstallBridge, type InstallCompletion } from "./lib/install-bridge";
 import { useHostMessages } from "./useHostMessages";
 import { useHostMutations } from "./useHostMutations";
 

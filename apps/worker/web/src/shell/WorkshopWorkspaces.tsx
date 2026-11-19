@@ -1,25 +1,27 @@
 import type { ReactNode, RefObject } from "react";
 import { Component, lazy, Suspense } from "react";
-import { api, type ProjectSummary } from "./api";
-import { Button } from "./components/ui/button";
-import type { InstalledItem } from "./features/installed/Installed";
-import { Installed } from "./features/installed/Installed";
-import { Subscriptions } from "./features/projects/Subscriptions";
-import type { useHostConnection } from "./useHostConnection";
-import type { useInstalledProjects } from "./useInstalledProjects";
+import { api, type ProjectSummary } from "../api";
+import { Button } from "../components/ui/button";
+import type { InstalledItem } from "../features/installed/Installed";
+import { Installed } from "../features/installed/Installed";
+import type { useHostConnection } from "../features/installed/useHostConnection";
+import type { useInstalledProjects } from "../features/installed/useInstalledProjects";
+import { Subscriptions } from "../features/projects/Subscriptions";
 import type { useWorkshopNavigation } from "./useWorkshopNavigation";
 import type { useWorkshopSession } from "./useWorkshopSession";
 
 const CreateProject = lazy(() =>
-  import("./features/projects/CreateProject").then((module) => ({ default: module.CreateProject })),
+  import("../features/projects/CreateProject").then((module) => ({ default: module.CreateProject })),
 );
 const MyProjects = lazy(() =>
-  import("./features/projects/MyProjects").then((module) => ({ default: module.MyProjects })),
+  import("../features/projects/MyProjects").then((module) => ({ default: module.MyProjects })),
 );
-const AdminPanel = lazy(() =>
-  import("./features/review/AdminPanel").then((module) => ({ default: module.AdminPanel })),
+const ReviewWorkbench = lazy(() =>
+  import("../features/review/ReviewWorkbench").then((module) => ({ default: module.ReviewWorkbench })),
 );
-const AdminTools = lazy(() => import("./AdminTools").then((module) => ({ default: module.AdminTools })));
+const AdminTools = lazy(() =>
+  import("../features/admin/AdminTools").then((module) => ({ default: module.AdminTools })),
+);
 
 class DeferredView extends Component<{ title: string; children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -155,7 +157,7 @@ export function WorkshopWorkspaces({
     />
   ) : view === "admin" && reviewer ? (
     <DeferredView key="admin" title="审核面板">
-      <AdminPanel
+      <ReviewWorkbench
         onError={(message) => {
           setError(message);
           setNotice(null);

@@ -19,10 +19,11 @@ Backend layering is strictly one-way (`gateway/http` → `data-client` → `data
 
 ## Web navigation
 
-- Bootstrap and application composition: [`web/src/main.tsx`](web/src/main.tsx), [`web/src/App.tsx`](web/src/App.tsx).
-- Requests to the backend: [`web/src/api.ts`](web/src/api.ts).
-- Browsing, collections and authoring: [`web/src/features/projects/`](web/src/features/projects/). Policy gate, FAQ and Discord link prompts: [`web/src/features/policy/`](web/src/features/policy/). Review UI: [`web/src/features/review/`](web/src/features/review/); site/member administration: [`web/src/AdminTools.tsx`](web/src/AdminTools.tsx).
-- Installation UI: [`web/src/features/installed/`](web/src/features/installed/). Its [message bridge](web/src/lib/install-bridge.ts) requests operations from the [Tavern host runtime](../tavern-client/src/index.ts); host mutations do not run in the site itself.
+- Bootstrap, application shell and backend client: [`web/src/main.tsx`](web/src/main.tsx), [`web/src/App.tsx`](web/src/App.tsx), [`web/src/shell/`](web/src/shell/), [`web/src/api.ts`](web/src/api.ts), [`web/src/lib/api-client.ts`](web/src/lib/api-client.ts).
+- Catalogue filtering and browsing: [`web/src/features/catalogue/`](web/src/features/catalogue/); project cards, detail, discovery, collections and authoring: [`web/src/features/projects/`](web/src/features/projects/).
+- Policy gate, FAQ and Discord link prompts: [`web/src/features/policy/`](web/src/features/policy/).
+- Submission review workbench: [`web/src/features/review/`](web/src/features/review/); site, member, project, recommendation and audit administration: [`web/src/features/admin/`](web/src/features/admin/).
+- Host connection and installation UI: [`web/src/features/installed/`](web/src/features/installed/). Its [message bridge](web/src/lib/install-bridge.ts) requests operations from the [Tavern host runtime](../tavern-client/src/index.ts); host mutations do not run in the site itself.
 - Shared widgets and styling: [`web/src/components/`](web/src/components/), [`web/src/styles.css`](web/src/styles.css), [`web/src/styles/`](web/src/styles/).
 
 ## Source and output

@@ -1,10 +1,10 @@
 import { ChevronLeft, ChevronRight, LayoutGrid, List, PanelLeftOpen, SlidersHorizontal, X } from "lucide-react";
 import type { RefObject } from "react";
-import type { ProjectSummary } from "./api";
-import { Button } from "./components/ui/button";
-import type { DiscordPromptTarget } from "./features/policy/DiscordLinkPrompt";
-import { CollectionAuthorBanner } from "./features/projects/CollectionAuthorBanner";
-import { ProjectCard } from "./features/projects/ProjectCard";
+import type { ProjectSummary } from "../../api";
+import { Button } from "../../components/ui/button";
+import type { DiscordPromptTarget } from "../policy/DiscordLinkPrompt";
+import { CollectionAuthorBanner } from "../projects/CollectionAuthorBanner";
+import { ProjectCard } from "../projects/ProjectCard";
 import type { CatalogueState } from "./useCatalogue";
 import { SORTS } from "./useCatalogueFilters";
 

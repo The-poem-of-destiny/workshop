@@ -1,8 +1,8 @@
 import type { ProjectType } from "@workshop/domain";
 import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from "react";
-import { api, type ProjectSummary } from "./api";
+import { api, type ProjectSummary } from "../../api";
+import type { HomeLoadState } from "../../shell/useWorkshopHome";
 import { type CatalogueFilters, type CatalogueSort, useCatalogueFilters } from "./useCatalogueFilters";
-import type { HomeLoadState } from "./useWorkshopHome";
 
 export interface CatalogueState extends CatalogueFilters {
   total: number;

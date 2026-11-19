@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { type AdminProject, api, type Recommendation } from "./api";
+import { type AdminProject, api, type Recommendation } from "../../api";
 
 type AdminRecommendationsOptions = { onError: (message: string) => void; onNotice: (message: string) => void };
 export function useAdminRecommendations({ onError, onNotice }: AdminRecommendationsOptions) {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type ProjectSummary } from "./api";
-import type { InstalledItem } from "./features/installed/Installed";
+import { api, type ProjectSummary } from "../../api";
+import type { InstalledItem } from "./Installed";
 
 import type { HostContext } from "./useHostConnection";
 

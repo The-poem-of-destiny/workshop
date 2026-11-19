@@ -1,4 +1,4 @@
-import { ConfirmDialog } from "./components/ui/confirm-dialog";
+import { ConfirmDialog } from "../../components/ui/confirm-dialog";
 import type { useAdminMembers } from "./useAdminMembers";
 
 import type { useAdminRecommendations } from "./useAdminRecommendations";

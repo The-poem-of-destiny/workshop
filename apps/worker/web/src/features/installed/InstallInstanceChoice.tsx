@@ -1,7 +1,7 @@
-import type { ProjectSummary } from "./api";
-import { Button } from "./components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./components/ui/dialog";
-import type { InstalledItem } from "./features/installed/Installed";
+import type { ProjectSummary } from "../../api";
+import { Button } from "../../components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
+import type { InstalledItem } from "./Installed";
 
 export function InstallInstanceChoice({
   instanceChoice,

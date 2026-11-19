@@ -1,7 +1,7 @@
 import { Megaphone, ShieldAlert, X } from "lucide-react";
 import type { CSSProperties } from "react";
-import type { MeResponse, SiteSettings } from "./api";
-import { parseSiteContent } from "./lib/siteContent";
+import type { MeResponse, SiteSettings } from "../api";
+import { parseSiteContent } from "../lib/siteContent";
 import type { useWorkshopNavigation } from "./useWorkshopNavigation";
 import type { useWorkshopSession } from "./useWorkshopSession";
 

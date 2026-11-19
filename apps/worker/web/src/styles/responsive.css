@@ -41,8 +41,7 @@
 }
 
 @media (max-width: 1180px) {
-  .workspace,
-  .admin-layout {
+  .workspace {
     grid-template-columns: 1fr;
   }
   .workspace > .panel:first-child {
@@ -143,12 +142,6 @@
   }
   .site-header h1 {
     font-size: 16.5px;
-  }
-  .admin-tools {
-    grid-template-columns: 1fr;
-  }
-  .admin-tools > .panel:first-child {
-    grid-row: auto;
   }
 }
 
@@ -266,7 +259,6 @@
     width: 40px;
     height: 40px;
   }
-  .sidebar-chip,
   .filter-chip {
     min-height: 38px;
   }

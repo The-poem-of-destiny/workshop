@@ -1,7 +1,7 @@
 import { parseDiscordInviteUrl, WORKSHOP_LIMITS } from "@workshop/domain";
 import { useState } from "react";
-import { type AdminProject, api, type JsonValue, type SiteBanner, type SiteSettings } from "./api";
-import { parseSiteContent } from "./lib/siteContent";
+import { type AdminProject, api, type JsonValue, type SiteBanner, type SiteSettings } from "../../api";
+import { parseSiteContent } from "../../lib/siteContent";
 import type { useAdminMembers } from "./useAdminMembers";
 import type { useAdminRecommendations } from "./useAdminRecommendations";
 

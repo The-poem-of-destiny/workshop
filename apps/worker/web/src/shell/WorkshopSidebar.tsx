@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { type Dispatch, type RefObject, type SetStateAction, useState } from "react";
 
-import type { CatalogueState } from "./useCatalogue";
+import type { CatalogueState } from "../features/catalogue/useCatalogue";
 import type { WorkshopView } from "./useWorkshopNavigation";
 import type { useWorkshopSession } from "./useWorkshopSession";
 

@@ -1,6 +1,6 @@
 import { type AuditAction, isAuditAction } from "@workshop/domain";
 import { useRef, useState } from "react";
-import { type AdminAuditEvent, api } from "./api";
+import { type AdminAuditEvent, api } from "../../api";
 
 type AdminAuditOptions = { onError: (message: string) => void };
 export function useAdminAudit({ onError }: AdminAuditOptions) {

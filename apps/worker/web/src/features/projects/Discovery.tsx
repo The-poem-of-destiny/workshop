@@ -1,7 +1,7 @@
 import { BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, History } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { DiscoveryResponse, ProjectSummary } from "../../api";
-import type { HomeLoadState } from "../../useWorkshopHome";
+import type { HomeLoadState } from "../../shell/useWorkshopHome";
 import "../../styles/discovery.css";
 
 type DiscoveryProject = DiscoveryResponse["items"][number];
@@ -87,19 +87,11 @@ function Cover({ project }: { project: ProjectSummary }) {
   );
 }
 
+import { plainMarkdownExcerpt } from "../../lib/markdown";
+
 // Bound the preview before rendering: full descriptions belong in project details.
-function excerpt(text: string | null, limit = 180) {
-  const plain = text
-    ?.replace(/```[\s\S]*?```/g, " ")
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/^\s{0,3}(?:#{1,6}\s+|>\s*|[-*+]\s+)/gm, "")
-    .replace(/[*_`~]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!plain) return "暂无项目简介，打开详情了解更多。";
-  return plain.length > limit ? `${plain.slice(0, limit).trimEnd()}…` : plain;
-}
+const excerpt = (text: string | null, limit = 180) =>
+  plainMarkdownExcerpt(text, "暂无项目简介，打开详情了解更多。", limit);
 
 function DiscoveryRecommendations({ recommendations }: { recommendations: DiscoveryProject["recommendations"] }) {
   const [index, setIndex] = useState(0);

@@ -2,6 +2,7 @@ import { MAX_DISPLAY_TAGS } from "@workshop/domain";
 import { Bookmark, BookOpen, Download, History, MoreHorizontal, ThumbsUp } from "lucide-react";
 import { type MouseEvent, type PointerEvent, useEffect, useRef, useState } from "react";
 import type { ProjectSummary } from "../../api";
+import { plainMarkdownExcerpt } from "../../lib/markdown";
 
 import type { DiscordPromptTarget } from "../policy/DiscordLinkPrompt";
 
@@ -24,17 +25,7 @@ function UploadDateIcon() {
   );
 }
 
-function cleanExcerpt(text: string | null | undefined): string {
-  const plain = text
-    ?.replace(/```[\s\S]*?```/g, " ")
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/^\s{0,3}(?:#{1,6}\s+|>\s*|[-*+]\s+)/gm, "")
-    .replace(/[*_`~]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return plain || "暂无简介";
-}
+const cleanExcerpt = (text: string | null | undefined) => plainMarkdownExcerpt(text, "暂无简介");
 
 export function ProjectCard({
   project,

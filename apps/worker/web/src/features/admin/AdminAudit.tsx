@@ -1,5 +1,5 @@
 import { AUDIT_ACTIONS, type AuditAction } from "@workshop/domain";
-import type { JsonValue } from "./api";
+import type { JsonValue } from "../../api";
 
 import type { useAdminAudit } from "./useAdminAudit";
 

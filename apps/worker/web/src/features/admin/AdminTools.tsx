@@ -1,16 +1,16 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { ConfirmDialog } from "../../components/ui/confirm-dialog";
 import { AdminAudit } from "./AdminAudit";
 import { AdminConfirmations } from "./AdminConfirmations";
 import { AdminMembers } from "./AdminMembers";
 import { AdminProjects } from "./AdminProjects";
 import { AdminRecommendations } from "./AdminRecommendations";
 import { AdminSite } from "./AdminSite";
-import { ConfirmDialog } from "./components/ui/confirm-dialog";
 import { useAdminAudit } from "./useAdminAudit";
 import { useAdminData } from "./useAdminData";
 import { useAdminMembers } from "./useAdminMembers";
 import { useAdminRecommendations } from "./useAdminRecommendations";
-import "./styles/management-sections.css";
+import "./management-sections.css";
 
 const MANAGEMENT_SECTIONS = [
   { id: "site", title: "站点设置", description: "管理 Banner 和站点文案，保存后立即生效。" },

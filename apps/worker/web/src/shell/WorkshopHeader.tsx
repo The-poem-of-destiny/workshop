@@ -13,10 +13,10 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 
-import { Button } from "./components/ui/button";
-import { Input } from "./components/ui/input";
-import type { useCatalogue } from "./useCatalogue";
-import type { useHostConnection } from "./useHostConnection";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import type { useCatalogue } from "../features/catalogue/useCatalogue";
+import type { useHostConnection } from "../features/installed/useHostConnection";
 import type { useWorkshopNavigation, WorkshopView } from "./useWorkshopNavigation";
 import type { useWorkshopSession } from "./useWorkshopSession";
 

@@ -7,7 +7,7 @@ import { useReviewDecision } from "./useReviewDecision";
 import { useReviewEvidence } from "./useReviewEvidence";
 import { useReviewQueue } from "./useReviewQueue";
 import "./review.css";
-export function AdminPanel({
+export function ReviewWorkbench({
   onError,
   onNotice,
 }: {
