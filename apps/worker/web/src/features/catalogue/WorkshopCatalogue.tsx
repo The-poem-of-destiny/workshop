@@ -98,7 +98,7 @@ export function WorkshopCatalogue({
           ))}
           {includeContained ? (
             <button type="button" className="filter-chip active" onClick={() => setIncludeContained(false)}>
-              包含类型也匹配
+              同时满足多个主要分类
               <X aria-hidden="true" />
             </button>
           ) : null}

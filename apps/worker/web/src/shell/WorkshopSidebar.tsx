@@ -220,11 +220,15 @@ export function WorkshopSidebar({
                 aria-pressed={projectTypes.includes(value)}
                 onClick={() => {
                   if (!setView("browse")) return;
-                  setProjectTypes(
-                    projectTypes.includes(value)
-                      ? projectTypes.filter((type) => type !== value)
-                      : [...projectTypes, value],
-                  );
+                  if (includeContained) {
+                    setProjectTypes(
+                      projectTypes.includes(value)
+                        ? projectTypes.filter((type) => type !== value)
+                        : [...projectTypes, value],
+                    );
+                  } else {
+                    setProjectTypes(projectTypes.length === 1 && projectTypes[0] === value ? [] : [value]);
+                  }
                 }}
               >
                 {value}
@@ -239,7 +243,7 @@ export function WorkshopSidebar({
                 if (setView("browse")) setIncludeContained(event.target.checked);
               }}
             />
-            同时匹配包含该类型的项目
+            筛选同时满足多个主要分类的项目
           </label>
         </fieldset>
         <div className="filter-group">

@@ -34,7 +34,7 @@
   display: grid;
   grid-template-columns: repeat(
       auto-fill,
-      minmax(min(clamp(284px, 15.5vw, 368px), calc(50% - var(--catalogue-half-gap))), 1fr)
+      minmax(min(clamp(248px, 13.2vw, 272px), calc(50% - var(--catalogue-half-gap))), 1fr)
     );
   gap: var(--catalogue-gap);
 }

@@ -243,15 +243,16 @@ export async function listPublishedProjects(
   const bindings: unknown[] = [];
 
   if (query.projectType.length > 0) {
-    const placeholders = query.projectType.map(() => "?").join(", ");
-    const primary = `r.project_type IN (${placeholders})`;
-    where.push(
-      query.includeContained
-        ? `(${primary} OR EXISTS (SELECT 1 FROM json_each(r.included_types) WHERE value IN (${placeholders})))`
-        : primary,
-    );
-    bindings.push(...query.projectType);
-    if (query.includeContained) bindings.push(...query.projectType);
+    if (query.includeContained) {
+      for (const type of query.projectType) {
+        where.push("(r.project_type = ? OR EXISTS (SELECT 1 FROM json_each(r.included_types) WHERE value = ?))");
+        bindings.push(type, type);
+      }
+    } else {
+      const placeholders = query.projectType.map(() => "?").join(", ");
+      where.push(`r.project_type IN (${placeholders})`);
+      bindings.push(...query.projectType);
+    }
   }
   if (query.authorId) {
     where.push("p.author_id = ?");

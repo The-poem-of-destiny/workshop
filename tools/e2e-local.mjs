@@ -991,17 +991,33 @@ async function main() {
             count: 0,
             label: "primary filter is not an implicit containment filter",
           });
-          await expectFilters(() => sidebar.getByRole("checkbox", { name: "同时匹配包含该类型的项目" }).check(), {
+          await expectFilters(() => sidebar.getByRole("button", { name: "体验优化", exact: true }).click(), {
+            projectTypes: ["体验优化"],
+            count: 1,
+            label: "default primary category buttons behave as single-select",
+          });
+          await expectFilters(() => sidebar.getByRole("button", { name: "内容扩展", exact: true }).click(), {
+            projectTypes: ["内容扩展"],
+            count: 0,
+            label: "switching single-select primary category replaces previous selection",
+          });
+          await expectFilters(() => sidebar.getByRole("checkbox", { name: "筛选同时满足多个主要分类的项目" }).check(), {
             projectTypes: ["内容扩展"],
             includeContained: true,
             count: 1,
-            label: "containment toggle includes the character project",
+            label: "multi-category mode includes projects containing the category",
+          });
+          await expectFilters(() => sidebar.getByRole("button", { name: "规则扩展", exact: true }).click(), {
+            projectTypes: ["内容扩展", "规则扩展"],
+            includeContained: true,
+            count: 1,
+            label: "multi-category mode allows selecting multiple categories with AND logic",
           });
           await expectFilters(() => sidebar.getByRole("button", { name: "体验优化", exact: true }).click(), {
-            projectTypes: ["内容扩展", "体验优化"],
+            projectTypes: ["内容扩展", "规则扩展", "体验优化"],
             includeContained: true,
-            count: 2,
-            label: "multiple primary buttons serialize repeated OR parameters",
+            count: 0,
+            label: "multi-category AND excludes projects missing any selected category",
           });
           await expectFilters(() => sidebar.getByRole("button", { name: "重置", exact: true }).click(), {
             count: 2,

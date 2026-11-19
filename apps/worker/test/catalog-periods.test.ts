@@ -73,7 +73,7 @@ describe("catalog net windows on real D1", () => {
     expect(body.items.map((item) => item.id)).toEqual(["older", "recent"]);
   });
 
-  it("matches repeated primary selections with OR and only includes contained categories when requested", async () => {
+  it("matches repeated primary selections with OR by default and uses AND across primary+included when includeContained is true", async () => {
     await project("role", "角色");
     await project("event", "体验优化");
     await project("core", "系统核心", '["合集"]', ["角色", "规则扩展"]);
@@ -84,18 +84,30 @@ describe("catalog net windows on real D1", () => {
     expect(selected.status).toBe(200);
     const primary = projectListResponseSchema.parse(await selected.json());
     expect(primary.items.map((item) => item.id).sort()).toEqual(["event", "role"]);
-    const contained = await SELF.fetch(
-      "https://workshop.test/api/v1/projects?projectType=角色&projectType=体验优化&includeContained=true",
+    const containedSingle = await SELF.fetch(
+      "https://workshop.test/api/v1/projects?projectType=角色&includeContained=true",
     );
-    expect(contained.status).toBe(200);
-    const combined = projectListResponseSchema.parse(await contained.json());
-    expect(combined.total).toBe(3);
-    expect(combined.items.map((item) => item.id).sort()).toEqual(["core", "event", "role"]);
-    expect(combined.items.find((item) => item.id === "core")).toMatchObject({
+    expect(containedSingle.status).toBe(200);
+    const singleCombined = projectListResponseSchema.parse(await containedSingle.json());
+    expect(singleCombined.total).toBe(2);
+    expect(singleCombined.items.map((item) => item.id).sort()).toEqual(["core", "role"]);
+    const containedAnd = await SELF.fetch(
+      "https://workshop.test/api/v1/projects?projectType=角色&projectType=规则扩展&includeContained=true",
+    );
+    expect(containedAnd.status).toBe(200);
+    const combined = projectListResponseSchema.parse(await containedAnd.json());
+    expect(combined.total).toBe(1);
+    expect(combined.items.map((item) => item.id)).toEqual(["core"]);
+    expect(combined.items[0]).toMatchObject({
       projectType: "系统核心",
       includedTypes: ["角色", "规则扩展"],
       tags: ["合集"],
     });
+    const noMatch = await SELF.fetch(
+      "https://workshop.test/api/v1/projects?projectType=角色&projectType=体验优化&includeContained=true",
+    );
+    expect(noMatch.status).toBe(200);
+    expect(projectListResponseSchema.parse(await noMatch.json()).total).toBe(0);
     const noFilter = await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ includeContained: true }));
     expect(noFilter.total).toBe(4);
   });

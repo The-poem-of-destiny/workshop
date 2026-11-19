@@ -55,9 +55,16 @@ const emptyTaxonomy: TaxonomyFilters = {
 function taxonomyFilters(state: TaxonomyFilters, action: TaxonomyAction): TaxonomyFilters {
   if (action.type === "clear") return emptyTaxonomy;
   if (action.type === "primary") {
-    return { ...state, projectTypes: PROJECT_TYPES.filter((type) => action.values.includes(type)) };
+    const normalized = PROJECT_TYPES.filter((type) => action.values.includes(type));
+    return { ...state, projectTypes: state.includeContained ? normalized : normalized.slice(0, 1) };
   }
-  if (action.type === "contained") return { ...state, includeContained: action.value };
+  if (action.type === "contained") {
+    return {
+      ...state,
+      includeContained: action.value,
+      projectTypes: action.value ? state.projectTypes : state.projectTypes.slice(0, 1),
+    };
+  }
   if (action.type === "removeTag" || (action.type === "toggleTag" && state.tags.includes(action.value.trim()))) {
     return { ...state, tags: state.tags.filter((tag) => tag !== action.value.trim()), tagLimitMessage: null };
   }

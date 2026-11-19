@@ -133,7 +133,11 @@ describe("Cache API read behavior", () => {
     await publishTitle("Taxonomy changed", "角色", ["规则扩展"], ["人类", "战士"]);
     const hit = await read(`/public/v1${equivalentUrl.pathname}${equivalentUrl.search}`);
     expect(await hit.json()).toMatchObject({ items: [{ title: "Taxonomy original" }], total: 1 });
-    const contained = canonicalPublicRequest(new Request(`${first.request.url}&includeContained=true`));
+    const contained = canonicalPublicRequest(
+      new Request(
+        "https://workshop.test/api/v1/projects?projectType=角色&projectType=规则扩展&tag=人类&tag=战士&includeContained=true",
+      ),
+    );
     if (contained.kind !== "public") throw new Error("Expected contained-category selection");
     const containedUrl = new URL(contained.request.url);
     expect(containedUrl.search).not.toBe(firstUrl.search);
