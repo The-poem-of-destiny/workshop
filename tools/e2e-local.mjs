@@ -1245,12 +1245,13 @@ async function main() {
             await openDetail();
             const form = page.getByRole("region", { name: "版本推荐", exact: true });
             const ineligible = "订阅作品后即可推荐当前版本。";
-            await form.getByText(ineligible, { exact: true }).waitFor();
             assert(
-              (await page.locator(".detail").getByRole("textbox", { name: /推荐/ }).count()) === 0,
-              "project detail keeps the public recommendation editor collapsed until clicked",
+              (await form.count()) === 0 &&
+                (await page.locator(".detail").getByRole("textbox", { name: /推荐/ }).count()) === 0,
+              "project detail keeps the public recommendation section collapsed until clicked",
             );
-            await form.getByRole("button", { name: "写推荐语", exact: true }).click();
+            await page.locator(".detail").getByRole("button", { name: "写推荐语", exact: true }).click();
+            await form.getByText(ineligible, { exact: true }).waitFor();
             assert(
               (await page.locator(".detail").getByRole("textbox", { name: /推荐/ }).count()) === 1,
               "clicking the toggle reveals one public recommendation editor",
@@ -1303,7 +1304,7 @@ async function main() {
               "unsubscribed API edit is forbidden",
             );
             await openDetail();
-            await form.getByRole("button", { name: "编辑推荐语", exact: true }).click();
+            await page.locator(".detail").getByRole("button", { name: "编辑推荐语", exact: true }).click();
             await form.getByText(ineligible, { exact: true }).waitFor();
             assert(
               (await form.getByRole("button", { name: "更新当前版本推荐", exact: true }).isDisabled()) &&
@@ -1365,7 +1366,7 @@ async function main() {
               "own retraction succeeds without restoring subscription or eligibility",
             );
             await openDetail();
-            await form.getByRole("button", { name: "写推荐语", exact: true }).click();
+            await page.locator(".detail").getByRole("button", { name: "写推荐语", exact: true }).click();
             await form.getByText(ineligible, { exact: true }).waitFor();
             assert(
               (await form.getByRole("textbox", { name: "公开推荐说明（可选）" }).inputValue()) === "" &&

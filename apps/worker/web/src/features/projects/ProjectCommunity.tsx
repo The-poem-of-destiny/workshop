@@ -180,6 +180,21 @@ export function ProjectCommunity({
           <Bookmark aria-hidden="true" fill={interaction?.subscribed ? "currentColor" : "none"} />
           <span>{interaction?.subscribed ? "已订阅" : "订阅"}</span>
         </button>
+        <button
+          type="button"
+          disabled={loggedIn && interactionStatus !== "ready"}
+          aria-expanded={loggedIn ? recommendationOpen : undefined}
+          onClick={() => {
+            if (!loggedIn) {
+              onLogin();
+              return;
+            }
+            setRecommendationOpen((value) => !value);
+          }}
+        >
+          <MessageSquarePlus aria-hidden="true" />
+          <span>{recommendationOpen ? "收起推荐" : interaction?.recommendation ? "编辑推荐语" : "写推荐语"}</span>
+        </button>
       </div>
       {loggedIn && interactionStatus === "loading" ? (
         <p className="hint" role="status">
@@ -196,34 +211,31 @@ export function ProjectCommunity({
         </div>
       ) : null}
       {loggedIn && interactionStatus === "unavailable" ? <p className="hint">此项目当前不可互动。</p> : null}
-      <VersionRecommendation
-        interaction={interaction}
-        ready={interactionStatus === "ready"}
-        loggedIn={loggedIn}
-        open={recommendationOpen}
-        onToggleOpen={() => setRecommendationOpen((value) => !value)}
-        projectVersionId={project.publishedVersionId}
-        comment={recommendationComment}
-        saving={recommendationSaving}
-        status={recommendationStatus}
-        error={recommendationError}
-        onCommentChange={(value) => {
-          setRecommendationComment(value);
-          setRecommendationStatus(null);
-          setRecommendationError(null);
-        }}
-        onSave={saveRecommendation}
-      />
+      {loggedIn && interactionStatus === "ready" && !recommendationOpen && interaction?.recommendation ? (
+        <p className="rail-rec-preview">{interaction.recommendation.comment || "已推荐当前版本（未填写说明）"}</p>
+      ) : null}
+      {loggedIn && interactionStatus === "ready" && recommendationOpen ? (
+        <VersionRecommendation
+          interaction={interaction}
+          projectVersionId={project.publishedVersionId}
+          comment={recommendationComment}
+          saving={recommendationSaving}
+          status={recommendationStatus}
+          error={recommendationError}
+          onCommentChange={(value) => {
+            setRecommendationComment(value);
+            setRecommendationStatus(null);
+            setRecommendationError(null);
+          }}
+          onSave={saveRecommendation}
+        />
+      ) : null}
     </section>
   );
 }
 
 function VersionRecommendation({
   interaction,
-  ready,
-  loggedIn,
-  open,
-  onToggleOpen,
   projectVersionId,
   comment,
   saving,
@@ -233,10 +245,6 @@ function VersionRecommendation({
   onSave,
 }: {
   interaction: Interaction | null;
-  ready: boolean;
-  loggedIn: boolean;
-  open: boolean;
-  onToggleOpen: () => void;
   projectVersionId: string | null | undefined;
   comment: string;
   saving: boolean;
@@ -248,63 +256,36 @@ function VersionRecommendation({
   const hasRec = Boolean(interaction?.recommendation);
   return (
     <section className="rating-block" aria-label="版本推荐">
-      <div className="rating-block-head">
-        <h4>推荐当前版本</h4>
-        {loggedIn && ready ? (
-          <button type="button" className="rail-toggle-btn" aria-expanded={open} onClick={onToggleOpen}>
-            <MessageSquarePlus aria-hidden="true" />
-            <span>{open ? "收起" : hasRec ? "编辑推荐语" : "写推荐语"}</span>
+      <h4>推荐当前版本</h4>
+      {!interaction?.recommendationEligible ? <p className="hint">订阅作品后即可推荐当前版本。</p> : null}
+      <label className="rating-comment">
+        <span>公开推荐说明（可选）</span>
+        <textarea
+          rows={2}
+          maxLength={2000}
+          placeholder="写一句游玩感受或推荐理由（公开展示）"
+          value={comment}
+          disabled={!interaction?.recommendationEligible || saving}
+          onChange={(event) => onCommentChange(event.target.value)}
+        />
+      </label>
+      <div className="actions">
+        <button
+          type="button"
+          className="primary"
+          disabled={!interaction?.recommendationEligible || saving || !projectVersionId}
+          onClick={() => onSave(false)}
+        >
+          {saving ? "处理中…" : hasRec ? "更新当前版本推荐" : "推荐当前版本"}
+        </button>
+        {hasRec ? (
+          <button type="button" disabled={saving} onClick={() => onSave(true)}>
+            撤回当前版本推荐
           </button>
         ) : null}
       </div>
-      {!loggedIn ? (
-        <p className="hint">登录并订阅后可向其他玩家安利当前版本。</p>
-      ) : ready ? (
-        open ? (
-          <>
-            {!interaction?.recommendationEligible ? <p className="hint">订阅作品后即可推荐当前版本。</p> : null}
-            <label className="rating-comment">
-              <span>公开推荐说明（可选）</span>
-              <textarea
-                rows={2}
-                maxLength={2000}
-                placeholder="写一句游玩感受或推荐理由（公开展示）"
-                value={comment}
-                disabled={!interaction?.recommendationEligible || saving}
-                onChange={(event) => onCommentChange(event.target.value)}
-              />
-            </label>
-            <div className="actions">
-              <button
-                type="button"
-                className="primary"
-                disabled={!interaction?.recommendationEligible || saving || !projectVersionId}
-                onClick={() => onSave(false)}
-              >
-                {saving ? "处理中…" : hasRec ? "更新当前版本推荐" : "推荐当前版本"}
-              </button>
-              {hasRec ? (
-                <button type="button" disabled={saving} onClick={() => onSave(true)}>
-                  撤回当前版本推荐
-                </button>
-              ) : null}
-            </div>
-            {status ? <p role="status">{status}</p> : null}
-            {error ? <p role="alert">{error}</p> : null}
-          </>
-        ) : (
-          <>
-            {hasRec ? (
-              <p className="rail-rec-preview">
-                {interaction?.recommendation?.comment || "已推荐当前版本（未填写说明）"}
-              </p>
-            ) : !interaction?.recommendationEligible ? (
-              <p className="hint">订阅作品后即可推荐当前版本。</p>
-            ) : null}
-            {status ? <p role="status">{status}</p> : null}
-          </>
-        )
-      ) : null}
+      {status ? <p role="status">{status}</p> : null}
+      {error ? <p role="alert">{error}</p> : null}
     </section>
   );
 }

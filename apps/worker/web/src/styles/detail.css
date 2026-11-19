@@ -899,43 +899,11 @@ button.detail-badge:hover {
   border-top: 1px solid var(--border);
 }
 
-.rating-block-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--detail-space-xs);
-}
-
 .rating-block h4 {
   margin: 0;
   color: var(--text);
   font-size: 13px;
   font-weight: 600;
-}
-
-.rail-toggle-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 28px;
-  padding: 3px 9px;
-  border: 1px solid var(--border-strong);
-  border-radius: 5px;
-  background: var(--surface-raised);
-  color: var(--text);
-  font-size: 12px;
-  line-height: 1;
-}
-
-.rail-toggle-btn:hover {
-  border-color: rgba(207, 169, 110, 0.48);
-  color: var(--accent-strong);
-}
-
-.rail-toggle-btn svg {
-  width: 13px;
-  height: 13px;
-  flex: none;
 }
 
 .rail-rec-preview {
