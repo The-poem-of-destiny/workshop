@@ -15,18 +15,17 @@ Read the relevant skill before starting work; do not rely on memory of it.
 ## Canonical refs
 
 - `origin/main` is the integration branch and the base for all work.
-- `work` is the daily working branch. Start or rebase it from refreshed `origin/main`.
 - `archive/release-*` branches are frozen historical refs. Do not build, merge or deploy from them.
-- Task branches are optional and short-lived: `fix/*`, `feature/*`, `chore/*`. Integrate into `main`, then delete.
+- Use a short-lived branch per task: `fix/*`, `feature/*`, or `chore/*`.
 - Tags are immutable release markers. Never move or re-push an existing tag.
 
-Work starts from refreshed `origin/main`, never from the local worktree HEAD alone.
+Keep the primary checkout on `main` and update it by fast-forward only. Use it for integration and inspection, not task edits.
 
-Create new task checkouts only under this repository's `worktrees/<task>/` directory. Do not create sibling `../workshop-*` checkouts among other user projects. This convention does not authorize moving or deleting existing checkouts.
+Create task checkouts from refreshed `origin/main`, under the primary checkout's `worktrees/<task>/` directory. From the primary checkout: `git fetch origin main && git worktree add --no-track -b <branch> worktrees/<task> origin/main`. Continue all edits and checks inside that task checkout. Do not create sibling checkouts or move existing checkouts without authorization. For machine-local rules, read `AGENTS.local.md` from the primary checkout (the first entry in `git worktree list`); do not copy credentials into task checkouts.
 
 ## PR rules
 
-- Do not commit directly to `main`; integrate through a PR from `work`.
+- Do not commit directly to `main`; integrate through a PR from the task branch.
 - Batch related code, tests, config and docs into one PR.
 - Do not open a PR for docs, comments or small config alone; fold them into the next change.
 - Run `pnpm check` and the relevant E2E tests before opening; report what actually ran.
