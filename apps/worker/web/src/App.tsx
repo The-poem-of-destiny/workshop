@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
-import type { ProjectSummary } from "./api";
+import { ApiError, type ProjectSummary } from "./api";
 import { InstallDialog } from "./features/installed/InstallDialog";
 import { DiscordLinkPrompt, type DiscordPromptTarget } from "./features/policy/DiscordLinkPrompt";
 import { PolicyGateDialog } from "./features/policy/PolicyGateDialog";
@@ -21,6 +21,15 @@ import { WorkshopHeader } from "./WorkshopHeader";
 import { WorkshopMessages } from "./WorkshopMessages";
 import { WorkshopSidebar } from "./WorkshopSidebar";
 import { WorkshopWorkspaces } from "./WorkshopWorkspaces";
+
+function MaintenanceNotice() {
+  return (
+    <main role="status">
+      <h1>工坊维护中</h1>
+      <p>请稍后刷新页面再试。</p>
+    </main>
+  );
+}
 
 export function App() {
   const home = useWorkshopHome();
@@ -154,6 +163,15 @@ export function App() {
     apply();
     setSelected(null);
   };
+
+  if (
+    home.status === "error" &&
+    home.error instanceof ApiError &&
+    home.error.status === 503 &&
+    home.error.code === "maintenance"
+  ) {
+    return <MaintenanceNotice />;
+  }
 
   return (
     <div className={`shell${embedded ? " embedded" : ""}${me ? " authenticated" : ""}`}>

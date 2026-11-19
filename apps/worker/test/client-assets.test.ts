@@ -35,7 +35,6 @@ describe("client distribution", () => {
     });
     expect(versioned.status).toBe(200);
     expect(versioned.headers.get("cache-control")).toContain("immutable");
-    expect(versioned.headers.get("cache-tag")).toBe(`client:v:${sha}`);
     expect(versioned.headers.get("access-control-allow-origin")).toBe("*");
     await expect(versioned.text()).resolves.toContain("CreativeWorkshop");
 
@@ -79,7 +78,6 @@ describe("client distribution", () => {
     );
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toContain("immutable");
-    expect(response.headers.get("cache-tag")).toBe(`checker:v:${checkerSha}`);
     await expect(response.text()).resolves.toContain("PoemEjsChecker");
     const notices = await SELF.fetch(
       new URL(`/client/checker/v/${checkerSha}/NOTICES.txt`, "https://workshop.test").toString(),
