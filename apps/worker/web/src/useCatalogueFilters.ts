@@ -90,7 +90,7 @@ export function useCatalogueFilters(): CatalogueFilters {
   const [author, setAuthorState] = useState<{ id: string; name: string } | null>(null);
   const [collection, setCollectionState] = useState<{ id: string; title: string } | null>(null);
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<(typeof SORTS)[number][0]>("published");
+  const [sort, setSort] = useState<CatalogueSort>("updated");
 
   function setAuthor(value: { id: string; name: string } | null): void {
     setAuthorState(value);
