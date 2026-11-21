@@ -57,7 +57,7 @@ export function useCatalogue({
   const pageCursor = pageCursors[pageIndex];
   const defaultQuery =
     !search.trim() &&
-    sort === "published" &&
+    sort === "updated" &&
     effectivePeriod === "all" &&
     projectTypes.length === 0 &&
     !includeContained &&

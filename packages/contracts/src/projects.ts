@@ -163,7 +163,7 @@ export type ProjectListQuery = z.infer<typeof projectListQuerySchema>;
 export const projectListResponseSchema = z.object({
   items: z.array(projectSummarySchema),
   nextCursor: z.string().nullable(),
-  // Count of the complete filtered set, independent of the current keyset cursor.
+  // Exact on the first page; subsequent pages carry the first page's count.
   total: z.number().int().nonnegative(),
 });
 
