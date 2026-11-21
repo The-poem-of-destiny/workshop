@@ -78,8 +78,10 @@ const SELECT_PROJECT = `
         FROM assets g WHERE g.project_id = p.id AND g.version_id IS NULL AND g.kind IN ('gallery_1','gallery_2')
       ),
       '[]'
-    ) AS gallery
-  FROM projects p
+    ) AS gallery`;
+
+const PROJECT_SOURCE = "projects p";
+const PROJECT_JOINS = `
   JOIN users u ON u.id = p.author_id
   JOIN project_versions r ON r.id = p.published_version_id
 `;
@@ -174,6 +176,7 @@ interface CatalogCursor {
   asOf: string;
   value: string | number;
   id: string;
+  total: number;
 }
 
 function cursorScope(query: ProjectListQuery): Promise<string> {
@@ -208,6 +211,9 @@ function decodeCursor(cursor: string | undefined, query: ProjectListQuery, scope
       typeof parsed.asOf === "string" &&
       Number.isFinite(Date.parse(parsed.asOf)) &&
       new Date(parsed.asOf).toISOString() === parsed.asOf &&
+      typeof parsed.total === "number" &&
+      Number.isSafeInteger(parsed.total) &&
+      parsed.total >= 0 &&
       (numeric ? typeof parsed.value === "number" && Number.isFinite(parsed.value) : typeof parsed.value === "string")
     ) {
       return parsed as CatalogCursor;
@@ -237,25 +243,18 @@ function sortValue(row: ProjectRow, sort: ProjectListQuery["sort"], periodic: bo
   return row.updated_at;
 }
 
-function searchPredicate(search: string): { sql: string; values: unknown[] } {
+function searchSource(search: string): { from: string; match: string } {
   const trimmed = search.trim();
   const chars = Array.from(trimmed);
-  if (chars.length <= 2) {
-    // The short index stores one token per character, separated by spaces.
-    // A quoted phrase keeps character order and makes FTS operators inert.
-    const phrase = chars.map((char) => `"${char.replaceAll('"', '""')}"`).join(" ");
-    return {
-      sql: "p.rowid IN (SELECT rowid FROM project_search_short WHERE project_search_short MATCH ?)",
-      values: [phrase],
-    };
-  }
+  const quote = (text: string) => `"${text.replaceAll('"', '""')}"`;
+  const short = chars.length <= 2;
+  const table = short ? "project_search_short" : "project_search";
+  // CROSS JOIN keeps the FTS hits outermost, avoiding a catalogue scan for rare terms.
   return {
-    sql: "p.rowid IN (SELECT rowid FROM project_search WHERE project_search MATCH ?)",
-    values: [`"${trimmed.replaceAll('"', '""')}"`],
+    from: `(SELECT rowid FROM ${table} WHERE ${table} MATCH ?) hits CROSS JOIN projects p ON p.rowid = hits.rowid`,
+    match: short ? chars.map(quote).join(" ") : quote(trimmed),
   };
 }
-
-// Each page is a bounded keyset query plus an exact count of the same filters.
 
 export async function listPublishedProjects(
   db: D1Database,
@@ -269,7 +268,9 @@ export async function listPublishedProjects(
   const period = query.period ?? "30d";
   const periodic = period !== "all" && (query.sort === "likes" || query.sort === "downloads");
   const where = [PUBLIC_PROJECT];
-  const bindings: unknown[] = [];
+  const search = query.search ? searchSource(query.search) : null;
+  const from = `FROM ${search?.from ?? PROJECT_SOURCE} ${PROJECT_JOINS}`;
+  const bindings: unknown[] = search ? [search.match] : [];
 
   if (query.projectType.length > 0) {
     const placeholders = query.projectType.map(() => "?").join(", ");
@@ -310,14 +311,10 @@ export async function listPublishedProjects(
     );
     bindings.push(...tags);
   }
-  if (query.search) {
-    const predicate = searchPredicate(query.search);
-    where.push(predicate.sql);
-    bindings.push(...predicate.values);
-  }
 
-  const filterSql = where.join(" AND ");
-  const filterBindings = [...bindings];
+  const count = cursor
+    ? null
+    : db.prepare(`SELECT COUNT(*) AS total ${from} WHERE ${where.join(" AND ")}`).bind(...bindings);
   let prefix = "";
   let metricJoin = "";
   const metricBindings: unknown[] = [];
@@ -337,38 +334,38 @@ export async function listPublishedProjects(
     bindings.push(cursor.value, cursor.value, cursor.id);
   }
   const select = periodic ? SELECT_PERIOD_PROJECT : SELECT_PROJECT;
-  const results = await db.batch([
-    db
-      .prepare(`SELECT COUNT(*) AS total FROM projects p
-      JOIN users u ON u.id = p.author_id
-      JOIN project_versions r ON r.id = p.published_version_id WHERE ${filterSql}`)
-      .bind(...filterBindings),
-    db
-      .prepare(`${prefix}${select}${metricJoin} WHERE ${where.join(" AND ")}
+  const page = db
+    .prepare(`${prefix}${select} ${from} ${metricJoin} WHERE ${where.join(" AND ")}
       ORDER BY ${column} DESC, p.id DESC LIMIT ?`)
-      .bind(...metricBindings, ...bindings, query.limit + 1),
-  ]);
-  const count = results[0]!;
-  const result = results[1]!;
+    .bind(...metricBindings, ...bindings, query.limit + 1);
+  // Keep the first page and its exact count in the same D1 batch.
+  const results = count ? await db.batch([page, count]) : [await page.all()];
+  const result = results[0]!;
+  const countResult = results[1];
   onMeta?.({
-    rows_read: count.meta.rows_read + result.meta.rows_read,
-    rows_written: count.meta.rows_written + result.meta.rows_written,
+    rows_read: result.meta.rows_read + (countResult?.meta.rows_read ?? 0),
+    rows_written: result.meta.rows_written + (countResult?.meta.rows_written ?? 0),
   });
   const rows = (result.results as unknown as ProjectRow[]).slice(0, query.limit);
   const hasMore = result.results.length > query.limit;
   const last = rows.at(-1);
-  const totalRow = count.results[0] as { total?: unknown } | undefined;
-  if (!totalRow || typeof totalRow.total !== "number") throw new Error("Invalid catalog count");
+  const total = cursor?.total ?? (countResult?.results[0] as { total?: unknown } | undefined)?.total;
+  if (typeof total !== "number") throw new Error("Invalid catalog count");
   return projectListResponseSchema.parse({
     items: rows.map(toSummary),
-    total: totalRow.total,
+    total,
     nextCursor:
-      hasMore && last ? encodeCursor({ scope, asOf, value: sortValue(last, query.sort, periodic), id: last.id }) : null,
+      hasMore && last
+        ? encodeCursor({ scope, asOf, value: sortValue(last, query.sort, periodic), id: last.id, total })
+        : null,
   });
 }
 
 export async function getPublishedProject(db: D1Database, id: string) {
-  const row = await db.prepare(`${SELECT_PROJECT} WHERE p.id = ? AND ${PUBLIC_PROJECT}`).bind(id).first<ProjectRow>();
+  const row = await db
+    .prepare(`${SELECT_PROJECT} FROM ${PROJECT_SOURCE} ${PROJECT_JOINS} WHERE p.id = ? AND ${PUBLIC_PROJECT}`)
+    .bind(id)
+    .first<ProjectRow>();
   if (!row) return null;
   const collections = await listPublicCollectionsForProject(db, row.id);
   return projectDetailSchema.parse(toDetail(row, collections));
@@ -378,7 +375,9 @@ export async function getPublishedProjectsByIds(db: D1Database, ids: string[]) {
   if (ids.length === 0) return new Map<string, ProjectSummary>();
   const placeholders = ids.map(() => "?").join(", ");
   const result = await db
-    .prepare(`${SELECT_PROJECT} WHERE p.id IN (${placeholders}) AND ${PUBLIC_PROJECT}`)
+    .prepare(
+      `${SELECT_PROJECT} FROM ${PROJECT_SOURCE} ${PROJECT_JOINS} WHERE p.id IN (${placeholders}) AND ${PUBLIC_PROJECT}`,
+    )
     .bind(...ids)
     .all<ProjectRow>();
   return new Map(result.results.map((row) => [row.id, toSummary(row)]));

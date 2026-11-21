@@ -243,8 +243,8 @@ describe("catalog net windows on real D1", () => {
     });
   }
 
-  it("filters the complete result, reports exact totals on every page and binds cursors to query scope", async () => {
-    for (const id of ["a", "b", "c", "d", "e"]) await project(id);
+  it("keeps the first-page count while filtering current rows on scoped continuation pages", async () => {
+    for (const id of ["a", "b", "c", "d", "e", "f"]) await project(id);
     await project("other-type", "内容扩展");
     await project("other-tag", "角色", '["科幻"]');
     await event("a", 1, asOf);
@@ -261,8 +261,8 @@ describe("catalog net windows on real D1", () => {
       authorId: "u",
     });
     const first = await listPublishedProjects(bindings.DB, query);
-    expect(first.total).toBe(5);
-    expect(first.items.map((item) => item.id)).toEqual(["a", "e"]);
+    expect(first.total).toBe(6);
+    expect(first.items.map((item) => item.id)).toEqual(["a", "f"]);
     expect(first.nextCursor).not.toBeNull();
     for (const change of [
       { sort: "downloads" as const },
@@ -279,6 +279,8 @@ describe("catalog net windows on real D1", () => {
         ),
       ).toBe(false);
     }
+    await bindings.DB.prepare("UPDATE projects SET visibility = 'private' WHERE id = 'e'").run();
+    expect((await listPublishedProjects(bindings.DB, query)).total).toBe(5);
     const second = await listPublishedProjects(
       bindings.DB,
       projectListQuerySchema.parse({ ...query, cursor: first.nextCursor! }),
@@ -287,8 +289,8 @@ describe("catalog net windows on real D1", () => {
       bindings.DB,
       projectListQuerySchema.parse({ ...query, cursor: second.nextCursor! }),
     );
-    expect([second.total, third.total]).toEqual([5, 5]);
-    expect([...first.items, ...second.items, ...third.items].map((item) => item.id)).toEqual(["a", "e", "d", "b", "c"]);
+    expect([second.total, third.total]).toEqual([6, 6]);
+    expect([...first.items, ...second.items, ...third.items].map((item) => item.id)).toEqual(["a", "f", "d", "b", "c"]);
     expect(third.nextCursor).toBeNull();
     expect(
       (await listPublishedProjects(bindings.DB, projectListQuerySchema.parse({ ...query, tag: "不存在" }))).total,
