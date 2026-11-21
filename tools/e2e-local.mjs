@@ -953,8 +953,6 @@ async function main() {
           const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
           observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
-          await page.getByRole("searchbox", { name: "搜索" }).fill("E2E");
-          await page.locator(".card", { hasText: "E2E Sort" }).first().waitFor({ state: "visible", timeout: 10_000 });
           const sortRequest = (value) =>
             page.waitForResponse((response) => {
               const url = new URL(response.url());
@@ -967,7 +965,11 @@ async function main() {
             ["downloads", "下载", (item) => item.counts.downloads],
             ["likes", "点赞", (item) => item.counts.likes],
           ]) {
-            const [response] = await Promise.all([sortRequest(sort), sortButton(label).click()]);
+            const apply = () =>
+              sort === "updated"
+                ? page.getByRole("searchbox", { name: "搜索" }).fill("E2E")
+                : sortButton(label).click();
+            const [response] = await Promise.all([sortRequest(sort), apply()]);
             assert(response.ok(), `${sort} sort ${response.status()}`);
             const result = await response.json();
             assert(result.items.length === 2, `${sort} keeps both matching public projects`);
