@@ -19,12 +19,12 @@ export async function recordAcquisition(
   db: D1Database,
   session: AuthenticatedSession,
   projectId: string,
-  versionId: string,
+  versionId: string | null,
   acquisitionId: string,
-): Promise<"ok" | "not_found" | "rate_limited"> {
+): Promise<"ok" | "conflict" | "not_found" | "rate_limited"> {
   const now = new Date().toISOString();
   const day = now.slice(0, 10);
-  const result = await db
+  const insert = db
     .prepare(`
     INSERT INTO download_daily_stats(user_id,project_id,project_version_id,day_key,count,first_downloaded_at,last_downloaded_at,acquisition_ids)
     SELECT ?,p.id,?,?,1,?,?,json_array(?) FROM projects p
@@ -55,23 +55,31 @@ export async function recordAcquisition(
       session.sessionVersion,
       now,
       acquisitionId,
-    )
-    .run();
-  if ((result.meta.changes ?? 0) > 0) return "ok";
+    );
+  if (versionId !== null && ((await insert.run()).meta.changes ?? 0) > 0) return "ok";
   const replay = await db
-    .prepare(`SELECT 1 AS found FROM download_daily_stats d, json_each(d.acquisition_ids) ids
+    .prepare(`SELECT d.project_version_id AS version_id,
+    CASE WHEN p.deleted_at IS NULL AND p.published_version_id = d.project_version_id
+      AND (p.visibility = 'public' OR p.author_id = u.id OR u.role IN ('reviewer','owner'))
+      THEN 1 ELSE 0 END AS available
+    FROM download_daily_stats d, json_each(d.acquisition_ids) ids
     JOIN projects p ON p.id = d.project_id JOIN users u ON u.id = d.user_id
     JOIN sessions s ON s.user_id = u.id AND s.token_hash = ?
     WHERE d.user_id = ? AND d.project_id = ? AND ids.value = ?
-      AND p.deleted_at IS NULL AND p.published_version_id = ?
-      AND (p.visibility = 'public' OR p.author_id = u.id OR u.role IN ('reviewer','owner'))
       AND s.revoked_at IS NULL AND s.session_version = ? AND s.expires_at > ?`)
-    .bind(session.tokenHash, session.userId, projectId, acquisitionId, versionId, session.sessionVersion, now)
+    .bind(session.tokenHash, session.userId, projectId, acquisitionId, session.sessionVersion, now)
+    .first<{ version_id: string; available: number }>();
+  if (replay) return replay.available && replay.version_id === versionId ? "ok" : "conflict";
+  if (versionId === null) return "not_found";
+  const quota = await db
+    .prepare(`SELECT 1 FROM download_daily_stats d
+      JOIN projects p ON p.id = d.project_id JOIN users u ON u.id = d.user_id
+      JOIN sessions s ON s.user_id = u.id AND s.token_hash = ?
+      WHERE d.user_id = ? AND d.project_id = ? AND d.project_version_id = ? AND d.day_key = ? AND d.count >= 128
+        AND p.deleted_at IS NULL AND p.published_version_id = d.project_version_id
+        AND (p.visibility = 'public' OR p.author_id = u.id OR u.role IN ('reviewer','owner'))
+        AND s.revoked_at IS NULL AND s.session_version = ? AND s.expires_at > ?`)
+    .bind(session.tokenHash, session.userId, projectId, versionId, day, session.sessionVersion, now)
     .first();
-  if (replay) return "ok";
-  const row = await db
-    .prepare(`SELECT count FROM download_daily_stats WHERE user_id = ? AND project_version_id = ? AND day_key = ?`)
-    .bind(session.userId, versionId, day)
-    .first<{ count: number }>();
-  return row ? "rate_limited" : "not_found";
+  return quota ? "rate_limited" : "not_found";
 }

@@ -1,5 +1,5 @@
 import type { ProjectPreviewTarget } from "./data/contracts";
-import { canonicalPublicRequest } from "./http/public-cache";
+import { PUBLIC_READ_PATH, type PublicRead } from "./http/public-cache";
 
 type LoopbackContext = { exports?: Cloudflare.Exports };
 
@@ -12,24 +12,10 @@ export function dataClient(context: LoopbackContext) {
   return loopback(context).DataService;
 }
 
-export function fetchPublic(context: LoopbackContext, request: Request): Promise<Response> {
-  const canonical = canonicalPublicRequest(request);
-  if (canonical.kind !== "public") {
-    return Promise.resolve(
-      Response.json(
-        { error: { code: "bad_request", message: "Invalid public query" } },
-        {
-          status: 400,
-          headers: { "cache-control": "private, no-store" },
-        },
-      ),
-    );
-  }
-  const url = new URL(canonical.request.url);
-  url.pathname = `/public/v1${url.pathname}`;
+export function fetchPublic(context: LoopbackContext, method: string, read: PublicRead): Promise<Response> {
   return loopback(context)
-    .CachedReads({ props: { kind: "public" } })
-    .fetch(new Request(url, { method: canonical.request.method }));
+    .CachedReads({ props: { kind: "public", read } })
+    .fetch(new Request(`https://public.workshop.invalid${PUBLIC_READ_PATH}`, { method }));
 }
 
 export function fetchProjectPreview(context: LoopbackContext, target: ProjectPreviewTarget): Promise<Response> {

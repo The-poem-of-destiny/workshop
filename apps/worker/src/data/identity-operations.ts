@@ -146,7 +146,10 @@ export async function identityMe(env: DataEnv, token: string, operation: Identit
       return items ? { ok: true as const, data: { items } } : { ok: false as const, error: "not_found" as const };
     }
     case "subscriptions":
-      return { ok: true as const, data: { items: await interactions.listSubscribedProjects(env.DB, session.userId) } };
+      return {
+        ok: true as const,
+        data: { items: await interactions.listSubscribedProjects(env.DB, session.userId, env.PUBLIC_ASSETS_BASE_URL) },
+      };
     case "state":
       if (operation.ids.length > 50) return { ok: false as const, error: "too_many_ids" as const };
       return { ok: true as const, data: await interactions.getInteractionState(env.DB, session.userId, operation.ids) };

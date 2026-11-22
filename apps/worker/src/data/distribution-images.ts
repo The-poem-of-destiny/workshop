@@ -1,9 +1,14 @@
 import { fetchImmutableObject } from "../data-client.js";
+import { bannerSourceKey } from "../storage/home";
 import { getSessionByToken } from "../storage/sessions.js";
 import type { DataEnv } from "./env.js";
 
-async function privateImageHash(request: Request, env: DataEnv, key: string, gallery: boolean): Promise<string | null> {
-  const authorization = request.headers.get("authorization");
+async function privateImageHash(
+  authorization: string | null,
+  env: DataEnv,
+  key: string,
+  gallery: boolean,
+): Promise<string | null> {
   const session = authorization?.startsWith("Bearer ")
     ? await getSessionByToken(env.DB, authorization.slice(7), env.SESSION_HASH_SECRET)
     : null;
@@ -26,17 +31,30 @@ async function registeredBanner(env: DataEnv): Promise<string | null> {
   try {
     const parsed = row ? (JSON.parse(row.value) as { imageUrl?: unknown }) : null;
     if (typeof parsed?.imageUrl !== "string") return null;
-    const path = parsed.imageUrl.startsWith("http") ? new URL(parsed.imageUrl).pathname : parsed.imageUrl;
-    return path.replace(/^\/api\/v1\/(?:public-assets|assets)\//, "");
+    return bannerSourceKey(parsed.imageUrl, env.PUBLIC_ORIGIN);
   } catch {
     return null;
   }
 }
 
-export async function distributionImage(request: Request, env: DataEnv, context?: ExecutionContext): Promise<Response> {
+export function distributionImage(request: Request, env: DataEnv, context: ExecutionContext): Promise<Response> {
   const pathname = new URL(request.url).pathname;
   const publicOnly = pathname.startsWith("/api/v1/public-assets/");
   const key = pathname.replace(/^\/api\/v1\/(?:public-assets|assets)\//, "");
+  return readImage(key, env, publicOnly, publicOnly ? null : request.headers.get("authorization"), context);
+}
+
+export function readPublicImage(key: string, env: DataEnv): Promise<Response> {
+  return readImage(key, env, true, null);
+}
+
+async function readImage(
+  key: string,
+  env: DataEnv,
+  publicOnly: boolean,
+  authorization: string | null,
+  context?: ExecutionContext,
+): Promise<Response> {
   const missing = () =>
     Response.json(
       { error: { code: "not_found", message: "Asset not found" } },
@@ -60,7 +78,7 @@ export async function distributionImage(request: Request, env: DataEnv, context?
     const publicAssociation = await env.DB.prepare(publicSql).bind(key).first<{ sha256: string }>();
     if (!publicAssociation) {
       if (publicOnly) return missing();
-      sha256 = await privateImageHash(request, env, key, gallery);
+      sha256 = await privateImageHash(authorization, env, key, gallery);
       if (sha256 === null) return missing();
     } else {
       sha256 = publicAssociation.sha256;

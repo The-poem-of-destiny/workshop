@@ -36,6 +36,7 @@ interface ProjectRow {
   cover_zoom: number;
   discord_thread_url: string | null;
   cover_key: string | null;
+  public_cover_key: string | null;
   published_version_id: string | null;
   gallery: string;
   catalog_score?: number;
@@ -72,10 +73,18 @@ const SELECT_PROJECT = `
         LIMIT 1
       )
     ) AS cover_key,
+    (SELECT c.object_key FROM public_cover_replicas c WHERE c.project_id = p.id AND c.phase = 'ready') AS public_cover_key,
     COALESCE(
       (
-        SELECT json_group_array(json_object('slot', CASE g.kind WHEN 'gallery_1' THEN 0 ELSE 1 END, 'url', '/api/v1/public-assets/' || g.r2_key))
-        FROM assets g WHERE g.project_id = p.id AND g.version_id IS NULL AND g.kind IN ('gallery_1','gallery_2')
+        SELECT json_group_array(json_object(
+          'slot', CASE g.kind WHEN 'gallery_1' THEN 0 ELSE 1 END,
+          'key', g.r2_key,
+          'publicKey', replica.object_key
+        ) ORDER BY g.kind)
+        FROM assets g
+        LEFT JOIN public_gallery_replicas replica ON replica.project_id = g.project_id
+          AND replica.kind = g.kind AND replica.asset_id = g.id AND replica.phase = 'ready'
+        WHERE g.project_id = p.id AND g.version_id IS NULL AND g.kind IN ('gallery_1','gallery_2')
       ),
       '[]'
     ) AS gallery`;
@@ -102,18 +111,23 @@ function parseTags(value: string): string[] {
     return [];
   }
 }
-function parseGallery(value: string): Array<{ slot: number; url: string }> {
+function publicImageUrl(key: string, publicKey: string | null, baseUrl?: string): string {
+  return baseUrl && publicKey ? `${baseUrl.replace(/\/$/, "")}/${publicKey}` : `/api/v1/public-assets/${key}`;
+}
+
+function parseGallery(value: string, baseUrl?: string): ProjectSummary["gallery"] {
   try {
     const parsed: unknown = JSON.parse(value);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (item): item is { slot: number; url: string } =>
-        typeof item === "object" &&
-        item !== null &&
-        "slot" in item &&
-        typeof item.slot === "number" &&
-        "url" in item &&
-        typeof item.url === "string",
+    return parsed.flatMap((item) =>
+      typeof item === "object" && item !== null && typeof item.slot === "number" && typeof item.key === "string"
+        ? [
+            {
+              slot: item.slot,
+              url: publicImageUrl(item.key, typeof item.publicKey === "string" ? item.publicKey : null, baseUrl),
+            },
+          ]
+        : [],
     );
   } catch {
     return [];
@@ -125,7 +139,7 @@ function avatarUrl(userId: string, avatar: string | null): string | null {
   return `https://cdn.discordapp.com/avatars/${userId}/${avatar}.png`;
 }
 
-function toSummary(row: ProjectRow): ProjectSummary {
+function toSummary(row: ProjectRow, publicAssetsBaseUrl?: string): ProjectSummary {
   return {
     id: row.id,
     title: row.title,
@@ -153,8 +167,8 @@ function toSummary(row: ProjectRow): ProjectSummary {
       likes: row.likes_count,
       subscriptions: row.subscriptions_count,
     },
-    coverUrl: row.cover_key ? `/api/v1/public-assets/${row.cover_key}` : null,
-    gallery: parseGallery(row.gallery),
+    coverUrl: row.cover_key ? publicImageUrl(row.cover_key, row.public_cover_key, publicAssetsBaseUrl) : null,
+    gallery: parseGallery(row.gallery, publicAssetsBaseUrl),
     visibility: row.visibility,
     publishedAt: row.published_at,
     updatedAt: row.updated_at,
@@ -162,9 +176,13 @@ function toSummary(row: ProjectRow): ProjectSummary {
   };
 }
 
-function toDetail(row: ProjectRow, collections: ProjectDetail["collections"]): ProjectDetail {
+function toDetail(
+  row: ProjectRow,
+  collections: ProjectDetail["collections"],
+  publicAssetsBaseUrl?: string,
+): ProjectDetail {
   return {
-    ...toSummary(row),
+    ...toSummary(row, publicAssetsBaseUrl),
     requirements: parseRequirements(row.requirements),
     discordThreadUrl: row.discord_thread_url,
     collections,
@@ -259,6 +277,7 @@ function searchSource(search: string): { from: string; match: string } {
 export async function listPublishedProjects(
   db: D1Database,
   query: ProjectListQuery,
+  publicAssetsBaseUrl?: string,
   onMeta?: (meta: { rows_read: number; rows_written: number }) => void,
 ) {
   const scope = await cursorScope(query);
@@ -315,18 +334,15 @@ export async function listPublishedProjects(
   const count = cursor
     ? null
     : db.prepare(`SELECT COUNT(*) AS total ${from} WHERE ${where.join(" AND ")}`).bind(...bindings);
-  let prefix = "";
   let metricJoin = "";
-  const metricBindings: unknown[] = [];
   if (periodic) {
     const days = Number.parseInt(period, 10);
     const end = asOf.slice(0, 10);
     const start = new Date(Date.parse(`${end}T00:00:00.000Z`) - (days - 1) * 86_400_000).toISOString().slice(0, 10);
     const metric = query.sort === "likes" ? "likes_delta" : "downloads";
-    prefix = `WITH metric AS (SELECT project_id, SUM(${metric}) AS score FROM project_metrics_daily
-      WHERE day_key >= ? AND day_key <= ? GROUP BY project_id) `;
-    metricBindings.push(start, end);
-    metricJoin = " LEFT JOIN metric ON metric.project_id = p.id ";
+    metricJoin = `LEFT JOIN (SELECT project_id, SUM(${metric}) AS score FROM project_metrics_daily
+      WHERE day_key >= ? AND day_key <= ? GROUP BY project_id) metric ON metric.project_id = p.id`;
+    bindings.splice(search ? 1 : 0, 0, start, end);
   }
   const column = periodic ? "COALESCE(metric.score, 0)" : SORT_COLUMN[query.sort];
   if (cursor) {
@@ -335,9 +351,9 @@ export async function listPublishedProjects(
   }
   const select = periodic ? SELECT_PERIOD_PROJECT : SELECT_PROJECT;
   const page = db
-    .prepare(`${prefix}${select} ${from} ${metricJoin} WHERE ${where.join(" AND ")}
+    .prepare(`${select} ${from} ${metricJoin} WHERE ${where.join(" AND ")}
       ORDER BY ${column} DESC, p.id DESC LIMIT ?`)
-    .bind(...metricBindings, ...bindings, query.limit + 1);
+    .bind(...bindings, query.limit + 1);
   // Keep the first page and its exact count in the same D1 batch.
   const results = count ? await db.batch([page, count]) : [await page.all()];
   const result = results[0]!;
@@ -352,7 +368,7 @@ export async function listPublishedProjects(
   const total = cursor?.total ?? (countResult?.results[0] as { total?: unknown } | undefined)?.total;
   if (typeof total !== "number") throw new Error("Invalid catalog count");
   return projectListResponseSchema.parse({
-    items: rows.map(toSummary),
+    items: rows.map((row) => toSummary(row, publicAssetsBaseUrl)),
     total,
     nextCursor:
       hasMore && last
@@ -361,17 +377,17 @@ export async function listPublishedProjects(
   });
 }
 
-export async function getPublishedProject(db: D1Database, id: string) {
+export async function getPublishedProject(db: D1Database, id: string, publicAssetsBaseUrl?: string) {
   const row = await db
     .prepare(`${SELECT_PROJECT} FROM ${PROJECT_SOURCE} ${PROJECT_JOINS} WHERE p.id = ? AND ${PUBLIC_PROJECT}`)
     .bind(id)
     .first<ProjectRow>();
   if (!row) return null;
   const collections = await listPublicCollectionsForProject(db, row.id);
-  return projectDetailSchema.parse(toDetail(row, collections));
+  return projectDetailSchema.parse(toDetail(row, collections, publicAssetsBaseUrl));
 }
 
-export async function getPublishedProjectsByIds(db: D1Database, ids: string[]) {
+export async function getPublishedProjectsByIds(db: D1Database, ids: string[], publicAssetsBaseUrl?: string) {
   if (ids.length === 0) return new Map<string, ProjectSummary>();
   const placeholders = ids.map(() => "?").join(", ");
   const result = await db
@@ -380,5 +396,5 @@ export async function getPublishedProjectsByIds(db: D1Database, ids: string[]) {
     )
     .bind(...ids)
     .all<ProjectRow>();
-  return new Map(result.results.map((row) => [row.id, toSummary(row)]));
+  return new Map(result.results.map((row) => [row.id, toSummary(row, publicAssetsBaseUrl)]));
 }

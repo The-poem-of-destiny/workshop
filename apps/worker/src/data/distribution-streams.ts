@@ -1,8 +1,10 @@
 import { WORKSHOP_LIMITS } from "@workshop/domain";
+import { type ClientAsset, clientChannelAsset, versionedClientAsset } from "../http/public-cache";
 import { updateAdminSite } from "../storage/admin-site.js";
-import { getBanner } from "../storage/home.js";
+import { bannerSourceUrl, getBanner, projectBanner, readBannerState } from "../storage/home.js";
 import { getSessionByToken } from "../storage/sessions.js";
 import type { DataEnv } from "./env.js";
+import { replicatePublicBanner, withdrawPublicBanner } from "./public-banner.js";
 import { streamImage, UploadLimitError } from "./streaming-image.js";
 import { type StagedStream, stageStream } from "./streaming-staging.js";
 
@@ -19,6 +21,7 @@ export async function distributionBannerUpload(request: Request, env: DataEnv): 
   if (!["image/png", "image/jpeg", "image/webp"].includes(mime))
     return error(415, "unsupported_media_type", "Unsupported content type");
   if (!request.body) return error(400, "bad_request", "Empty banner");
+  const current = await readBannerState(env.DB);
   const image = streamImage(request.body, WORKSHOP_LIMITS.bannerUploadBytes);
   let staged: StagedStream;
   try {
@@ -45,20 +48,18 @@ export async function distributionBannerUpload(request: Request, env: DataEnv): 
       return error(413, "payload_too_large", "Banner 尺寸不能超过 4096×4096");
     const ext = mime === "image/png" ? "png" : mime === "image/jpeg" ? "jpg" : "webp";
     const key = `banners/${sha256}.${ext}`;
+    const imageUrl = `/api/v1/public-assets/${key}`;
+    const banner = { ...projectBanner(current), imageUrl };
     await staged.copyTo(key, { httpMetadata: { contentType: mime } });
-    const current = await getBanner(env.DB);
-    const banner = {
-      imageUrl: `/api/v1/public-assets/${key}`,
-      positionX: current?.positionX ?? 50,
-      positionY: current?.positionY ?? 50,
-      zoom: current?.zoom ?? 1,
-      mobilePositionX: current?.mobilePositionX ?? 50,
-      mobilePositionY: current?.mobilePositionY ?? 50,
-      mobileZoom: current?.mobileZoom ?? 1,
-    };
-    const result = await updateAdminSite(env.DB, session.userId, banner, undefined);
+    if (
+      (imageUrl !== bannerSourceUrl(current) && !(await withdrawPublicBanner(env, current))) ||
+      !(await updateAdminSite(env.DB, session.userId, { banner, current }, undefined))
+    ) {
+      return error(409, "conflict", "Banner changed or is being updated; refresh and try again");
+    }
+    await replicatePublicBanner(env, imageUrl);
     return Response.json(
-      { banner: result.banner ?? banner },
+      { banner: await getBanner(env.DB, env) },
       { status: 201, headers: { "cache-control": "private, no-store" } },
     );
   } finally {
@@ -66,53 +67,37 @@ export async function distributionBannerUpload(request: Request, env: DataEnv): 
   }
 }
 
-export async function distributionClientAsset(request: Request, env: DataEnv): Promise<Response> {
+function missingClientAsset(checker: boolean): Response {
+  return Response.json(
+    { error: { code: "not_found", message: checker ? "Checker asset not found" : "Client asset not found" } },
+    { status: 404, headers: { "cache-control": "no-store" } },
+  );
+}
+
+export function distributionClientAsset(request: Request, env: DataEnv): Promise<Response> | Response {
   const pathname = new URL(request.url).pathname;
-  const missing = (checker: boolean) =>
-    Response.json(
-      { error: { code: "not_found", message: checker ? "Checker asset not found" : "Client asset not found" } },
-      { status: 404, headers: { "cache-control": "no-store" } },
-    );
-  const checker = /^\/client\/checker\/v\/([a-f0-9]{8,64})\/([^/]+)$/.exec(pathname);
-  const allowed: Record<string, string> = {
-    "browser-checker.js": "text/javascript; charset=utf-8",
-    "upload-checker.mjs": "text/javascript; charset=utf-8",
-    "review-checker.mjs": "text/javascript; charset=utf-8",
-    "manifest.json": "application/json; charset=utf-8",
-    "NOTICES.txt": "text/plain; charset=utf-8",
-  };
-  if (pathname.startsWith("/client/checker/")) {
-    if (!checker || !allowed[checker[2]!]) return missing(true);
-    const object = await env.R2.get(`checker/v/${checker[1]}/${checker[2]}`);
-    if (!object) return missing(true);
-    const headers = new Headers({
-      "content-type": allowed[checker[2]!]!,
-      "cache-control": "public, max-age=31536000, immutable",
-      "access-control-allow-origin": "*",
-      "cross-origin-resource-policy": "cross-origin",
-      "x-content-type-options": "nosniff",
-      etag: object.httpEtag,
-    });
-    if (request.headers.get("if-none-match") === object.httpEtag) {
-      await object.body.cancel();
-      return new Response(null, { status: 304, headers });
-    }
-    return new Response(object.body, { headers });
-  }
-  const path = pathname.replace(/^\/client\/?/, "");
-  const versioned = /^v\/([a-f0-9]{8,64})\/index\.js$/.exec(path);
-  if (!versioned && !/^(stable|staging)\/index\.js$/.test(path)) return missing(false);
-  const object = await env.R2.get(`client/${path}`);
-  if (!object) return missing(false);
+  const asset = versionedClientAsset(pathname) ?? clientChannelAsset(pathname);
+  return asset
+    ? readClientAsset(asset, env, request.headers.get("if-none-match"))
+    : missingClientAsset(pathname.startsWith("/client/checker/"));
+}
+
+export async function readClientAsset(
+  asset: ClientAsset,
+  env: DataEnv,
+  ifNoneMatch?: string | null,
+): Promise<Response> {
+  const object = await env.R2.get(asset.key);
+  if (!object) return missingClientAsset(asset.key.startsWith("checker/"));
   const headers = new Headers({
-    "content-type": "text/javascript; charset=utf-8",
+    "content-type": asset.contentType,
     "access-control-allow-origin": "*",
     "cross-origin-resource-policy": "cross-origin",
     "x-content-type-options": "nosniff",
-    "cache-control": versioned ? "public, max-age=31536000, immutable" : "no-store",
+    "cache-control": asset.immutable ? "public, max-age=31536000, immutable" : "no-store",
     etag: object.httpEtag,
   });
-  if (request.headers.get("if-none-match") === object.httpEtag) {
+  if (ifNoneMatch === object.httpEtag) {
     await object.body.cancel();
     return new Response(null, { status: 304, headers });
   }

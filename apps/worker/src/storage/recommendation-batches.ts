@@ -203,7 +203,7 @@ export async function buildRecommendationBatch(
   }
 }
 
-export async function readRecommendationBatch(db: D1Database, now = Date.now()) {
+export async function readRecommendationBatch(db: D1Database, now = Date.now(), publicAssetsBaseUrl?: string) {
   const iso = new Date(now).toISOString();
   const row = await db
     .prepare(`SELECT b.id,b.scheduled_at,b.display_start_at,b.display_end_at,b.result FROM recommendation_batch_activations a
@@ -225,6 +225,7 @@ export async function readRecommendationBatch(db: D1Database, now = Date.now()) 
   const projects = await getPublishedProjectsByIds(
     db,
     result.items.map((item) => item.project_id),
+    publicAssetsBaseUrl,
   );
   const currentEndorsements = await endorsementSnapshot(
     db,

@@ -2,7 +2,7 @@ import { withWriteBarrier } from "../write-barrier";
 import type { DataEnv } from "./env";
 
 export function guardedStorageEnv(env: DataEnv): DataEnv {
-  const statements = new WeakMap<object, object>();
+  const statements = new WeakMap<object, { target: object; readOnly: boolean }>();
 
   function invoke<T>(target: object, property: PropertyKey, args: unknown[]): T {
     return Reflect.apply(Reflect.get(target, property, target) as (...args: unknown[]) => T, target, args);
@@ -31,7 +31,7 @@ export function guardedStorageEnv(env: DataEnv): DataEnv {
         return value;
       },
     });
-    statements.set(proxy, target);
+    statements.set(proxy, { target, readOnly });
     return proxy;
   }
 
@@ -50,12 +50,15 @@ export function guardedStorageEnv(env: DataEnv): DataEnv {
         }
         if (property === "batch") {
           return (batch: object[]) => {
+            let readOnly = true;
             const unwrapped = batch.map((item) => {
               const original = statements.get(item);
               if (!original) throw new Error("D1 batch contains an unguarded statement");
-              return original;
+              readOnly &&= original.readOnly;
+              return original.target;
             });
-            return guarded("d1.batch", () => invoke<Promise<unknown>>(object, property, [unwrapped]));
+            const execute = () => invoke<Promise<unknown>>(object, property, [unwrapped]);
+            return readOnly ? execute() : guarded("d1.batch", execute);
           };
         }
         if (property === "exec" || property === "dump") {
@@ -86,32 +89,34 @@ export function guardedStorageEnv(env: DataEnv): DataEnv {
     });
   }
 
-  const bucket = new Proxy(env.R2, {
-    get(object, property) {
-      if (property === "put" || property === "delete") {
-        return (...args: unknown[]) =>
-          guarded(`r2.${property}`, () => invoke<Promise<unknown>>(object, property, args));
-      }
-      if (property === "createMultipartUpload") {
-        return (...args: unknown[]) =>
-          guarded("r2.createMultipartUpload", async () =>
-            multipart(await invoke<Promise<object>>(object, property, args)),
-          );
-      }
-      if (property === "resumeMultipartUpload") {
-        return (...args: unknown[]) => multipart(invoke<object>(object, property, args));
-      }
-      if (property === "get" || property === "head" || property === "list") {
-        return (...args: unknown[]) => invoke<unknown>(object, property, args);
-      }
-      const value = Reflect.get(object, property, object);
-      if (typeof value === "function") throw new Error(`Unsupported R2 method: ${String(property)}`);
-      return value;
-    },
-  });
+  const bucket = (target: R2Bucket) =>
+    new Proxy(target, {
+      get(object, property) {
+        if (property === "put" || property === "delete") {
+          return (...args: unknown[]) =>
+            guarded(`r2.${property}`, () => invoke<Promise<unknown>>(object, property, args));
+        }
+        if (property === "createMultipartUpload") {
+          return (...args: unknown[]) =>
+            guarded("r2.createMultipartUpload", async () =>
+              multipart(await invoke<Promise<object>>(object, property, args)),
+            );
+        }
+        if (property === "resumeMultipartUpload") {
+          return (...args: unknown[]) => multipart(invoke<object>(object, property, args));
+        }
+        if (property === "get" || property === "head" || property === "list") {
+          return (...args: unknown[]) => invoke<unknown>(object, property, args);
+        }
+        const value = Reflect.get(object, property, object);
+        if (typeof value === "function") throw new Error(`Unsupported R2 method: ${String(property)}`);
+        return value;
+      },
+    });
 
   return Object.defineProperties(Object.create(env), {
     DB: { value: database(env.DB), enumerable: true },
-    R2: { value: bucket, enumerable: true },
+    R2: { value: bucket(env.R2), enumerable: true },
+    PUBLIC_COVERS: { value: env.PUBLIC_COVERS && bucket(env.PUBLIC_COVERS), enumerable: true },
   });
 }

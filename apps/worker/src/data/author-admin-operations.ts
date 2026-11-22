@@ -29,6 +29,8 @@ import { getSubmissionDiff } from "../storage/diff.js";
 import { deleteGalleryImage, getAuthorGallery } from "../storage/project-gallery.js";
 import { getSessionByToken } from "../storage/sessions.js";
 import type { DataEnv } from "./env.js";
+import { replicatePublicCover, withdrawPublicCover } from "./public-covers";
+import { replicatePublicGallery, withdrawPublicGallery } from "./public-gallery";
 
 async function reviewer(env: DataEnv, authorization: string | undefined, owner = false) {
   const session = authorization?.startsWith("Bearer ")
@@ -118,7 +120,17 @@ export async function authorAdminReview(
 ) {
   const auth = await reviewer(env, authorization);
   if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await reviewAdminSubmission(env.DB, id, auth.session.userId, request) };
+  const target =
+    env.PUBLIC_COVERS && request.decision === "approve"
+      ? await env.DB.prepare("SELECT project_id FROM submissions WHERE id = ? AND status = 'pending'")
+          .bind(id)
+          .first<{ project_id: string }>()
+      : null;
+  if (target && !(await withdrawPublicCover(env, target.project_id)))
+    throw new Error("Public cover withdrawal pending");
+  const data = await reviewAdminSubmission(env.DB, id, auth.session.userId, request);
+  if (target) await refreshPublicProjectImages(env, target.project_id);
+  return { kind: "ok" as const, data };
 }
 
 export async function authorAdminUpdateRecommendation(
@@ -297,12 +309,28 @@ export async function authorAdminDeleteGallery(
   const project = await getAuthoringProject(env.DB, projectId, auth.session);
   if (!project) return { kind: "not_found" as const };
   if (expectedVersion === null) return { kind: "version_conflict" as const, actual: project.row_version };
-  const result = await deleteGalleryImage(env.DB, auth.session, project.id, slot, expectedVersion);
+  const result = await deleteGalleryImage(env.DB, auth.session, project.id, slot, expectedVersion, () =>
+    withdrawPublicGallery(env, project.id, slot, expectedVersion),
+  );
   if (result.kind === "conflict") {
     const latest = await getAuthoringProject(env.DB, project.id, auth.session);
     return { kind: "version_conflict" as const, actual: latest?.row_version ?? project.row_version };
   }
   return { kind: "ok" as const, data: result };
+}
+
+export async function refreshPublicProjectImages(env: DataEnv, projectId: string): Promise<void> {
+  const results = await Promise.allSettled([
+    replicatePublicCover(env, projectId),
+    replicatePublicGallery(env, projectId),
+  ]);
+  for (const result of results) {
+    if (result.status === "rejected") console.warn("Public image copy failed after project update", result.reason);
+  }
+}
+
+function isPublicImageWithdrawalPending(error: unknown): boolean {
+  return error instanceof Error && /public_(cover|gallery)_withdrawal_pending/.test(error.message);
 }
 
 export async function authorAdminDeleteProject(
@@ -317,8 +345,18 @@ export async function authorAdminDeleteProject(
   if (!project) return { kind: "not_found" as const };
   if (expectedVersion === null || expectedVersion !== project.row_version)
     return { kind: "version_conflict" as const, actual: project.row_version };
-  if (!(await softDeleteProject(env.DB, auth.session, project.id, expectedVersion)))
-    return { kind: "version_conflict" as const, actual: project.row_version };
+  if (
+    !(await withdrawPublicCover(env, project.id)) ||
+    !(await withdrawPublicGallery(env, project.id, undefined, expectedVersion))
+  )
+    return { kind: "withdrawal_pending" as const };
+  try {
+    if (!(await softDeleteProject(env.DB, auth.session, project.id, expectedVersion)))
+      return { kind: "version_conflict" as const, actual: project.row_version };
+  } catch (error) {
+    if (isPublicImageWithdrawalPending(error)) return { kind: "withdrawal_pending" as const };
+    throw error;
+  }
   return { kind: "ok" as const };
 }
 
@@ -335,8 +373,22 @@ export async function authorAdminUpdateVisibility(
   if (!project) return { kind: "not_found" as const };
   if (expectedVersion === null || expectedVersion !== project.row_version)
     return { kind: "version_conflict" as const, actual: project.row_version };
-  const rowVersion = await updateVisibility(env.DB, auth.session, project.id, expectedVersion, input);
+  if (input.visibility !== "public") {
+    if (
+      !(await withdrawPublicCover(env, project.id)) ||
+      !(await withdrawPublicGallery(env, project.id, undefined, expectedVersion))
+    )
+      return { kind: "withdrawal_pending" as const };
+  }
+  let rowVersion: Awaited<ReturnType<typeof updateVisibility>>;
+  try {
+    rowVersion = await updateVisibility(env.DB, auth.session, project.id, expectedVersion, input);
+  } catch (error) {
+    if (isPublicImageWithdrawalPending(error)) return { kind: "withdrawal_pending" as const };
+    throw error;
+  }
   if (!rowVersion) return { kind: "version_conflict" as const, actual: project.row_version };
+  if (input.visibility === "public") await refreshPublicProjectImages(env, project.id);
   return { kind: "ok" as const, rowVersion };
 }
 

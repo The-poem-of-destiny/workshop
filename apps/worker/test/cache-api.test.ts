@@ -4,7 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import { CachedReads, type ReadProps } from "../src/data/cached-reads";
 import type { DataEnv } from "../src/data/env";
-import { canonicalPublicRequest } from "../src/http/public-cache";
+import { canonicalPublicRequest, PUBLIC_READ_PATH } from "../src/http/public-cache";
 import { publicResponse } from "../src/http/public-response";
 import { applySchema } from "./support/schema";
 
@@ -49,6 +49,12 @@ async function publishTitle(
   ]);
 }
 
+function describePublic(path: string, method = "GET") {
+  const classified = canonicalPublicRequest(method, new URL(path, "https://workshop.test"));
+  if (classified.kind !== "public") throw new Error(`Expected public request: ${path}`);
+  return classified.read;
+}
+
 async function read(
   path: string,
   options: {
@@ -57,24 +63,26 @@ async function read(
     settings?: Partial<DataEnv>;
   } = {},
 ): Promise<Response> {
+  const method = options.method ?? "GET";
+  const props: ReadProps = options.props ?? { kind: "public", read: describePublic(path, method) };
   const pending: Promise<unknown>[] = [];
   const ctx = {
-    props: options.props ?? { kind: "public" },
+    props,
     waitUntil(promise: Promise<unknown>) {
       pending.push(promise);
     },
   } as unknown as ExecutionContext;
   const worker = new CachedReads(ctx, { ...bindings, VERSION_METADATA: { id: version }, ...options.settings });
   const response = await worker.fetch(
-    new Request(`https://cached.workshop.invalid${path}`, { method: options.method }),
+    new Request(`https://cached.workshop.invalid${props.kind === "public" ? PUBLIC_READ_PATH : path}`, { method }),
   );
   await Promise.all(pending);
   return response;
 }
 
-const project = "/public/v1/api/v1/projects/cache-project";
-function exposed(response: Response, path = "/api/v1/projects/cache-project"): Response {
-  return publicResponse(response, new Request(`https://workshop.test${path}`));
+const project = "/api/v1/projects/cache-project";
+function exposed(response: Response, path = project, headers = new Headers()): Response {
+  return publicResponse(response, describePublic(path).category, headers);
 }
 function maxAge(response: Response): number {
   return Number(/(?:^|,\s*)max-age=(\d+)/.exec(response.headers.get("cache-control") ?? "")?.[1]);
@@ -100,9 +108,9 @@ describe("Cache API read behavior", () => {
   });
 
   it("keeps query variants and Worker versions isolated", async () => {
-    const first = await read("/public/v1/api/v1/projects?search=Original");
+    const first = await read("/api/v1/projects?search=Original");
     expect((await first.json<{ items: unknown[] }>()).items).toHaveLength(1);
-    const different = await read("/public/v1/api/v1/projects?search=Missing");
+    const different = await read("/api/v1/projects?search=Missing");
     expect((await different.json<{ items: unknown[] }>()).items).toHaveLength(0);
     await publishTitle("Changed");
     expect(await (await read(project)).json()).toMatchObject({ title: "Changed" });
@@ -114,39 +122,23 @@ describe("Cache API read behavior", () => {
 
   it("shares canonical repeated selections while separating contained-category cache identity", async () => {
     await publishTitle("Taxonomy original", "角色", ["玩法"], ["人类", "战士"]);
-    const first = canonicalPublicRequest(
-      new Request("https://workshop.test/api/v1/projects?projectType=事件&projectType=角色&tag=战士&tag=人类"),
-    );
-    const equivalent = canonicalPublicRequest(
-      new Request(
-        "https://workshop.test/api/v1/projects?tag=人类&tag=战士&tag=人类&projectType=角色&projectType=事件&projectType=角色&includeContained=false",
-      ),
-    );
-    expect(first.kind).toBe("public");
-    expect(equivalent.kind).toBe("public");
-    if (first.kind !== "public" || equivalent.kind !== "public")
-      throw new Error("Expected canonical public selections");
-    const firstUrl = new URL(first.request.url);
-    const equivalentUrl = new URL(equivalent.request.url);
-    expect(equivalentUrl.search).toBe(firstUrl.search);
-    const cached = await read(`/public/v1${firstUrl.pathname}${firstUrl.search}`);
+    const first = "/api/v1/projects?projectType=事件&projectType=角色&tag=战士&tag=人类";
+    const equivalent =
+      "/api/v1/projects?tag=人类&tag=战士&tag=人类&projectType=角色&projectType=事件&projectType=角色&includeContained=false";
+    const cached = await read(first);
     expect(await cached.json()).toMatchObject({ items: [{ title: "Taxonomy original" }], total: 1 });
     await publishTitle("Taxonomy changed", "角色", ["玩法"], ["人类", "战士"]);
-    const hit = await read(`/public/v1${equivalentUrl.pathname}${equivalentUrl.search}`);
+    const hit = await read(equivalent);
     expect(await hit.json()).toMatchObject({ items: [{ title: "Taxonomy original" }], total: 1 });
-    const contained = canonicalPublicRequest(new Request(`${first.request.url}&includeContained=true`));
-    if (contained.kind !== "public") throw new Error("Expected contained-category selection");
-    const containedUrl = new URL(contained.request.url);
-    expect(containedUrl.search).not.toBe(firstUrl.search);
-    expect(await (await read(`/public/v1${containedUrl.pathname}${containedUrl.search}`)).json()).toMatchObject({
+    expect(await (await read(`${first}&includeContained=true`)).json()).toMatchObject({
       items: [{ title: "Taxonomy changed" }],
       total: 1,
     });
     const onlyContained = new URLSearchParams({ includeContained: "true", projectType: "玩法" });
-    expect(await (await read(`/public/v1/api/v1/projects?${onlyContained}`)).json()).toMatchObject({ total: 1 });
-    expect(
-      await (await read(`/public/v1/api/v1/projects?${new URLSearchParams({ projectType: "玩法" })}`)).json(),
-    ).toMatchObject({ total: 0 });
+    expect(await (await read(`/api/v1/projects?${onlyContained}`)).json()).toMatchObject({ total: 1 });
+    expect(await (await read(`/api/v1/projects?${new URLSearchParams({ projectType: "玩法" })}`)).json()).toMatchObject(
+      { total: 0 },
+    );
   });
 
   it("shares complete GET representations with HEAD in both directions", async () => {
@@ -163,10 +155,10 @@ describe("Cache API read behavior", () => {
   it.each([
     ["/api/v1/projects", 60],
     ["/api/v1/recommendations", 60],
-    ["/api/v1/projects/discovery", 60],
+    ["/api/v1/home", 60],
     ["/api/v1/site", 300],
   ] as const)("uses the configured default class for %s", async (path, seconds) => {
-    const response = exposed(await read(`/public/v1${path}`), path);
+    const response = exposed(await read(path), path);
     expect(response.status).toBe(200);
     expect(maxAge(response)).toBeGreaterThanOrEqual(seconds - 1);
     expect(maxAge(response)).toBeLessThanOrEqual(seconds);
@@ -177,7 +169,7 @@ describe("Cache API read behavior", () => {
     const projectResponse = exposed(await read(project, { settings }));
     expect(maxAge(projectResponse)).toBeGreaterThanOrEqual(22);
     expect(maxAge(projectResponse)).toBeLessThanOrEqual(23);
-    const site = exposed(await read("/public/v1/api/v1/site", { settings }), "/api/v1/site");
+    const site = exposed(await read("/api/v1/site", { settings }), "/api/v1/site");
     expect(maxAge(site)).toBeGreaterThanOrEqual(122);
     expect(maxAge(site)).toBeLessThanOrEqual(123);
     const unversioned = { VERSION_METADATA: undefined };
@@ -216,12 +208,11 @@ describe("Cache API read behavior", () => {
   it("does not cache errors and retains immutable asset semantics", async () => {
     const sha = crypto.randomUUID().replaceAll("-", "");
     const path = `/client/v/${sha}/index.js`;
-    const internal = `/public/v1${path}`;
-    const missing = exposed(await read(internal), path);
+    const missing = exposed(await read(path), path);
     expect(missing.status).toBe(404);
     expect(missing.headers.get("cache-control")).toContain("no-store");
     await bindings.R2.put(`client/v/${sha}/index.js`, "first version");
-    const first = exposed(await read(internal), path);
+    const first = exposed(await read(path), path);
     expect(first.status).toBe(200);
     expect(first.headers.get("cache-control")).toContain("immutable");
     expect(maxAge(first)).toBeGreaterThanOrEqual(31_535_999);
@@ -230,11 +221,8 @@ describe("Cache API read behavior", () => {
     expect(etag).not.toBeNull();
     expect(await first.text()).toBe("first version");
     await bindings.R2.put(`client/v/${sha}/index.js`, "changed version");
-    expect(await (await read(internal)).text()).toBe("first version");
-    const conditional = publicResponse(
-      await read(internal),
-      new Request(`https://workshop.test${path}`, { headers: { "if-none-match": etag! } }),
-    );
+    expect(await (await read(path)).text()).toBe("first version");
+    const conditional = exposed(await read(path), path, new Headers({ "if-none-match": etag! }));
     expect(conditional.status).toBe(304);
     expect(conditional.headers.get("etag")).toBe(etag);
     expect(conditional.headers.get("access-control-allow-origin")).toBe("*");
@@ -248,18 +236,14 @@ describe("Cache API read behavior", () => {
       [`/client/checker/v/${sha}/browser-checker.js`, `checker/v/${sha}/browser-checker.js`],
     ] as const) {
       await bindings.R2.put(key, "versioned asset");
-      const initial = exposed(await read(`/public/v1${path}`, { settings }), path);
+      const initial = exposed(await read(path, { settings }), path);
       expect(initial.status).toBe(200);
       expect(initial.headers.get("cache-control")).toContain("no-store");
       const etag = initial.headers.get("etag");
       expect(etag).not.toBeNull();
       await initial.text();
       for (const method of ["GET", "HEAD"] as const) {
-        const request = new Request(`https://workshop.test${path}`, {
-          method,
-          headers: { "if-none-match": etag! },
-        });
-        const response = publicResponse(await read(`/public/v1${path}`, { method, settings }), request);
+        const response = exposed(await read(path, { method, settings }), path, new Headers({ "if-none-match": etag! }));
         expect(response.status, `${path} ${method}`).toBe(304);
         expect(response.headers.get("cache-control")).toContain("no-store");
         expect(response.headers.get("etag")).toBe(etag);

@@ -49,7 +49,11 @@ export async function getInteractionState(
   return { items };
 }
 
-export async function listSubscribedProjects(db: D1Database, userId: string): Promise<ProjectSummary[]> {
+export async function listSubscribedProjects(
+  db: D1Database,
+  userId: string,
+  publicAssetsBaseUrl?: string,
+): Promise<ProjectSummary[]> {
   const rows = await db
     .prepare(`
     SELECT s.project_id FROM project_subscriptions s
@@ -63,6 +67,7 @@ export async function listSubscribedProjects(db: D1Database, userId: string): Pr
   const projects = await getPublishedProjectsByIds(
     db,
     rows.results.map((row) => row.project_id),
+    publicAssetsBaseUrl,
   );
   return rows.results.flatMap((row) => {
     const project = projects.get(row.project_id);

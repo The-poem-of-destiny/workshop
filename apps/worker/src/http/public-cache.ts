@@ -1,6 +1,52 @@
-import { projectBatchQuerySchema, projectListQuerySchema } from "@workshop/contracts";
+import { type ProjectListQuery, projectBatchQuerySchema, projectListQuerySchema } from "@workshop/contracts";
 
-const CANONICAL_PUBLIC_ORIGIN = "https://public.workshop.invalid";
+export type PublicCacheClass = "public" | "reference" | "immutable";
+
+export const PUBLIC_READ_PATH = "/public/v1";
+
+type PublicOperation =
+  | { kind: "project-list"; query: ProjectListQuery }
+  | { kind: "project-batch"; ids: string[] }
+  | { kind: "project-detail" | "project-entries" | "collection" | "author"; encodedId: string }
+  | { kind: "home" | "site" | "recommendations" }
+  | { kind: "image"; key: string }
+  | { kind: "client-asset"; asset: ClientAsset };
+
+export type PublicRead = {
+  pathname: string;
+  search: string;
+  category: PublicCacheClass;
+  operation: PublicOperation;
+};
+
+const JAVASCRIPT_CONTENT_TYPE = "text/javascript; charset=utf-8";
+const CHECKER_CONTENT_TYPES: Record<string, string> = {
+  "browser-checker.js": JAVASCRIPT_CONTENT_TYPE,
+  "upload-checker.mjs": JAVASCRIPT_CONTENT_TYPE,
+  "review-checker.mjs": JAVASCRIPT_CONTENT_TYPE,
+  "manifest.json": "application/json; charset=utf-8",
+  "NOTICES.txt": "text/plain; charset=utf-8",
+};
+
+export type ClientAsset = { key: string; contentType: string; immutable: boolean };
+
+export function versionedClientAsset(pathname: string): ClientAsset | undefined {
+  if (/^\/client\/v\/[a-f0-9]{8,64}\/index\.js$/.test(pathname)) {
+    return { key: pathname.slice(1), contentType: JAVASCRIPT_CONTENT_TYPE, immutable: true };
+  }
+  const checker = /^\/client\/checker\/v\/([a-f0-9]{8,64})\/([^/]+)$/.exec(pathname);
+  const file = checker?.[2];
+  if (file && Object.hasOwn(CHECKER_CONTENT_TYPES, file)) {
+    return { key: pathname.slice("/client/".length), contentType: CHECKER_CONTENT_TYPES[file]!, immutable: true };
+  }
+}
+
+export function clientChannelAsset(pathname: string): ClientAsset | undefined {
+  if (/^\/client\/(?:stable|staging)\/index\.js$/.test(pathname)) {
+    return { key: pathname.slice(1), contentType: JAVASCRIPT_CONTENT_TYPE, immutable: false };
+  }
+}
+
 const TRACKING_PARAMETERS: Record<string, true> = { fbclid: true, gclid: true, mc_cid: true, mc_eid: true };
 const PROJECT_LIST_PARAMETERS: Record<string, true> = {
   limit: true,
@@ -16,13 +62,7 @@ const PROJECT_LIST_PARAMETERS: Record<string, true> = {
 };
 const NO_PARAMETERS: Record<string, never> = {};
 
-export type PublicRequest =
-  | { kind: "private" }
-  | { kind: "invalid" }
-  | {
-      kind: "public";
-      request: Request;
-    };
+export type PublicRequest = { kind: "private" } | { kind: "invalid" } | { kind: "public"; read: PublicRead };
 
 function isTrackingParameter(name: string): boolean {
   return name.startsWith("utm_") || TRACKING_PARAMETERS[name] === true;
@@ -43,16 +83,17 @@ function canonicalSearch(
   return query;
 }
 
-function canonicalProjectBatchSearch(source: URLSearchParams): URLSearchParams | null {
+function canonicalProjectBatch(source: URLSearchParams): { search: URLSearchParams; ids: string[] } | null {
   for (const [name] of source) {
     if (isTrackingParameter(name)) continue;
     if (name !== "ids" || source.getAll(name).length !== 1) return null;
   }
   const parsed = projectBatchQuerySchema.safeParse({ ids: source.get("ids") ?? undefined });
-  return parsed.success ? new URLSearchParams({ ids: parsed.data.ids.join(",") }) : null;
+  if (!parsed.success) return null;
+  return { search: new URLSearchParams({ ids: parsed.data.ids.join(",") }), ids: parsed.data.ids };
 }
 
-function canonicalProjectListSearch(source: URLSearchParams): URLSearchParams | null {
+function canonicalProjectList(source: URLSearchParams): { search: URLSearchParams; query: ProjectListQuery } | null {
   const values = {
     ...Object.fromEntries(source),
     projectType: source.getAll("projectType"),
@@ -69,14 +110,15 @@ function canonicalProjectListSearch(source: URLSearchParams): URLSearchParams | 
   const query = new URLSearchParams();
   if (parsed.data.limit !== 25) query.set("limit", String(parsed.data.limit));
   if (parsed.data.sort !== "published") query.set("sort", parsed.data.sort);
-  if (
-    (parsed.data.sort === "likes" || parsed.data.sort === "downloads") &&
-    parsed.data.period &&
-    parsed.data.period !== "30d"
-  ) {
-    query.set("period", parsed.data.period);
-  }
-  if (parsed.data.cursor) query.set("cursor", parsed.data.cursor);
+
+  // Omitted defaults must have the same meaning in the cache key and the source query.
+  const cursor = parsed.data.cursor || undefined;
+  const period =
+    (parsed.data.sort === "likes" || parsed.data.sort === "downloads") && parsed.data.period !== "30d"
+      ? parsed.data.period
+      : undefined;
+  if (period) query.set("period", period);
+  if (cursor) query.set("cursor", cursor);
   for (const type of parsed.data.projectType) query.append("projectType", type);
   if (parsed.data.includeContained) query.set("includeContained", "true");
   if (parsed.data.authorId) query.set("authorId", parsed.data.authorId);
@@ -84,52 +126,56 @@ function canonicalProjectListSearch(source: URLSearchParams): URLSearchParams | 
   for (const tag of parsed.data.tag) query.append("tag", tag);
   if (parsed.data.search) query.set("search", parsed.data.search);
   query.sort();
-  return query;
+  parsed.data.cursor = cursor;
+  parsed.data.period = period;
+  return { search: query, query: parsed.data };
 }
 
-function canonicalPublicUrl(request: Request): URL | null | undefined {
-  const incoming = new URL(request.url);
-  const pathname = incoming.pathname.length > 1 ? incoming.pathname.replace(/\/+$/, "") : incoming.pathname;
-  const url = new URL(`${CANONICAL_PUBLIC_ORIGIN}${pathname}`);
-  let query: URLSearchParams | null;
-
-  if (pathname === "/api/v1/projects") {
-    query = canonicalProjectListSearch(incoming.searchParams);
-  } else if (pathname === "/api/v1/projects/batch") {
-    query = canonicalProjectBatchSearch(incoming.searchParams);
-  } else if (
-    pathname === "/api/v1/projects/discovery" ||
-    pathname === "/api/v1/home" ||
-    pathname === "/api/v1/recommendations" ||
-    pathname === "/api/v1/site" ||
-    /^\/api\/v1\/projects\/[^/]+(?:\/entries)?$/.test(pathname) ||
-    /^\/api\/v1\/collections\/[^/]+$/.test(pathname) ||
-    /^\/api\/v1\/authors\/[^/]+$/.test(pathname) ||
-    /^\/api\/v1\/public-assets\/(?:covers|gallery|banners)\/.+/.test(pathname) ||
-    /^\/client\/v\/[a-f0-9]{8,64}\/index\.js$/.test(pathname) ||
-    /^\/client\/checker\/v\/[a-f0-9]{8,64}\/(?:browser-checker\.js|upload-checker\.mjs|review-checker\.mjs|manifest\.json|NOTICES\.txt)$/.test(
-      pathname,
-    )
-  ) {
-    query = canonicalSearch(incoming.searchParams, NO_PARAMETERS);
-  } else {
-    return undefined;
+function publicPath(pathname: string): PublicOperation | undefined {
+  switch (pathname) {
+    case "/api/v1/home":
+      return { kind: "home" };
+    case "/api/v1/site":
+      return { kind: "site" };
+    case "/api/v1/recommendations":
+      return { kind: "recommendations" };
   }
-
-  if (!query) return null;
-  url.search = query.toString();
-  return url;
+  if (pathname.startsWith("/api/v1/projects/")) {
+    const project = /^\/api\/v1\/projects\/([^/]+)(\/entries)?$/.exec(pathname);
+    if (project) return { kind: project[2] ? "project-entries" : "project-detail", encodedId: project[1]! };
+  } else if (pathname.startsWith("/api/v1/collections/")) {
+    const collection = /^\/api\/v1\/collections\/([^/]+)$/.exec(pathname);
+    if (collection) return { kind: "collection", encodedId: collection[1]! };
+  } else if (pathname.startsWith("/api/v1/authors/")) {
+    const author = /^\/api\/v1\/authors\/([^/]+)$/.exec(pathname);
+    if (author) return { kind: "author", encodedId: author[1]! };
+  } else if (/^\/api\/v1\/public-assets\/(?:covers|gallery|banners)\/.+/.test(pathname)) {
+    return { kind: "image", key: pathname.slice("/api/v1/public-assets/".length) };
+  } else if (pathname.startsWith("/client/")) {
+    const asset = versionedClientAsset(pathname);
+    if (asset) return { kind: "client-asset", asset };
+  }
 }
 
-export function canonicalPublicRequest(request: Request): PublicRequest {
-  if (request.method !== "GET" && request.method !== "HEAD") return { kind: "private" };
-  const url = canonicalPublicUrl(request);
-  if (url === undefined) return { kind: "private" };
-  if (!url) return { kind: "invalid" };
-  return {
-    kind: "public",
-    request: new Request(url, {
-      method: request.method,
-    }),
-  };
+function publicRead(pathname: string, query: URLSearchParams, operation: PublicOperation): PublicRequest {
+  const search = query.toString();
+  const category = operation.kind === "client-asset" ? "immutable" : operation.kind === "site" ? "reference" : "public";
+  return { kind: "public", read: { pathname, search: search ? `?${search}` : "", category, operation } };
+}
+
+export function canonicalPublicRequest(method: string, incoming: URL): PublicRequest {
+  if (method !== "GET" && method !== "HEAD") return { kind: "private" };
+  const pathname = incoming.pathname.length > 1 ? incoming.pathname.replace(/\/+$/, "") : incoming.pathname;
+  if (pathname === "/api/v1/projects") {
+    const list = canonicalProjectList(incoming.searchParams);
+    return list ? publicRead(pathname, list.search, { kind: "project-list", query: list.query }) : { kind: "invalid" };
+  }
+  if (pathname === "/api/v1/projects/batch") {
+    const batch = canonicalProjectBatch(incoming.searchParams);
+    return batch ? publicRead(pathname, batch.search, { kind: "project-batch", ids: batch.ids }) : { kind: "invalid" };
+  }
+  const operation = publicPath(pathname);
+  if (!operation) return { kind: "private" };
+  const query = canonicalSearch(incoming.searchParams, NO_PARAMETERS);
+  return query ? publicRead(pathname, query, operation) : { kind: "invalid" };
 }

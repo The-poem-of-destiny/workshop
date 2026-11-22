@@ -258,103 +258,95 @@ export async function setProjectCollections(
   projectId: string,
   collectionIds: string[],
 ) {
-  const project = await db
-    .prepare("SELECT id, author_id FROM projects WHERE id = ? AND deleted_at IS NULL")
-    .bind(projectId)
-    .first<{ id: string; author_id: string }>();
-  if (!project || (project.author_id !== session.userId && session.role !== "owner")) {
-    return { kind: "not_found" as const };
-  }
+  type Eligibility = "ok" | "not_found" | "forbidden_collection" | "invalid";
 
-  if (collectionIds.length > 0) {
-    const rows = await db
-      .prepare(`
-        SELECT c.id,
-               (SELECT COUNT(*) FROM collection_projects cp WHERE cp.collection_id = c.id AND cp.project_id <> ?) AS other_count
-        FROM collections c
-        WHERE c.author_id = ? AND c.deleted_at IS NULL AND c.id IN (SELECT value FROM json_each(?))
-      `)
-      .bind(project.id, project.author_id, JSON.stringify(collectionIds))
-      .all<{ id: string; other_count: number }>();
-    if (rows.results.length !== collectionIds.length) {
-      return { kind: "forbidden_collection" as const };
-    }
-    if (rows.results.some((row) => row.other_count + 1 > COLLECTION_LIMITS.maxProjectsPerCollection)) {
-      return {
-        kind: "invalid" as const,
-        message: `单个合集最多包含 ${COLLECTION_LIMITS.maxProjectsPerCollection} 个项目`,
-      };
-    }
-  }
-
-  const currentRows = await db
-    .prepare(`
-      SELECT cp.collection_id
-      FROM collection_projects cp
+  const eligibility = `
+    WITH project AS (
+      SELECT author_id FROM projects
+      WHERE id = ?1 AND deleted_at IS NULL AND (author_id = ?2 OR ?3)
+    ), requested AS (
+      SELECT value AS id FROM json_each(?4)
+    ), targets AS (
+      SELECT c.id FROM collections c JOIN project p ON p.author_id = c.author_id
+      WHERE c.deleted_at IS NULL AND c.id IN (SELECT id FROM requested)
+    ), eligibility AS (
+      SELECT CASE
+        WHEN NOT EXISTS (SELECT 1 FROM project) THEN 'not_found'
+        WHEN (SELECT COUNT(*) FROM targets) <> (SELECT COUNT(*) FROM requested) THEN 'forbidden_collection'
+        WHEN EXISTS (
+          SELECT 1 FROM targets t WHERE (
+            SELECT COUNT(*) FROM collection_projects cp WHERE cp.collection_id = t.id AND cp.project_id <> ?1
+          ) >= ?5
+        ) THEN 'invalid'
+        ELSE 'ok'
+      END AS kind
+    )
+  `;
+  const delta = `
+    ${eligibility}, current_memberships AS (
+      SELECT cp.collection_id AS id FROM collection_projects cp
       JOIN collections c ON c.id = cp.collection_id
-      WHERE cp.project_id = ? AND c.author_id = ? AND c.deleted_at IS NULL
-    `)
-    .bind(project.id, project.author_id)
-    .all<{ collection_id: string }>();
-  const currentSet = new Set(currentRows.results.map((row) => row.collection_id));
-  const nextSet = new Set(collectionIds);
-  const removed = [...currentSet].filter((id) => !nextSet.has(id));
-  const added = collectionIds.filter((id) => !currentSet.has(id));
-
-  if (removed.length === 0 && added.length === 0) {
-    return { kind: "ok" as const, collectionIds };
-  }
-
+      JOIN project p ON p.author_id = c.author_id
+      WHERE cp.project_id = ?1 AND c.deleted_at IS NULL
+    ), removed AS (
+      SELECT id FROM current_memberships EXCEPT SELECT id FROM targets
+    ), added AS (
+      SELECT id FROM targets EXCEPT SELECT id FROM current_memberships
+    )
+  `;
+  const allowed = "(SELECT kind FROM eligibility) = 'ok'";
+  const changed = "SELECT id FROM removed UNION ALL SELECT id FROM added";
+  const args = [
+    projectId,
+    session.userId,
+    session.role === "owner" ? 1 : 0,
+    JSON.stringify(collectionIds),
+    COLLECTION_LIMITS.maxProjectsPerCollection,
+  ];
   const now = new Date().toISOString();
-  const statements: D1PreparedStatement[] = [];
-  for (const id of removed) {
-    statements.push(
-      db.prepare("DELETE FROM collection_projects WHERE collection_id = ? AND project_id = ?").bind(id, project.id),
-      db.prepare("UPDATE collections SET updated_at = ? WHERE id = ?").bind(now, id),
-      db
-        .prepare(`
-          INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
-          VALUES (?, 'collection.update', 'collection', ?, ?, ?, ?)
-        `)
-        .bind(
-          crypto.randomUUID(),
-          id,
-          session.userId,
-          serializeAuditDetail("collection.update", { fields: ["projectIds"] }),
-          now,
-        ),
-    );
+
+  // Every mutation uses the same whole-request guard. Membership writes cannot
+  // change it: the capacity query deliberately excludes this project's rows.
+  // Record the delta before changing membership, in this same transaction.
+  const [result] = await db.batch<{ kind: Eligibility }>([
+    db.prepare(`${eligibility} SELECT kind FROM eligibility`).bind(...args),
+    db
+      .prepare(`
+        ${delta}
+        INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
+        SELECT lower(hex(randomblob(16))), 'collection.update', 'collection', id, ?2, ?7, ?6
+        FROM (${changed}) WHERE ${allowed}
+      `)
+      .bind(...args, now, serializeAuditDetail("collection.update", { fields: ["projectIds"] })),
+    db
+      .prepare(`
+        ${delta}
+        UPDATE collections SET updated_at = ?6 WHERE ${allowed} AND id IN (${changed})
+      `)
+      .bind(...args, now),
+    db
+      .prepare(`
+        ${delta}
+        DELETE FROM collection_projects WHERE project_id = ?1 AND ${allowed} AND collection_id IN (SELECT id FROM removed)
+      `)
+      .bind(...args),
+    db
+      .prepare(`
+        ${delta}
+        INSERT INTO collection_projects (collection_id, project_id, position, added_at)
+        SELECT a.id, ?1, COALESCE((SELECT MAX(position) + 1 FROM collection_projects WHERE collection_id = a.id), 0), ?6
+        FROM added a WHERE ${allowed}
+      `)
+      .bind(...args, now),
+  ]);
+
+  const { kind } = result!.results[0]!;
+  if (kind === "invalid") {
+    return { kind, message: `单个合集最多包含 ${COLLECTION_LIMITS.maxProjectsPerCollection} 个项目` };
   }
-  for (const id of added) {
-    statements.push(
-      db
-        .prepare(`
-          INSERT INTO collection_projects (collection_id, project_id, position, added_at)
-          VALUES (
-            ?,
-            ?,
-            COALESCE((SELECT MAX(position) + 1 FROM collection_projects WHERE collection_id = ?), 0),
-            ?
-          )
-        `)
-        .bind(id, project.id, id, now),
-      db.prepare("UPDATE collections SET updated_at = ? WHERE id = ?").bind(now, id),
-      db
-        .prepare(`
-          INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
-          VALUES (?, 'collection.update', 'collection', ?, ?, ?, ?)
-        `)
-        .bind(
-          crypto.randomUUID(),
-          id,
-          session.userId,
-          serializeAuditDetail("collection.update", { fields: ["projectIds"] }),
-          now,
-        ),
-    );
-  }
-  await db.batch(statements);
-  return { kind: "ok" as const, collectionIds };
+  if (kind === "not_found") return { kind };
+  if (kind === "forbidden_collection") return { kind };
+  return { kind, collectionIds };
 }
 
 export async function listAuthorCollectionIdsByProjects(

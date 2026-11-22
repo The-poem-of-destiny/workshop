@@ -26,8 +26,6 @@ projectsRoutes.get("/", async (c) => {
   return c.json(result.data);
 });
 
-projectsRoutes.get("/discovery", async (c) => c.json(await c.executionCtx.exports.DataService.projectDiscovery()));
-
 projectsRoutes.get("/:id", async (c) => {
   const project = await c.executionCtx.exports.DataService.projectDetail(c.req.param("id"));
   if (!project) return jsonError(c, "not_found", "Project not found");
@@ -43,6 +41,8 @@ projectsRoutes.post("/:id/downloads", async (c) => {
   if (!result.ok) {
     if (result.error === "bad_request") return jsonError(c, "bad_request", "Idempotency-Key must be a UUID v4");
     else if (result.error === "rate_limited") return jsonError(c, "rate_limited", "Daily acquisition limit reached");
+    if (result.error === "conflict")
+      return jsonError(c, "conflict", "Original release unavailable; refresh and start a new acquisition");
     if (result.error === "unauthorized") return jsonError(c, "unauthorized", "Login required");
     if (result.error === "forbidden") return jsonError(c, "forbidden", "请先阅读并同意工坊使用政策并完成准入问答");
     return jsonError(c, "not_found", "Release not found");
@@ -91,6 +91,8 @@ projectsRoutes.post("/:id/acquisitions", async (c) => {
   if (!result.ok) {
     if (result.error === "bad_request") return jsonError(c, "bad_request", "Idempotency-Key must be a UUID v4");
     if (result.error === "rate_limited") return jsonError(c, "rate_limited", "Daily acquisition limit reached");
+    if (result.error === "conflict")
+      return jsonError(c, "conflict", "Original release unavailable; refresh and start a new acquisition");
     if (result.error === "unauthorized") return jsonError(c, "unauthorized", "Login required");
     if (result.error === "forbidden") return jsonError(c, "forbidden", "请先阅读并同意工坊使用政策并完成准入问答");
     if (result.error === "upgrade_required") return jsonError(c, "upgrade_required", result.message, result.details);

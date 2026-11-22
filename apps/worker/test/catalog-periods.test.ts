@@ -358,6 +358,7 @@ describe("catalog net windows on real D1", () => {
     const page = await listPublishedProjects(
       bindings.DB,
       projectListQuerySchema.parse({ limit: 2, sort: "downloads", period: "7d" }),
+      undefined,
       (meta) => {
         reads = meta.rows_read;
         writes = meta.rows_written;

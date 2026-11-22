@@ -1,13 +1,11 @@
 import { adminRecommendationUpdateSchema } from "@workshop/contracts";
 import { Hono } from "hono";
 import { z } from "zod";
-import { fetchPublic } from "../../data-client";
 import type { Env } from "../../env";
 import { jsonError } from "../errors.js";
 import { sessionToken } from "../session.js";
 
 export const recommendationRoutes = new Hono<{ Bindings: Env }>();
-recommendationRoutes.get("/", (c) => fetchPublic(c.executionCtx, c.req.raw));
 
 const changeSchema = z
   .object({

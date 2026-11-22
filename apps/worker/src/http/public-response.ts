@@ -1,7 +1,6 @@
-import { publicCacheClass } from "./cache-policy";
-import { canonicalPublicRequest } from "./public-cache";
+import type { PublicCacheClass } from "./public-cache";
 
-export function publicResponse(response: Response, request: Request): Response {
+export function publicResponse(response: Response, category: PublicCacheClass, requestHeaders: Headers): Response {
   const headers = new Headers(response.headers);
   const expires = headers.get("x-workshop-generated-expires");
   const policy = headers.get("cache-control") ?? "";
@@ -25,19 +24,18 @@ export function publicResponse(response: Response, request: Request): Response {
     headers.set("cache-control", "private, no-store");
   }
   const etag = headers.get("etag");
-  const matches =
+  if (
+    category === "immutable" &&
+    response.status === 200 &&
     etag &&
-    request.headers
+    requestHeaders
       .get("if-none-match")
       ?.split(",")
       .some((value) => {
         const candidate = value.trim();
         return candidate === "*" || candidate.replace(/^W\//, "") === etag.replace(/^W\//, "");
-      });
-  const canonical = canonicalPublicRequest(request);
-  const versioned =
-    canonical.kind === "public" && publicCacheClass(new URL(canonical.request.url).pathname) === "immutable";
-  if (response.status === 200 && matches && versioned) {
+      })
+  ) {
     void response.body?.cancel();
     headers.delete("content-length");
     return new Response(null, { status: 304, headers });

@@ -1,7 +1,7 @@
 import type { ProjectGalleryResponse, Session } from "@workshop/contracts";
 import { type ImageDimensions, WORKSHOP_LIMITS } from "@workshop/domain";
 
-type GalleryRow = { slot: number; r2_key: string; mime: string };
+type GalleryRow = { slot: number; r2_key: string };
 
 const MIME_EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
 
@@ -35,28 +35,14 @@ export async function getAuthorGallery(
   };
 }
 
-export async function getPublicGallery(db: D1Database, projectId: string): Promise<GalleryRow[] | null> {
-  const project = await db
-    .prepare(
-      `SELECT p.id FROM projects p JOIN project_versions r ON r.id = p.published_version_id AND r.project_id = p.id
-       WHERE p.id = ? AND p.deleted_at IS NULL AND p.visibility = 'public' AND p.published_version_id IS NOT NULL`,
-    )
-    .bind(projectId)
-    .first<{ id: string }>();
-  if (!project) return null;
-  const rows = await db
-    .prepare(
-      "SELECT CASE kind WHEN 'gallery_1' THEN 0 ELSE 1 END AS slot, r2_key, mime FROM assets WHERE project_id = ? AND version_id IS NULL AND kind IN ('gallery_1', 'gallery_2') ORDER BY kind",
-    )
-    .bind(projectId)
-    .all<GalleryRow>();
-  return rows.results;
-}
+type GalleryMutationError =
+  | { kind: "conflict" }
+  | { kind: "withdrawal_pending" }
+  | { kind: "invalid"; message: string };
 
 export type GalleryWriteResult =
   | { kind: "ok"; rowVersion: number; sha256: string; bytes: number; mime: string; r2Key: string }
-  | { kind: "conflict" }
-  | { kind: "invalid"; message: string };
+  | GalleryMutationError;
 
 export async function uploadGalleryImage(
   db: D1Database,
@@ -71,6 +57,7 @@ export async function uploadGalleryImage(
     copyTo: (key: string, options?: R2PutOptions) => Promise<void>;
   },
   mime: string,
+  withdraw: () => Promise<boolean>,
 ): Promise<GalleryWriteResult> {
   if (!Number.isInteger(slot) || slot < 0 || slot > 1)
     return { kind: "invalid", message: "Gallery slot must be 0 or 1" };
@@ -91,6 +78,7 @@ export async function uploadGalleryImage(
   } catch {
     return { kind: "invalid", message: "Image storage failed" };
   }
+  if (!(await withdraw())) return { kind: "withdrawal_pending" };
   const now = new Date().toISOString();
   let results: Array<{ meta: { changes: number } }>;
   try {
@@ -144,7 +132,10 @@ export async function uploadGalleryImage(
         )
         .bind(now, projectId, session.userId, session.role, expectedVersion, projectId, `gallery_${slot + 1}`),
     ]);
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("public_gallery_withdrawal_pending")) {
+      return { kind: "withdrawal_pending" };
+    }
     // Immutable objects remain for a separately authorized orphan sweep.
     return { kind: "invalid", message: "Gallery update failed" };
   }
@@ -160,33 +151,42 @@ export async function deleteGalleryImage(
   projectId: string,
   slot: number,
   expectedVersion: number,
-): Promise<{ kind: "ok"; rowVersion: number } | { kind: "conflict" } | { kind: "invalid"; message: string }> {
+  withdraw: () => Promise<boolean>,
+): Promise<{ kind: "ok"; rowVersion: number } | GalleryMutationError> {
   if (!Number.isInteger(slot) || slot < 0 || slot > 1)
     return { kind: "invalid", message: "Gallery slot must be 0 or 1" };
   const current = await db
     .prepare(
-      `SELECT p.row_version
-       FROM projects p JOIN assets g ON g.project_id = p.id AND g.kind = ? AND g.version_id IS NULL
-       WHERE ${authorizedProjectSql()}`,
+      `SELECT row_version FROM projects WHERE ${authorizedProjectSql()}
+       AND EXISTS (SELECT 1 FROM assets g WHERE g.project_id = projects.id AND g.kind = ? AND g.version_id IS NULL)`,
     )
-    .bind(`gallery_${slot + 1}`, projectId, session.userId, session.role)
+    .bind(projectId, session.userId, session.role, `gallery_${slot + 1}`)
     .first<{ row_version: number }>();
   if (!current || current.row_version !== expectedVersion) return { kind: "conflict" };
+  if (!(await withdraw())) return { kind: "withdrawal_pending" };
   const now = new Date().toISOString();
-  const results = await db.batch([
-    db
-      .prepare(
-        `DELETE FROM assets
-         WHERE project_id = ? AND kind = ? AND version_id IS NULL AND EXISTS (SELECT 1 FROM projects WHERE ${authorizedProjectSql()} AND row_version = ?)`,
-      )
-      .bind(projectId, `gallery_${slot + 1}`, projectId, session.userId, session.role, expectedVersion),
-    db
-      .prepare(
-        `UPDATE projects SET row_version = row_version + 1, updated_at = ?
-         WHERE ${authorizedProjectSql()} AND row_version = ?`,
-      )
-      .bind(now, projectId, session.userId, session.role, expectedVersion),
-  ]);
+  let results: Array<{ meta: { changes: number } }>;
+  try {
+    results = await db.batch([
+      db
+        .prepare(
+          `DELETE FROM assets
+           WHERE project_id = ? AND kind = ? AND version_id IS NULL AND EXISTS (SELECT 1 FROM projects WHERE ${authorizedProjectSql()} AND row_version = ?)`,
+        )
+        .bind(projectId, `gallery_${slot + 1}`, projectId, session.userId, session.role, expectedVersion),
+      db
+        .prepare(
+          `UPDATE projects SET row_version = row_version + 1, updated_at = ?
+           WHERE ${authorizedProjectSql()} AND row_version = ?`,
+        )
+        .bind(now, projectId, session.userId, session.role, expectedVersion),
+    ]);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("public_gallery_withdrawal_pending")) {
+      return { kind: "withdrawal_pending" };
+    }
+    throw error;
+  }
   if ((results[0]?.meta.changes ?? 0) === 0 || (results[1]?.meta.changes ?? 0) === 0) return { kind: "conflict" };
   return { kind: "ok", rowVersion: expectedVersion + 1 };
 }
