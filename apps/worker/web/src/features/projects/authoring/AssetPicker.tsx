@@ -89,7 +89,7 @@ export function AssetPicker({
   return (
     <section className="asset-picker">
       <p className="field-hint">
-        至少上传一份有效的世界书或正则 JSON（世界书条目会自动添加 [WS] 前缀，选择文件后可先预览并执行本地预检）。
+        至少上传一份有效的世界书或正则 JSON（世界书条目会自动添加 [工坊] 前缀，选择文件后可先预览并执行本地预检）。
       </p>
       <div className="asset-grid">
         <div className="asset-card">

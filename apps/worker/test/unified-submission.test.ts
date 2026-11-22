@@ -292,7 +292,7 @@ describe("unified frozen submissions", () => {
     const content = await admin(`/submissions/${submission.submissionId}/files/worldbook`);
     expect(content.status).toBe(200);
     expect(await content.text()).toBe(
-      JSON.stringify({ entries: [{ uid: 1, name: "[WS] Frozen entry", content: "Original content" }] }),
+      JSON.stringify({ entries: [{ uid: 1, name: "[工坊] Frozen entry", content: "Original content" }] }),
     );
     expect((await author(`/${draft.id}`, json("PATCH", { title: "Late edit" }, draft.rowVersion))).status).toBe(409);
     expect(
@@ -343,7 +343,7 @@ describe("unified frozen submissions", () => {
     expect(preview.status).toBe(200);
     await expect(preview.json()).resolves.toMatchObject({
       versionId: draft.versionId,
-      entries: [{ name: "[WS] Frozen entry", content: "Original content" }],
+      entries: [{ name: "[工坊] Frozen entry", content: "Original content" }],
     });
   });
 

@@ -22,8 +22,8 @@ await build({
 const { createInstallManager } = await import(pathToFileURL(outfile).href);
 after(() => rm(dir, { recursive: true, force: true }));
 const clone = (value) => structuredClone(value);
-const registryName = "[WS]创意工坊项目注册表";
-const entries = (book) => book.filter((row) => row.name !== registryName);
+const registryName = "[工坊]创意工坊项目注册表";
+const entries = (book) => book.filter((row) => row.name !== registryName && row.name !== "[WS]创意工坊项目注册表");
 const contentBody = (row) =>
   row.content.replace(/\n?<%#([\s\S]*?)%>/g, (block, body) => {
     try {
@@ -98,7 +98,7 @@ function harness() {
   return { state, manager };
 }
 const files = (text) => ({
-  worldbook: JSON.stringify({ entries: [{ uid: 1, name: "[WS] Entry", content: text }] }),
+  worldbook: JSON.stringify({ entries: [{ uid: 1, name: "[工坊] Entry", content: text }] }),
   regex: JSON.stringify([{ id: "r", scriptName: "R", findRegex: "a", replaceString: text }]),
 });
 async function install(h, target, version = "1") {
@@ -337,7 +337,7 @@ test("failed regex write reports partial installation without rolling back world
     h.state.regex[0].replace_string = "external edit before regex write";
   };
   await assert.rejects(h.manager.confirm(preview.previewId), /局部写入.*重新扫描/);
-  assert.equal(contentBody(entries(h.state.books.A).find((row) => row.name === "[WS] Entry")), "2");
+  assert.equal(contentBody(entries(h.state.books.A).find((row) => row.name === "[工坊] Entry")), "2");
   assert.ok(h.state.books.A.some((row) => row.content === foreign.content));
   assert.equal(h.state.regex[0].replace_string, "external edit before regex write");
   assert.equal(h.state.records[id].pending, true);
@@ -401,45 +401,47 @@ test("copied legacy instance stamps at an unregistered location do not authorize
   assert.deepEqual(h.state.books, before);
 });
 
-test("official entries remain untouched; WS requires identity and installed names are marked once", async () => {
+test("official entries remain untouched; workshop markers require identity and installed names are marked once", async () => {
   const h = harness();
   h.state.books.A = [
     { name: "[DLC] official", content: "official" },
-    { name: "[工坊] old", content: "old" },
+    { name: "自定义设定", content: "old" },
   ];
   const preview = await h.manager.preview({
     action: "install",
     project: { id: "p", version: "1" },
-    files: { worldbook: JSON.stringify({ entries: [{ name: "[WS] Entry", content: "new" }] }) },
+    files: { worldbook: JSON.stringify({ entries: [{ name: "[工坊] Entry", content: "new" }] }) },
     targetWorldbook: "A",
   });
   await h.manager.confirm(preview.previewId);
   assert.deepEqual(
     entries(h.state.books.A).map((row) => row.name),
-    ["[DLC] official", "[工坊] old", "[WS] Entry"],
+    ["[DLC] official", "自定义设定", "[工坊] Entry"],
   );
   const remove = await h.manager.preview({ action: "uninstall", instanceId: preview.instanceId });
   await h.manager.confirm(remove.previewId);
   assert.deepEqual(
     entries(h.state.books.A).map((row) => row.name),
-    ["[DLC] official", "[工坊] old"],
+    ["[DLC] official", "自定义设定"],
   );
-  h.state.books.A.push({ name: "[WS] unowned", content: "unknown" });
-  await assert.rejects(
-    h.manager.preview({
-      action: "install",
-      project: { id: "p", version: "1" },
-      files: files("1"),
-      targetWorldbook: "A",
-    }),
-    /身份存疑/,
-  );
+  for (const unowned of ["[工坊] unowned", "[WS] unowned"]) {
+    h.state.books.A = [{ name: unowned, content: "unknown" }];
+    await assert.rejects(
+      h.manager.preview({
+        action: "install",
+        project: { id: "p", version: "1" },
+        files: files("1"),
+        targetWorldbook: "A",
+      }),
+      /身份存疑/,
+    );
+  }
 });
 
 test("ambiguous neighboring book and character-like book names do not block another location", async () => {
   const h = harness();
   const id = await install(h, "A");
-  h.state.books["A-extra"] = [{ name: "[WS] unknown" }];
+  h.state.books["A-extra"] = [{ name: "[工坊] unknown" }];
   h.state.books["角色:avatar.png"] = [{ name: "[WS] unknown" }];
   const preview = await h.manager.preview({ action: "uninstall", instanceId: id });
   await h.manager.confirm(preview.previewId);
@@ -509,7 +511,7 @@ test("updating a regex-only instance can add a worldbook", async () => {
     targetWorldbook: "B",
   });
   await h.manager.confirm(update.previewId);
-  assert.equal(entries(h.state.books.B)[0].name, "[WS] Entry");
+  assert.equal(entries(h.state.books.B)[0].name, "[工坊] Entry");
   assert.equal((await h.manager.scan()).instances[0].location.worldbook, "B");
 });
 
