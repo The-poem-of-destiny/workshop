@@ -23,6 +23,7 @@ PROJECT_TYPES = ("系统核心", "角色", "内容扩展", "玩法", "事件", "
 REVIEW_FORMAT = "workshop-taxonomy-review-v1"
 CANDIDATE_FORMAT = "workshop-taxonomy-candidate-v2"
 DERIVED = {"project_search", "project_search_short", "project_search_tags"}
+PUBLIC_REPLICAS = {"public_cover_replicas", "public_gallery_replicas", "public_banner_replicas"}
 INTERNAL = {"d1_migrations", "sqlite_sequence", "_cf_KV"}
 OBSOLETE = {"extension_type", "project_types", "author_note"}
 DECISIONS = {"projectType", "includedTypes", "reviewed", "tagsAcknowledged", "targetTags", "tagChangeReason"}
@@ -95,7 +96,7 @@ def columns(db, name):
 def logical_tables(db):
     shadows = {name + "_" + suffix for name in ("project_search", "project_search_short")
                for suffix in ("config", "content", "data", "docsize", "idx")}
-    return table_names(db) - DERIVED - INTERNAL - shadows
+    return table_names(db) - DERIVED - PUBLIC_REPLICAS - INTERNAL - shadows
 
 
 @contextmanager
@@ -350,6 +351,7 @@ def dropped_columns(table, source_columns, target_columns):
     added = set(target_columns) - set(source_columns)
     permitted_added = ({"project_type", "included_types"} if table == "project_versions"
                        else {"policy_accepted_version", "policy_accepted_at"} if table == "users"
+                       else {"banner_revision"} if table == "site_settings"
                        else set())
     if added - permitted_added:
         raise ValueError("unexpected target-only columns in " + table + ": " + ",".join(sorted(added)))
@@ -491,7 +493,7 @@ def build(source_path, review_path, migrations, output, legacy_provenance=()):
                 raise ValueError("canonical search trigger is missing")
             for name, _ in triggers:
                 target.execute("DROP TRIGGER " + quote(name))
-            for table in sorted(target_names | DERIVED):
+            for table in sorted(target_names | DERIVED | (table_names(target) & PUBLIC_REPLICAS)):
                 target.execute("DELETE FROM " + quote(table))
             for table, source_table in sorted(source_names.items()):
                 target_columns = columns(target, table)
@@ -544,6 +546,9 @@ def row_counts(db, table, keys):
 def independent_rows(source, candidate, decisions):
     """Compare source fields directly, without constructing transformed rows."""
     source_names, target_names = check_shapes(source, candidate)
+    for table in sorted(table_names(candidate) & PUBLIC_REPLICAS):
+        if candidate.execute("SELECT 1 FROM " + quote(table) + " LIMIT 1").fetchone():
+            raise ValueError("candidate contains unreconciled public image replicas in " + table)
     evidence = {}
     for table in sorted(target_names):
         if table not in source_names:
@@ -567,6 +572,9 @@ def independent_rows(source, candidate, decisions):
                 "SELECT count(*) FROM users WHERE policy_accepted_version IS NOT NULL OR policy_accepted_at IS NOT NULL"
             ).fetchone()[0]:
                 raise ValueError("migrated users must start with unaccepted policy state")
+        if table == "site_settings" and "banner_revision" not in keys:
+            if candidate.execute("SELECT 1 FROM site_settings WHERE banner_revision IS NOT NULL LIMIT 1").fetchone():
+                raise ValueError("historical settings cannot invent banner revisions")
         if table == "project_versions":
             actual_types = {str(row[0]): (row[1], row[2], row[3]) for row in candidate.execute(
                 "SELECT id,project_type,included_types,tags FROM project_versions")}
@@ -623,7 +631,8 @@ def verify(source_path, review_path, migrations, candidate_dir, report_path=None
                           "projectType": row["projectType"], "includedTypes": row["includedTypes"],
                           "sourceTags": row["tags"], "targetTags": row["targetTags"],
                           "tagChangeReason": row["tagChangeReason"]} for row in review["records"]]),
-                      "nonTaxonomyScope": "all logical source rows/fields except reviewed primary/included/tags and explicitly removed obsolete fields",
+                      "nonTaxonomyScope": ("all logical source rows/fields except reviewed primary/included/tags, "
+                                           "explicitly removed obsolete fields, and derived public image replicas"),
                       "foreignKeys": True, "applicationIntegrity": True, "canonicalSearch": True,
                       "acceptedImportedExceptions": integrity["accepted_exceptions"],
                       "legacyProvenanceSha256": digest(provenance), "legacySources": len(provenance),

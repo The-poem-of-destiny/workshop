@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -10,6 +11,7 @@ import sys
 import tempfile
 import unittest
 
+import public_images
 import taxonomy
 
 LOADER = Path(__file__).with_name("full-load.py")
@@ -29,6 +31,7 @@ def create_current_snapshot(path, migrations=MIGRATIONS):
         db.executescript("""
             PRAGMA foreign_keys = OFF;
             DROP VIEW project_search_short_source;
+            ALTER TABLE site_settings DROP COLUMN banner_revision;
             DROP TABLE collection_projects;
             DROP TABLE collections;
             DROP TABLE project_experience_notes;
@@ -129,7 +132,8 @@ def create_current_snapshot(path, migrations=MIGRATIONS):
             INSERT INTO oauth_flows (id,state_hash,origin,mode,status,user_id,expires_at,created_at)
                 VALUES ('oauth','synthetic-state','https://example.invalid','browser','authorized','author',
                         '2027-01-01','2026-01-01');
-            INSERT INTO site_settings VALUES ('synthetic-setting','unchanged value','2026-01-01','reviewer');
+            INSERT INTO site_settings (key,value,updated_at,updated_by)
+                VALUES ('synthetic-setting','unchanged value','2026-01-01','reviewer');
         """)
         db.commit()
         taxonomy.private_write(path, b"")
@@ -603,7 +607,191 @@ class CurrentTaxonomySnapshotTest(unittest.TestCase):
             self.assertEqual(db.execute("SELECT * FROM project_unversioned_notes").fetchone(),
                              ("p", "reviewer", 4, "Preserved comment", "2026-01-02", "2026-01-03"))
             self.assertEqual(db.execute("SELECT count(*) FROM project_experience_notes").fetchone()[0], 0)
+            self.assertEqual(db.execute("SELECT value,banner_revision FROM site_settings WHERE key='synthetic-setting'").fetchone(),
+                             ("unchanged value", None))
 
+    def test_public_images_only_publish_verified_selected_snapshot_objects(self):
+        backup = self.directory / "backup"
+        bucket = "workshop-client-snapshot"
+        target = "isolated-covers-synthetic"
+        account = "0" * 32
+        origin = "https://worker.example.invalid"
+        banner_url = origin + "/api/v1/public-assets/banners/hero.png"
+        cover = b"explicit cover bytes"
+        gallery = b"gallery slot bytes"
+        gallery_sha = hashlib.sha256(gallery).hexdigest()
+        gallery_key = f"gallery/p/gallery_1-{gallery_sha}.png"
+        objects = []
+
+        def mirror(key, image, mime):
+            relative = Path("r2") / bucket / key
+            path = backup / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(image)
+            objects.append({"key": key, "size": len(image), "sha256": hashlib.sha256(image).hexdigest(),
+                            "http_metadata": {"contentType": mime}, "local_path": relative.as_posix()})
+
+        mirror("covers/existing/source.webp", cover, "image/webp")
+        mirror(gallery_key, gallery, "application/octet-stream")  # Gallery uses the D1 asset MIME.
+        mirror("banners/hero.png", b"banner bytes", "image/png")
+        mirror("projects/existing/source-worldbook.json", b"synthetic worldbook reference only", "application/json")
+        with sqlite3.connect(self.source) as db:
+            db.execute("ALTER TABLE site_settings ADD COLUMN banner_revision TEXT")
+            db.execute("UPDATE assets SET sha256=?, bytes=? WHERE id='cover'", (objects[0]["sha256"], len(cover)))
+            db.execute("UPDATE assets SET r2_key=?, sha256=?, bytes=? WHERE id='gallery'", (gallery_key, gallery_sha, len(gallery)))
+            db.execute("INSERT INTO site_settings (key,value,banner_revision) VALUES ('discover_banner',?,'old-revision')",
+                       (json.dumps({"imageUrl": banner_url}),))
+            # Unselected covers are intentionally absent from this mirror.
+            db.execute("INSERT INTO assets VALUES ('version-cover','p','vp','cover','covers/p/version.png',?,1,'image/png','t')",
+                       ("d" * 64,))
+            manifest = hashlib.sha256(("cover:" + "d" * 64 + "\nworldbook:" + objects[3]["sha256"]).encode()).hexdigest()
+            db.execute("UPDATE project_versions SET manifest_hash=? WHERE id='vp'", (manifest,))
+            db.execute("INSERT INTO assets VALUES ('draft-cover','p','vw','cover','covers/p/draft.png',?,1,'image/png','t')",
+                       ("e" * 64,))
+            db.execute("INSERT INTO assets VALUES ('private-cover','p-new',NULL,'cover','covers/p-new/private.png',?,1,'image/png','t')",
+                       ("f" * 64,))
+            db.executescript("""
+                INSERT INTO public_cover_replicas VALUES ('p','covers/old-cover','ready','old-etag');
+                INSERT INTO public_gallery_replicas VALUES ('p','gallery_1','gallery','covers/gallery/old','ready','old-etag');
+            """)
+            db.execute("INSERT INTO public_banner_replicas VALUES (1,?,'covers/banner/old','ready','old-etag')", (banner_url,))
+        original = self.source.read_bytes()
+        self.review_path.unlink()
+        taxonomy.prepare_review(self.source, "current", self.review_path)
+        self.reviewed()
+        candidate = self.build()
+        report = self.directory / "verification.json"
+        taxonomy.verify(self.source, self.review_path, MIGRATIONS, candidate, report)
+        base = candidate / "expected.sqlite"
+        base_bytes = base.read_bytes()
+        with sqlite3.connect(base) as db:
+            for table in taxonomy.PUBLIC_REPLICAS:
+                self.assertIsNone(db.execute("SELECT * FROM " + table).fetchone())
+
+        # Exercise the real CLI/transport, replacing only curl's network boundary.
+        curl = self.directory / "curl"
+        curl.write_text(f"#!{sys.executable}\n" + '''
+import hashlib, json, os, sys
+from pathlib import Path
+
+options, headers = {}, {}
+for line in sys.stdin:
+    if ' = ' in line:
+        key, value = line.rstrip('\\n').split(' = ', 1)
+        value = json.loads(value)
+        if key == 'header':
+            name, value = value.split(': ', 1)
+            headers[name.lower()] = value
+        else:
+            options[key] = value
+assert 'PUBLIC_IMAGE_IMPORT_R2_SECRET_ACCESS_KEY' not in os.environ
+prefix = os.environ['TEST_R2_PREFIX']
+assert options['url'].startswith(prefix) and headers['authorization'].startswith('AWS4-HMAC-SHA256 ')
+key = options['url'][len(prefix):]
+state = Path(os.environ['TEST_R2_STATE'])
+objects = json.loads(state.read_text()) if state.exists() else {}
+meta = {}
+if 'upload-file' in options:
+    assert key not in objects and headers['if-none-match'] == '*'
+    payload = Path(options['upload-file']).read_bytes()
+    assert hashlib.sha256(payload).hexdigest() == headers['x-amz-content-sha256']
+    objects[key] = {'payload': payload.hex(), 'headers': {
+        'content-type': [headers['content-type']], 'cache-control': [headers['cache-control']],
+        'etag': ['"remote-' + str(len(objects)) + '"'],
+    }}
+    state.write_text(json.dumps(objects))
+    status = '200'
+elif key in objects:
+    obj = objects[key]
+    sys.stdout.buffer.write(bytes.fromhex(obj['payload']))
+    meta = obj['headers']
+    status = '200'
+else:
+    status = '404'
+sys.stderr.write(status + (json.dumps(meta) if '%{header_json}' in options['write-out'] else ''))
+''', encoding="utf-8")
+        curl.chmod(0o700)
+        state = self.directory / "remote.json"
+        env = {**os.environ, "PATH": str(self.directory) + os.pathsep + os.environ["PATH"],
+               "TEST_R2_PREFIX": f"https://{account}.r2.cloudflarestorage.com/{target}/", "TEST_R2_STATE": str(state),
+               "PUBLIC_IMAGE_IMPORT_R2_ACCESS_KEY_ID": "synthetic", "PUBLIC_IMAGE_IMPORT_R2_SECRET_ACCESS_KEY": "synthetic"}
+        plan_path = self.directory / "public-plan.json"
+        ready = self.directory / "ready.sqlite"
+
+        def images(mode, *extra, succeeds=True):
+            command = [sys.executable, str(Path(__file__).with_name("offline.py")), "public-images", mode,
+                       "--candidate", str(base), "--candidate-verification", str(report), "--backup", str(backup),
+                       "--migrations", str(MIGRATIONS), "--plan", str(plan_path), *extra]
+            result = subprocess.run(command, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0 if succeeds else 1, result.stdout + result.stderr)
+            outcome = json.loads(result.stdout)
+            self.assertIs(outcome["ok"], succeeds)
+            return outcome
+
+        prepare_args = ("--source-private-bucket", bucket, "--source-origin", origin,
+                        "--target-public-bucket", target, "--target-account-id", account)
+        backup_manifest = backup / "manifest.json"
+        mirror_manifest = {"databases": [{"name": "current-synthetic", "sha256": "f" * 64}],
+                           "buckets": {bucket: {"objects": objects}}}
+        taxonomy.json_write(backup_manifest, mirror_manifest)
+        outcome = images("prepare", *prepare_args, succeeds=False)
+        self.assertIn("taxonomy source must match", outcome["error"])
+        self.assertFalse(plan_path.exists())
+        mirror_manifest["databases"][0]["sha256"] = hashlib.sha256(original).hexdigest()
+        backup_manifest.write_text(taxonomy.stable(mirror_manifest), encoding="utf-8")
+        self.assertEqual(images("prepare", *prepare_args)["objects"], 3)
+        self.assertFalse(state.exists())
+        plan = taxonomy.read_review(plan_path)
+        selected = {obj["kind"]: obj for obj in plan["objects"]}
+        self.assertEqual({kind: obj["sourceKey"] for kind, obj in selected.items()},
+                         {"cover": "covers/existing/source.webp", "gallery": gallery_key, "banner": "banners/hero.png"})
+        for kind, namespace in (("cover", "covers/"), ("gallery", "covers/gallery/"), ("banner", "covers/banner/")):
+            self.assertRegex(selected[kind]["targetKey"], "^" + namespace + public_images.UUID4 + "$")
+        confirmed = ("--confirm-public-target",)
+        output = (*confirmed, "--output", str(ready))
+        images("finalize", *output, succeeds=False)
+        self.assertFalse(ready.exists())
+        self.assertEqual(images("upload", *confirmed)["uploaded"], 3)
+        self.assertEqual(images("upload", *confirmed)["uploaded"], 0)
+        remote = json.loads(state.read_text())
+        self.assertEqual(set(remote), {obj["targetKey"] for obj in selected.values()})
+        self.assertEqual({key: value["payload"] for key, value in remote.items()}, {
+            obj["targetKey"]: (backup / "r2" / bucket / obj["sourceKey"]).read_bytes().hex() for obj in selected.values()})
+        key = selected["gallery"]["targetKey"]
+        for field, value in (("payload", b"wrong gallery bytes".hex()), ("headers", {"etag": ['"remote-bogus"']})):
+            with self.subTest(corrupt=field):
+                corrupt = copy.deepcopy(remote)
+                corrupt[key][field] = value
+                state.write_text(json.dumps(corrupt))
+                images("finalize", *output, succeeds=False)
+                self.assertFalse(ready.exists())
+        state.write_text(json.dumps(remote))
+        self.assertEqual(images("finalize", *output)["readySha256"], taxonomy.file_hash(ready))
+        with sqlite3.connect(ready) as db:
+            def generation(kind):
+                key = selected[kind]["targetKey"]
+                return key, "ready", remote[key]["headers"]["etag"][0].strip('"')
+            self.assertEqual(db.execute("SELECT * FROM public_cover_replicas").fetchall(), [("p", *generation("cover"))])
+            self.assertEqual(db.execute("SELECT * FROM public_gallery_replicas").fetchall(),
+                             [("p", "gallery_1", "gallery", *generation("gallery"))])
+            self.assertEqual(db.execute("SELECT * FROM public_banner_replicas").fetchall(),
+                             [(1, banner_url, *generation("banner"))])
+            self.assertEqual(db.execute("SELECT json_extract(value,'$.imageUrl'),banner_revision FROM site_settings "
+                                        "WHERE key='discover_banner'").fetchone(), (banner_url, "old-revision"))
+            self.assertEqual(db.execute("SELECT r2_key FROM assets WHERE id='worldbook'").fetchone(),
+                             ("projects/existing/source-worldbook.json",))
+        self.assertEqual(self.source.read_bytes(), original)
+        self.assertEqual(base.read_bytes(), base_bytes)
+
+    def test_banner_replication_never_treats_cross_origin_or_ambiguous_paths_as_local(self):
+        origin = "https://worker.example.invalid"
+        route = "/api/v1/public-assets/banners/hero.png"
+        for url in (route, origin + route, "/api/v1/assets/banners/hero.png"):
+            self.assertEqual(public_images.banner_key(url, origin), "banners/hero.png")
+        for url in ("https://offsite.example.invalid" + route, "https://worker.example.invalid@offsite.example.invalid" + route,
+                    "//worker.example.invalid" + route, origin + "/ignored/.." + route, route + "?v=1", route + "#x"):
+            with self.subTest(url=url):
+                self.assertIsNone(public_images.banner_key(url, origin))
 
     def test_versioned_and_retained_notes_survive_an_already_current_snapshot(self):
         with sqlite3.connect(self.source) as db:

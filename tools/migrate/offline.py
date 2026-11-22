@@ -6,6 +6,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import public_images
+
 HERE = Path(__file__).resolve().parent
 
 
@@ -29,6 +31,7 @@ def main():
     objects.add_argument("mode", choices=("check", "upload", "verify"))
     objects.add_argument("--backup", type=Path, required=True)
     objects.add_argument("--preparation", type=Path, required=True)
+    public_images.configure(commands.add_parser("public-images", help="prepare and reconcile current snapshot public images"))
     staging = commands.add_parser("staging", help="advance, inspect, or verify a staging candidate")
     staging.add_argument("mode", choices=("advance", "watch", "verify", "status", "adopt"))
     staging.add_argument("--plan", type=Path, required=True)
@@ -37,12 +40,16 @@ def main():
     staging.add_argument("--max-batches", type=int, default=10)
     staging.add_argument("--confirm-staging", action="store_true")
     control = commands.add_parser("control", help="control staging admission or check public reads")
-    control.add_argument("mode", choices=("status", "close", "open", "smoke"))
+    control.add_argument("mode", choices=("status", "close", "open", "smoke", "public-images"))
     control.add_argument("--token-file", type=Path, required=True,
                          help="existing owner-only maintenance token file; never a Cloudflare or legacy token")
+    control.add_argument("--require-drained", action="store_true",
+                         help="for status only: fail unless writes are closed and all Worker tickets are drained")
     control.add_argument("--preparation", type=Path, help="validated private full-snapshot preparation; required for smoke")
     control.add_argument("--samples", type=int, default=3, help="representative detail/private/asset checks (1-10)")
     control.add_argument("--timeout", type=int, default=60, help="per-request timeout in seconds (1-300)")
+    control.add_argument("--project-id", action="append", default=[], help="project to backfill (repeatable; public-images only)")
+    control.add_argument("--banner", action="store_true", help="backfill the current banner (public-images only)")
     args = parser.parse_args()
     try:
         if args.command == "prepare":
@@ -56,6 +63,8 @@ def main():
             return taxonomy_module.run(args)
         elif args.command == "objects":
             run("node", str(HERE / "full-r2.mjs"), args.mode, str(args.backup), str(args.preparation))
+        elif args.command == "public-images":
+            return public_images.run(args)
         elif args.command == "control":
             spec = importlib.util.spec_from_file_location("staging_control", HERE / "full-staging-control.py")
             module = importlib.util.module_from_spec(spec)
