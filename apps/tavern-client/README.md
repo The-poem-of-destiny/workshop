@@ -6,7 +6,7 @@ A browser script running inside SillyTavern. It opens the Workshop site in an if
 
 | Task | Entry points |
 | --- | --- |
-| Host integration, Workshop iframe and message handling | [`src/index.ts`](src/index.ts); counterpart in the site: [`install-bridge.ts`](../worker/web/src/lib/install-bridge.ts) |
+| Host integration, Workshop iframe, agreement/origin dialogs and message handling | [`src/index.ts`](src/index.ts), [`src/dialogs.ts`](src/dialogs.ts); counterpart in the site: [`install-bridge.ts`](../worker/web/src/lib/install-bridge.ts) |
 | Scan installed content, preview changes, confirm installation/update/removal | [`src/install.ts`](src/install.ts) |
 | Host scanning and legacy normalization | [`src/install-discovery.ts`](src/install-discovery.ts) |
 | Permission/location checks and preview diff | [`src/install-preview.ts`](src/install-preview.ts); shared identities and diff types in [`src/install-model.ts`](src/install-model.ts) |

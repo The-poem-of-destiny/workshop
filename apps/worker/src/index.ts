@@ -1,7 +1,7 @@
 import { app, applicationRequestSettled } from "./app";
+import { canonicalPublicRequest } from "./cache/public-cache";
 import { fetchPublic } from "./data-client";
 import type { Env } from "./env";
-import { canonicalPublicRequest } from "./http/public-cache";
 import { publicResponse } from "./http/public-response";
 import { isReadOnlyRequest } from "./http/read-only-request";
 import { isStorageQuotaError, quotaErrorDetail, quotaExceededMessage } from "./quota-error";

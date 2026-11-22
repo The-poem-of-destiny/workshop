@@ -67,7 +67,7 @@ db.prepare(`INSERT INTO project_versions
   "命定之诗测试项目",
   "描述",
   "系统核心",
-  '["角色","玩法"]',
+  '["角色","规则扩展"]',
   '["合集","cbz"]',
   "u1",
   now,
@@ -125,7 +125,7 @@ db.prepare("INSERT INTO projects(id,author_id) VALUES('p2','u1')").run();
 db.prepare(
   "INSERT INTO project_versions(id,project_id,version_no,title,project_type,created_by) VALUES('r2','p2',1,'Other','角色','u1')",
 ).run();
-for (const projectType of ["系统核心", "角色", "内容扩展", "玩法", "事件", "体验优化"]) {
+for (const projectType of ["系统核心", "角色", "内容扩展", "规则扩展", "体验优化"]) {
   db.prepare("UPDATE project_versions SET project_type = ? WHERE id = 'r2'").run(projectType);
 }
 for (const value of ["NULL", "''", "'扩展'", "'未知'"]) {
@@ -147,7 +147,7 @@ for (const value of [
     `invalid included types ${value} accepted`,
   );
 }
-db.prepare("UPDATE project_versions SET included_types = ? WHERE id = 'r2'").run('["角色","内容扩展","玩法","事件"]');
+db.prepare("UPDATE project_versions SET included_types = ? WHERE id = 'r2'").run('["角色","内容扩展","规则扩展"]');
 rejects(
   "UPDATE project_versions SET project_type='角色' WHERE id='r2'",
   "primary change accepted an existing self inclusion",
@@ -241,7 +241,7 @@ if (JSON.stringify(indexedTags.map((row) => row.tag)) !== JSON.stringify(["cbz",
 }
 const includedSearch = db
   .prepare("SELECT rowid FROM project_search_short WHERE project_search_short MATCH ?")
-  .all("玩 法");
+  .all("规 则");
 if (includedSearch.length !== 1) throw new Error("included categories were not indexed as searchable metadata");
 for (const pointer of ["working_version_id", "published_version_id"]) {
   rejects(`UPDATE projects SET ${pointer}='r2' WHERE id='p1'`, `cross-project ${pointer} accepted`);
@@ -313,5 +313,5 @@ for (const table of ["project_versions", "submissions", "project_search_tags"]) 
 }
 
 console.log(
-  `schema ok: ${expectedTables.length} tables, six-category taxonomy + ordinary tag integrity, FTS + short search, protected asset references`,
+  `schema ok: ${expectedTables.length} tables, five-category taxonomy + ordinary tag integrity, FTS + short search, protected asset references`,
 );

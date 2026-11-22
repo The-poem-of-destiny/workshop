@@ -1,4 +1,4 @@
-import type { InstallLocation, InstallScan } from "../../../packages/contracts/src/install.js";
+import type { InstallLocation, InstallScan } from "@workshop/contracts/install";
 import {
   copy,
   type Discovery,

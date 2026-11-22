@@ -60,6 +60,24 @@ export function parseTags(value: string): string[] {
   }
 }
 
+export function parseGallery(value: string): Array<{ slot: number; url: string }> {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is { slot: number; url: string } =>
+        typeof item === "object" &&
+        item !== null &&
+        "slot" in item &&
+        typeof item.slot === "number" &&
+        "url" in item &&
+        typeof item.url === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
 export function parseIncludedTypes(value: string): ProjectType[] {
   return includedTypesSchema.parse(JSON.parse(value));
 }

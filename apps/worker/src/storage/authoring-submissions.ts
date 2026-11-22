@@ -1,8 +1,10 @@
+import bundleManifest from "@workshop/content/bundle-manifest";
 import { projectEntryIndexDocumentSchema, type Session, type SubmitProject } from "@workshop/contracts";
 import { type ProjectEntryKind, validateProjectContentPresence } from "@workshop/domain";
-import { REVIEW_CHECKER_VERSION } from "../content-checker.js";
 import type { PrevalidatedContent } from "../data/contracts.js";
 import { getWorkingVersion } from "./authoring-model.js";
+
+const REVIEW_CHECKER_VERSION = bundleManifest.revision;
 
 export type SubmitVersionResult =
   | {

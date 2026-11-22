@@ -4,13 +4,8 @@ import {
   type ProjectPreviewKind,
   projectEntryIndexDocumentSchema,
 } from "@workshop/contracts";
-import { extractProjectEntries, type ProjectEntryKind } from "@workshop/domain";
+import { extractProjectEntries } from "@workshop/domain";
 import type { ProjectPreviewTarget } from "../data/contracts.js";
-
-async function hash(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
 
 function entryName(entry: Record<string, unknown>, fallback: string): string {
   for (const value of [entry.name, entry.comment, entry.scriptName]) {
@@ -82,45 +77,6 @@ function previewBehavior(
     enabled:
       typeof entry.enabled === "boolean" ? entry.enabled : typeof entry.disable === "boolean" ? !entry.disable : null,
   };
-}
-
-interface IndexedAsset {
-  kind: ProjectEntryKind;
-  r2_key: string;
-}
-
-export async function buildEntryIndex(
-  r2: R2Bucket,
-  assets: ReadonlyArray<IndexedAsset>,
-): Promise<ProjectEntryIndex["entries"]> {
-  const entries: ProjectEntryIndex["entries"] = [];
-  for (const asset of assets) {
-    const object = await r2.get(asset.r2_key);
-    if (!object) throw new Error(`Content index asset is missing: ${asset.kind}`);
-    const text = await object.text();
-    let raw: unknown;
-    try {
-      raw = JSON.parse(text);
-    } catch {
-      throw new Error(`Content index asset is not valid JSON: ${asset.kind}`);
-    }
-    for (const ref of extractProjectEntries(raw, asset.kind)) {
-      const content =
-        typeof ref.entry.content === "string"
-          ? ref.entry.content
-          : typeof ref.entry.replaceString === "string"
-            ? ref.entry.replaceString
-            : "";
-      entries.push({
-        kind: asset.kind,
-        entryKey: ref.entryKey,
-        name: entryName(ref.entry, ref.entryKey),
-        contentHash: await hash(content),
-        contentLength: Array.from(content).length,
-      });
-    }
-  }
-  return entries;
 }
 
 export async function getProjectEntryIndex(db: D1Database, projectId: string): Promise<ProjectEntryIndex | null> {

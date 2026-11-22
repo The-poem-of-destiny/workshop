@@ -24,6 +24,9 @@ importers:
         specifier: 2.9.1
         version: 2.9.1
     devDependencies:
+      '@workshop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       esbuild:
         specifier: 0.28.2
         version: 0.28.2

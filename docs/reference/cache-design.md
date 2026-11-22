@@ -48,7 +48,7 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 
 `GET /api/v1/projects` 的[筛选合同](worker-api.md#目录筛选与游标)先经共享 schema 规范化，再用于目录 SQL、cursor scope 和公开缓存键，不以原始 query string 的拼写区分同义请求：
 
-- 重复 `projectType` 去重并按六类顺序排列；重复 `tag` 经 JavaScript `trim()`、去重、排序后合计最多 12 个。标签的预设同组 OR、跨组 AND、每个自定义词独立 AND 语义不因缓存而改变，手输预设词仍属其词表分组。
+- 重复 `projectType` 去重并按五类顺序排列；重复 `tag` 经 JavaScript `trim()`、去重、排序后合计最多 12 个。标签的预设同组 OR、跨组 AND、每个自定义词独立 AND 语义不因缓存而改变，手输预设词仍属其词表分组。
 - 省略 `includeContained` 与显式 `false` 采用同一身份；`true` 单独分区，不能把“仅主类”的结果误用于“还包含”。改变主类集合、标签、作者、合集、搜索、排序、有效统计周期或页游标也有各自的查询身份。
 - `limit=25`、`sort=published`、有效统计周期 `30d` 等默认值在规范化查询中省略；统计周期只对 likes／downloads 排序生效。参数顺序和重复选择不会创建额外缓存变体。非法筛选或不属于当前 scope 的 cursor 返回 400，不得作为其他筛选结果缓存。
 
@@ -56,7 +56,7 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 
 行为回归使用 [cache-api.test.ts](../../apps/worker/test/cache-api.test.ts) 的 Cloudflare 本地 D1／Cache API 运行时，实际调用生产 `CachedReads`，提供非空部署版本和正 TTL，并等待 `waitUntil` 的缓存写入。关键命中判据不是响应头，而是首次读取后改变底层数据库，等价查询仍返回已缓存旧值；改变身份或到期后才返回新值。
 
-分类回归先缓存角色／事件与人类／战士筛选的 `Taxonomy original`，将底层发布版改为 `Taxonomy changed` 后，以重排／重复参数和显式 `includeContained=false` 仍读到 original；切换为 `includeContained=true` 必须读到 changed。玩法仅在“还包含”时为 1 项，仅主类时为 0 项。相同 harness 还覆盖应用 freshness 到期、部署版本隔离、GET／HEAD 共用完整表示、禁用 TTL 和缺失版本时绕过缓存。
+分类回归先缓存角色／内容扩展与人类／战士筛选的 `Taxonomy original`，将底层发布版改为 `Taxonomy changed` 后，以重排／重复参数和显式 `includeContained=false` 仍读到 original；切换为 `includeContained=true`（按主类与包含类型做多分类 AND 匹配）必须读到 changed。规则扩展仅在“包含类型”开启时为 1 项，仅主类时为 0 项。相同 harness 还覆盖应用 freshness 到期、部署版本隔离、GET／HEAD 共用完整表示、禁用 TTL 和缺失版本时绕过缓存。
 
 普通 `tools/preview-debug.mjs` 预览将 `CACHE_TTL_PUBLIC_SECONDS` 固定为 0，因此其 API／UI 成功不能证明公开列表 Cache API 命中。本地 harness 的命中也不代表真实 Cloudflare 边缘、跨 PoP 行为或费用已验收；线上观测仍需单独授权。
 

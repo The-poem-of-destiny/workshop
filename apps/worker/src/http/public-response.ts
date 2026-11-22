@@ -1,4 +1,4 @@
-import type { PublicCacheClass } from "./public-cache";
+import type { PublicCacheClass } from "../cache/public-cache";
 
 export function publicResponse(response: Response, category: PublicCacheClass, requestHeaders: Headers): Response {
   const headers = new Headers(response.headers);

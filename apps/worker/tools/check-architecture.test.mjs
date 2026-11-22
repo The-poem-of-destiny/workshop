@@ -47,18 +47,49 @@ test("checks source imports, reexports, dynamic imports and relative paths", (t)
   assert.match(result, /dynamic module specifiers/);
 });
 
-test("allows shared contracts and type-only storage contracts but blocks reverse runtime edges", (t) => {
+test("allows shared contracts and type-only storage/web contracts but blocks reverse runtime or relative cross-workspace edges", (t) => {
   const { root, put } = fixture(t);
-  put("packages/contracts/src/install.ts", "export interface Install {};");
-  put("apps/tavern-client/src/index.ts", 'import type { Install } from "../../../packages/contracts/src/install.js";');
+  put(
+    "apps/tavern-client/package.json",
+    JSON.stringify({ name: "@workshop/tavern-client", devDependencies: { "@workshop/contracts": "workspace:*" } }),
+  );
+  put(
+    "apps/tavern-client/tsconfig.json",
+    JSON.stringify({
+      compilerOptions: { baseUrl: ".", paths: { "@workshop/contracts": ["../../packages/contracts/src/index.ts"] } },
+    }),
+  );
+  put(
+    "apps/worker/web/tsconfig.json",
+    JSON.stringify({
+      compilerOptions: { baseUrl: ".", paths: { "@workshop/contracts": ["../../../packages/contracts/src/index.ts"] } },
+    }),
+  );
+  put("packages/contracts/src/index.ts", "export interface Install {}; export const installSchema = 1;");
+  put("apps/tavern-client/src/index.ts", 'import type { Install } from "@workshop/contracts";');
+  put("apps/worker/web/src/ok.ts", 'import type { Install } from "@workshop/contracts";');
   put("apps/worker/src/data/contracts.ts", "export interface Contract {};");
   put("apps/worker/src/storage/ok.ts", 'import type { Contract } from "../data/contracts.js";');
   assert.deepEqual(checkArchitecture(root), []);
+  put("apps/tavern-client/src/relative.ts", 'import type { Install } from "../../../packages/contracts/src/index.js";');
+  put("apps/worker/src/http/errors.ts", "export const err = 1;");
+  put("apps/worker/src/data-client.ts", "export const client = 1;");
+  put("apps/worker/src/cache/bad-cache.ts", 'import { err } from "../http/errors.js";');
+  put("apps/worker/src/data/bad-http.ts", 'import { err } from "../http/errors.js";');
+  put("apps/worker/src/data/bad-client.ts", 'import { client } from "../data-client.js";');
   put("apps/worker/src/storage/bad.ts", 'export * from "../data/contracts.js";');
+  put("apps/worker/src/storage/bad-outer.ts", 'import { client } from "../data-client.js";');
   put("apps/worker/web/src/bad.ts", 'import "../../src/data/contracts.js";');
+  put("apps/worker/web/src/runtime-contract.ts", 'import { installSchema } from "@workshop/contracts";');
   const result = checkArchitecture(root).join("\n");
+  assert.match(result, /cross-workspace relative import is forbidden/);
+  assert.match(result, /cache layer may only import env as types within Worker/);
+  assert.match(result, /data layer cannot import HTTP or gateway module '\.\.\/http\/errors\.js'/);
+  assert.match(result, /data layer cannot import HTTP or gateway module '\.\.\/data-client\.js'/);
   assert.match(result, /storage may only import data contracts as types/);
+  assert.match(result, /storage cannot import outer Worker module/);
   assert.match(result, /Web cannot import Worker implementation/);
+  assert.match(result, /Web may only import contracts as types/);
 });
 
 test("resolves TypeScript path aliases before checking boundaries", (t) => {

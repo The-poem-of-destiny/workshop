@@ -1,5 +1,5 @@
 import { CURRENT_POLICY_VERSION, WORKSHOP_POLICY_CLAUSES, WORKSHOP_POLICY_QUESTIONS } from "@workshop/domain";
-import { CheckCircle2, ShieldAlert } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useState } from "react";
 import { ApiError, api, type MeResponse, type UserPolicyState } from "../../api";
 import { Button } from "../../components/ui/button";
@@ -64,30 +64,42 @@ export function PolicyGateDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => (submitting ? undefined : onOpenChange(next))}>
-      <DialogContent className="policy-dialog max-w-[680px]">
-        <DialogHeader>
-          <DialogTitle>创意工坊使用政策与须知</DialogTitle>
+      <DialogContent
+        className={`policy-dialog mobile-sheet ${requiresQuiz ? "policy-dialog-wide max-w-[980px]" : "max-w-[660px]"}`}
+      >
+        <DialogHeader className="policy-dialog-header">
+          <div className="detail-header-top">
+            <button
+              type="button"
+              className="mobile-sheet-back"
+              disabled={submitting}
+              onClick={() => onOpenChange(false)}
+            >
+              <ArrowLeft aria-hidden="true" />
+              <span>返回</span>
+            </button>
+            <DialogTitle>创意工坊使用政策与须知</DialogTitle>
+          </div>
           <DialogDescription>
             {requiresQuiz
-              ? `你好，${pendingUser?.globalName || pendingUser?.username}。启用账号互动、安装与创作功能前，请阅读以下说明并完成 3 道确认问答；未完成期间仅可以游客身份浏览。`
+              ? `你好，${pendingUser?.globalName || pendingUser?.username}。启用互动、安装与创作功能前，请确认以下须知并完成 3 道问答。`
               : `当前政策版本：${CURRENT_POLICY_VERSION}`}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="policy-dialog-body">
-          <div className="policy-clauses">
-            {WORKSHOP_POLICY_CLAUSES.map((clause, index) => (
-              <section key={clause.id} className="policy-clause">
-                <h4>
-                  {index + 1}. {clause.title}
-                </h4>
-                <p>{clause.body}</p>
-              </section>
-            ))}
-          </div>
-
-          {requiresQuiz ? (
-            <div className="policy-quiz">
+        <div className={`policy-dialog-body${requiresQuiz ? " policy-split-grid" : ""}`}>
+          <div className="policy-clauses-col">
+            <div className="policy-clauses">
+              {WORKSHOP_POLICY_CLAUSES.map((clause, index) => (
+                <section key={clause.id} className="policy-clause">
+                  <h4>
+                    {index + 1}. {clause.title}
+                  </h4>
+                  <p>{clause.body}</p>
+                </section>
+              ))}
+            </div>
+            {requiresQuiz ? (
               <label className="policy-agree-check">
                 <input
                   type="checkbox"
@@ -98,11 +110,15 @@ export function PolicyGateDialog({
                     setSubmitError(null);
                   }}
                 />
-                <span>我已阅读并同意上述《创意工坊使用政策》（版本 {CURRENT_POLICY_VERSION}）</span>
+                <span>我已阅读并同意上述《创意工坊使用政策》（{CURRENT_POLICY_VERSION}）</span>
               </label>
+            ) : null}
+          </div>
 
+          {requiresQuiz ? (
+            <div className="policy-quiz">
               <div className="policy-questions">
-                <p className="policy-questions-lead">请完成以下 3 道单选题以确认已了解关键规则：</p>
+                <p className="policy-questions-lead">确认问答（共 3 题，全部答对后启用账号）：</p>
                 {WORKSHOP_POLICY_QUESTIONS.map((question, qIndex) => {
                   const hasError = incorrectIds.includes(question.id);
                   return (
@@ -115,7 +131,10 @@ export function PolicyGateDialog({
                       </legend>
                       <div className="policy-options">
                         {question.options.map((option) => (
-                          <label key={option.id} className="policy-option">
+                          <label
+                            key={option.id}
+                            className={`policy-option${answers[question.id] === option.id ? " is-selected" : ""}`}
+                          >
                             <input
                               type="radio"
                               name={`policy-q-${question.id}`}
@@ -128,9 +147,7 @@ export function PolicyGateDialog({
                           </label>
                         ))}
                       </div>
-                      {hasError ? (
-                        <p className="policy-question-hint">此题回答与上方政策说明不符，请重新核对。</p>
-                      ) : null}
+                      {hasError ? <p className="policy-question-hint">此题与左侧须知不符，请重新核对。</p> : null}
                     </fieldset>
                   );
                 })}

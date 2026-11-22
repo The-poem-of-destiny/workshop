@@ -99,31 +99,30 @@ export function CurrentVersionEntries({
   }
 
   return (
-    <section className="asset-picker" aria-label="当前版本已保存条目">
-      <h4>当前版本已保存条目</h4>
-      <p className="field-hint">
-        这里读取服务器已保存内容，与下方本地文件选择独立。删除会生成新的工作版本，不修改公开快照；仍需通过统一送审。
-      </p>
-      {dirty ? (
-        <p className="field-hint">有未保存资料或未上传文件，请先保存、上传或移除本地选择，再删除已保存条目。</p>
-      ) : null}
-      {frozen ? <p className="field-hint">当前版本已冻结，请先新建版本再删除条目。</p> : null}
-      {loading ? <p role="status">正在读取当前版本条目…</p> : null}
+    <section className="asset-picker saved-entries-panel" aria-label="当前版本已保存条目">
+      <div className="saved-entries-head">
+        <div>
+          <h4>已保存条目（{entries.length}）</h4>
+          <p className="field-hint">当前草稿版本内已包含的条目；删除条目不会影响线上公开版本。</p>
+        </div>
+        <button
+          type="button"
+          disabled={busy || pending || loading || !versionId}
+          onClick={() => setReload((value) => value + 1)}
+        >
+          刷新条目
+        </button>
+      </div>
+      {dirty ? <p className="field-hint">请先保存资料或完成文件上传后再移除单个条目。</p> : null}
+      {loading ? <p role="status">正在读取已保存条目…</p> : null}
       {!loading && entries.length === 0 && !error ? (
-        <p className="asset-empty">当前版本没有已保存的内容条目。</p>
+        <p className="asset-empty">暂无已保存条目，请在上方选择并上传世界书或正则文件。</p>
       ) : null}
       {error ? (
         <p className="asset-error" role="alert">
           {error}
         </p>
       ) : null}
-      <button
-        type="button"
-        disabled={busy || pending || loading || !versionId}
-        onClick={() => setReload((value) => value + 1)}
-      >
-        刷新当前内容
-      </button>
       <ul className="asset-entry-list">
         {entries.map((entry) => (
           <li className="asset-entry" key={`${entry.kind}:${entry.key}`}>

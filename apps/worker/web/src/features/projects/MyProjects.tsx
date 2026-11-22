@@ -1,3 +1,4 @@
+import { ArrowLeft, Bookmark, BookOpen, Download, Plus, RefreshCcw, ThumbsUp } from "lucide-react";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { type AuthorCollection, type AuthorProject, api } from "../../api";
 import { ConfirmDialog } from "../../components/ui/confirm-dialog";
@@ -49,6 +50,7 @@ export function MyProjects({
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [failedCovers, setFailedCovers] = useState<Record<string, boolean>>({});
   const [withdrawPrompt, setWithdrawPrompt] = useState<{
     entry: AuthorProject;
     continueEdit: boolean;
@@ -90,7 +92,7 @@ export function MyProjects({
   }, [dirty, onDirtyChange]);
 
   function closeEditor(): void {
-    if (dirty && !window.confirm("有尚未保存的资料或未上传的文件，确定放弃并返回项目索引？")) return;
+    if (dirty && !window.confirm("有尚未保存的资料或未上传的文件，确定放弃并返回项目列表？")) return;
     setDirty(false);
     setSelectedId(null);
   }
@@ -100,7 +102,7 @@ export function MyProjects({
     setBusy(true);
     try {
       await api.createVersion(entry.project.id, entry.rowVersion, metadataPayload(projectForm(entry.project, entry)));
-      onNotice("已创建新版本，现在可以继续修改资料与上传文件。");
+      onNotice("已创建新版本，现在可以修改资料与上传文件。");
       await refresh();
     } catch (reason) {
       onError(String(reason));
@@ -128,12 +130,12 @@ export function MyProjects({
             withdrawn.rowVersion,
             metadataPayload(projectForm(entry.project, entry)),
           );
-          onNotice("已撤回审核并创建新版本，现在可以直接修改并重新送审。");
+          onNotice("已撤回审核并创建新版本，可直接继续修改。");
         } catch (versionError) {
-          onError(`审核已撤回，但自动创建新版本失败，请点击「新建版本」继续修改：${String(versionError)}`);
+          onError(`审核已撤回，请点击「新建版本」继续修改：${String(versionError)}`);
         }
       } else {
-        onNotice("提交已撤回，线上已发布版本不受影响。");
+        onNotice("本次提交已撤回，线上公开版本不受影响。");
       }
       await refresh();
     } catch (reason) {
@@ -142,6 +144,18 @@ export function MyProjects({
       setBusy(false);
     }
   }
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<"all" | ProjectStatus, number> = {
+      all: items.length,
+      public: 0,
+      review: 0,
+      rejected: 0,
+      draft: 0,
+    };
+    for (const item of items) counts[statusOf(item)] += 1;
+    return counts;
+  }, [items]);
 
   const visibleItems = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase();
@@ -168,81 +182,135 @@ export function MyProjects({
       <section className="workspace-section project-index">
         <div className="workspace-heading">
           <div>
-            <p className="workspace-kicker">作者工作区</p>
+            <p className="workspace-kicker">创作者工作台</p>
             <h2>我的项目</h2>
           </div>
           <div className="workspace-actions">
             <button type="button" onClick={onCreate} className="workspace-primary">
+              <Plus aria-hidden="true" />
               新建项目
             </button>
             <button type="button" onClick={() => void refresh()} disabled={loading}>
-              {loading ? "加载中…" : "刷新"}
+              <RefreshCcw aria-hidden="true" />
+              {loading ? "刷新中…" : "刷新"}
             </button>
           </div>
         </div>
-        <div className="workspace-toolbar">
-          <label className="workspace-search" htmlFor="project-search">
-            <span>搜索项目</span>
+
+        <div className="workspace-filter-bar">
+          <div className="workspace-status-pills" role="tablist" aria-label="状态筛选">
+            {(
+              [
+                ["all", "全部"],
+                ["public", "公开展示"],
+                ["review", "审核中"],
+                ["rejected", "已退回"],
+                ["draft", "草稿"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={statusFilter === key}
+                className={`status-pill-tab${statusFilter === key ? " is-active" : ""}`}
+                onClick={() => setStatusFilter(key)}
+              >
+                <span>{label}</span>
+                <small>{statusCounts[key]}</small>
+              </button>
+            ))}
+          </div>
+          <label className="workspace-search-inline" htmlFor="project-search">
+            <span className="sr-only">搜索项目</span>
             <input
               id="project-search"
               type="search"
               value={search}
-              placeholder="标题、标签或类型"
+              placeholder="搜索标题、分类或标签…"
               onChange={(event) => setSearch(event.target.value)}
             />
           </label>
-          <label className="workspace-filter" htmlFor="project-status">
-            <span>状态</span>
-            <select
-              id="project-status"
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value as "all" | ProjectStatus)}
-            >
-              <option value="all">全部</option>
-              <option value="draft">草稿</option>
-              <option value="review">审核中</option>
-              <option value="public">公开展示</option>
-              <option value="rejected">已退回</option>
-            </select>
-          </label>
         </div>
+
         {loading && items.length === 0 ? <p className="workspace-state">正在加载项目…</p> : null}
         {!loading && items.length === 0 ? (
           <div className="workspace-state workspace-empty">
-            <strong>还没有项目</strong>
-            <span>创建一个草稿，上传文件后再提交审核。</span>
+            <strong>还没有发布或草稿项目</strong>
+            <span>新建项目并上传世界书或正则文件，即可提交发布到创意工坊。</span>
             <button type="button" className="workspace-primary" onClick={onCreate}>
-              创建第一个项目
+              新建第一个项目
             </button>
           </div>
         ) : null}
         {!loading && items.length > 0 && visibleItems.length === 0 ? (
-          <p className="workspace-state">没有符合当前搜索和状态筛选的项目。</p>
+          <p className="workspace-state">没有匹配当前筛选条件的项目。</p>
         ) : null}
         {visibleItems.length > 0 ? (
           <div className="project-list workspace-project-list">
             {visibleItems.map((item) => {
               const status = statusOf(item);
+              const p = item.project;
+              const hasCover = Boolean(p.coverUrl && !failedCovers[p.id]);
               return (
                 <button
-                  key={item.project.id}
+                  key={p.id}
                   type="button"
-                  className={`project-row workspace-project-row${item.project.id === selectedId ? " selected" : ""}`}
+                  className={`project-row workspace-project-row${p.id === selectedId ? " selected" : ""}`}
                   onClick={(event) => {
                     editorOpener.current = event.currentTarget;
-                    setSelectedId(item.project.id);
+                    setSelectedId(p.id);
                   }}
                 >
+                  <span className="workspace-row-thumb" aria-hidden="true">
+                    {hasCover ? (
+                      <img
+                        src={p.coverUrl!}
+                        alt=""
+                        loading="lazy"
+                        onError={() => setFailedCovers((prev) => ({ ...prev, [p.id]: true }))}
+                        style={{
+                          objectPosition: `${p.coverPositionX ?? 50}% ${p.coverPositionY ?? 50}%`,
+                          transform: `scale(${p.coverZoom ?? 1})`,
+                        }}
+                      />
+                    ) : (
+                      <BookOpen />
+                    )}
+                  </span>
                   <span className="workspace-project-main">
-                    <strong>{item.project.title}</strong>
+                    <span className="workspace-row-title-line">
+                      <strong>{p.title}</strong>
+                      <span className={`workspace-status workspace-status-${status}`}>{STATUS_LABELS[status]}</span>
+                    </span>
                     <small>
-                      {item.project.projectType}
-                      {item.project.includedTypes.length ? `（包含：${item.project.includedTypes.join("、")}）` : ""}
-                      {" · "}v{item.project.versionLabel ?? "未标注"} ·{" "}
-                      {item.project.updatedAt ? new Date(item.project.updatedAt).toLocaleDateString() : "日期未知"}
+                      <span className="workspace-row-type">{p.projectType}</span>
+                      {p.includedTypes.length ? ` · 兼有 ${p.includedTypes.join(" / ")}` : ""}
+                      {p.versionLabel ? ` · v${p.versionLabel.replace(/^v/i, "")}` : ""}
+                      {p.updatedAt ? ` · 更新 ${p.updatedAt.slice(0, 10)}` : ""}
                     </small>
                   </span>
-                  <span className={`workspace-status workspace-status-${status}`}>{STATUS_LABELS[status]}</span>
+                  <span className="workspace-row-metrics" aria-hidden="true">
+                    <span className="workspace-row-entries">
+                      世界书 {p.entries.worldbook} · 正则 {p.entries.regex}
+                    </span>
+                    {p.publishedVersionId ? (
+                      <span className="workspace-row-stats">
+                        <span>
+                          <Download />
+                          {p.counts.downloads}
+                        </span>
+                        <span>
+                          <ThumbsUp />
+                          {p.counts.likes}
+                        </span>
+                        <span>
+                          <Bookmark />
+                          {p.counts.subscriptions}
+                        </span>
+                      </span>
+                    ) : null}
+                  </span>
                 </button>
               );
             })}
@@ -262,7 +330,7 @@ export function MyProjects({
       <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && closeEditor()}>
         {selected ? (
           <DialogContent
-            className="task-workspace author-task"
+            className="task-workspace author-task mobile-sheet"
             aria-describedby="author-task-description"
             onCloseAutoFocus={(event) => {
               event.preventDefault();
@@ -270,33 +338,39 @@ export function MyProjects({
             }}
           >
             <header className="task-workspace-header">
-              <div>
-                <DialogTitle>{selected.project.title} · 编辑任务</DialogTitle>
+              <div className="task-workspace-title-group">
+                <div className="task-workspace-title-row">
+                  <DialogTitle>{selected.project.title} · 编辑项目</DialogTitle>
+                  <span className={`workspace-status workspace-status-${statusOf(selected)}`}>
+                    {STATUS_LABELS[statusOf(selected)]}
+                  </span>
+                </div>
                 <DialogDescription id="author-task-description">
-                  资料、封面与内容作为同一快照送审，审核前不改变公开版本。
+                  草稿修改在审核通过前不会影响线上公开版本
                 </DialogDescription>
               </div>
-              <button type="button" onClick={closeEditor}>
-                返回我的项目
+              <button type="button" className="task-return-btn" onClick={closeEditor}>
+                <ArrowLeft aria-hidden="true" />
+                <span>返回我的项目</span>
               </button>
             </header>
-            <div className="task-workspace-body">
-              <ProjectStatusBanner
-                entry={selected}
-                busy={busy}
-                onNewVersion={() => void createVersion(selected)}
-                onWithdrawAndEdit={() => setWithdrawPrompt({ entry: selected, continueEdit: true })}
-                onWithdrawOnly={() => setWithdrawPrompt({ entry: selected, continueEdit: false })}
-              />
-              <ProjectEditor
-                entry={selected}
-                collections={collections}
-                onRefresh={refresh}
-                onError={onError}
-                onNotice={onNotice}
-                onDirtyChange={setDirty}
-              />
-            </div>
+            <ProjectEditor
+              entry={selected}
+              collections={collections}
+              statusBanner={
+                <ProjectStatusBanner
+                  entry={selected}
+                  busy={busy}
+                  onNewVersion={() => void createVersion(selected)}
+                  onWithdrawAndEdit={() => setWithdrawPrompt({ entry: selected, continueEdit: true })}
+                  onWithdrawOnly={() => setWithdrawPrompt({ entry: selected, continueEdit: false })}
+                />
+              }
+              onRefresh={refresh}
+              onError={onError}
+              onNotice={onNotice}
+              onDirtyChange={setDirty}
+            />
           </DialogContent>
         ) : null}
       </Dialog>
@@ -306,8 +380,8 @@ export function MyProjects({
         title={withdrawPrompt?.continueEdit ? "撤回审核并继续修改" : "撤回本次审核"}
         description={
           withdrawPrompt?.continueEdit
-            ? "撤回后本次送审快照不会发布，系统会立即为你新建一个可编辑版本以便继续修改；线上已发布的公开版本不受影响。"
-            : "撤回后本次送审快照即使自动检查完成也不会发布；线上已发布的公开版本不受影响。"
+            ? "撤回后系统将立即为你创建可编辑的新草稿版本，线上公开版本不受影响。"
+            : "撤回后本次提交不再发布，线上公开版本不受影响。"
         }
         confirmLabel={withdrawPrompt?.continueEdit ? "确认撤回并修改" : "确认撤回"}
         busy={busy}

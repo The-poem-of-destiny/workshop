@@ -268,6 +268,24 @@ async function registerAsset(
   return { kind, sha256, bytes, mime, r2Key, rowVersion: expectedVersion + 1 };
 }
 
+export async function getVersionAsset(
+  db: D1Database,
+  projectId: string,
+  versionId: string,
+  kind: "worldbook" | "regex" | "cover",
+): Promise<{ kind: "missing_revision" } | { kind: "missing_asset" } | { kind: "ok"; r2_key: string; mime: string }> {
+  const revision = await db
+    .prepare("SELECT id FROM project_versions WHERE id = ? AND project_id = ?")
+    .bind(versionId, projectId)
+    .first<{ id: string }>();
+  if (!revision) return { kind: "missing_revision" };
+  const asset = await db
+    .prepare("SELECT r2_key, mime FROM assets WHERE project_id = ? AND version_id = ? AND kind = ?")
+    .bind(projectId, revision.id, kind)
+    .first<{ r2_key: string; mime: string }>();
+  return asset ? { kind: "ok", ...asset } : { kind: "missing_asset" };
+}
+
 function extensionForMime(mime: string): string {
   const known: Record<string, string> = {
     "application/json": "json",

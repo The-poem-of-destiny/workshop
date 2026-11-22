@@ -17,3 +17,17 @@ export interface PrevalidatedContent {
   error: string | null;
   entries: ProjectEntryIndex["entries"];
 }
+
+export interface RunTarget {
+  id: string;
+  project_id: string;
+  version_id: string;
+  base_published_version_id: string | null;
+  status: string;
+  check_status: string;
+  check_attempts: number;
+  lease_token: string | null;
+  lease_until: string | null;
+  client_gate: string | null;
+  checker_version: string | null;
+}

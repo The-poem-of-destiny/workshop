@@ -4,7 +4,7 @@ import type {
   InstallIntent,
   InstallPreview,
   InstallScan,
-} from "../../../packages/contracts/src/install.js";
+} from "@workshop/contracts/install";
 import { entryIdentity } from "./workshop-yaml.js";
 export type Row = {
   [key: string]: unknown;

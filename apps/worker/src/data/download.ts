@@ -1,7 +1,7 @@
-import { fetchImmutableObject } from "../data-client";
 import { getReleaseAssets } from "../storage/releases";
 import { getSessionByToken } from "../storage/sessions";
 import type { DataEnv } from "./env";
+import { fetchImmutableObject } from "./object-cache";
 
 export async function download(request: Request, env: DataEnv, context: ExecutionContext): Promise<Response> {
   const headers = { "cache-control": "private, no-store" };
@@ -19,7 +19,15 @@ export async function download(request: Request, env: DataEnv, context: Executio
   const missing = () =>
     Response.json({ error: { code: "not_found", message: "Download not found" } }, { status: 404, headers });
   if (!match || request.method !== "GET") return missing();
-  const release = await getReleaseAssets(env.DB, decodeURIComponent(match[1]!), decodeURIComponent(match[2]!), session);
+  let projectId: string;
+  let versionId: string;
+  try {
+    projectId = decodeURIComponent(match[1]!);
+    versionId = decodeURIComponent(match[2]!);
+  } catch {
+    return missing();
+  }
+  const release = await getReleaseAssets(env.DB, projectId, versionId, session);
   const row = release?.files.find((file) => file.kind === match[3]);
   if (!row) return missing();
   const cacheable =
@@ -40,7 +48,7 @@ export async function download(request: Request, env: DataEnv, context: Executio
   const currentSession = await getSessionByToken(env.DB, token, env.SESSION_HASH_SECRET);
   const current =
     currentSession && currentSession.policyAccepted
-      ? await getReleaseAssets(env.DB, decodeURIComponent(match[1]!), decodeURIComponent(match[2]!), currentSession)
+      ? await getReleaseAssets(env.DB, projectId, versionId, currentSession)
       : null;
   if (
     !current?.files.some((file) => file.kind === row.kind && file.r2Key === row.r2Key && file.sha256 === row.sha256)

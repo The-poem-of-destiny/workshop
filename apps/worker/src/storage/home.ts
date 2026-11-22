@@ -5,8 +5,7 @@ import {
   type Recommendation,
   siteSettingsSchema,
 } from "@workshop/contracts";
-import { DEFAULT_COMMUNITY_INVITE_URL, parseDiscordInviteUrl } from "@workshop/domain";
-import { isStorageQuotaError, quotaErrorDetail, quotaExceededMessage } from "../quota-error.js";
+import { DEFAULT_COMMUNITY_INVITE_URL, discordAvatarUrl, parseDiscordInviteUrl } from "@workshop/domain";
 import { getPublishedProjectsByIds, listPublishedProjects } from "./projects.js";
 import { readRecommendationBatch } from "./recommendation-batches.js";
 
@@ -161,9 +160,7 @@ export async function listRecommendations(db: D1Database, publicAssetsBaseUrl?: 
         curator: {
           id: row.curator_id,
           name: row.curator_name,
-          avatarUrl: row.curator_avatar
-            ? `https://cdn.discordapp.com/avatars/${row.curator_id}/${row.curator_avatar}.png`
-            : null,
+          avatarUrl: discordAvatarUrl(row.curator_id, row.curator_avatar),
         },
         comment: row.comment,
         projectVersionId: row.project_version_id,
@@ -182,7 +179,11 @@ export async function getDiscovery(db: D1Database, publicAssetsBaseUrl?: string)
   };
 }
 
-export async function getHome(db: D1Database, origins?: BannerOrigins): Promise<HomeResponse> {
+export async function getHome(
+  db: D1Database,
+  origins?: BannerOrigins,
+  classifyError?: (reason: unknown) => { code: "quota_exceeded"; message: string; details: string } | null,
+): Promise<HomeResponse> {
   const [site, discovery, projects] = await Promise.allSettled([
     Promise.all([getBanner(db, origins), getSiteContent(db)]).then(([banner, siteContent]) =>
       siteSettingsSchema.parse({ banner, siteContent }),
@@ -203,16 +204,8 @@ export async function getHome(db: D1Database, origins?: BannerOrigins): Promise<
   ]);
   function section<T>(result: PromiseSettledResult<T>, message: string) {
     if (result.status === "fulfilled") return { ok: true as const, data: result.value };
-    if (isStorageQuotaError(result.reason)) {
-      return {
-        ok: false as const,
-        error: {
-          code: "quota_exceeded" as const,
-          message: quotaExceededMessage(),
-          details: quotaErrorDetail(result.reason),
-        },
-      };
-    }
+    const classified = classifyError?.(result.reason);
+    if (classified) return { ok: false as const, error: classified };
     return { ok: false as const, error: { code: "internal" as const, message } };
   }
   return {

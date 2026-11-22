@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { identifyOccurrences } from "../listIdentity";
+import { keyedItems } from "../../../lib/keyedItems";
 import { fileKey, formatBytes, type RegexAsset, type WorldbookAsset } from "./preview";
 
 function Dropzone({
@@ -88,13 +88,9 @@ export function AssetPicker({
   const regexCount = regexAssets.reduce((total, asset) => total + asset.entries.length, 0);
   return (
     <section className="asset-picker">
-      <div className="asset-picker-heading">
-        <p className="field-hint">所有主要分类都需要至少一份有效且非空的世界书或正则内容。</p>
-        <p className="field-hint">选择文件后先在本地解析预览，确认无误再点击上传。</p>
-        <p className="field-hint">
-          世界书条目名称会自动加上 [WS]；请按下方最终名称编写并检查引用，动态 EJS 无法完全自动检查。
-        </p>
-      </div>
+      <p className="field-hint">
+        至少上传一份有效的世界书或正则 JSON（世界书条目会自动添加 [WS] 前缀，选择文件后可先预览并执行本地预检）。
+      </p>
       <div className="asset-grid">
         <div className="asset-card">
           <div className="asset-card-heading">
@@ -137,7 +133,7 @@ export function AssetPicker({
                 </p>
               ) : (
                 <ul className="asset-entry-list">
-                  {identifyOccurrences(worldbook.entries).map(({ item: entry, key }) => (
+                  {keyedItems(worldbook.entries).map(({ item: entry, key }) => (
                     <li className="asset-entry" key={key}>
                       <div className="asset-entry-title">
                         <strong>{entry.name}</strong>
@@ -216,7 +212,7 @@ export function AssetPicker({
                     {asset.file.name} · {asset.entries.length} 条
                   </summary>
                   <ul className="asset-entry-list">
-                    {identifyOccurrences(asset.entries).map(({ item: entry, key }) => (
+                    {keyedItems(asset.entries).map(({ item: entry, key }) => (
                       <li className="asset-entry" key={key}>
                         <div className="asset-entry-title">
                           <strong>{entry.scriptName}</strong>

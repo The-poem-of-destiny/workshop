@@ -3,11 +3,12 @@
 /* Feature sheets. Import order is the cascade order — keep it stable. */
 @import "./styles/base.css";
 @import "./styles/shell.css";
+@import "./styles/policy.css";
 @import "./styles/catalogue.css";
 @import "./styles/installed.css";
 @import "./styles/cards.css";
 @import "./styles/controls.css";
 @import "./styles/detail.css";
-@import "./styles/admin.css";
+@import "./styles/panels.css";
 @import "./styles/responsive.css";
 @import "./styles/catalogue-list.css";

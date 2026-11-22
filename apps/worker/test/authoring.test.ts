@@ -166,13 +166,13 @@ describe("authoring write paths", () => {
     const tags = Array.from({ length: 20 }, (_, index) => `标签${index}`);
     const created = await request("/", {
       method: "POST",
-      body: JSON.stringify({ title: "完整分类", projectType: "角色", includedTypes: ["玩法", "事件"], tags }),
+      body: JSON.stringify({ title: "完整分类", projectType: "角色", includedTypes: ["内容扩展", "规则扩展"], tags }),
     });
     expect(created.status).toBe(201);
     const first = authoringProjectResponseSchema.parse(await created.json());
     for (const [method, suffix, projectType] of [
-      ["PATCH", "", "玩法"],
-      ["POST", "/versions", "事件"],
+      ["PATCH", "", "规则扩展"],
+      ["POST", "/versions", "内容扩展"],
     ] as const) {
       const invalid = await request(`/${first.project.id}${suffix}`, {
         method,
@@ -189,7 +189,7 @@ describe("authoring write paths", () => {
     expect(unchanged).toEqual({
       row_version: 1,
       project_type: "角色",
-      included_types: '["玩法","事件"]',
+      included_types: '["内容扩展","规则扩展"]',
       tags: JSON.stringify(tags),
       versions: 1,
     });
@@ -205,12 +205,12 @@ describe("authoring write paths", () => {
     expect(authoringProjectResponseSchema.parse(await retainedDraft.json())).toMatchObject({
       rowVersion: retained.rowVersion,
       workingVersionId: retained.versionId,
-      project: { title: "只改标题", projectType: "角色", includedTypes: ["玩法", "事件"], tags },
+      project: { title: "只改标题", projectType: "角色", includedTypes: ["内容扩展", "规则扩展"], tags },
     });
     const changed = await request(`/${first.project.id}`, {
       method: "PATCH",
       headers: { "if-match": String(retained.rowVersion) },
-      body: JSON.stringify({ projectType: "玩法", includedTypes: ["角色", "事件"] }),
+      body: JSON.stringify({ projectType: "规则扩展", includedTypes: ["角色", "内容扩展"] }),
     });
     expect(changed.status).toBe(200);
     const changedVersion = authoringVersionResponseSchema.parse(await changed.json());
@@ -219,7 +219,7 @@ describe("authoring write paths", () => {
     expect(authoringProjectResponseSchema.parse(await changedDraft.json())).toMatchObject({
       rowVersion: changedVersion.rowVersion,
       workingVersionId: changedVersion.versionId,
-      project: { projectType: "玩法", includedTypes: ["角色", "事件"], tags },
+      project: { projectType: "规则扩展", includedTypes: ["角色", "内容扩展"], tags },
     });
   });
 
@@ -430,6 +430,16 @@ describe("authoring write paths", () => {
     expect(
       await (await request(`/${first.project.id}/versions/${inheritedVersion.versionId}/files/worldbook`)).text(),
     ).toBe(markedWorldbook);
+    const headFile = await request(`/${first.project.id}/versions/${inheritedVersion.versionId}/files/worldbook`, {
+      method: "HEAD",
+    });
+    expect(headFile.status).toBe(200);
+    expect(headFile.headers.get("content-type")).toBe("application/json");
+    expect(await headFile.text()).toBe("");
+    expect((await request(`/%E0%A4%A/versions/${inheritedVersion.versionId}/files/worldbook`)).status).toBe(404);
+    expect((await request(`/${first.project.id}/versions/${inheritedVersion.versionId}/files/%E0%A4%A`)).status).toBe(
+      400,
+    );
     const rows = await bindings.DB.prepare(
       "SELECT version_no FROM project_versions WHERE project_id = ? ORDER BY version_no",
     )

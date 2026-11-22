@@ -1,4 +1,4 @@
-import type { InstallIntent, InstallPreview } from "../../../packages/contracts/src/install.js";
+import type { InstallIntent, InstallPreview } from "@workshop/contracts/install";
 import { projectRegex, projectWorldbook } from "./host-projection.js";
 import { capture, discover } from "./install-discovery.js";
 import {

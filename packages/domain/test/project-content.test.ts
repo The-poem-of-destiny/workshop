@@ -34,11 +34,16 @@ describe("project taxonomy vocabulary", () => {
   });
 
   it("orders selected-category groups before common groups and retains every other group", () => {
-    const groups = orderedPresetTagGroups(["角色", "玩法"]);
+    const groups = orderedPresetTagGroups(["角色", "规则扩展"]);
     expect(groups.slice(0, 5).map((group) => group.name)).toEqual(["种族", "身份", "个性", "外貌特征", "玩法方向"]);
     expect(groups.slice(5, 8).map((group) => group.name)).toEqual(["组织", "势力", "组成形式"]);
     expect(groups).toHaveLength(PRESET_TAG_GROUPS.length);
     expect(new Set(groups)).toEqual(new Set(PRESET_TAG_GROUPS));
+    expect(
+      orderedPresetTagGroups(["内容扩展"])
+        .slice(0, 2)
+        .map((group) => group.name),
+    ).toEqual(["内容类型", "事件形式"]);
     expect(
       orderedPresetTagGroups([])
         .slice(0, 3)

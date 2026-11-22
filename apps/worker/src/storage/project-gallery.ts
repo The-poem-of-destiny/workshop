@@ -39,7 +39,6 @@ type GalleryMutationError =
   | { kind: "conflict" }
   | { kind: "withdrawal_pending" }
   | { kind: "invalid"; message: string };
-
 export type GalleryWriteResult =
   | { kind: "ok"; rowVersion: number; sha256: string; bytes: number; mime: string; r2Key: string }
   | GalleryMutationError;

@@ -53,14 +53,14 @@ export function ProjectExperienceNotes({
   return (
     <section className="rail-section rating-block" aria-label="我的版本体验备忘">
       <h4>我的版本体验备忘</h4>
-      <p className="hint">评分和体验文字仅自己可见，不会成为公开评价或推荐。每个版本分别保存。</p>
+      <p className="hint">仅自己可见的游玩笔记，按版本独立保存。</p>
       {!loggedIn ? (
-        <button type="button" onClick={onLogin}>
-          登录后记录体验
+        <button type="button" className="rail-subtle-btn" onClick={onLogin}>
+          登录后记录备忘
         </button>
       ) : failed ? (
         <div className="detail-state detail-state-error" role="alert">
-          <p>体验备忘加载失败。</p>
+          <p>备忘加载失败。</p>
           <button type="button" onClick={() => setReload((value) => value + 1)}>
             <RefreshCcw aria-hidden="true" />
             重试
@@ -68,7 +68,7 @@ export function ProjectExperienceNotes({
         </div>
       ) : !data || completedReload !== reload ? (
         <p className="hint" role="status">
-          正在加载体验备忘…
+          正在加载备忘…
         </p>
       ) : (
         <>
@@ -100,12 +100,9 @@ export function ProjectExperienceNotes({
           {data.unversionedNote ? (
             <section className="rating-block" aria-label="未标版本的旧备忘">
               <h4>未标版本的旧备忘</h4>
-              <p className="hint">
-                旧记录没有可靠的版本信息，原样保留在这里，不会自动归到任何版本；仅自己可见，可删除。
-              </p>
-              <p className="rating-summary">旧评分 {data.unversionedNote.rating} 星</p>
+              <p className="rating-summary">早期评分 {data.unversionedNote.rating} 星</p>
               <p className="hint" style={{ whiteSpace: "pre-wrap" }}>
-                {data.unversionedNote.comment ?? "没有体验文字"}
+                {data.unversionedNote.comment ?? "无文字备注"}
               </p>
               <button
                 type="button"
@@ -173,7 +170,6 @@ function VersionNoteEditor({
   };
   return (
     <>
-      <p className="hint">{versionName(version)}</p>
       <fieldset className="rating-stars" disabled={saving}>
         <legend className="sr-only">本版体验评分</legend>
         {[1, 2, 3, 4, 5].map((value) => (
@@ -189,19 +185,17 @@ function VersionNoteEditor({
           </button>
         ))}
       </fieldset>
-      <p className="rating-summary">{rating === null ? "本版尚未记录评分" : `本版评分 ${rating} 星`}</p>
       <label className="rating-comment">
         <span className="sr-only">本版体验文字</span>
         <textarea
           aria-label="本版体验文字"
-          rows={3}
+          rows={2}
           maxLength={2000}
           value={comment}
           disabled={saving}
-          placeholder="写下这个版本的体验，只有自己能看到。"
+          placeholder="记录本版游玩体验（仅自己可见）"
           onChange={(event) => setComment(event.target.value)}
         />
-        <span className="rating-count">{comment.length} / 2000</span>
       </label>
       <div className="actions">
         <button type="button" className="primary" disabled={rating === null || saving} onClick={() => save(false)}>

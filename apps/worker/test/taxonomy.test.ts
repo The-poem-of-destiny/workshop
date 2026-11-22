@@ -1,7 +1,7 @@
 import { createProjectSchema, patchProjectSchema, projectListQuerySchema } from "@workshop/contracts";
 import { PROJECT_TYPES } from "@workshop/domain";
 import { describe, expect, it } from "vitest";
-import { canonicalPublicRequest } from "../src/http/public-cache";
+import { canonicalPublicRequest } from "../src/cache/public-cache";
 
 describe("shared taxonomy contracts", () => {
   it.each(PROJECT_TYPES)("requires exactly one primary and defaults optional metadata for %s", (projectType) => {
@@ -12,17 +12,18 @@ describe("shared taxonomy contracts", () => {
     });
   });
 
-  it.each([undefined, null, "扩展", "系统", ["角色", "玩法"]].map((projectType) => ({ projectType })))(
-    "rejects an absent or obsolete primary ($projectType)",
-    ({ projectType }) => {
-      expect(createProjectSchema.safeParse({ title: "项目", projectType }).success).toBe(false);
-    },
-  );
+  it.each(
+    [undefined, null, "扩展", "系统", "玩法", "事件", ["角色", "规则扩展"]].map((projectType) => ({ projectType })),
+  )("rejects an absent or obsolete primary ($projectType)", ({ projectType }) => {
+    expect(createProjectSchema.safeParse({ title: "项目", projectType }).success).toBe(false);
+  });
 
   it.each([
     { includedTypes: ["系统核心"] },
     { includedTypes: ["角色"] },
-    { includedTypes: ["玩法", "玩法"] },
+    { includedTypes: ["规则扩展", "规则扩展"] },
+    { includedTypes: ["玩法"] },
+    { includedTypes: ["事件"] },
     { includedTypes: ["未知"] },
   ])("rejects invalid included categories ($includedTypes)", ({ includedTypes }) => {
     expect(createProjectSchema.safeParse({ title: "项目", projectType: "角色", includedTypes }).success).toBe(false);
@@ -34,10 +35,10 @@ describe("shared taxonomy contracts", () => {
       createProjectSchema.parse({
         title: "核心",
         projectType: "系统核心",
-        includedTypes: ["体验优化", "事件", "玩法", "内容扩展", "角色"],
+        includedTypes: ["体验优化", "规则扩展", "内容扩展", "角色"],
       }).includedTypes,
-    ).toEqual(["角色", "内容扩展", "玩法", "事件", "体验优化"]);
-    expect(patchProjectSchema.safeParse({ projectType: "玩法", includedTypes: ["玩法"] }).success).toBe(false);
+    ).toEqual(["角色", "内容扩展", "规则扩展", "体验优化"]);
+    expect(patchProjectSchema.safeParse({ projectType: "规则扩展", includedTypes: ["规则扩展"] }).success).toBe(false);
   });
 
   it("accepts twenty unique ordinary tags without reclassifying old shortcuts", () => {
@@ -51,11 +52,11 @@ describe("shared taxonomy contracts", () => {
   it("deduplicates and canonically orders repeated catalogue dimensions", () => {
     expect(
       projectListQuerySchema.parse({
-        projectType: ["事件", "角色", "角色", "系统核心"],
+        projectType: ["内容扩展", "角色", "角色", "系统核心"],
         tag: ["自定义B", "人类", "自定义A", "人类"],
       }),
     ).toMatchObject({
-      projectType: ["系统核心", "角色", "事件"],
+      projectType: ["系统核心", "角色", "内容扩展"],
       includeContained: false,
       tag: ["人类", "自定义A", "自定义B"],
     });
@@ -78,19 +79,19 @@ describe("catalogue cache identity", () => {
     const first = canonicalPublicRequest(
       "GET",
       new URL(
-        "https://one.test/api/v1/projects?projectType=事件&projectType=角色&tag=人类&tag=自定义&tag=人类&includeContained=false",
+        "https://one.test/api/v1/projects?projectType=内容扩展&projectType=角色&tag=人类&tag=自定义&tag=人类&includeContained=false",
       ),
     );
     const equivalent = canonicalPublicRequest(
       "GET",
       new URL(
-        "https://two.test/api/v1/projects?tag=自定义&tag=人类&projectType=角色&projectType=事件&projectType=角色",
+        "https://two.test/api/v1/projects?tag=自定义&tag=人类&projectType=角色&projectType=内容扩展&projectType=角色",
       ),
     );
     const contained = canonicalPublicRequest(
       "GET",
       new URL(
-        "https://one.test/api/v1/projects?projectType=角色&projectType=事件&tag=人类&tag=自定义&includeContained=true",
+        "https://one.test/api/v1/projects?projectType=角色&projectType=内容扩展&tag=人类&tag=自定义&includeContained=true",
       ),
     );
     expect(first.kind).toBe("public");

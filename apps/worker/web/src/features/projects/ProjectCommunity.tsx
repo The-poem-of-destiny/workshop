@@ -1,5 +1,5 @@
 import type { InteractionStateItem } from "@workshop/contracts";
-import { Bookmark, ExternalLink, Heart, RefreshCcw } from "lucide-react";
+import { Bookmark, ExternalLink, Heart, MessageSquarePlus, RefreshCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api, type ProjectSummary } from "../../api";
 import type { DiscordPromptTarget } from "../policy/DiscordLinkPrompt";
@@ -37,10 +37,12 @@ export function ProjectCommunity({
   const [recommendationSaving, setRecommendationSaving] = useState(false);
   const [recommendationStatus, setRecommendationStatus] = useState<string | null>(null);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
+  const [recommendationOpen, setRecommendationOpen] = useState(false);
   useEffect(() => {
     setRecommendationComment("");
     setRecommendationStatus(null);
     setRecommendationError(null);
+    setRecommendationOpen(false);
     if (!loggedIn) {
       setInteraction(null);
       return;
@@ -93,8 +95,8 @@ export function ProjectCommunity({
         }
         const message =
           reason instanceof ApiError && reason.status === 403
-            ? "请先订阅此项目，再推荐当前版本；取消订阅后不可新增或编辑，仍可撤回已有推荐。"
-            : `推荐保存失败：${String(reason)}`;
+            ? "订阅作品后即可撰写或更新本版推荐。"
+            : `保存失败：${String(reason)}`;
         setRecommendationError(message);
       })
       .finally(() => {
@@ -178,6 +180,21 @@ export function ProjectCommunity({
           <Bookmark aria-hidden="true" fill={interaction?.subscribed ? "currentColor" : "none"} />
           <span>{interaction?.subscribed ? "已订阅" : "订阅"}</span>
         </button>
+        <button
+          type="button"
+          disabled={loggedIn && interactionStatus !== "ready"}
+          aria-expanded={loggedIn ? recommendationOpen : undefined}
+          onClick={() => {
+            if (!loggedIn) {
+              onLogin();
+              return;
+            }
+            setRecommendationOpen((value) => !value);
+          }}
+        >
+          <MessageSquarePlus aria-hidden="true" />
+          <span>{recommendationOpen ? "收起推荐" : interaction?.recommendation ? "编辑推荐语" : "写推荐语"}</span>
+        </button>
       </div>
       {loggedIn && interactionStatus === "loading" ? (
         <p className="hint" role="status">
@@ -194,30 +211,31 @@ export function ProjectCommunity({
         </div>
       ) : null}
       {loggedIn && interactionStatus === "unavailable" ? <p className="hint">此项目当前不可互动。</p> : null}
-      <VersionRecommendation
-        interaction={interaction}
-        ready={interactionStatus === "ready"}
-        loggedIn={loggedIn}
-        projectVersionId={project.publishedVersionId}
-        comment={recommendationComment}
-        saving={recommendationSaving}
-        status={recommendationStatus}
-        error={recommendationError}
-        onCommentChange={(value) => {
-          setRecommendationComment(value);
-          setRecommendationStatus(null);
-          setRecommendationError(null);
-        }}
-        onSave={saveRecommendation}
-      />
+      {loggedIn && interactionStatus === "ready" && !recommendationOpen && interaction?.recommendation ? (
+        <p className="rail-rec-preview">{interaction.recommendation.comment || "已推荐当前版本（未填写说明）"}</p>
+      ) : null}
+      {loggedIn && interactionStatus === "ready" && recommendationOpen ? (
+        <VersionRecommendation
+          interaction={interaction}
+          projectVersionId={project.publishedVersionId}
+          comment={recommendationComment}
+          saving={recommendationSaving}
+          status={recommendationStatus}
+          error={recommendationError}
+          onCommentChange={(value) => {
+            setRecommendationComment(value);
+            setRecommendationStatus(null);
+            setRecommendationError(null);
+          }}
+          onSave={saveRecommendation}
+        />
+      ) : null}
     </section>
   );
 }
 
 function VersionRecommendation({
   interaction,
-  ready,
-  loggedIn,
   projectVersionId,
   comment,
   saving,
@@ -227,8 +245,6 @@ function VersionRecommendation({
   onSave,
 }: {
   interaction: Interaction | null;
-  ready: boolean;
-  loggedIn: boolean;
   projectVersionId: string | null | undefined;
   comment: string;
   saving: boolean;
@@ -237,48 +253,39 @@ function VersionRecommendation({
   onCommentChange: (value: string) => void;
   onSave: (remove: boolean) => void;
 }) {
+  const hasRec = Boolean(interaction?.recommendation);
   return (
     <section className="rating-block" aria-label="版本推荐">
       <h4>推荐当前版本</h4>
-      <p className="hint">推荐会公开展示，且只属于当前版本；新版本发布后需重新明确推荐。订阅不会自动推荐。</p>
-      {!loggedIn ? (
-        <p className="hint">登录并订阅此项目后可推荐；取消订阅后仍可撤回已有推荐。</p>
-      ) : ready ? (
-        <>
-          {!interaction?.recommendationEligible ? (
-            <p className="hint">请先订阅此项目，再推荐当前版本；取消订阅后不可新增或编辑，仍可撤回已有推荐。</p>
-          ) : (
-            <p className="hint">你当前已订阅此项目，可以推荐当前版本。</p>
-          )}
-          <label className="rating-comment">
-            <span>公开推荐说明（可选）</span>
-            <textarea
-              rows={3}
-              maxLength={2000}
-              value={comment}
-              disabled={!interaction?.recommendationEligible || saving}
-              onChange={(event) => onCommentChange(event.target.value)}
-            />
-          </label>
-          <div className="actions">
-            <button
-              type="button"
-              className="primary"
-              disabled={!interaction?.recommendationEligible || saving || !projectVersionId}
-              onClick={() => onSave(false)}
-            >
-              {saving ? "处理中…" : interaction?.recommendation ? "更新当前版本推荐" : "推荐当前版本"}
-            </button>
-            {interaction?.recommendation ? (
-              <button type="button" disabled={saving} onClick={() => onSave(true)}>
-                撤回当前版本推荐
-              </button>
-            ) : null}
-          </div>
-          {status ? <p role="status">{status}</p> : null}
-          {error ? <p role="alert">{error}</p> : null}
-        </>
-      ) : null}
+      {!interaction?.recommendationEligible ? <p className="hint">订阅作品后即可推荐当前版本。</p> : null}
+      <label className="rating-comment">
+        <span>公开推荐说明（可选）</span>
+        <textarea
+          rows={2}
+          maxLength={2000}
+          placeholder="写一句游玩感受或推荐理由（公开展示）"
+          value={comment}
+          disabled={!interaction?.recommendationEligible || saving}
+          onChange={(event) => onCommentChange(event.target.value)}
+        />
+      </label>
+      <div className="actions">
+        <button
+          type="button"
+          className="primary"
+          disabled={!interaction?.recommendationEligible || saving || !projectVersionId}
+          onClick={() => onSave(false)}
+        >
+          {saving ? "处理中…" : hasRec ? "更新当前版本推荐" : "推荐当前版本"}
+        </button>
+        {hasRec ? (
+          <button type="button" disabled={saving} onClick={() => onSave(true)}>
+            撤回当前版本推荐
+          </button>
+        ) : null}
+      </div>
+      {status ? <p role="status">{status}</p> : null}
+      {error ? <p role="alert">{error}</p> : null}
     </section>
   );
 }

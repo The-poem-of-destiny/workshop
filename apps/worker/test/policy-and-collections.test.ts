@@ -245,7 +245,7 @@ describe("collections & author showcase", () => {
       authorId: "author-1",
       title: "公开事件模组",
       visibility: "public",
-      projectType: "事件",
+      projectType: "内容扩展",
       tags: ["日常"],
     });
     await seedPublishedProject({

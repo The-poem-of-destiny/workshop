@@ -1,7 +1,7 @@
-import { fetchImmutableObject } from "../data-client.js";
-import { bannerSourceKey } from "../storage/home";
+import { bannerSourceKey } from "../storage/home.js";
 import { getSessionByToken } from "../storage/sessions.js";
 import type { DataEnv } from "./env.js";
+import { fetchImmutableObject } from "./object-cache.js";
 
 async function privateImageHash(
   authorization: string | null,

@@ -1,9 +1,31 @@
 import { MAX_DISPLAY_TAGS } from "@workshop/domain";
-import { Bookmark, BookOpen, Download, History, MoreHorizontal, ThumbsUp, Upload } from "lucide-react";
+import { Bookmark, BookOpen, Download, History, MoreHorizontal, ThumbsUp } from "lucide-react";
 import { type MouseEvent, type PointerEvent, useEffect, useRef, useState } from "react";
 import type { ProjectSummary } from "../../api";
+import { plainMarkdownExcerpt } from "../../lib/markdown";
 
 import type { DiscordPromptTarget } from "../policy/DiscordLinkPrompt";
+
+function UploadDateIcon() {
+  return (
+    <svg
+      className="card-date-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="17 8 12 3 7 8" />
+      <line x1="12" x2="12" y1="3" y2="15" />
+    </svg>
+  );
+}
+
+const cleanExcerpt = (text: string | null | undefined) => plainMarkdownExcerpt(text, "暂无简介");
 
 export function ProjectCard({
   project,
@@ -53,31 +75,21 @@ export function ProjectCard({
     const bounds = card.getBoundingClientRect();
     const x = Math.max(-0.5, Math.min(0.5, (event.clientX - bounds.left - bounds.width / 2) / card.offsetWidth));
     const y = Math.max(-0.5, Math.min(0.5, (event.clientY - bounds.top - bounds.height / 2) / card.offsetHeight));
-    card.style.setProperty("--tilt-x", `${-y * 10}deg`);
-    card.style.setProperty("--tilt-y", `${x * 10}deg`);
+    card.style.setProperty("--tilt-x", `${-y * 6}deg`);
+    card.style.setProperty("--tilt-y", `${x * 6}deg`);
   }
   function resetTilt(event: PointerEvent<HTMLElement>): void {
     event.currentTarget.removeAttribute("style");
   }
   const open = (event: MouseEvent<HTMLElement>): void => onOpen(project, event.currentTarget);
-  const preview = project.description?.trim() || "暂无文字简介";
+  const preview = cleanExcerpt(project.description);
   const cardTags = project.tags.filter((tag) => tag !== project.projectType).slice(0, MAX_DISPLAY_TAGS);
-  const dateMeta = (
-    <div className="card-dates">
-      <span title="更新">
-        <i className="sr-only">更新 </i>
-        <History aria-hidden="true" />
-        <time dateTime={project.updatedAt}>{project.updatedAt.slice(0, 10)}</time>
-      </span>
-      {project.publishedAt ? (
-        <span title="初次上传">
-          <i className="sr-only">初次上传 </i>
-          <Upload aria-hidden="true" />
-          <time dateTime={project.publishedAt}>{project.publishedAt.slice(0, 10)}</time>
-        </span>
-      ) : null}
-    </div>
-  );
+  const updatedDate = project.updatedAt.slice(0, 10);
+  const updatedShort = project.updatedAt.slice(5, 10);
+  const publishedIso = project.publishedAt || project.updatedAt;
+  const publishedDate = publishedIso.slice(0, 10);
+  const publishedShort = publishedIso.slice(5, 10);
+
   const moreMenu = (
     <details className="card-more" ref={menuRef} onToggle={(event) => setMenuOpen(event.currentTarget.open)}>
       <summary title="更多" aria-label={`${project.title}：更多`}>
@@ -114,6 +126,32 @@ export function ProjectCard({
       </div>
     </details>
   );
+
+  const authorNode = onAuthor ? (
+    <button
+      type="button"
+      className="byline byline-button"
+      title={`查看 ${project.author.name} 的全部公开作品`}
+      onClick={() => onAuthor(project.author)}
+    >
+      {project.author.avatarUrl && !avatarFailed ? (
+        <img src={project.author.avatarUrl} alt="" loading="lazy" onError={() => setAvatarFailed(true)} />
+      ) : (
+        <span className="avatar-fallback">{project.author.name.slice(0, 1)}</span>
+      )}
+      <span>{project.author.name}</span>
+    </button>
+  ) : (
+    <p className="byline">
+      {project.author.avatarUrl && !avatarFailed ? (
+        <img src={project.author.avatarUrl} alt="" loading="lazy" onError={() => setAvatarFailed(true)} />
+      ) : (
+        <span className="avatar-fallback">{project.author.name.slice(0, 1)}</span>
+      )}
+      <span>{project.author.name}</span>
+    </p>
+  );
+
   return (
     <article
       className={`card project-card--${layout}`}
@@ -144,12 +182,12 @@ export function ProjectCard({
         {layout === "cards" ? (
           <div className="card-content-counts">
             <span>世界书 {project.entries.worldbook}</span>
-            <span>正则 {project.entries.regex}</span>
-            {project.versionLabel ? (
-              <span className="card-version" title={`版本 ${project.versionLabel}`}>
-                {project.versionLabel}
-              </span>
-            ) : null}
+            {project.entries.regex > 0 ? <span>正则 {project.entries.regex}</span> : null}
+            <span className="card-version">
+              {project.schemaVersion ? `适配 ${project.schemaVersion}` : ""}
+              {project.schemaVersion && project.versionLabel ? " · " : ""}
+              {project.versionLabel ? `v${project.versionLabel.replace(/^v/i, "")}` : ""}
+            </span>
           </div>
         ) : null}
       </div>
@@ -160,52 +198,61 @@ export function ProjectCard({
       ) : null}
       <div className="card-body">
         <div className="card-title-row">
+          {layout === "list" && project.projectType ? (
+            <span className="project-type-tag list-inline-type" data-type={project.projectType}>
+              {project.projectType}
+            </span>
+          ) : null}
           <h3>
             <button className="card-title" type="button" onClick={open}>
               {project.title}
             </button>
           </h3>
-          {layout === "list" ? moreMenu : null}
-        </div>
-        {onAuthor ? (
-          <button
-            type="button"
-            className="byline byline-button"
-            title={`查看 ${project.author.name} 的全部公开作品`}
-            onClick={() => onAuthor(project.author)}
-          >
-            {project.author.avatarUrl && !avatarFailed ? (
-              <img src={project.author.avatarUrl} alt="" loading="lazy" onError={() => setAvatarFailed(true)} />
-            ) : (
-              <span className="avatar-fallback">{project.author.name.slice(0, 1)}</span>
-            )}
-            <span>{project.author.name}</span>
-          </button>
-        ) : (
-          <p className="byline">
-            {project.author.avatarUrl && !avatarFailed ? (
-              <img src={project.author.avatarUrl} alt="" loading="lazy" onError={() => setAvatarFailed(true)} />
-            ) : (
-              <span className="avatar-fallback">{project.author.name.slice(0, 1)}</span>
-            )}
-            <span>{project.author.name}</span>
-          </p>
-        )}
-        {layout === "cards" ? dateMeta : null}
-        <p className="card-note">{preview}</p>
-        <div className="tags" title={[project.projectType, ...project.tags].join("、")}>
-          {project.projectType ? (
-            <span className="project-type-tag" data-type={project.projectType}>
-              {project.projectType}
-            </span>
+          {layout === "list" && project.versionLabel ? (
+            <span className="list-version-pill">v{project.versionLabel.replace(/^v/i, "")}</span>
           ) : null}
-          {cardTags.map((tag) => (
-            <span key={tag}>{tag}</span>
-          ))}
         </div>
+        <div className="card-meta-row">
+          {authorNode}
+          {layout === "cards" ? (
+            <time
+              className="card-date-chip card-date-updated"
+              dateTime={project.updatedAt}
+              title={`最近更新：${updatedDate}`}
+            >
+              <History className="card-date-icon" aria-hidden="true" />
+              <span className="date-full">{updatedDate}</span>
+              <span className="date-short">{updatedShort}</span>
+            </time>
+          ) : (
+            <div className="tags list-inline-tags" title={[project.projectType, ...project.tags].join("、")}>
+              {cardTags.map((tag) => (
+                <span key={tag}>{tag}</span>
+              ))}
+            </div>
+          )}
+        </div>
+        <p className={`card-note${layout === "list" ? " list-note" : ""}`}>{preview}</p>
+        {layout === "cards" ? (
+          <div className="tags" title={[project.projectType, ...project.tags].join("、")}>
+            {project.projectType ? (
+              <span className="project-type-tag" data-type={project.projectType}>
+                {project.projectType}
+              </span>
+            ) : null}
+            {cardTags.map((tag) => (
+              <span key={tag}>{tag}</span>
+            ))}
+          </div>
+        ) : null}
       </div>
       <div className="card-footer">
         <div className="card-signals">
+          {layout === "list" ? (
+            <span className="list-entry-counts">
+              世界书 {project.entries.worldbook} · 正则 {project.entries.regex}
+            </span>
+          ) : null}
           <div className="card-stat-group">
             <span title={`下载 ${project.counts.downloads.toLocaleString("zh-CN")}`}>
               <Download className="card-stat-icon" aria-hidden="true" />
@@ -232,14 +279,41 @@ export function ProjectCard({
               </strong>
             </span>
           </div>
-          {project.schemaVersion ? <span className="card-compatibility">适配 {project.schemaVersion}</span> : null}
-          {layout === "list" ? dateMeta : null}
-          {layout === "list" && project.versionLabel ? (
-            <span className="list-version" title={`版本 ${project.versionLabel}`}>
-              {project.versionLabel}
-            </span>
+          {layout === "cards" ? (
+            <time
+              className="card-date-chip card-date-published"
+              dateTime={publishedIso}
+              title={`首次上传：${publishedDate}`}
+            >
+              <UploadDateIcon />
+              <span className="date-full">{publishedDate}</span>
+              <span className="date-short">{publishedShort}</span>
+            </time>
           ) : null}
+          {layout === "list" ? moreMenu : null}
         </div>
+        {layout === "list" ? (
+          <div className="list-dates-row">
+            <time
+              className="card-date-chip list-date-item"
+              dateTime={project.updatedAt}
+              title={`最近更新：${updatedDate}`}
+            >
+              <History className="card-date-icon" aria-hidden="true" />
+              <span className="date-full">更新 {updatedDate}</span>
+              <span className="date-short">{updatedShort}</span>
+            </time>
+            <time
+              className="card-date-chip list-date-item"
+              dateTime={publishedIso}
+              title={`首次上传：${publishedDate}`}
+            >
+              <UploadDateIcon />
+              <span className="date-full">首传 {publishedDate}</span>
+              <span className="date-short">{publishedShort}</span>
+            </time>
+          </div>
+        ) : null}
       </div>
     </article>
   );

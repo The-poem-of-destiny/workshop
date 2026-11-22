@@ -1,4 +1,4 @@
-import { identifyOccurrences } from "../listIdentity";
+import { keyedItems } from "../../../lib/keyedItems";
 import {
   buildFixPrompt,
   buildReportMarkdown,
@@ -92,7 +92,7 @@ export function CheckPanel({
                   </span>
                 </summary>
                 <div className="check-group-body">
-                  {identifyOccurrences(group.findings).map(({ item: finding, key }) => (
+                  {keyedItems(group.findings).map(({ item: finding, key }) => (
                     <div className={`check-finding is-${finding.severity}`} key={key}>
                       <div className="check-finding-title">
                         <strong>

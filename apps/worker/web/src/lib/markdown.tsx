@@ -327,6 +327,19 @@ function renderBlock(block: Block, key: string): ReactNode {
   }
 }
 
+export function plainMarkdownExcerpt(text: string | null | undefined, fallback: string, limit?: number): string {
+  const plain = text
+    ?.replace(/```[\s\S]*?```/g, " ")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/^\s{0,3}(?:#{1,6}\s+|>\s*|[-*+]\s+)/gm, "")
+    .replace(/[*_`~]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!plain) return fallback;
+  return limit !== undefined && plain.length > limit ? `${plain.slice(0, limit).trimEnd()}…` : plain;
+}
+
 export function Markdown({ text, className }: { text: string; className?: string }) {
   const blocks = useMemo(() => parseBlocks(text), [text]);
   return (
