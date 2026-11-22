@@ -19,6 +19,8 @@ flowchart LR
 
 Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立，`VERSION_METADATA` 用于部署版本隔离，缺失时绕过 Cache API。静态资源可能由 Static Assets 单独交付。具名入口共享 Worker bindings，静态检查是代码约束而非平台权限隔离。
 
+公开 GET／HEAD 由[网关解析器](../../apps/worker/src/http/public-cache.ts)一次识别路由、校验查询并生成规范化读取描述。`CachedReads` 用规范化路径和查询沿用原有公开缓存身份；投影按解析后的操作分发，不重新解析 URL。私有或未知路径仍交给 Hono。
+
 `CachedReads` 仅在有效 TTL 大于 0 且 `VERSION_METADATA.id` 为非空字符串时读写 Cache API；缓存键包含部署版本、TTL、规范化路径／查询和内部可信读取描述符。成功响应的缓存写入通过 `waitUntil` 完成，不阻塞源端响应；验证命中必须等待这些写入结束，不能把 `Cache-Control` 或返回 200 当成已存储、已命中的证据。
 
 公开投影记录生成时的绝对到期时间，外层只使用剩余期限，缺失、非法或过期则 no-store；内部控制头不返回浏览器。不可变字节按版本或 hash 分区，每次仍需实时门禁。仅公开白名单内的成功结果有资格缓存，错误、部分失败和私有响应不公开缓存。
@@ -32,10 +34,9 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 | 方法与路径 | 用途 | 对外默认策略 | 内部缓存与实时门禁 |
 | --- | --- | --- | --- |
 | GET `/health` | 版本和绑定存在性 | N | 无 |
-| GET `/home` | 首页三段聚合 | 全成功 P60；部分失败 N | 公开成功投影 60 秒；部分失败不缓存 |
+| GET `/home` | 首页三段聚合，含发现栏 | 全成功 P60；部分失败 N | 公开成功投影 60 秒；部分失败不缓存 |
 | GET `/projects`、`/projects/batch` | 列表与批量摘要 | P60 | 公开投影 60 秒；batch 每次最多 50 个 ID |
 | GET `/collections/:id`、`/authors/:id` | 公开合集摘要与作者公开主页摘要 | P60 | 公开投影 60 秒 |
-| GET `/projects/discovery` | 发现 | P60 | 公开投影 60 秒 |
 | GET `/projects/:id`、`/projects/:id/entries` | 公开详情及索引 | P60 | 公开投影 60 秒 |
 | GET `/projects/:id/preview/:kind` | 登录用户预览 | N | 实时会话和当前公开 revision 门禁后，固定 revision/kind/hash 投影 86400 秒 |
 | POST `/projects/:id/downloads`、`/acquisitions` | 票据与版本准入 | N | 不缓存；实时版本与权限 |
@@ -130,7 +131,7 @@ API 的 `OPTIONS` 是 CORS 预检，不属于公开 GET/HEAD 缓存；允许来�
 
 | 方法与路径 | 用途 | 对外默认策略 | 内部缓存与实时门禁 |
 | --- | --- | --- | --- |
-| GET `/api/v1/client/version`、`/client/compatibility` | 频道展示与兼容性 | 成功 5 秒；错误 no-store | 展示策略不作为 acquisition 的授权依据 |
+| GET `/api/v1/client/version`、`/api/v1/client/compatibility` | 发版核对与宿主兼容性 | 成功 5 秒；错误 no-store | 缓存读不作为 acquisition 的授权依据 |
 | GET `/client/stable/index.js`、`/client/staging/index.js` | 可变频道入口脚本 | no-store | 实时版本指针 |
 | GET `/client/v/:revision/index.js`、`/client/checker/v/:revision/:file` | 版本化脚本与 checker | 一年 immutable、ETag | 固定版本字节可内部复用 |
 | GET `/test-dist/CreativeWorkshop/index.js` | 旧导入兼容地址 | max-age=0、must-revalidate | 按现有重验证策略 |

@@ -21,11 +21,17 @@
 
 平台依据：[Cache API](https://developers.cloudflare.com/workers/runtime-apis/cache/)、[Static Assets routing](https://developers.cloudflare.com/workers/static-assets/routing/worker-script/)。
 
-## 2. WAF 速率限制
+## 2. WAF 与速率限制
 
-- [ ] 核对目标 zone 的实际套餐和规则余量。应用域只选需要治理的已知路径；先按路由／客户端区分正常峰值、共享 NAT、重试和可疑突发，再选阈值。Free 默认只有一条 rate limiting 规则，匹配字段、按 IP 计数和 10 秒窗口／缓解有限；若应用与资源域处在同一 Free zone，不假定各有一条，也不靠套餐不支持的 Host／method 匹配。先验证实际表达式作用域；无法安全区分则不上该规则。避免先覆盖 Discord 回调、设备轮询或全部安装／票据流量。
-- [ ] staging 用隔离测试客户端验证阈值以下的正常路径、超过阈值的阻断和窗口后恢复，实际记录状态码及 Security Events；验证第二个正常客户端、共享 IP 的容忍度、缓存命中和被早期规则拦截的请求。机器调用不要用浏览器 challenge 替代明确限流。Cloudflare 的边缘计数不是精确全局 Origin 配额；不是鉴权或应用计量的替代品。
-- [ ] production 先设告警与回退点，再启用经 staging 验证的规则；观察按路径的阻断、正常安装／登录失败和源站负载。误伤即停用本条规则并保留事件证据，不临时放开鉴权。Free 不假定具备仅记录动作。
+staging 与 production 的应用自定义域共用一条 Free zone 限流：`/api/v1/home` 和 `/api/v1/projects`（含尾部 `/`，不区分方法／查询参数），同一来源 IP、同一 Cloudflare 机房 **60 请求／10 秒**，超过后返回 429 并阻断 10 秒。两域共用计数，不是各有 60 次。Custom Rule 仅在其他域名请求这些路径时跳过 `http_ratelimit`，不跳过其他 WAF 阶段。原 staging `/.env`、`/.git` 和非常用方法规则已移除；未修改平台默认托管规则。
+
+2026-11-22 NRT 实测：staging 63 次目录请求中 61 次 200、2 次边缘 429；同一窗口内 production 自定义域的目录请求也返回边缘 429，图片域相同路径仍为 404，两应用域 health 均为 200。等待 11.5 秒后 staging 目录恢复 200、production 目录恢复其原有 404。未验证其他机房或真实流量下的误伤率。
+
+已关闭 staging Worker 的 `workers.dev` 与 Version URLs，回读两项均为 `false`，Worker deployment ID 不变；旧入口和抽样版本入口 health 均返回 404。Wrangler staging 配置保留这两项，迁移控制工具改用受保护的自定义域。不适用于其他 Worker 或环境。平台依据：[workers.dev](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/)、[Version URLs](https://developers.cloudflare.com/workers/versions-and-deployments/version-urls/)、[Custom rules](https://developers.cloudflare.com/waf/custom-rules/)。
+
+production Worker 的 `workers.dev` 和 Version URLs 目前仍启用，不受 zone 限流覆盖。production 自定义域当前为占位服务，未部署正式应用。Tavern 客户端已在源码切到自定义域并通过本地构建启动验证，未发布；首次业务上线时确认正式客户端能在新域打开工坊，再关闭生产替代入口并复测。
+
+如出现误伤，先停用限流规则 `ad0f6692f6ff4778908052e4aa1a5d72`，保留事件证据，不动鉴权。若永久移除限流，同时移除专用范围规则 `e44d465adba94703be7d75737a60f5f8`。后续收紧见 [EDGE-03](open-threads.md#边缘读取公开资源与成本)；不要把边缘计数当作全局配额或鉴权。
 
 平台依据：[Rate limiting rules](https://developers.cloudflare.com/waf/rate-limiting-rules/)、[WAF feature interoperability](https://developers.cloudflare.com/waf/feature-interoperability/)。
 
@@ -37,6 +43,29 @@
 - [ ] staging 用合成对象测 cold → HIT、同机房／不同机房、GET／HEAD 和按需的 Range／CORS。记录 `CF-Cache-Status`、`Age`、`CF-Ray`、响应摘要及 R2 读量；核对线上规则精确 TTL，在 staging 可用短 TTL 验证到期回源。对不存在的键测 404，随后上传同一个合成键，核对负缓存到期后可读；单独区分合法 origin 403 与 WAF 403。若该公开 R2 路径无法稳定产生 origin 403，记录该分支未实测，不用 WAF 403 补证。上线后若对象坏了或泄露，先切引用／阻断新流量，按需清除边缘 URL；已下载或浏览器已缓存的内容不可回收。
 
 平台依据：[R2 公共桶](https://developers.cloudflare.com/r2/buckets/public-buckets/)、[Cache Rules 设置](https://developers.cloudflare.com/cache/how-to/cache-rules/settings/)、[状态码 TTL](https://developers.cloudflare.com/cache/how-to/configure-cache-status-code/)、[Hotlink Protection](https://developers.cloudflare.com/waf/tools/scrape-shield/hotlink-protection/)。
+
+### 普通公开封面：独立撤回试验
+
+[D-51](decisions.md#d-51-普通公开封面可短暂陈旧)允许短暂陈旧。此试验用独立 staging 公开桶与 `covers/` 前缀，不改 `immutable/` 规则，也不接入目录或上传真实封面作为探针。对 200 试用边缘 TTL 60 秒，浏览器每次重验证；403／404／5xx 不缓存，过期与源站错误均不兜旧。变更前先确认域名 TLS、桶绑定、规则实际生效及写入／精确 purge 权限。
+
+用两个不同的合成 PNG 键，从同一 PoP 对每个键记录 cold、HIT、`Age`、`CF-Ray` 和内容摘要。两个键各自在独立用例中删除源副本：一个不 purge，用来观察自然到期后下一次请求是否已不返回图；另一个在命中后立刻做精确 URL purge，用来观察实际撤回路径。另查从未发布的键与被撤回键均不返回图片。记录源端删除时间、purge 接受时间和实际探测结果；单 PoP 样本不外推为全球上限。这个探针不替代业务发布与下架竞争的验收。
+
+已创建独立桶 `workshop-covers-staging`，绑定 `assets-staging.poem-of-destiny.3378469.xyz`，TLS 和所有权均已激活，`r2.dev` 关闭。仅该域 `/covers/` 的 200 边缘 TTL 为 60 秒，400–599 不存储，禁用过期后台更新时返回旧响应；原 `/immutable/` 规则未改。
+
+2026-11-21 staging 合成 PNG 探针（同一 NRT PoP）：两个键均从 `200 MISS` 转为 `200 HIT`，内容摘要一致；浏览器收到 `public, max-age=0, must-revalidate`。自然到期键在源删除后仍返回 `200 HIT`（`Age: 5`），首次填充约 69 秒后返回 `404 BYPASS`。另一键先删源，再对精确 URL purge；Cloudflare 接受后约 0.24 秒的请求返回 `404 BYPASS`。从未上传的键也返回 `404 BYPASS`；两个探针源对象均已删除。未测其他 PoP、源站 5xx 或业务发布/下架并发；采样不证明精确的到期瞬间或全球撤回上限。
+
+优化目标是降低 Cloudflare Free tier 各项额度的消耗，不为单项指标预设最高优先级。Worker 外部入站请求、R2 读写、D1 读写通常更容易成为瓶颈，切流前后优先测量这些指标，同时记录 Worker CPU 和其他受影响的额度。用相同浏览负载对照冷／暖读，另测发布、替换、撤回增加的写入；不要把减少 Worker 请求当作总资源消耗下降。Worker 内 Cache API 命中仍计 Worker 入站请求；未挂 Worker 的 R2 自定义域可绕过 Worker，但 CDN 未命中仍可能产生 R2 源读。参见 [Workers 计费](https://developers.cloudflare.com/workers/platform/pricing/)。
+
+已确认直连 R2 的 staging 业务试验：公开副本写入结果不明时允许下架保持处理中，不提前报告成功。一次性本地 workerd 探针确认 R2 binding 的 `onlyIf.etagMatches` 在对象删除后拒绝迟到的写入，不会重建对象。Cloudflare R2 管理 REST 上传端点对同类过期 `If-Match` 返回 200，不能用它实现写入围栏；远端合成探针已删除。这个证据只覆盖已存在的预留对象被删除后迟到的条件写入，不覆盖预留本身迟到、重建预留或业务并发，也不证明 hosted binding 行为。
+
+业务接入的状态顺序：
+
+1. D1 持久化每个项目的独立代际；触发器拒绝越过未撤回副本直接改公开指针、可见性或软删除。选图以当前公开指针为准，不接受任意 R2 key；重发分配新键。
+2. 先提交公开状态，再写入已验证的封面字节；只在写入确认后公开 CDN URL。写入未确认前保留现行 Worker 图片路径。复制的在途记录必须先于 R2 PUT 持久化；进程退出、超时或响应丢失时不能把记录当作已失败并允许撤回越过它。单靠 PUT 后重查 D1 仍可能在删除之后重新公开。
+3. 下架或替换先停止旧代际复制，确认旧副本已删除，再提交业务状态和撤回记录；清理精确 URL 不作为 D1 提交条件。删除已完成但业务提交失败时，公开项目继续使用原 Worker 路径，不能继续发已删除的 CDN URL；修复或重试不得复用撤回键。
+   若预留 PUT 的结果不明，`reserving` 记录保留，业务下架不会报成功。不能仅凭一次 HEAD 或超时就清记录：迟到的预留还可能落地。
+4. 本地已验证公开封面投影、撤回后不能重建旧键、直接改私有被 D1 拒绝；保留旧 Worker 路由。staging 已执行 `0002_public_cover_replicas.sql` 并部署，见[状态记录](state.md#当前-stagingedge-01)。仍需使用已登录的 staging 作者验收真实封面、并发、实际页面、存量覆盖和成本。精确 purge 是单独的运营操作；待测源删除、D1 提交及 purge 失败的表现。
+
 
 ## 4. Workers、D1、R2 实耗验收
 
@@ -53,6 +82,14 @@
 - [ ] 放行条件：功能与隔离验收通过；静态路径确实不调用 Worker；代表性匿名 Cache API 命中降低源读；R2 CDN 命中降低源操作；WAF 正常路径不被误伤。若样本不足或入账未完成，保持 M-08 未关闭；若授权、写屏障、计量或合法客户端被破坏，按对应步骤立即回退，不等待指标窗口。
 
 价格及额度以验收当日官方口径为准：[Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)、[D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/)、[R2 pricing](https://developers.cloudflare.com/r2/pricing/)。
+
+### EDGE-02：同图对照与撤回窗口
+
+2026-11-21 13:42:58–13:43:04 UTC，NRT，staging 专用项目 `6ec876ad-3991-44c4-a5a4-9959e4d9de30`。旧 Worker 公开资源路由和新 R2 CDN URL 各 14 次（首次、复读、12 并发），全部 200，图片摘要一致。Worker 路由首次未标缓存状态、后 13 次 HIT；CDN 首次 MISS、后 13 次 HIT。首次／复读完整响应分别为 Worker 509／178 ms、CDN 717／401 ms；顺序执行的单次样本不能证明延迟收益。封面直出将这 14 次浏览器封面请求从应用域移到 CDN 域；并非账单上已独立归因的 14 次调用差值。
+
+切回私有 PATCH 耗时 2.144 秒。以成功响应为零点，匿名详情最后 200／首次 404 为 51.457／52.744 秒，旧 Worker 封面为 52.744／54.015 秒，新 CDN 封面为 54.015／55.641 秒。时间为轮询观测点，不是精确失效时刻或全球上限；未执行 purge。项目已软删除、会话已撤销、临时签发 secret 已删除且入口回到 404。
+
+同窗 Workers Analytics：13:42／13:43 UTC 分别为 57／161 请求，均零 errors，CPU p50 为 1.696／0.641 ms，p99 为 28.321／11.556 ms。窗口混有巡检、作者操作和撤回轮询，不可作两条路由的 CPU 差值。D1 首次查询只返回 13:42 的 7 读／0 写，不覆盖已发生的写入；R2 返回测试时段私有桶 2 PUT／3 GET、公开桶 1 PUT／1 DELETE，但没有覆盖已观察到的 CDN MISS 取源。缺失指标不记成零，不能据此估算全量免费额度。此次仅对照封面子请求，不是完整浏览旅程；未改 production。
 
 ### 目录冷查询：全文先行与翻页复用总数
 

@@ -29,7 +29,7 @@
 | M-03 | 真实 SillyTavern 安装世界书／正则 | 客户端、Web bridge、本地消息宿主和真实浏览器已取得隔离证据；未完成当前版本真实 ST 写入验收 |
 | M-04 | 真实 ST 更新、卸载、旧身份转换和失败后重扫 | 核心实例扫描、整体预览／确认与玩家改动保护已实现；仍须真实宿主确认实际保存、角色边界及部分写入提示 |
 | M-05 | 当前 schema／taxonomy 真实数据切换 | 既有 staging 在 2026-11-06 的 210/210 批及独立源／目标／搜索对账已验收；当前六分类完整离线候选工具已合入，但真实当前库切换未执行，且本轮明确不做 |
-| M-06 | 生产切换与回滚 | 生产未取得当前版本切换验收；须另行授权、验证备份恢复、停写、迁移、回滚和发布后精确版本 |
+| M-06 | 生产首次切换 | 须另行授权、保留当前 D1/R2 恢复点，核对停写、目标绑定及发布后精确版本；不要求生产前完整恢复演练 |
 | M-08 | 目标环境 Cache API 行为与陈旧风险 | 本地 harness 不证明真实边缘缓存；按[缓存设计](../../reference/cache-design.md)和[边缘上线与实耗验收计划](edge-cache-rollout.md)核验，不要求旧 Workers Cache／全球 purge 方案 |
 
 ## 3. 另获授权后的真实账号与宿主清单
@@ -65,9 +65,9 @@
 
 ## 4. 仅真实切换／生产发布前执行
 
-- [ ] 另行确认数据访问、维护／停写、备份与恢复、候选审阅／独立对账、实际对象和回滚范围。历史 210/210 不代表当前 taxonomy／schema 或新功能数据转换已被批准。
-- [ ] 保留 staging schema-change pause 与 `ACCEPTED_SCHEMA_SHA=f2491599cfb97a6405b5f73ead73227387786478`，production 的 `Require separately verified production schema` 需独立证据；不能为了让 workflow 继续而自行改 checkpoint。
-- [ ] 核对 production 专用 OAuth／session／CI 凭据、origin、准入和 D1/R2 绑定；不同 API 上传路径的权限须分别验证，不用历史客户端上传成功替代备份恢复证明。
+- [ ] 另行确认数据访问和切换授权、必要停写、来源保留、候选 schema／关键数据抽查及实际对象读取。历史 210/210 不代表当前 taxonomy／schema 或新功能数据转换已获批准。
+- [ ] 确认目标 D1 是授权使用的库且已应用兼容的迁移。发布流程只核对实际 schema，不修改 schema，不替代候选数据验证。
+- [ ] 核对 production 专用 OAuth／session／CI 凭据、origin、准入和 D1/R2 绑定；不同上传路径的权限分别核对。
 - [ ] 选定精确、检查已通过的 main commit，取得明确发布授权后才按[部署 runbook](../../operations/deployment-safety.md)进入受保护生产流程；不要为检查权限创建 tag 或 release。
 - [ ] 发布后记录 Worker version、Web／client revision／SHA、schema 与关键旅程。核验 Cache API 行为、隔离及既定 TTL 陈旧风险，不宣称即时全球失效或未测费用收益。
 

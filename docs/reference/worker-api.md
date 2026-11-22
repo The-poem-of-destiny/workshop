@@ -22,7 +22,7 @@
 | GET `/api/v1/maintenance` | 返回 `closed`、`drained`、`outstanding`（最多 100 张工作票据）与 `outstandingTruncated`；成功响应为 `no-store`。 |
 | POST `/api/v1/maintenance` | JSON `{"action":"close"}` 或 `{"action":"open"}`；返回同样状态。无效 JSON／action 为 400；还有票据时 open 返回 409 `{"error":"not_drained"}`；其他方法为 405。 |
 
-关闭准入不等于已排空；只有 `closed`、`drained` 均为 true 且无截断时才证明协调器已知工作排空。关闭或无法确认准入时，普通请求（包括 health、资源和缓存命中）返回 503 `{"error":{"code":"maintenance","message":"Service temporarily unavailable"}}`，带 `Cache-Control: private, no-store` 和 `Retry-After: 30`。运维步骤、失联票据和外部写入者限制见[维护屏障操作规范](../operations/deployment-safety.md#maintenance-barrier)。
+关闭准入不等于已排空；独立 GET 必须同时确认 `closed`、`drained` 为 true、`outstanding` 为空且 `outstandingTruncated` 为 false。关闭或无法确认准入时，可能写入的请求（包括可能续期会话的读请求）返回 503 `{"error":{"code":"maintenance","message":"Service temporarily unavailable"}}`，带 `Cache-Control: private, no-store` 和 `Retry-After: 30`。静态资源、规范公开读入口及已核对为纯读的 health、客户端分发等不受停写影响；未知路径不按纯读放行。运维步骤和外部写入者限制见[维护屏障操作规范](../operations/deployment-safety.md#maintenance-barrier)。
 
 ## 登录和会话
 
@@ -69,12 +69,11 @@
 | 方法和路径 | 输入、成功结果及特殊错误 |
 | --- | --- |
 | GET `/health` | 服务版本和 DB、R2、ASSETS 绑定是否存在；不是依赖连通性检查。 |
-| GET `/home` | 返回 `site`、`discovery`、`projects` 三段；每段为 `{ok:true,data}` 或 `{ok:false,error}`。全部成功为公开 200，部分失败为 no-store 200，全部失败为 no-store 500。默认项目列表等价于无筛选的 `/projects`。 |
+| GET `/home` | 返回 `site`、`discovery`、`projects` 三段；发现栏读取 `discovery.data`。每段为 `{ok:true,data}` 或 `{ok:false,error}`。全部成功为公开 200，部分失败为 no-store 200，全部失败为 no-store 500。默认项目列表等价于无筛选的 `/projects`。 |
 | GET `/projects` | `limit` 1–50 默认 25；`cursor`、`sort`、`period`、可重复的 `projectType`、`includeContained`、`authorId`、`collectionId`、可重复的 `tag`、`search`；组合语义和 12 词上限见[目录筛选与游标](#目录筛选与游标)。非法查询或 cursor 400。 |
 | GET `/collections/:id` | 公开合集摘要（含作者、公开已发布项目数量与更新时间，见 `collectionSummarySchema`）；无公开已发布项目或不存在时返回 404。 |
 | GET `/authors/:id` | 作者公开主页摘要（作者资料、公开已发布项目数及名下包含至少 1 个公开已发布项目的公开合集列表）；作者不存在或无公开已发布作品时返回 404。 |
 | GET `/projects/batch` | 唯一 `ids` 参数为逗号分隔的 1–50 个 ID，trim、去重并按字典序排列；响应 `{items,missingIds}`，隐藏或不存在的项目只列入 missingIds。空项、重复参数或未知非 tracking 参数为 400。 |
-| GET `/projects/discovery` | 发现项目列表。 |
 | GET `/projects/:id` | 已发布项目详情（含该项目所属的公开合集徽标 `collections`）；不存在或不可公开访问 404。 |
 | GET `/projects/:id/entries` | 已发布项目条目索引；不存在 404。 |
 | GET `/projects/:id/preview/:kind` | Bearer；kind 为 `worldbook` 或 `regex`，返回预览；无会话 401，kind 无效 400，不存在 404。 |
@@ -85,6 +84,9 @@
 | GET `/site` | 站点 banner 和内容。 |
 
 一次逻辑获取由客户端生成一个 UUID v4；网络重试必须复用同一键，独立获取使用新键。POST 按用户、版本、UTC 日汇总，重复键不递增；世界书和正则 GET 不额外计数。每用户每版本每日最多 128 次不同逻辑获取，以有界 JSON 保存当天幂等键，达到上限返回 429，既有键重试仍成功。项目累计和日汇总计逻辑获取次数，不宣称字节传输完成。旧项目日指标保留为历史权威，不补造旧用户／版本下载记录。URL 本身不授予权限；每次 GET 都需有效 Bearer，并在打开对象后重查授权和发布指针。
+
+两个 POST 共用用户与项目范围内的幂等键。重试只返回原来获取的发布版，不重新计数；当前取件规则仅允许仍可访问的当前发布版，因此新版替代、撤回或权限变化使原版不可取时，返回 409 `conflict`，不发取件链接。刷新后用新键明确发起新获取；没有历史获取且发布版不可访问时仍为 404。
+
 用户日统计记录所有授权逻辑获取；公开下载指标只统计公开项目的非作者普通玩家获取，作者、reviewer／owner 和私有访问不贡献公开指标。
 
 玩家推荐使用 `PUT /api/v1/recommendations/:projectId`，Bearer 和 JSON `{projectVersionId,comment}`；仅当前订阅该项目的登录用户可新增或编辑当前公开发布版的推荐，同一玩家／版本保留一条。取消订阅立即失去写入资格，但已有推荐不自动删除，仍可以 `DELETE` 携带同一版本 JSON 撤回自己的记录；重新订阅恢复新增／编辑资格。订阅、安装、下载或旧五分记录都不会自动生成推荐；旧版本不会自动背书新版本。匿名 401，当前公开版本但未订阅 403（`forbidden`），版本过期或项目不可访问 404。显式 owner 管理推荐接口保留原有权限，不代表普通玩家获得资格。
@@ -163,7 +165,7 @@ URL=$(jq -r '.files[0].url // empty' /tmp/workshop-downloads.json)
 | POST `/:id/versions/:versionId/submit` | If-Match、`submitProjectSchema` JSON；201 返回 submissionId、status、checkStatus、rowVersion。仅工作版本可提交，冻结或状态冲突 409；验证服务不可用 500。 |
 | GET `/:id/versions/:versionId/change-evidence` | 作者会话、当前工作版本；返回当前／上一发布版不可变条目目录与 manifestHash，任一目录缺失或无上一版 404，不回退读取完整内容。 |
 | POST `/:id/submissions/:submissionId/withdraw` | If-Match；返回结果，已处理或状态变化 409。 |
-| PUT `/:id/collections` | JSON `projectCollectionsUpdateSchema`（`collectionIds`）；项目作者或 owner 可将项目加入或移出该项目作者名下的合集，不消耗或递增项目 `rowVersion`；传入非项目作者名下合集返回 403。 |
+| PUT `/:id/collections` | JSON `projectCollectionsUpdateSchema`（`collectionIds`）；项目作者或 owner 可整单替换项目所属合集，不消耗或递增项目 `rowVersion`。提交时核对项目、合集归属和容量；项目不可操作返回 404，合集无效或不属于项目作者返回 403，容量不足返回 400；拒绝不改变已有关系。 |
 
 此外，作者合集管理位于 `/api/v1/collections` 下（需已通过政策确认的 Bearer 会话，契约见 [collections.ts](../../packages/contracts/src/collections.ts)，上限见 [collections.ts](../../packages/domain/src/collections.ts)）：
 
@@ -256,7 +258,7 @@ D1 与 R2 不跨服务原子：单次 SELECT 无引用不防止删除瞬间重�
 
 | 方法和路径 | 权限、结果及缓存 |
 | --- | --- |
-| GET `/api/v1/client/version` | 公开，`channel=stable\|staging` 默认 stable；返回当前频道版本，不存在或无效频道 404。成功缓存 5 秒，错误 `no-store`；CORS `*`。 |
+| GET `/api/v1/client/version` | 公开，`channel=stable\|staging` 默认 stable；返回 D1 当前频道的 `channel`、`revision`、`version` 等元数据，供发版核对，不判断宿主兼容性。不存在或无效频道 404。成功缓存 5 秒，错误 `no-store`；CORS `*`。 |
 | GET `/api/v1/client/compatibility` | 公开，同上 channel 和可选 `version`；返回 compatible、bootstrap、required、revision、reason；频道不存在时返回 200 且 `channel_unavailable`，无效频道 404。已配置频道的成功响应缓存 5 秒，不可用和错误响应 `no-store`。 |
 | GET `/client/stable/index.js`、`/client/staging/index.js` | 公开频道入口；`no-store`，CORS `*`；对象不存在 404。 |
 | GET `/client/v/:revision/index.js` | 公开版本文件，revision 为 8–64 位小写十六进制；默认一年 immutable，支持 ETag 和 `If-None-Match` 304，CORS `*`。TTL 可配置，设为 0 或非法值时 no-store。 |
@@ -266,5 +268,7 @@ D1 与 R2 不跨服务原子：单次 SELECT 无引用不防止删除瞬间重�
 | GET `/api/v1/public-assets/*` | 仅当前公开发布的 cover/gallery 或当前注册 banner；成功默认最多 60 秒，`stale-if-error=0`，CORS `*`；TTL 可配置，设为 0 或非法值时 no-store。权限不满足或对象缺失 404。 |
 | GET `/api/v1/assets/*` | 公开图片也可读取；私有 cover 对作者、owner 及符合待审条件的 reviewer/owner 可见，私有 gallery 对作者或 owner 可见；当前 banner 可见。成功 `private, no-store`、`Vary: Authorization`，无权或不存在 404。 |
 | GET `/` | Static Assets 优先返回 Web 首页 HTML。维护时静态首页仍可加载，前端根据首页 API 的 `503 maintenance` 显示维护提示。 |
+
+打开嵌入页面与本地安装门禁分离，见 [SillyTavern 宿主协议](host-protocol.md)。服务端 `/projects/:id/acquisitions` 独立校验当前频道和版本，不兼容时拒绝且不记获取次数。
 
 未匹配的 `/api/*` 返回 JSON 404；其他未知路径返回纯文本 404。版本文件设置 immutable 缓存头。响应头不保证平台缓存一定命中。
