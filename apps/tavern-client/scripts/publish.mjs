@@ -39,9 +39,12 @@ const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 const sha = createHash("sha256").update(body).digest("hex");
 if (sha !== manifest.revision) throw new Error("built manifest hash does not match dist/index.js");
 const bucket = env === "staging" ? "workshop-client-staging" : "workshop-client-prod";
+const publicBucket = env === "staging" ? "workshop-img-staging" : "workshop-img-prod";
 const database = "DB";
 const versionedKey = `client/v/${sha}/index.js`;
 const channelKey = `client/${channel}/index.js`;
+const VERSIONED_CACHE_CONTROL = "public, max-age=31536000, immutable";
+const CHANNEL_CACHE_CONTROL = "public, max-age=300";
 
 const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
 const apiToken = process.env.CLOUDFLARE_API_TOKEN;
@@ -78,14 +81,22 @@ async function s3Credentials() {
   return { accessKeyId: payload.result.id, secretAccessKey: sha256Hex(apiToken) };
 }
 
-function signedPut({ accessKeyId, secretAccessKey }, key) {
+function signedPut({ accessKeyId, secretAccessKey }, targetBucket, key, cacheControl) {
   const host = `${accountId}.r2.cloudflarestorage.com`;
-  const canonicalUri = `/${bucket}/${key.split("/").map(encodeURIComponent).join("/")}`;
+  const canonicalUri = `/${targetBucket}/${key.split("/").map(encodeURIComponent).join("/")}`;
   const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
   const dateStamp = amzDate.slice(0, 8);
   const payloadHash = sha256Hex(body);
-  const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
-  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+  const signableHeaders = {
+    ...(cacheControl ? { "cache-control": cacheControl } : {}),
+    "content-type": "text/javascript; charset=utf-8",
+    host,
+    "x-amz-content-sha256": payloadHash,
+    "x-amz-date": amzDate,
+  };
+  const headerNames = Object.keys(signableHeaders).sort();
+  const canonicalHeaders = headerNames.map((name) => `${name}:${signableHeaders[name]}\n`).join("");
+  const signedHeaders = headerNames.join(";");
   const canonicalRequest = `PUT\n${canonicalUri}\n\n${canonicalHeaders}\n${signedHeaders}\n${payloadHash}`;
   const scope = `${dateStamp}/auto/s3/aws4_request`;
   const stringToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${scope}\n${sha256Hex(canonicalRequest)}`;
@@ -94,32 +105,32 @@ function signedPut({ accessKeyId, secretAccessKey }, key) {
   signingKey = hmac(signingKey, "s3");
   signingKey = hmac(signingKey, "aws4_request");
   const signature = hex(hmac(signingKey, stringToSign));
+  const { host: _host, ...requestHeaders } = signableHeaders;
   return fetch(`https://${host}${canonicalUri}`, {
     method: "PUT",
     headers: {
+      ...requestHeaders,
       authorization: `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
-      "content-type": "text/javascript",
-      "x-amz-content-sha256": payloadHash,
-      "x-amz-date": amzDate,
     },
     body,
   });
 }
 
-async function upload(key) {
+async function upload(targetBucket, key, cacheControl) {
   if (dryRun) {
-    console.log(`[dry-run] s3 put ${bucket}/${key}`);
+    console.log(`[dry-run] s3 put ${targetBucket}/${key}${cacheControl ? ` (${cacheControl})` : ""}`);
     return;
   }
-  const response = await signedPut(credentials, key);
+  const response = await signedPut(credentials, targetBucket, key, cacheControl);
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 300);
-    throw new Error(`R2 upload failed for ${key}: ${response.status} ${detail}`);
+    throw new Error(`R2 upload failed for ${targetBucket}/${key}: ${response.status} ${detail}`);
   }
 }
 
 const credentials = await s3Credentials();
-await upload(versionedKey);
+await upload(bucket, versionedKey);
+await upload(publicBucket, versionedKey, VERSIONED_CACHE_CONTROL);
 
 const query = `SELECT value FROM site_settings WHERE key = 'client_channels'`;
 const output = wrangler(
@@ -142,7 +153,8 @@ wrangler(["d1", "execute", database, "--remote", "--config", "wrangler.jsonc", "
 
 // The channel pointer is written only after the version object and its D1
 // record exist, so a failed publish cannot point at a missing artifact.
-await upload(channelKey);
+await upload(bucket, channelKey);
+await upload(publicBucket, channelKey, CHANNEL_CACHE_CONTROL);
 
 console.log(
   JSON.stringify({
@@ -150,6 +162,7 @@ console.log(
     env,
     channel,
     bucket,
+    publicBucket,
     version: manifest.version,
     revision: sha,
     versionedKey,
