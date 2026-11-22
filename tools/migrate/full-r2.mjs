@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The private mode is pinned to staging; public mode transfers only generated generations.
+const ALLOWED_PRIVATE_BUCKETS = new Set(["workshop-client-staging", "workshop-client-prod"]);
 const BUCKET = "workshop-client-staging";
 const PUBLIC_FORMAT = "workshop-public-image-plan-v1";
 const PUBLIC_KEY =
@@ -42,7 +42,7 @@ function configValue(value) {
 
 // curl uses standard HTTP(S)_PROXY/NO_PROXY variables. Credentials are sent on
 // stdin, never argv or a configuration file. Response bodies are bounded.
-async function curl(options, maxBytes, readHeaders) {
+async function curlOnce(options, maxBytes, readHeaders) {
   const config =
     options.map(([name, value]) => (value === null ? name : `${name} = ${configValue(value)}`)).join("\n") + "\n";
   return await new Promise((done, reject) => {
@@ -95,6 +95,23 @@ async function curl(options, maxBytes, readHeaders) {
     });
     child.stdin.end(config);
   });
+}
+
+async function curl(options, maxBytes, readHeaders) {
+  const maxAttempts = process.env.R2_TRANSFER_CONCURRENCY ? 4 : 1;
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await curlOnce(options, maxBytes, readHeaders);
+    } catch (error) {
+      lastError = error;
+      if (attempt === maxAttempts || !/curl failed \(exit (?:7|16|18|28|35|52|55|56)\)/.test(String(error?.message))) {
+        throw error;
+      }
+      await new Promise((r) => setTimeout(r, attempt * 800));
+    }
+  }
+  throw lastError;
 }
 
 async function request(account, bucket, credentials, method, key, object, file) {
@@ -259,12 +276,13 @@ async function uploadObject(account, bucket, creds, object) {
   }
 }
 
-export async function run(mode, backup, plan) {
+export async function run(mode, backup, plan, targetBucket = BUCKET) {
   if (!["check", "upload", "verify"].includes(mode)) fail("mode must be check, upload or verify");
+  if (!ALLOWED_PRIVATE_BUCKETS.has(targetBucket)) fail("invalid private destination bucket");
   const objects = await loadPlan(backup, plan);
   for (const object of objects) await verifyLocal(object);
   if (mode === "check") return { objects: objects.length, bytes: objects.reduce((sum, o) => sum + o.bytes, 0) };
-  return transfer(mode, objects, process.env.CLOUDFLARE_ACCOUNT_ID, BUCKET, false);
+  return transfer(mode, objects, process.env.CLOUDFLARE_ACCOUNT_ID, targetBucket, false);
 }
 
 async function runPublic(mode, backup, plan) {
@@ -281,28 +299,58 @@ async function runPublic(mode, backup, plan) {
   return transfer(mode, objects, account, publicBucket, true);
 }
 
-async function transfer(mode, objects, account, bucket, publicTarget) {
-  const prefix = publicTarget ? "PUBLIC_IMAGE_IMPORT_R2" : "STAGING_IMPORT_R2";
+async function resolveCredentials(account, prefix) {
   const accessKeyId = process.env[`${prefix}_ACCESS_KEY_ID`];
   const secret = process.env[`${prefix}_SECRET_ACCESS_KEY`];
-  if (!/^[a-f0-9]{32}$/i.test(account ?? "") || !accessKeyId || !secret || /[\r\n\0]/.test(accessKeyId + secret))
-    fail(`valid target account and dedicated ${prefix} access key and secret are required`);
-  const creds = { accessKeyId, secret };
+  if (accessKeyId && secret) {
+    if (/[\r\n\0]/.test(accessKeyId + secret)) fail("invalid S3 credential format");
+    return { accessKeyId, secret };
+  }
+  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+  if (!apiToken || /[\r\n\0]/.test(apiToken)) {
+    fail(`valid target account and dedicated ${prefix} access key/secret or CLOUDFLARE_API_TOKEN are required`);
+  }
+  for (const path of [`/accounts/${account}/tokens/verify`, "/user/tokens/verify"]) {
+    const response = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
+      headers: { authorization: `Bearer ${apiToken}` },
+    });
+    const payload = await response.json().catch(() => null);
+    if (response.ok && payload?.success && typeof payload.result?.id === "string") {
+      return { accessKeyId: payload.result.id, secret: sha256(apiToken) };
+    }
+  }
+  fail("CLOUDFLARE_API_TOKEN verification failed");
+}
+
+async function transfer(mode, objects, account, bucket, publicTarget) {
+  if (!/^[a-f0-9]{32}$/i.test(account ?? "")) fail("valid target account is required");
+  const prefix = publicTarget
+    ? "PUBLIC_IMAGE_IMPORT_R2"
+    : bucket === "workshop-client-prod"
+      ? "PRODUCTION_IMPORT_R2"
+      : "STAGING_IMPORT_R2";
+  const creds = await resolveCredentials(account, prefix);
+  const concurrency = Math.max(1, Math.min(16, Number.parseInt(process.env.R2_TRANSFER_CONCURRENCY ?? "1", 10) || 1));
   let uploaded = 0;
   const etags = {};
-  for (const object of objects) {
-    if (mode === "verify") {
-      const matched = await remoteMatches(account, bucket, creds, object, false);
-      if (publicTarget) etags[object.targetKey] = matched;
-      continue;
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < objects.length) {
+      const object = objects[nextIndex++];
+      if (mode === "verify") {
+        const matched = await remoteMatches(account, bucket, creds, object, false);
+        if (publicTarget) etags[object.targetKey] = matched;
+        continue;
+      }
+      if (await remoteMatches(account, bucket, creds, object, true)) continue;
+      const response = await uploadObject(account, bucket, creds, object);
+      if (response.status !== 200 && response.status !== 412)
+        fail(`PUT ${object.targetKey} failed (HTTP ${response.status})`);
+      await remoteMatches(account, bucket, creds, object, false);
+      if (response.status === 200) uploaded++;
     }
-    if (await remoteMatches(account, bucket, creds, object, true)) continue;
-    const response = await uploadObject(account, bucket, creds, object);
-    if (response.status !== 200 && response.status !== 412)
-      fail(`PUT ${object.targetKey} failed (HTTP ${response.status})`);
-    await remoteMatches(account, bucket, creds, object, false);
-    if (response.status === 200) uploaded++;
   }
+  await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, objects.length)) }, () => worker()));
   return {
     objects: objects.length,
     uploaded,
@@ -312,7 +360,14 @@ async function transfer(mode, objects, account, bucket, publicTarget) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [, , mode, backup, plan, ...rest] = process.argv;
+  const args = process.argv.slice(2);
+  let targetBucket = BUCKET;
+  const bucketFlag = args.indexOf("--bucket");
+  if (bucketFlag >= 0) {
+    targetBucket = args[bucketFlag + 1] ?? "";
+    args.splice(bucketFlag, 2);
+  }
+  const [mode, backup, plan, ...rest] = args;
   if (["public-check", "public-upload", "public-verify"].includes(mode) && backup && !plan) {
     new Promise((done, reject) => {
       const chunks = [];
@@ -327,10 +382,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         process.exitCode = 1;
       });
   } else if (!mode || !backup || !plan || rest.length) {
-    console.error("Usage: node tools/migrate/full-r2.mjs <check|upload|verify> <snapshot-dir> <plan.json>");
+    console.error(
+      "Usage: node tools/migrate/full-r2.mjs <check|upload|verify> <snapshot-dir> <plan.json> [--bucket <name>]",
+    );
     process.exitCode = 1;
   } else {
-    run(mode, backup, plan)
+    run(mode, backup, plan, targetBucket)
       .then((result) => console.log(JSON.stringify(result)))
       .catch((error) => {
         console.error(error instanceof Error ? error.message : "transfer failed");
