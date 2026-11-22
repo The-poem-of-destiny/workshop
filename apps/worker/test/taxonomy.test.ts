@@ -76,17 +76,20 @@ describe("shared taxonomy contracts", () => {
 describe("catalogue cache identity", () => {
   it("shares equivalent repeated selections and isolates include-contained queries", () => {
     const first = canonicalPublicRequest(
-      new Request(
+      "GET",
+      new URL(
         "https://one.test/api/v1/projects?projectType=事件&projectType=角色&tag=人类&tag=自定义&tag=人类&includeContained=false",
       ),
     );
     const equivalent = canonicalPublicRequest(
-      new Request(
+      "GET",
+      new URL(
         "https://two.test/api/v1/projects?tag=自定义&tag=人类&projectType=角色&projectType=事件&projectType=角色",
       ),
     );
     const contained = canonicalPublicRequest(
-      new Request(
+      "GET",
+      new URL(
         "https://one.test/api/v1/projects?projectType=角色&projectType=事件&tag=人类&tag=自定义&includeContained=true",
       ),
     );
@@ -96,18 +99,21 @@ describe("catalogue cache identity", () => {
     if (first.kind !== "public" || equivalent.kind !== "public" || contained.kind !== "public") {
       throw new Error("Expected canonical catalogue requests");
     }
-    expect(first.request.url).toBe(equivalent.request.url);
-    expect(first.request.url).not.toBe(contained.request.url);
+    expect(first.read).toEqual(equivalent.read);
+    expect(first.read.search).not.toBe(contained.read.search);
   });
 
   it("does not admit duplicate scalar parameters or more than twelve unique tags", () => {
     expect(
       canonicalPublicRequest(
-        new Request("https://workshop.test/api/v1/projects?includeContained=false&includeContained=true"),
+        "GET",
+        new URL("https://workshop.test/api/v1/projects?includeContained=false&includeContained=true"),
       ).kind,
     ).toBe("invalid");
     const query = new URLSearchParams();
     for (let index = 0; index < 13; index += 1) query.append("tag", `tag${index}`);
-    expect(canonicalPublicRequest(new Request(`https://workshop.test/api/v1/projects?${query}`)).kind).toBe("invalid");
+    expect(canonicalPublicRequest("GET", new URL(`https://workshop.test/api/v1/projects?${query}`)).kind).toBe(
+      "invalid",
+    );
   });
 });

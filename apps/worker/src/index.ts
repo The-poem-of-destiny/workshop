@@ -1,10 +1,11 @@
-import { app } from "./app";
+import { app, applicationRequestSettled } from "./app";
 import { fetchPublic } from "./data-client";
 import type { Env } from "./env";
 import { canonicalPublicRequest } from "./http/public-cache";
 import { publicResponse } from "./http/public-response";
+import { isReadOnlyRequest } from "./http/read-only-request";
 import { runScheduled } from "./scheduler";
-import { barrierControl, maintenanceDocument, maintenanceUnavailable, withWriteBarrier } from "./write-barrier";
+import { barrierControl, maintenanceUnavailable, withWriteBarrier } from "./write-barrier";
 
 export { ContentService } from "./content-service";
 export { CachedReads } from "./data/cached-reads";
@@ -13,7 +14,8 @@ export { WriteBarrier } from "./write-barrier";
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
-    const pathname = new URL(request.url).pathname;
+    const incoming = new URL(request.url);
+    const pathname = incoming.pathname;
     if (pathname === "/api/v1/maintenance") return barrierControl(request, env);
     // Build assets are served exclusively by the static binding, never by R2.
     if (pathname.startsWith("/assets/") && (request.method === "GET" || request.method === "HEAD")) {
@@ -25,16 +27,9 @@ export default {
       headers.set("x-content-type-options", "nosniff");
       return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
     }
-    const unavailable = () => {
-      const isApplicationRoute =
-        pathname === "/api" ||
-        pathname.startsWith("/api/") ||
-        pathname === "/client" ||
-        pathname.startsWith("/client/");
-      const isDocument =
-        request.headers.get("sec-fetch-dest") === "document" || request.headers.get("accept")?.includes("text/html");
-      return !isApplicationRoute && isDocument ? maintenanceDocument() : maintenanceUnavailable();
-    };
+    const gatewayRead = handleGatewayRead(request, incoming, env, ctx);
+    if (gatewayRead) return gatewayRead;
+    if (isReadOnlyRequest(request.method, pathname)) return app.fetch(request, env, ctx);
     const pending: Promise<{ error?: unknown }>[] = [];
     const guardedContext = new Proxy(ctx, {
       get(target, property) {
@@ -55,25 +50,27 @@ export default {
     const responseReady = new Promise<Response>((resolve) => {
       respond = resolve;
     });
-    const work = withWriteBarrier(env, "request", async () => {
-      const response = await handleRequest(request, env, guardedContext);
-      const tracked = trackResponse(response);
-      respond(tracked.response);
-      await tracked.finished;
-      for (let offset = 0; offset < pending.length; ) {
-        const batch = pending.slice(offset);
-        offset += batch.length;
-        const outcomes = await Promise.all(batch);
-        const failure = outcomes.find((outcome) => "error" in outcome);
-        if (failure) throw failure.error;
-      }
-    }).then(
+    const work = withWriteBarrier(
+      env,
+      "request",
+      async () => {
+        respond(await app.fetch(request, env, guardedContext));
+        for (let offset = 0; offset < pending.length; ) {
+          const batch = pending.slice(offset);
+          offset += batch.length;
+          const outcomes = await Promise.all(batch);
+          const failure = outcomes.find((outcome) => "error" in outcome);
+          if (failure) throw failure.error;
+        }
+      },
+      () => applicationRequestSettled(request),
+    ).then(
       (result) => {
-        if (!result.admitted) respond(unavailable());
+        if (!result.admitted) respond(maintenanceUnavailable());
       },
       (error: unknown) => {
         console.error("Maintenance barrier request failed", error);
-        respond(unavailable());
+        respond(maintenanceUnavailable());
       },
     );
     ctx.waitUntil(work);
@@ -88,52 +85,16 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-function trackResponse(response: Response): { response: Response; finished: Promise<void> } {
-  if (!response.body) return { response, finished: Promise.resolve() };
-  const reader = response.body.getReader();
-  let complete!: () => void;
-  let fail!: (error: unknown) => void;
-  const finished = new Promise<void>((resolve, reject) => {
-    complete = resolve;
-    fail = reject;
-  });
-  const body = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const result = await reader.read();
-        if (result.done) {
-          controller.close();
-          complete();
-        } else {
-          controller.enqueue(result.value);
-        }
-      } catch (error) {
-        controller.error(error);
-        fail(error);
-      }
-    },
-    async cancel(reason) {
-      try {
-        await reader.cancel(reason);
-        complete();
-      } catch (error) {
-        fail(error);
-        throw error;
-      }
-    },
-  });
-  return { response: new Response(body, response), finished };
-}
-
-async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-  const pathname = new URL(request.url).pathname;
+function handleGatewayRead(request: Request, incoming: URL, env: Env, ctx: ExecutionContext) {
+  const { pathname } = incoming;
   if (
     (request.method === "GET" || request.method === "HEAD") &&
     (pathname === "/" || pathname === "/index.html" || pathname === "/favicon.svg" || pathname === "/discord.svg")
   ) {
-    return env.ASSETS ? env.ASSETS.fetch(request) : new Response("Not found", { status: 404 });
+    if (!env.ASSETS) return new Response("Not found", { status: 404 });
+    return pathname === "/" || pathname === "/index.html" ? htmlAsset(request, env) : env.ASSETS.fetch(request);
   }
-  const publicRequest = canonicalPublicRequest(request);
+  const publicRequest = canonicalPublicRequest(request.method, incoming);
   if (publicRequest.kind === "invalid") {
     return Response.json(
       { error: { code: "bad_request", message: "Invalid public query" } },
@@ -143,17 +104,33 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
       },
     );
   }
-  if (publicRequest.kind === "public") {
-    // Public projections receive canonical requests without identity headers.
-    try {
-      return publicResponse(await fetchPublic(ctx, publicRequest.request), request);
-    } catch (error) {
-      console.error("Unhandled worker error", error);
-      return publicResponse(
-        Response.json({ error: { code: "internal", message: "Internal server error" } }, { status: 500 }),
-        request,
-      );
-    }
+  if (publicRequest.kind === "public") return fetchGatewayPublic(request, publicRequest.read, ctx);
+}
+
+async function htmlAsset(request: Request, env: Env): Promise<Response> {
+  const response = await env.ASSETS!.fetch(request);
+  const policy = response.headers.get("content-security-policy");
+  if (!policy || !env.PUBLIC_ASSETS_BASE_URL) return response;
+  const origin = new URL(env.PUBLIC_ASSETS_BASE_URL);
+  if (origin.protocol !== "https:" || origin.href !== `${origin.origin}/`) return response;
+  const headers = new Headers(response.headers);
+  headers.set("content-security-policy", policy.replace("img-src 'self'", `img-src 'self' ${origin.origin}`));
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+async function fetchGatewayPublic(
+  request: Request,
+  read: Extract<ReturnType<typeof canonicalPublicRequest>, { kind: "public" }>["read"],
+  ctx: ExecutionContext,
+): Promise<Response> {
+  try {
+    return publicResponse(await fetchPublic(ctx, request.method, read), read.category, request.headers);
+  } catch (error) {
+    console.error("Unhandled worker error", error);
+    return publicResponse(
+      Response.json({ error: { code: "internal", message: "Internal server error" } }, { status: 500 }),
+      read.category,
+      request.headers,
+    );
   }
-  return app.fetch(request, env, ctx);
 }

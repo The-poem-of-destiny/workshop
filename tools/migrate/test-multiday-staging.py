@@ -1,12 +1,17 @@
-"""Budget boundaries and durable candidate-import transitions, without Cloudflare calls."""
+"""Budget boundaries, durable candidate imports, and staging write control without Cloudflare calls."""
+from contextlib import redirect_stderr, redirect_stdout
 import datetime as dt
 import importlib.util
+import io
 import json
 from pathlib import Path
 import sqlite3
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+
+import offline
 
 spec = importlib.util.spec_from_file_location('multiday_runtime_test', Path(__file__).with_name('multiday-staging.py'))
 run = importlib.util.module_from_spec(spec)
@@ -414,7 +419,83 @@ class SealedAdoptionTest(unittest.TestCase):
         self.assertEqual(run.authorized_plan(path, journal)['plan_id'], plan['plan_id'])
 
 
+class StagingControlTest(unittest.TestCase):
+    drained = {'closed': True, 'drained': True, 'outstanding': [], 'outstandingTruncated': False}
+    pending = {**drained, 'drained': False, 'outstanding': [
+        {'id': 'id-0', 'kind': 'http:POST', 'startedAt': '2026-11-02T12:00:00.000Z'},
+    ]}
+    opened = {**drained, 'closed': False, 'drained': False}
 
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.token = Path(temporary.name) / 'token'
+        self.token.touch(mode=0o600)
+        self.token.write_text('test-maintenance-token\n', encoding='ascii')
+
+    def invoke(self, mode, payload, *options, status=200, cache_control='no-store', content_length=None):
+        response = io.BytesIO(payload if isinstance(payload, bytes) else json.dumps(payload).encode())
+        response.code = status
+        response.headers = {'content-type': 'application/json', 'cache-control': cache_control}
+        if content_length is not None:
+            response.headers['content-length'] = content_length
+        stdout, stderr = io.StringIO(), io.StringIO()
+        argv = ['offline.py', 'control', mode, '--token-file', str(self.token), *options]
+        with patch.object(sys, 'argv', argv), patch('urllib.request.build_opener') as opener:
+            opener.return_value.open.return_value = response
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                code = offline.main()
+            requests = [entry.args[0] for entry in opener.return_value.open.call_args_list]
+        return code, stdout.getvalue(), stderr.getvalue(), requests
+
+    def test_close_ack_and_status_report_are_not_drain_proof(self):
+        for mode, payload in [('close', self.pending), ('status', self.pending), ('open', self.opened)]:
+            with self.subTest(mode=mode):
+                code, output, error, _ = self.invoke(mode, payload)
+                self.assertEqual((code, error), (0, ''))
+                self.assertFalse(json.loads(output)['maintenance']['drained'])
+        code, output, error, requests = self.invoke('close', self.drained, '--require-drained')
+        self.assertEqual((code, output, requests), (1, '', []))
+        self.assertEqual(json.loads(error)['status'], 'failed')
+
+    def test_drain_gate_requires_a_closed_zero_untruncated_status(self):
+        full = [{**self.pending['outstanding'][0], 'id': f'id-{index}'} for index in range(100)]
+        truncated = {**self.pending, 'outstanding': full, 'outstandingTruncated': True}
+        for payload in (self.opened, self.pending, truncated):
+            with self.subTest(payload_size=len(payload['outstanding']), closed=payload['closed']):
+                code, output, error, _ = self.invoke('status', payload, '--require-drained')
+                self.assertEqual((code, output), (1, ''))
+                self.assertEqual(json.loads(error)['error'], 'maintenance_not_drained')
+        code, output, error, requests = self.invoke('status', self.drained, '--require-drained')
+        self.assertEqual((code, error), (0, ''))
+        self.assertEqual(json.loads(output)['maintenance'], {
+            'closed': True, 'drained': True, 'outstanding_count': 0, 'outstanding_truncated': False,
+        })
+        self.assertEqual([request.get_method() for request in requests], ['GET'])
+
+    def test_drain_gate_rejects_unusable_responses(self):
+        for payload, overrides in (
+            ({**self.drained, 'closed': 1}, {}),
+            ({**self.drained, 'outstanding': self.pending['outstanding']}, {}),
+            ({**self.drained, 'outstandingTruncated': True}, {}),
+            (b'{"closed":false,"closed":true,"drained":true,"outstanding":[],"outstandingTruncated":false}', {}),
+            (b'{"closed":true,', {}),
+            (self.drained, {'cache_control': 'public, max-age=60'}),
+            (self.drained, {'content_length': '1000'}),
+            (self.drained, {'status': 503}),
+        ):
+            with self.subTest(payload=payload, overrides=overrides):
+                code, output, error, _ = self.invoke('status', payload, '--require-drained', **overrides)
+                self.assertEqual((code, output), (1, ''))
+                self.assertEqual(json.loads(error)['status'], 'failed')
+
+    def test_plain_status_rejects_malformed_ticket_batches(self):
+        over_limit = [{**self.pending['outstanding'][0], 'id': f'id-{index}'} for index in range(101)]
+        for tickets in ([None], self.pending['outstanding'] * 2, over_limit):
+            with self.subTest(count=len(tickets)):
+                code, output, error, _ = self.invoke('status', {**self.pending, 'outstanding': tickets})
+                self.assertEqual((code, output), (1, ''))
+                self.assertEqual(json.loads(error)['status'], 'failed')
 
 
 if __name__ == '__main__':

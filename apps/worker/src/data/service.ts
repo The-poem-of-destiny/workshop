@@ -11,6 +11,9 @@ import { download } from "./download";
 import type { DataEnv } from "./env";
 import * as identity from "./identity-operations";
 import * as projects from "./project-operations";
+import { replicatePublicBanner } from "./public-banner";
+import { replicatePublicCover, withdrawPublicCover } from "./public-covers";
+import { replicatePublicGallery } from "./public-gallery";
 import { buildScheduledRecommendationBatch, cleanupScheduledData, findDueSubmissions } from "./scheduled";
 import { guardedStorageEnv } from "./storage-guard";
 
@@ -19,6 +22,30 @@ type OperationArgs<T extends unknown[]> = T extends [unknown, ...infer Args] ? A
 export class DataService extends WorkerEntrypoint<DataEnv> {
   private get guardedEnv(): DataEnv {
     return guardedStorageEnv(this.env);
+  }
+
+  async backfillPublicImages(projectId: string | null) {
+    const env = this.guardedEnv;
+    if (!env.PUBLIC_COVERS || !env.PUBLIC_ASSETS_BASE_URL) return null;
+    if (projectId === null) {
+      await replicatePublicBanner(env);
+      return {
+        banner:
+          (await env.DB.prepare("SELECT phase FROM public_banner_replicas WHERE id = 1").first<string>("phase")) ??
+          null,
+      };
+    }
+    await replicatePublicCover(env, projectId);
+    await replicatePublicGallery(env, projectId);
+    const cover = await env.DB.prepare("SELECT phase FROM public_cover_replicas WHERE project_id = ?")
+      .bind(projectId)
+      .first<string>("phase");
+    const gallery = await env.DB.prepare(
+      "SELECT kind, phase FROM public_gallery_replicas WHERE project_id = ? ORDER BY kind",
+    )
+      .bind(projectId)
+      .all<{ kind: string; phase: string }>();
+    return { cover, gallery: gallery.results };
   }
 
   projectRecommendation(...args: OperationArgs<Parameters<typeof projects.projectRecommendation>>) {
@@ -219,10 +246,6 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     return projects.projectList(this.guardedEnv, ...args);
   }
 
-  projectDiscovery(...args: OperationArgs<Parameters<typeof projects.projectDiscovery>>) {
-    return projects.projectDiscovery(this.guardedEnv, ...args);
-  }
-
   projectDetail(...args: OperationArgs<Parameters<typeof projects.projectDetail>>) {
     return projects.projectDetail(this.guardedEnv, ...args);
   }
@@ -322,7 +345,10 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
   }
 
   async contentAutoPublish(target: RunTarget, leaseToken: string) {
-    const published = await content.contentAutoPublish(this.guardedEnv, target, leaseToken);
+    const env = this.guardedEnv;
+    if (!(await withdrawPublicCover(env, target.project_id))) throw new Error("Public cover withdrawal pending");
+    const published = await content.contentAutoPublish(env, target, leaseToken);
+    if (published) await authorAdmin.refreshPublicProjectImages(env, target.project_id);
     return published;
   }
 

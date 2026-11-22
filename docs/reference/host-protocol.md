@@ -4,11 +4,13 @@
 
 ## 连接与信任边界
 
-客户端在 SillyTavern 中打开工坊 iframe，URL 带 `embed=1`、`clientVersion` 和 `clientChannel`。打开前请求客户端兼容性接口：明确不兼容时阻止加载；引导模式或网络检查失败不阻止打开。服务地址可在宿主设置中修改，仅应使用可信工坊；地址归一化为 HTTP(S) origin，无效值回退到构建时默认值。
+客户端在 SillyTavern 中直接打开工坊 iframe，URL 带 `embed=1`、`clientVersion` 和 `clientChannel`，不等待版本探测。服务地址可在宿主设置中修改，仅应使用可信工坊；地址归一化为 HTTP(S) origin，无效值回退到构建时默认值。
 
 页面从 `document.referrer`，或其为空时从 `hostOrigin` 查询参数取得 HTTP(S) 宿主 origin；无有效 origin 或没有父窗口时不创建安装桥。桥要求精确 origin，不接受 `*`、`null` 或非 origin URL。页面发送 `cw:ready`，宿主也响应 `cw:request-context`，返回 `cw:context`；`cw:close` 请求关闭 iframe。宿主只接受当前活动 iframe 的 `source` 和配置工坊 origin 均匹配的消息，回复也发送到该 origin。页面只接受来自 `window.parent` 且 origin 匹配的上下文；安装响应还必须匹配请求 ID、响应类型和布尔 `ok`。这些校验限制通信对象，并不替代对工坊地址的信任或服务端权限检查。
 
 成功的 `cw:context` 包含 `connected: true`、`characterName`、`worldbooks: { primary, additional, available }`、`installationScan` 和 `clientVersion`；获取失败时返回 `connected: false` 和 `error`。上下文与扫描会暴露当前角色名称、世界书名称和安装实例摘要给可信工坊页面；不是完整宿主数据的传输。
+
+新版宿主额外返回 `installCompatibility: { state, required? }`。`state` 为 `compatible`、`version_mismatch`、`channel_unavailable` 或 `unverified`；版本不符时附上 `required`。新版页面仅在明确兼容时允许发起宿主写入；缺少状态的旧桥接仍可浏览和扫描。旧脚本若在 iframe 加载前自行拦截版本，需升级脚本。
 
 ## 安装消息
 
@@ -20,6 +22,8 @@
 | `cw:preview-install` | `intent: InstallIntent` | `InstallPreview` |
 | `cw:confirm-install` | `previewId` | `{ instanceId, action, scan }` |
 | `cw:cancel-install` | `previewId` | `{ cancelled: boolean }` |
+
+宿主在预览、确认和 `cw:convert-legacy` 前重新探测兼容性。只接受当前频道明确匹配的结果；不符、无频道、请求失败或超时均拒绝，扫描、取消和关闭不受影响。服务端获取另有独立版本校验。
 
 `InstallIntent.action` 为 `install`、`update`、`uninstall` 或 `migrate`。`instanceId` 指定已有实例；安装和更新提供 `project`（`id`、`version`，可选 `title`、`projectType`）及 `files`（可选 `worldbook`、`regex` JSON 文本）。目标选择使用 `targetWorldbook`、`createWorldbook` 和 `bindWorldbook`。新安装不能指定已有实例；其他操作须指定有效实例；卸载不能携带项目、文件或变更目标和绑定。具体校验还包括角色匹配、来源和目标可读、目标身份无歧义及不能在同一目标重复安装同一项目。
 

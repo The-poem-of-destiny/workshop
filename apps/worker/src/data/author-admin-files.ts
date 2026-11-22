@@ -9,6 +9,7 @@ import { getVersionForProject } from "../storage/authoring-versions.js";
 import { uploadGalleryImage } from "../storage/project-gallery.js";
 import { type AuthenticatedSession, getSessionByToken } from "../storage/sessions.js";
 import type { DataEnv } from "./env.js";
+import { replicatePublicGallery, withdrawPublicGallery } from "./public-gallery.js";
 import { hashContentStream } from "./streaming-content.js";
 import { streamImage, UploadLimitError } from "./streaming-image.js";
 import { type StagedStream, stageStream } from "./streaming-staging.js";
@@ -48,6 +49,10 @@ async function persistNormalizedWorldbook(
 }
 
 const files = new Hono<{ Bindings: DataEnv; Variables: { session: AuthenticatedSession } }>();
+
+files.onError((error) => {
+  throw error;
+});
 
 files.use("*", async (c, next) => {
   const authorization = c.req.header("authorization");
@@ -247,6 +252,7 @@ files.put("/api/v1/projects/:id/gallery/:slot", async (c) => {
       return jsonError(c, "payload_too_large", "Gallery image exceeds 1MiB limit");
     throw error;
   }
+  const slot = Number(c.req.param("slot"));
   const result = await (async () => {
     try {
       const metadata = await image.result;
@@ -254,13 +260,14 @@ files.put("/api/v1/projects/:id/gallery/:slot", async (c) => {
         c.env.DB,
         session,
         project.id,
-        Number(c.req.param("slot")),
+        slot,
         expectedVersion,
         {
           ...metadata,
           copyTo: staged.copyTo.bind(staged),
         },
         mime,
+        () => withdrawPublicGallery(c.env, project.id, slot, expectedVersion),
       );
     } finally {
       await staged.dispose().catch(() => {});
@@ -271,6 +278,12 @@ files.put("/api/v1/projects/:id/gallery/:slot", async (c) => {
     return versionConflict(c, "project", expectedVersion, latest?.row_version ?? project.row_version);
   }
   if (result.kind === "invalid") return jsonError(c, "bad_request", result.message);
+  if (result.kind === "withdrawal_pending") return jsonError(c, "conflict", "Public gallery withdrawal pending; retry");
+  await replicatePublicGallery(c.env, project.id, slot).catch((error) => {
+    // The original and its row are already committed; the private bucket
+    // still serves the current image through the public authorization route.
+    console.error("Public gallery replication failed", error);
+  });
   return c.json({ rowVersion: result.rowVersion, sha256: result.sha256, bytes: result.bytes, mime: result.mime });
 });
 

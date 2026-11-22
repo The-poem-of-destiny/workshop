@@ -13,9 +13,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-ORIGIN = "https://workshop-staging.poem-of-destiny.workers.dev"
+ORIGIN = "https://workshop-staging.poem-of-destiny.3378469.xyz"
 MAINTENANCE = "/api/v1/maintenance"
 MAX_JSON_BYTES = 16 * 1024 * 1024
+MAX_OUTSTANDING_TICKETS = 100
 
 
 class ControlError(Exception):
@@ -30,6 +31,18 @@ class NoRedirect(HTTPRedirectHandler):
 def require(condition, label):
     if not condition:
         raise ControlError(label)
+
+
+def unique_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        require(key not in result, "invalid_json_response")
+        result[key] = value
+    return result
+
+
+def invalid_json_constant(_value):
+    raise ControlError("invalid_json_response")
 
 
 def read_token(path):
@@ -54,20 +67,23 @@ class Staging:
         self.opener = build_opener(NoRedirect())
         self.counts = Counter()
 
-    def request(self, path, *, action=None, operator=False, limit=MAX_JSON_BYTES):
+    def request(self, path, *, action=None, operator=False, payload=None, limit=MAX_JSON_BYTES):
         require(path.startswith("/api/v1/") and not path.startswith("//")
                 and "#" not in path, "invalid_request_path")
-        require(not operator or path == MAINTENANCE, "invalid_operator_target")
+        images = MAINTENANCE + "/public-images"
+        require(not operator or path in (MAINTENANCE, images), "invalid_operator_target")
+        require(payload is None or (operator and path == images and action is None), "invalid_payload_target")
         require(action is None or (operator and action in ("close", "open")), "invalid_action")
         headers = {"accept": "application/json", "user-agent": "workshop-staging-control/1.0"}
         if operator:
             headers["authorization"] = "Bearer " + self.token
+            headers["cache-control"] = "no-cache"
         data = None
-        if action is not None:
+        if action is not None or payload is not None:
             headers["content-type"] = "application/json"
-            data = json.dumps({"action": action}).encode("ascii")
+            data = json.dumps(payload if action is None else {"action": action}).encode("ascii")
         request = Request(ORIGIN + path, data=data, headers=headers,
-                          method="POST" if action is not None else "GET")
+                          method="POST" if data is not None else "GET")
         try:
             response = self.opener.open(request, timeout=self.timeout)
         except HTTPError as exc:
@@ -82,17 +98,28 @@ class Staging:
         except (URLError, TimeoutError, OSError):
             raise ControlError("staging_response_failed") from None
         require(len(body) <= limit, "response_exceeds_expected_size")
+        if operator and (content_length := headers.get("content-length")) is not None:
+            require(re.fullmatch(r"[0-9]+", content_length) is not None and int(content_length) == len(body),
+                    "incomplete_maintenance_response")
         self.counts["requests"] += 1
         self.counts["http_" + str(status)] += 1
         return status, headers, body
 
-    def json(self, path, *, expected=200, code=None, action=None, operator=False):
-        status, headers, body = self.request(path, action=action, operator=operator)
+    def json(self, path, *, expected=200, code=None, action=None, operator=False, payload=None):
+        status, headers, body = self.request(path, action=action, operator=operator, payload=payload)
         require(status == expected, "unexpected_http_status_" + str(status)
                 + "_request_" + str(self.counts["requests"]))
-        require("application/json" in headers.get("content-type", "").lower(), "expected_json_response")
+        content_type = headers.get("content-type", "").lower()
+        if operator:
+            require(content_type.partition(";")[0].strip() == "application/json", "expected_json_response")
+            require(any(value.strip().lower() == "no-store"
+                        for value in headers.get("cache-control", "").split(",")),
+                    "maintenance_response_must_not_be_cached")
+        else:
+            require("application/json" in content_type, "expected_json_response")
         try:
-            payload = json.loads(body)
+            payload = (json.loads(body, object_pairs_hook=unique_json_object, parse_constant=invalid_json_constant)
+                       if operator else json.loads(body))
         except (ValueError, UnicodeError):
             raise ControlError("invalid_json_response") from None
         require(isinstance(payload, dict), "expected_json_object")
@@ -108,9 +135,16 @@ class Staging:
                 and isinstance(result.get("outstanding"), list)
                 and type(result.get("outstandingTruncated")) is bool, "invalid_maintenance_status")
         outstanding = len(result["outstanding"])
-        require(result["drained"] == (result["closed"] and outstanding == 0)
-                and (not result["outstandingTruncated"] or outstanding == 100),
+        require(outstanding <= MAX_OUTSTANDING_TICKETS
+                and result["outstandingTruncated"] == (outstanding == MAX_OUTSTANDING_TICKETS)
+                and result["drained"] == (result["closed"] and outstanding == 0),
                 "inconsistent_maintenance_status")
+        ids = set()
+        for ticket in result["outstanding"]:
+            require(isinstance(ticket, dict) and all(isinstance(ticket.get(key), str) and ticket[key]
+                    for key in ("id", "kind", "startedAt")) and ticket["id"] not in ids,
+                    "invalid_maintenance_ticket")
+            ids.add(ticket["id"])
         if action == "close":
             require(result["closed"], "maintenance_close_not_confirmed")
         if action == "open":
@@ -174,8 +208,6 @@ def smoke(client, preparation, samples):
     check_items(home["projects"]["data"], projects, versions)
     require(home["projects"]["data"].get("total") == len(projects), "home_total_mismatch")
     check_items(home["discovery"]["data"], projects, versions)
-    discovery = client.json("/api/v1/projects/discovery")
-    check_items(discovery, projects, versions)
 
     cursor = None
     cursors = set()
@@ -319,15 +351,28 @@ def run(args):
     try:
         require(1 <= args.samples <= 10 and 1 <= args.timeout <= 300, "invalid_numeric_option")
         require(args.mode != "smoke" or args.preparation is not None, "smoke_requires_preparation")
+        require(not args.require_drained or args.mode == "status", "require_drained_needs_status")
         client = Staging(read_token(args.token_file), args.timeout)
         if args.mode == "smoke":
             with args.preparation.open(encoding="utf-8") as source:
                 preparation = json.load(source)
             result = smoke(client, preparation, args.samples)
+        elif args.mode == "public-images":
+            targets = [{"target": "project", "projectId": project_id} for project_id in args.project_id]
+            if args.banner:
+                targets.append({"target": "banner"})
+            require(bool(targets), "public_images_requires_target")
+            results = []
+            for target in targets:
+                phases = client.json(MAINTENANCE + "/public-images", operator=True, payload=target)
+                results.append({"target": target, "phases": phases})
+            result = {"mode": args.mode, "results": results, "counts": dict(client.counts)}
         else:
-            result = {"mode": args.mode, "status": "passed",
-                      "maintenance": client.maintenance(None if args.mode == "status" else args.mode),
-                      "counts": dict(client.counts)}
+            maintenance = client.maintenance(None if args.mode == "status" else args.mode)
+            if args.require_drained:
+                require(maintenance["closed"] and maintenance["drained"] and maintenance["outstanding_count"] == 0
+                        and not maintenance["outstanding_truncated"], "maintenance_not_drained")
+            result = {"mode": args.mode, "status": "passed", "maintenance": maintenance, "counts": dict(client.counts)}
         print(json.dumps(result, sort_keys=True))
         return 0
     except ControlError as error:

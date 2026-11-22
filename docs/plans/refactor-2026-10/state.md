@@ -2,6 +2,28 @@
 
 本文件区分已合并源码、本地验证、历史 staging 验收与尚未执行的真实切换；commit、CI 通过和 PR 合并都不等于线上已更新。当前行为以 [API 参考](../../reference/worker-api.md)、[使用指南](../../guides/using-workshop.md)、[宿主协议](../../reference/host-protocol.md)及[运行配置](../../reference/runtime-configuration.md)为准。早期设计和审计保留为历史，不作为当前缺口清单。
 
+## 当前 staging：入口与发布检查（2026-11-22）
+
+- 两个应用自定义域的目录限流已实测；staging 的 `workers.dev` 与版本入口已关闭。production 仅变更 zone WAF，未部署 Worker；仍是占位服务。范围和绕过边界见[边缘上线记录](edge-cache-rollout.md#2-waf-与速率限制)。
+- staging 线上健康、首页、目录和客户端检查通过，匿名 `/me` 返回 401；GitHub `STAGING_URL` 与现行入口一致。[历史 CI run 44868535747](https://github.com/The-poem-of-destiny/workshop/actions/runs/44868535747) 的客户端文件与线上字节相同，线上 D1 频道为 `staging`、版本 `0.2.0`、revision 与产物 SHA-256 一致。线上 Worker `bc986055-f550-448c-9f96-38db8c755b09` 是后来手工部署，不是该 CI run 的 Worker `bb91f1ae-d310-4448-856c-e8ebcb45fbf8`；不能用旧 run 验收尚未发布的工作流。Discord 授权往返和真实 SillyTavern 未验收。
+- [API-01](open-threads.md#api-与业务行为) 已本地收口，Worker 30 项及类型检查通过；未部署该 API 或发布工作流改动。
+- 滚动发版本地验证：workflow `actionlint`、staging 基线及中断恢复、production 精确产物选择、拒绝错配验收证据、HTTP smoke 均通过；用新脚本只读核对线上 staging D1 共 94 个 schema 对象，与 migrations 一致。Wrangler staging 构建及 production 使用同一 staging bundle 的 dry-run 通过。未触发新 GitHub Actions 发布或写生产数据。
+
+## 当前 staging：三类公开图片
+
+- 已向既有 staging D1 单独应用 `0003_public_gallery_replicas.sql`、`0004_public_banner_replicas.sql`，未重跑初始 schema；Worker `bc986055-f550-448c-9f96-38db8c755b09` 已部署，入口健康检查 200。
+- 本地 Worker 类型、封面／画廊／目录 17 项、横幅 2 项、快照导入 25 项通过；快照工具未向 production 上传或写入。操作入口见[回填手册](../../operations/deployment-safety.md#staging-public-image-backfill)和[快照导入手册](../../operations/legacy-data-migration.md#public-images-from-the-paired-snapshot)。
+- 在线回填处理 525 个公开项目，513 个封面 `ready`，12 个无封面，零请求错误；库内没有符合条件的画廊图片，也未配置横幅。匿名目录投影到 CDN，抽样 PNG 返回 `200 MISS` → `200 HIT`。画廊和横幅的替换、撤回及并发边界在本地 D1/R2 验证，未以线上空数据宣称验收。
+
+## 当前 staging：EDGE-01
+
+- [60 秒 CDN 探针](edge-cache-rollout.md#普通公开封面独立撤回试验)已在 NRT 验证命中、自然到期和精确 URL purge；没有接入业务封面或修改 production。
+- staging Worker `3a4f7796-e7a4-4c06-9760-f87e33070593` 已部署；远端已有 589 个项目且迁移账本未标记 `0001_initial.sql`，因此只执行了 `0002_public_cover_replicas.sql`，未重放空库迁移。后续不能直接对该库运行整链 `migrations apply`。健康、匿名目录和首页封面域 CSP 已实测。未改 production。
+- staging 入口已切到 `https://workshop-staging.poem-of-destiny.3378469.xyz`（Worker `271222e4-3b3b-436a-8af1-c3f462d35664`）；GitHub `staging` environment 的 `STAGING_URL` 已同步并回读。浏览器登录初始化返回 201 和新回调；旧 Origin 返回 403。未完成 Discord 授权往返。
+- staging 专用普通成员可独立签发 15 分钟会话；错误签发凭据返回 401，作者访问管理接口返回 403。无需 Discord 登录，测试会话已撤销。
+- 线上实际项目经自动审核通过后从私有切到公开：匿名封面返回 `200 MISS` → `200 HIT`。切回私有后，短暂仍可读取缓存的项目详情和封面，随后两者均返回 `404`（封面 `BYPASS`）。测试项目已软删除。仍未验收真实并发、人工审核发布或额度对照；未改 production。
+- 编号迁移链另经 `python3 tools/migrate/test-multiday-plan.py` 验证，6 项通过。
+
 ## 当前 main 与已完成范围
 
 文档 PR #92 核对时的 `main`、`origin/main` 与 GitHub `main` 均为 `c450263a82c33a883bbaec5b0336130d9cfe1d12`，已包含版本备忘 PR #94；文档随后正常合并为 `bf5646748ec114321b72ebdd98d7a179ea5ead73`。推荐资格 PR #93 在此基础上完成当前订阅条件纠正与下述本地关键行为验证；最终合并及 exact-head CI 状态以各 PR 为准，不将该核对快照当作永久未合并状态。
@@ -28,10 +50,10 @@
 ## 当前待交付与发布门槛
 
 - **当前订阅推荐资格已纠正**：[PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) 实现登录且当前订阅才可新增／编辑；退订立即失去资格，但既有推荐不自动删除、本人仍可撤回，重新订阅恢复资格。真实合成本地 Worker API 与 Chromium 已验证退订拒写、本人撤回、重订恢复及版本备忘不变；合并仍以 exact-head required checks 为门禁，不等于部署。不建立历史资格、不从下载／安装／旧评分推断订阅，也不把旧项目级评分猜配到版本或公开为推荐；契约依据为[已接受决定](../../../.agents/notes/in-progress/version-experience-notes-and-recommendations.md)。
-- **真实数据迁移暂不执行**：现有六分类离线工具与完整候选验证不授权访问或转换真实 D1/R2／备份。历史 staging 验收不能关闭当前 schema／taxonomy 切换门槛；切换需新的完整当前快照、显式审阅、独立对账及另行授权。
-- **部署保持暂停**：`ACCEPTED_SCHEMA_SHA=f2491599cfb97a6405b5f73ead73227387786478`、staging schema-change pause 与 production 的 `Require separately verified production schema` 门禁不变。不得直接套用旧增量链或对既有库运行新的空库基线。
+- **真实数据迁移暂不执行**：现有六分类工具与历史 staging 验收不授权真实生产数据操作。实际切换需当前源数据和恢复点、候选 schema／关键数据抽查及另行授权；不要求独立全量对账。
+- **滚动发版已在本地接通**：不冻结 `main`。staging 和 production 发布前核对实际 D1 schema，不自动迁移；production 只提升通过 staging 验收的精确产物。新工作流尚未提交或触发，线上仍不代表 production 已上线。见[发布手册](../../operations/deployment-safety.md#release-decision-and-artifact)。
 - **真实环境验收及生产切换未完成**：真实 Discord 完整登录／准入和真实 SillyTavern 安装／更新／卸载见 [user-actions.md](user-actions.md)；生产备份恢复、停写、迁移、回滚和精确版本验收仍需授权。不因这些人工门槛把已实现核心客户端重新列为代码待办。
-- **最新交付授权**：版本备忘 #94 已正常合并；文档 [PR #92](https://github.com/The-poem-of-destiny/workshop/pull/92) 与纠正后的推荐资格 #93 在必要验证和 exact-head required checks 通过后正常合并，不启用 auto-merge、不绕过分支保护。没有 release／tag／部署授权，不使用个人 Cloudflare token，不读写真实 D1/R2／备份或修改绑定、secrets、workflow、schema checkpoint；PR 合并不表示线上已启用。
+- **此前 PR 合并授权**：版本备忘 #94 已正常合并；文档 [PR #92](https://github.com/The-poem-of-destiny/workshop/pull/92) 与纠正后的推荐资格 #93 以 exact-head required checks 为门槛，不启用 auto-merge，不绕过分支保护。这些授权不包含生产发布或生产数据切换。
 
 当前可执行与人工验收边界见 [Checklist](checklist.md) 和 [用户事项](user-actions.md)。只读 legacy 结构参考固定为 `worktrees/workshop-legacy` 的 `15303df5e3b30aa7f3fc924296ae57497a7ad09a`；经典界面迁移不是本轮待办。
 

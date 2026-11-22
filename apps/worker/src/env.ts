@@ -8,6 +8,7 @@ export interface Env {
   APP_VERSION?: string;
   ALLOWED_ORIGINS?: string;
   PUBLIC_ORIGIN?: string;
+  PUBLIC_ASSETS_BASE_URL?: string;
   DISCORD_CLIENT_ID?: string;
   DISCORD_CLIENT_SECRET?: string;
   DISCORD_ALLOWED_GUILD_IDS?: string;

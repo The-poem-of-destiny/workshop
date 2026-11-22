@@ -479,6 +479,7 @@ describe("public read path", () => {
     const page = await listPublishedProjects(
       bindings.DB,
       projectListQuerySchema.parse({ limit: 24, sort: "updated" }),
+      undefined,
       (value) => {
         meta.rows_read = value.rows_read;
         meta.rows_written = value.rows_written;
@@ -640,9 +641,41 @@ describe("public read path", () => {
         ).first<{ count: number }>()
       )?.count,
     ).toBe(2);
+    await bindings.DB.prepare(`INSERT INTO assets (id, project_id, version_id, kind, r2_key, sha256, bytes, mime, created_at)
+      SELECT 'r3-worldbook', project_id, 'r3', kind, r2_key, sha256, bytes, mime, created_at
+      FROM assets WHERE version_id = 'r1' AND kind = 'worldbook'`).run();
+    await bindings.DB.prepare("UPDATE projects SET published_version_id = 'r3' WHERE id = 'p1'").run();
+    const replaced = await SELF.fetch(url, { method: "POST", headers });
+    expect(replaced.status).toBe(409);
+    await expect(replaced.json()).resolves.toMatchObject({ error: { code: "conflict" } });
+    expect((await SELF.fetch(fileUrl, { headers })).status).toBe(404);
+    const next = await SELF.fetch(url, {
+      method: "POST",
+      headers: { ...headers, "Idempotency-Key": crypto.randomUUID() },
+    });
+    expect(next.status).toBe(201);
+    await expect(next.json()).resolves.toMatchObject({ versionId: "r3" });
+    expect(
+      (
+        await bindings.DB.prepare(
+          "SELECT project_version_id, SUM(count) AS count FROM download_daily_stats WHERE user_id = 'u2' GROUP BY project_version_id ORDER BY project_version_id",
+        ).all()
+      ).results,
+    ).toEqual([
+      { project_version_id: "r1", count: 2 },
+      { project_version_id: "r3", count: 1 },
+    ]);
     await bindings.DB.prepare("UPDATE projects SET visibility = 'private' WHERE id = 'p1'").run();
     expect((await SELF.fetch(fileUrl, { headers })).status).toBe(404);
-    expect((await SELF.fetch(url, { method: "POST", headers })).status).toBe(404);
+    expect((await SELF.fetch(url, { method: "POST", headers })).status).toBe(409);
+    expect(
+      (
+        await SELF.fetch(url, {
+          method: "POST",
+          headers: { ...headers, "Idempotency-Key": crypto.randomUUID() },
+        })
+      ).status,
+    ).toBe(404);
   });
 
   it("rechecks session expiry after opening the content object", async () => {
@@ -836,42 +869,47 @@ describe("public read path", () => {
     await bindings.DB.prepare("INSERT INTO site_settings (key, value, updated_at) VALUES ('client_channels', ?, ?)")
       .bind(JSON.stringify({ stable: { revision: "r1", version: "1.0.0" } }), now)
       .run();
+    const rejectedHeaders = { authorization: "Bearer test-token", "Idempotency-Key": crypto.randomUUID() };
     const missingChannel = await SELF.fetch(
       new URL("/api/v1/projects/p1/acquisitions", "https://workshop.test").toString(),
-      { method: "POST", headers: { authorization: "Bearer test-token", "x-client-version": "1.0.0" } },
+      { method: "POST", headers: { ...rejectedHeaders, "x-client-version": "1.0.0" } },
     );
     expect(missingChannel.status).toBe(426);
-    const wrongChannel = await SELF.fetch(
+    const unavailableChannel = await SELF.fetch(
       new URL("/api/v1/projects/p1/acquisitions", "https://workshop.test").toString(),
       {
         method: "POST",
         headers: {
-          authorization: "Bearer test-token",
+          ...rejectedHeaders,
           "x-client-version": "1.0.0",
           "x-client-channel": "staging",
         },
       },
     );
-    expect(wrongChannel.status).toBe(426);
+    expect(unavailableChannel.status).toBe(426);
     const wrongVersion = await SELF.fetch(
       new URL("/api/v1/projects/p1/acquisitions", "https://workshop.test").toString(),
       {
         method: "POST",
         headers: {
-          authorization: "Bearer test-token",
+          ...rejectedHeaders,
           "x-client-version": "0.9.0",
           "x-client-channel": "stable",
         },
       },
     );
     expect(wrongVersion.status).toBe(426);
+    expect(
+      await bindings.DB.prepare("SELECT count FROM download_daily_stats WHERE project_id = 'p1'").first(),
+    ).toBeNull();
+    const acquisitionId = crypto.randomUUID();
     const response = await SELF.fetch(new URL("/api/v1/projects/p1/acquisitions", "https://workshop.test").toString(), {
       method: "POST",
       headers: {
         authorization: "Bearer test-token",
         "x-client-version": "1.0.0",
         "x-client-channel": "stable",
-        "Idempotency-Key": crypto.randomUUID(),
+        "Idempotency-Key": acquisitionId,
       },
     });
     expect(response.status).toBe(201);
@@ -888,6 +926,24 @@ describe("public read path", () => {
     });
     expect(file.status).toBe(200);
     await expect(file.text()).resolves.toBe('{"entries":[]}');
+    const replay = () =>
+      SELF.fetch("https://workshop.test/api/v1/projects/p1/acquisitions", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer test-token",
+          "x-client-version": "1.0.0",
+          "x-client-channel": "stable",
+          "Idempotency-Key": acquisitionId,
+        },
+      });
+    const retry = await replay();
+    expect(retry.status).toBe(201);
+    await expect(retry.json()).resolves.toEqual(acquisition);
+    await bindings.DB.prepare("UPDATE projects SET published_version_id = NULL WHERE id = 'p1'").run();
+    expect((await replay()).status).toBe(409);
+    expect(
+      await bindings.DB.prepare("SELECT SUM(count) AS count FROM download_daily_stats WHERE project_id = 'p1'").first(),
+    ).toEqual({ count: 1 });
   });
 
   it("serves home, recommendations and banner", async () => {
@@ -912,5 +968,44 @@ describe("public read path", () => {
     expect(site.status).toBe(200);
     siteSettingsSchema.parse(await site.json());
     expect(await getBanner(bindings.DB)).toMatchObject({ positionX: 40 });
+  });
+
+  it("keeps bare public projections, tracking queries, and Hono-only aliases distinct", async () => {
+    await seed();
+    for (const [path, alias] of [
+      ["home", "%68ome"],
+      ["site", "%73ite"],
+      ["recommendations", "%72ecommendations"],
+    ]) {
+      const url = `https://workshop.test/api/v1/${path}`;
+      const get = await SELF.fetch(url);
+      expect(get.status, path).toBe(200);
+      expect(get.headers.get("access-control-allow-origin")).toBe("*");
+      const body = await get.json();
+
+      const tracked = await SELF.fetch(`${url}/?utm_source=test`);
+      expect(tracked.status, path).toBe(200);
+      await expect(tracked.json()).resolves.toEqual(body);
+      const head = await SELF.fetch(url, { method: "HEAD" });
+      expect(head.status, path).toBe(200);
+      expect(head.headers.get("access-control-allow-origin")).toBe("*");
+      expect(await head.text()).toBe("");
+
+      const invalid = await SELF.fetch(`${url}?_=${Date.now()}`);
+      expect(invalid.status, path).toBe(400);
+      expect(invalid.headers.get("cache-control")).toBe("private, no-store");
+      expect(invalid.headers.get("referrer-policy")).toBeNull();
+      await expect(invalid.json()).resolves.toEqual({
+        error: { code: "bad_request", message: "Invalid public query" },
+      });
+
+      const fallback = await SELF.fetch(`https://workshop.test/api/v1/${alias}`);
+      expect(fallback.status, alias).toBe(400);
+      expect(fallback.headers.get("cache-control")).toBe("private, no-store");
+      expect(fallback.headers.get("referrer-policy")).toBe("same-origin");
+      await expect(fallback.json()).resolves.toEqual({
+        error: { code: "bad_request", message: "Invalid public query" },
+      });
+    }
   });
 });

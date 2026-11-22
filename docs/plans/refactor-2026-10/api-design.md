@@ -106,7 +106,7 @@ Workers Cache 入口缓存发生在 Worker 执行前，不能依赖入口代码�
 
 - `GET /api/v1/projects?cursor=&sort=&search=&projectType=&tag=&authorId=`：顺序 keyset；Web 每页 24，只显示区间不显示总量；搜索保留中文短索引。
 - `GET /api/v1/projects/:id`、`/:id/entries`：相同公开规则；返回当前 publishedRevisionId。索引不在普通 Worker 匿名热路径解析完整文件。
-- `GET /api/v1/projects/discovery`：顶部发现栏的数据，不是发现页。
+- 顶部发现栏只消费 `GET /api/v1/home` 的 `discovery` 段；不维护独立发现端点。
 - `GET /api/v1/home`、`/site`、`/recommendations`、`/reference-sets`、`/reference-sets/:id`、`/assets/*`：只返回登记的公开投影／当前有权引用的图片。
 - `GET /api/v1/me`、`/me/state?ids=`（最多 50 个）、`/me/subscriptions`：必须会话，直读本人状态；禁止 Public。
 - `PUT/DELETE /api/v1/me/likes/:id`、`/subscriptions/:id`、`/ratings/:id`：显式幂等设置，不使用 toggle；取消订阅不触发卸载。
@@ -164,9 +164,9 @@ Workers Cache 入口缓存发生在 Worker 执行前，不能依赖入口代码�
 
 ### HTTP
 
-- `GET /api/v1/client/version?channel=stable|staging`：唯一版本记录路径，返回 channel/revision/version 与可选 size/sha256/publishedAt，no-store；删除无调用方的 `/client/version` 别名。
+- `GET /api/v1/client/version?channel=stable|staging`：供发版核对 D1 频道记录；将 `channel`、`revision`、`version` 与构建产物比对。ST 启动不使用该端点；无 `/client/version` 别名。
 - `GET /api/v1/client/compatibility?version=&channel=`：返回 compatible/bootstrap/channel/required/revision/reason；`bootstrap=true` 只允许 client 脚本打开工坊并引导 client 版本加载／更新，不授权项目 acquisition。没有 channel release 时不得表示 install-compatible；acquisition 必须返回 426。
-- client version／compatibility 均 no-store。
+- client version／compatibility 的已配置成功响应缓存 5 秒；错误及频道不可用不缓存。
 - `GET /client/stable/index.js`、`/client/staging/index.js`：可变指针，当前策略 no-store；不是 immutable 版本对象。
 - `GET /client/v/:revision/index.js`：内容版本对象，immutable 一年、ETag、公共跨域。
 - `GET /client/checker/v/:revision/:file`：允许列表内 browser/upload/review checker、manifest、NOTICES，固定 checker revision。

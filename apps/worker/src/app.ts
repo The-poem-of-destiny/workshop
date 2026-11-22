@@ -12,13 +12,19 @@ import { clientApiRoutes } from "./http/routes/client-api";
 import { authorsRoutes, collectionsRoutes } from "./http/routes/collections";
 import { companionRoutes } from "./http/routes/companion";
 import { downloadRoutes } from "./http/routes/downloads";
-import { homeRoutes } from "./http/routes/home";
 import { meRoutes } from "./http/routes/me";
 import { projectsRoutes } from "./http/routes/projects";
 import { recommendationRoutes } from "./http/routes/recommendations";
 import { siteRoutes } from "./http/routes/site";
+import { hasMaintenanceBearer } from "./write-barrier";
 
 export const app = new Hono<{ Bindings: Env }>();
+
+const uncertainRequests = new WeakSet<Request>();
+
+export function applicationRequestSettled(request: Request): boolean {
+  return !uncertainRequests.delete(request);
+}
 
 // Register before routes: Hono wildcard middleware only runs for handlers
 // registered after it.
@@ -75,6 +81,21 @@ app.route("/client", clientRoutes);
 app.route("/api/v1/client", clientApiRoutes);
 app.route("/api/v1/auth", authRoutes);
 app.route("/api/v1/sessions", sessionRoutes);
+app.post("/api/v1/maintenance/public-images", async (c) => {
+  if (!(await hasMaintenanceBearer(c.req.raw, c.env))) return c.body(null, 401);
+  const input: unknown = await c.req.json().catch(() => null);
+  if (typeof input !== "object" || input === null || !("target" in input)) return c.body(null, 400);
+  const target = input.target;
+  if (target !== "banner" && target !== "project") return c.body(null, 400);
+  const projectId = "projectId" in input ? input.projectId : undefined;
+  if (target === "project" && (typeof projectId !== "string" || !projectId || projectId.length > 128)) {
+    return c.body(null, 400);
+  }
+  const result = await dataClient(c.executionCtx).backfillPublicImages(
+    target === "banner" ? null : (projectId as string),
+  );
+  return result ? c.json(result) : c.body(null, 503);
+});
 app.route("/api/v1/me", meRoutes);
 app.route("/api/v1/admin", adminRoutes);
 app.route("/api/v1/projects", authoringRoutes);
@@ -82,7 +103,10 @@ app.route("/api/v1/projects", projectsRoutes);
 app.route("/api/v1/collections", collectionsRoutes);
 app.route("/api/v1/authors", authorsRoutes);
 app.route("/api/v1/downloads", downloadRoutes);
-app.route("/api/v1/home", homeRoutes);
+// Only path aliases matched by Hono but not the public gateway reach these GETs.
+for (const path of ["/api/v1/home", "/api/v1/recommendations", "/api/v1/site"]) {
+  app.get(path, (c) => jsonError(c, "bad_request", "Invalid public query"));
+}
 app.route("/api/v1/recommendations", recommendationRoutes);
 app.route("/api/v1/site", siteRoutes);
 app.route("/api/v1/companion-scripts", companionRoutes);
@@ -101,16 +125,6 @@ app.get("/test-dist/CreativeWorkshop/index.js", (c) => {
       "x-content-type-options": "nosniff",
     },
   });
-});
-
-app.get("/assets/*", async (c) => {
-  if (!c.env.ASSETS) return c.text("Not found", 404);
-  const response = await c.env.ASSETS.fetch(c.req.raw);
-  if (!response.ok) return response;
-  const headers = new Headers(response.headers);
-  headers.set("cache-control", "public, max-age=31536000, immutable");
-  headers.set("x-content-type-options", "nosniff");
-  return new Response(response.body, { status: response.status, headers });
 });
 
 app.get("/api/v1/public-assets/*", (c) => dataClient(c.executionCtx).fetch(c.req.raw));
@@ -138,6 +152,8 @@ app.get("/", (c) => c.text("workshop", 200, { "content-type": "text/plain; chars
 app.notFound((c) => c.text("Not found", 404));
 
 app.onError((error, c) => {
+  // Hono may replace the error response (e.g. HEAD); track the request instead.
+  uncertainRequests.add(c.req.raw);
   console.error("Unhandled worker error", error);
   return jsonError(c, "internal", "Internal server error");
 });

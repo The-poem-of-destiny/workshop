@@ -194,6 +194,7 @@ authoringRoutes.delete("/:id", async (c) => {
   if (result.kind === "forbidden") return jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE);
   if (result.kind === "not_found") return jsonError(c, "not_found", "Project not found");
   if (result.kind === "version_conflict") return versionConflict(c, "project", expectedVersion, result.actual);
+  if (result.kind === "withdrawal_pending") return jsonError(c, "conflict", "Public image withdrawal pending; retry");
   return c.body(null, 204);
 });
 
@@ -213,6 +214,7 @@ authoringRoutes.patch("/:id/visibility", async (c) => {
   if (result.kind === "forbidden") return jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE);
   if (result.kind === "not_found") return jsonError(c, "not_found", "Project not found");
   if (result.kind === "version_conflict") return versionConflict(c, "project", expectedVersion, result.actual);
+  if (result.kind === "withdrawal_pending") return jsonError(c, "conflict", "Public image withdrawal pending; retry");
   return c.json({ rowVersion: result.rowVersion });
 });
 

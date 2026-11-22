@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { publicResponse } from "../src/http/public-response";
 
-const request = new Request("https://workshop.test/api/v1/projects");
+const requestHeaders = new Headers();
 
 function wrap(expires: string | null, policy = "public, max-age=300", status = 200, extra: HeadersInit = {}) {
   const headers = new Headers(extra);
   headers.set("cache-control", policy);
   if (expires !== null) headers.set("x-workshop-generated-expires", expires);
-  return publicResponse(new Response("{}", { status, headers }), request);
+  return publicResponse(new Response("{}", { status, headers }), "public", requestHeaders);
 }
 
 describe("public response freshness", () => {
@@ -46,15 +46,12 @@ describe("public response freshness", () => {
   });
 
   it.each(["GET", "HEAD"] as const)("does not return 304 for a non-versioned %s response", (method) => {
-    const request = new Request("https://workshop.test/api/v1/site", {
-      method,
-      headers: { "if-none-match": '"site"' },
-    });
     const response = publicResponse(
       new Response(method === "HEAD" ? null : "site", {
         headers: { etag: '"site"', "cache-control": "private, no-store" },
       }),
-      request,
+      "reference",
+      new Headers({ "if-none-match": '"site"' }),
     );
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toContain("no-store");

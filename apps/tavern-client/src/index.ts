@@ -54,6 +54,37 @@ const installations = createInstallManager({
   uuid: () => crypto.randomUUID(),
 });
 
+async function checkInstallCompatibility(): Promise<{
+  state: "compatible" | "version_mismatch" | "channel_unavailable" | "unverified";
+  required?: string;
+}> {
+  const url = new URL("/api/v1/client/compatibility", workshopOrigin());
+  url.searchParams.set("version", CLIENT_VERSION);
+  url.searchParams.set("channel", SCRIPT_CHANNEL);
+  try {
+    const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(5000) });
+    if (response.ok) {
+      const result = await response.json();
+      if (result?.channel === SCRIPT_CHANNEL) {
+        if (result.compatible === true && result.required === CLIENT_VERSION) return { state: "compatible" };
+        if (result.compatible === false && result.reason === "channel_unavailable") {
+          return { state: "channel_unavailable" };
+        }
+        if (
+          result.compatible === false &&
+          result.reason === "version_mismatch" &&
+          typeof result.required === "string"
+        ) {
+          return { state: "version_mismatch", required: result.required };
+        }
+      }
+    }
+  } catch {
+    // A failed check does not authorize host writes.
+  }
+  return { state: "unverified" };
+}
+
 async function contextPayload() {
   const bindings = getCharWorldbookNames("current");
   return {
@@ -148,41 +179,7 @@ function showOverlay() {
   target.searchParams.set("embed", "1");
   target.searchParams.set("clientVersion", CLIENT_VERSION);
   target.searchParams.set("clientChannel", SCRIPT_CHANNEL);
-  (async () => {
-    try {
-      const response = await fetch(
-        `${origin}/api/v1/client/compatibility?version=${encodeURIComponent(CLIENT_VERSION)}&channel=${SCRIPT_CHANNEL}`,
-        { cache: "no-store" },
-      );
-      const version = (await response.json()) as {
-        bootstrap?: boolean;
-        compatible?: boolean;
-        required?: string | null;
-      };
-      if (activeFrame !== $frame[0]) return;
-      if (version.bootstrap === true) {
-        console.warn("[CreativeWorkshop] 当前渠道尚未发布客户端，已进入引导模式。");
-      } else if (version.compatible === false) {
-        $frame.remove();
-        $card.append(
-          host$("<div>")
-            .css({
-              padding: "32px",
-              color: "#fbbf24",
-              font: "14px/1.7 system-ui",
-            })
-            .text(
-              `客户端版本 ${CLIENT_VERSION} 与工坊要求不一致，需要 ${version.required ?? "更新版本"}。请刷新页面或更新脚本。`,
-            ),
-        );
-        return;
-      }
-    } catch {
-      // Offline compatibility checks must not prevent opening the workshop.
-    }
-    if (activeFrame !== $frame[0]) return;
-    $frame.attr("src", target.toString());
-  })();
+  $frame.attr("src", target.toString());
 
   window.addEventListener("message", onMessage);
 }
@@ -201,10 +198,11 @@ function onMessage(
   const data = event.data;
   if (!data || typeof data !== "object" || typeof data.type !== "string") return;
   const frame = activeFrame;
+  const origin = event.origin;
 
   if (data.type === "cw:ready" || data.type === "cw:request-context") {
-    void contextPayload()
-      .then((payload) => send(frame, { type: "cw:context", ...payload }))
+    void Promise.all([contextPayload(), checkInstallCompatibility()])
+      .then(([payload, installCompatibility]) => send(frame, { type: "cw:context", ...payload, installCompatibility }))
       .catch((error) => send(frame, { type: "cw:context", connected: false, error: String(error?.message ?? error) }));
     return;
   }
@@ -222,8 +220,17 @@ function onMessage(
   const handler = handlers[data.type];
   if (handler) {
     Promise.resolve()
-      .then(() => {
-        if (activeFrame !== frame) throw new Error("会话已关闭");
+      .then(async () => {
+        if (
+          data.type === "cw:preview-install" ||
+          data.type === "cw:confirm-install" ||
+          data.type === "cw:convert-legacy"
+        ) {
+          const compatibility = await checkInstallCompatibility();
+          if (compatibility.state !== "compatible")
+            throw new Error("无法确认当前客户端可安装。请检查网络或更新工坊脚本后重开工坊。");
+        }
+        if (activeFrame !== frame || workshopOrigin() !== origin) throw new Error("会话已关闭");
         return handler();
       })
       .then((result) => send(frame, { type: `${data.type}-result`, requestId: data.requestId, ok: true, result }))

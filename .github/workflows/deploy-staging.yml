@@ -16,6 +16,10 @@ concurrency:
 
 jobs:
   changes:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -24,71 +28,20 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
       HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-      # Existing staging D1 was reset in place and verified against this commit's empty baseline.
-      ACCEPTED_SCHEMA_SHA: 143ee219458a4ca2b6d34071371a3456b2ca4423
+      FORCE_RELEASE: ${{ github.event.workflow_run.event == 'workflow_dispatch' }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
       - name: Detect deployable changes and freshness
         id: filter
-        run: |
-          set -euo pipefail
-          current="$(gh api "repos/${{ github.repository }}/commits/main" --jq '.sha')"
-          if [ "$current" != "$HEAD_SHA" ]; then
-            echo "::notice::main moved to $current; skipping stale $HEAD_SHA"
-            echo "deploy=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          last=""
-          while read -r run_id run_sha; do
-            deployed="$(gh api "repos/${{ github.repository }}/actions/runs/${run_id}/jobs" --jq '[.jobs[] | select(.name == "deploy" and .conclusion == "success")] | length')"
-            if [ "$deployed" -gt 0 ]; then
-              last="$run_sha"
-              break
-            fi
-          done < <(gh run list --workflow deploy-staging.yml --status success --limit 100 --json databaseId,headSha --jq '.[] | "\(.databaseId) \(.headSha)"')
-          if [ -z "$last" ]; then
-            echo "::notice::No verified previous staging deployment found; automatic deployment is paused for operator verification."
-            echo "deploy=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          base="$last"
-
-          # A separately accepted cutover can be newer than the last Actions deployment.
-          # Validate ancestry before excluding its already-reconciled schema changes.
-          accepted_status="$(gh api "repos/${{ github.repository }}/compare/${ACCEPTED_SCHEMA_SHA}...${HEAD_SHA}" --jq '.status')"
-          if [[ "$accepted_status" != ahead && "$accepted_status" != identical ]]; then
-            echo "::error::Accepted staging schema checkpoint is not an ancestor of this release."
-            exit 1
-          fi
-          schema_base="$ACCEPTED_SCHEMA_SHA"
-          deployment_status="$(gh api "repos/${{ github.repository }}/compare/${ACCEPTED_SCHEMA_SHA}...${last}" --jq '.status')"
-          case "$deployment_status" in
-            ahead|identical) schema_base="$last" ;;
-            behind) ;;
-            *) echo "::error::Staging deployment and accepted schema checkpoint have diverged."; exit 1 ;;
-          esac
-
-          if [ "$base" = "$HEAD_SHA" ]; then
-            echo "deploy=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          files="$(gh api --paginate "repos/${{ github.repository }}/compare/${base}...${HEAD_SHA}" --jq '.files[]? | .filename, .previous_filename // empty')"
-          schema_files="$(gh api --paginate "repos/${{ github.repository }}/compare/${schema_base}...${HEAD_SHA}" --jq '.files[]? | .filename, .previous_filename // empty')"
-          if printf '%s\n' "$schema_files" | grep -Eq '^apps/worker/migrations/'; then
-            echo "::notice::Schema migrations changed; automatic deployment is paused. Complete the separately authorized data/report migration and target binding verification before deployment."
-            echo "deploy=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if printf '%s\n' "$files" | grep -Eq '^(apps/worker/|apps/tavern-client/|packages/|tools/|tests/|pnpm-workspace.yaml|pnpm-lock.yaml|package.json)'; then
-            echo "deploy=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "deploy=false" >> "$GITHUB_OUTPUT"
-          fi
+        run: python3 .github/scripts/staging-release-gate.py
 
   build:
     needs: changes
-    if: github.event.workflow_run.conclusion == 'success' && needs.changes.outputs.deploy == 'true'
+    if: needs.changes.outputs.deploy == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -97,6 +50,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Verify CI source
+        run: test "$(git rev-parse HEAD)" = "$HEAD_SHA"
       - uses: pnpm/action-setup@v6
         with:
           version: 11.24.0
@@ -147,6 +103,8 @@ jobs:
           retention-days: 30
 
   deploy:
+    # This successful job, not workflow_run.head_sha on this workflow's run, records the deployed source.
+    name: deploy ${{ github.event.workflow_run.head_sha }}
     needs: build
     environment: staging
     runs-on: ubuntu-24.04
@@ -155,10 +113,12 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      STAGING_URL: ${{ vars.STAGING_URL }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
       - uses: pnpm/action-setup@v6
         with:
           version: 11.24.0
@@ -174,46 +134,67 @@ jobs:
         run: |
           set -euo pipefail
           sha256sum -c artifact.sha256
-          jq -e --arg sha "$HEAD_SHA" '.sourceSha == $sha' artifact-manifest.json
-      - name: Configure staging maintenance secret
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          jq -e --arg sha "$HEAD_SHA" --arg run "$GITHUB_RUN_ID" \
+            --arg hash "$(sha256sum artifact.sha256 | cut -d' ' -f1)" \
+            '.sourceSha == $sha and .workflowRunId == $run and .artifactHash == $hash' artifact-manifest.json
+      - name: Check release configuration and freshness
+        id: ready
         env:
-          MAINTENANCE_TOKEN: ${{ secrets.MAINTENANCE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test -n "$MAINTENANCE_TOKEN" || { echo "::error::Missing staging MAINTENANCE_TOKEN"; exit 1; }
-          printf '%s' "$MAINTENANCE_TOKEN" | pnpm --filter @workshop/worker exec wrangler secret put MAINTENANCE_TOKEN --config wrangler.jsonc --env staging
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$current" =~ ^[0-9a-f]{40}$ ]]
+          if [ "$current" != "$HEAD_SHA" ]; then
+            echo "::notice::main moved to $current; skipping stale $HEAD_SHA before any staging changes."
+            echo 'fresh=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo '::error::Missing dedicated staging CLOUDFLARE_API_TOKEN.'; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo '::error::Missing staging CLOUDFLARE_ACCOUNT_ID.'; exit 1; }
+          [[ "$STAGING_URL" == https://?* ]] || { echo '::error::Missing or invalid HTTPS STAGING_URL.'; exit 1; }
+          # Runtime secrets are provisioned and checked by the operator out of band.
+          # A release neither verifies their presence nor configures or rotates them.
+          echo 'fresh=true' >> "$GITHUB_OUTPUT"
+      - name: Verify live staging schema
+        if: steps.ready.outputs.fresh == 'true'
+        run: python3 .github/scripts/verify-release-schema.py staging
       - name: Deploy staging worker
+        if: steps.ready.outputs.fresh == 'true'
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/staging-wrangler.jsonl
         run: pnpm --filter @workshop/worker exec wrangler deploy build/index.js --no-bundle --config wrangler.jsonc --env staging
       - name: Publish staging client
+        if: steps.ready.outputs.fresh == 'true'
         run: pnpm --filter @workshop/tavern-client publish:client --env staging --channel staging
-      - name: Record worker version
-        run: pnpm --filter @workshop/worker exec wrangler deployments list --config wrangler.jsonc --env staging | tee deployment.txt
-      - name: Upload deployment evidence
-        uses: actions/upload-artifact@v7
-        with:
-          name: staging-evidence-${{ github.event.workflow_run.head_sha }}
-          path: |
-            artifact-manifest.json
-            deployment.txt
-          retention-days: 90
       - name: Smoke test
+        if: steps.ready.outputs.fresh == 'true'
+        run: bash .github/scripts/smoke-release.sh "$STAGING_URL" staging
+      - name: Confirm no staging mutation
+        if: steps.ready.outputs.fresh == 'false'
+        run: echo 'Stale CI source; no staging release was performed.'
+      - name: Record staging acceptance
+        if: steps.ready.outputs.fresh == 'true'
         run: |
           set -euo pipefail
-          base="${{ vars.STAGING_URL }}"
-          probe="$RUNNER_TEMP/smoke"
-          mkdir -p "$probe"
-          # Download first, then assert: piping curl into `grep -q` lets grep exit
-          # early, which surfaces as curl (23) under `pipefail`.
-          for i in 1 2 3 4 5; do
-            if curl -fsS --max-time 20 "$base/api/v1/health" -o "$probe/health.json"; then break; fi
-            if [ "$i" = 5 ]; then exit 1; fi
-            sleep 5
-          done
-          grep -q '"ok":true' "$probe/health.json"
-          curl -fsS --max-time 20 "$base/api/v1/projects" -o "$probe/projects.json"
-          grep -q '"items"' "$probe/projects.json"
-          curl -fsS --max-time 20 "$base/" -o "$probe/index.html"
-          grep -q 'id="root"' "$probe/index.html"
-          curl -fsS --max-time 20 "$base/client/staging/index.js" -o "$probe/client.js"
-          grep -q 'CreativeWorkshop' "$probe/client.js"
-          test "$(curl -s -o /dev/null -w '%{http_code}' "$base/api/v1/me")" = "401"
+          version="$(jq -ers '
+            [.[] | select(.type == "deploy" and .wrangler_environment == "staging") | .version_id]
+            | select(length == 1) | .[0] | select(type == "string" and length > 0)
+          ' "$RUNNER_TEMP/staging-wrangler.jsonl")"
+          pnpm --filter @workshop/worker exec wrangler deployments status --json --config wrangler.jsonc --env staging > "$RUNNER_TEMP/staging-deployment.json"
+          jq -e --arg version "$version" '
+            .versions | length == 1 and .[0].version_id == $version and .[0].percentage == 100
+          ' "$RUNNER_TEMP/staging-deployment.json"
+          jq --arg version "$version" --arg attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg clientSha "$(sha256sum apps/tavern-client/dist/index.js | cut -d' ' -f1)" \
+            '. + {deploymentAttempt: $attempt, workerVersionId: $version, clientSha256: $clientSha, smoke: "passed"}' \
+            artifact-manifest.json > staging-acceptance.json
+      - name: Upload staging acceptance evidence
+        if: steps.ready.outputs.fresh == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: staging-evidence-${{ github.event.workflow_run.head_sha }}-${{ github.run_attempt }}
+          path: staging-acceptance.json
+          if-no-files-found: error
+          retention-days: 90

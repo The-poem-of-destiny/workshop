@@ -1,7 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { projectPreviewSchema } from "@workshop/contracts";
-import { cacheTtl, publicCacheClass } from "../http/cache-policy";
-import { canonicalPublicRequest } from "../http/public-cache";
+import { cacheTtl } from "../http/cache-policy";
+import { PUBLIC_READ_PATH, type PublicRead } from "../http/public-cache";
 import { loadProjectPreview } from "../storage/content-index";
 import type { ProjectPreviewTarget } from "./contracts";
 import type { DataEnv } from "./env";
@@ -9,9 +9,11 @@ import { publicProjection } from "./public-projections";
 import { guardedStorageEnv } from "./storage-guard";
 
 export type ReadProps =
-  | { kind: "public" }
+  | { kind: "public"; read: PublicRead }
   | { kind: "preview"; target: ProjectPreviewTarget }
   | { kind: "object"; r2Key: string; sha256: string; identity: string };
+
+const PUBLIC_CACHE_IDENTITY = { kind: "public" } as const;
 
 function noStore(status: number, message: string): Response {
   return Response.json(
@@ -40,17 +42,9 @@ function validateRead(url: URL, props: ReadProps): Response | null {
     return noStore(400, "Invalid read properties");
   }
   if (props.kind === "public") {
-    if (!path.startsWith("/public/v1/")) return noStore(404, "Not found");
-    const outer = new URL(url);
-    outer.pathname = path.slice("/public/v1".length);
-    const canonical = canonicalPublicRequest(new Request(outer));
-    if (
-      canonical.kind !== "public" ||
-      new URL(canonical.request.url).pathname !== outer.pathname ||
-      new URL(canonical.request.url).search !== outer.search
-    ) {
-      return noStore(400, "Invalid public query");
-    }
+    if (path !== PUBLIC_READ_PATH) return noStore(404, "Not found");
+    // Only the private loopback caller can supply props; the URL cannot select a source or cache key.
+    if (!props.read || url.search) return noStore(400, "Invalid read properties");
   } else if (props.kind === "preview") {
     const target = props.target;
     if (
@@ -87,10 +81,8 @@ function validateRead(url: URL, props: ReadProps): Response | null {
   return null;
 }
 
-async function readSource(url: URL, props: ReadProps, env: DataEnv): Promise<Response> {
-  if (props.kind === "public") {
-    return publicProjection(new Request(url, { method: "GET" }), env);
-  }
+async function readSource(props: ReadProps, env: DataEnv): Promise<Response> {
+  if (props.kind === "public") return publicProjection(props.read.operation, env);
   if (props.kind === "preview") {
     const preview = await loadProjectPreview(env.R2, props.target);
     return preview ? Response.json(projectPreviewSchema.parse(preview)) : noStore(404, "Project preview not found");
@@ -112,17 +104,20 @@ export class CachedReads extends WorkerEntrypoint<DataEnv, ReadProps> {
       return new Response(null, { status: 405, headers: { "cache-control": "private, no-store", allow: "GET, HEAD" } });
     }
     const url = new URL(request.url);
-    const path = url.pathname;
     const props = this.ctx.props;
     const invalid = validateRead(url, props);
     if (invalid) return request.method === "HEAD" ? withoutBody(invalid) : invalid;
 
-    const category = props.kind === "public" ? publicCacheClass(path.slice("/public/v1".length)) : "internal";
+    const category = props.kind === "public" ? props.read.category : "internal";
     const ttl = cacheTtl(this.env, category);
     const version = this.env.VERSION_METADATA?.id;
     let key: Request | undefined;
     if (ttl > 0 && typeof version === "string" && version.trim().length > 0) {
-      const bytes = new TextEncoder().encode(JSON.stringify([version, ttl, url.pathname, url.search, props]));
+      const identity =
+        props.kind === "public"
+          ? [version, ttl, `${PUBLIC_READ_PATH}${props.read.pathname}`, props.read.search, PUBLIC_CACHE_IDENTITY]
+          : [version, ttl, url.pathname, url.search, props];
+      const bytes = new TextEncoder().encode(JSON.stringify(identity));
       const hash = await crypto.subtle.digest("SHA-256", bytes);
       const digest = Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
       key = new Request(`https://cache.workshop.invalid/v1/${digest}`);
@@ -140,7 +135,7 @@ export class CachedReads extends WorkerEntrypoint<DataEnv, ReadProps> {
       }
     }
 
-    let response = await readSource(url, props, guardedStorageEnv(this.env));
+    let response = await readSource(props, guardedStorageEnv(this.env));
     const headers = new Headers(response.headers);
     headers.delete("cdn-cache-control");
     headers.delete("cloudflare-cdn-cache-control");

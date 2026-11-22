@@ -1,6 +1,10 @@
 import { env, SELF } from "cloudflare:test";
-import { CURRENT_POLICY_VERSION } from "@workshop/domain";
+import { exports as workerExports } from "cloudflare:workers";
+import type { AuthorCollectionListResponse } from "@workshop/contracts";
+import { COLLECTION_LIMITS, CURRENT_POLICY_VERSION } from "@workshop/domain";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { app } from "../src/app";
+import { authorSetProjectCollections } from "../src/data/collection-operations";
 import type { DataEnv } from "../src/data/env";
 import { applySchema } from "./support/schema";
 
@@ -381,5 +385,157 @@ describe("collections & author showcase", () => {
     expect(delRes.status).toBe(204);
     expect((await api(`/api/v1/collections/${col.id}`)).status).toBe(404);
     expect((await api("/api/v1/projects/p-pub-role")).status).toBe(200);
+  });
+});
+
+describe("project collection replacement races", () => {
+  const authorId = "collection-author";
+  const token = "collection-author-token";
+  const projectId = "moving-project";
+
+  beforeEach(async () => {
+    await seedUser({ id: authorId, acceptedVersion: CURRENT_POLICY_VERSION, token });
+    await bindings.DB.batch([
+      bindings.DB.prepare("INSERT INTO projects (id, author_id) VALUES (?, ?)").bind(projectId, authorId),
+      bindings.DB.prepare(`
+        INSERT INTO project_versions (id, project_id, version_no, title, project_type, created_by)
+        VALUES ('moving-project-v1', ?, 1, 'Moving project', '角色', ?)
+      `).bind(projectId, authorId),
+      bindings.DB.prepare("UPDATE projects SET working_version_id = 'moving-project-v1' WHERE id = ?").bind(projectId),
+      bindings.DB.prepare(`
+        INSERT INTO collections (id, author_id, title, created_at, updated_at)
+        VALUES ('collection-a', ?1, 'A', ?2, ?2), ('collection-b', ?1, 'B', ?2, ?2), ('collection-c', ?1, 'C', ?2, ?2)
+      `).bind(authorId, now),
+      bindings.DB.prepare(`
+        INSERT INTO collection_projects (collection_id, project_id, added_at) VALUES ('collection-a', ?, ?)
+      `).bind(projectId, now),
+    ]);
+  });
+
+  async function replace(id: string, collectionIds: string[], beforeBatch?: () => Promise<void>) {
+    const request = new Request(new URL(`/api/v1/projects/${id}/collections`, ORIGIN), {
+      method: "PUT",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ collectionIds }),
+    });
+    if (!beforeBatch) return SELF.fetch(request);
+
+    // Submit the competing request before the real D1 batch, not on a timer.
+    // The PUT still runs the HTTP handler, data operation, and real SQL.
+    let intercepted = false;
+    const db = new Proxy(bindings.DB, {
+      get(target, property) {
+        if (property === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            expect(intercepted).toBe(false);
+            intercepted = true;
+            await beforeBatch();
+            return target.batch(statements);
+          };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const context = {
+      exports: {
+        DataService: {
+          identitySession: (token: string) => workerExports.DataService.identitySession(token),
+          authorSetProjectCollections: (authorization: string | undefined, id: string, ids: string[]) =>
+            authorSetProjectCollections({ ...bindings, DB: db }, authorization, id, ids),
+        },
+      },
+    } as unknown as ExecutionContext;
+    const response = await app.fetch(request, bindings, context);
+    expect(intercepted).toBe(true);
+    return response;
+  }
+
+  async function readCollections() {
+    const response = await api("/api/v1/me/collections", token);
+    expect(response.status).toBe(200);
+    const { items } = (await response.json()) as AuthorCollectionListResponse;
+    return Object.fromEntries(
+      items.map((item) => [item.id, { projectIds: item.projectIds, updatedAt: item.updatedAt }]),
+    );
+  }
+
+  it("keeps the original memberships when a requested collection is deleted before the replacement", async () => {
+    const response = await replace(projectId, ["collection-b", "collection-c"], async () => {
+      expect((await api("/api/v1/collections/collection-b", token, { method: "DELETE" })).status).toBe(204);
+    });
+
+    expect(response.status).toBe(403);
+    expect(await readCollections()).toEqual({
+      "collection-a": { projectIds: [projectId], updatedAt: now },
+      "collection-c": { projectIds: [], updatedAt: now },
+    });
+    const deletedMembership = await bindings.DB.prepare(
+      "SELECT project_id FROM collection_projects WHERE collection_id = 'collection-b'",
+    ).first();
+    expect(deletedMembership).toBeNull();
+    expect(
+      await bindings.DB.prepare("SELECT id FROM audit_events WHERE action = 'collection.update'").first(),
+    ).toBeNull();
+  });
+
+  it("returns not found for a deleted project even when a requested collection was also deleted", async () => {
+    const response = await replace(projectId, ["collection-b"], async () => {
+      const deletion = await api(`/api/v1/projects/${projectId}`, token, {
+        method: "DELETE",
+        headers: { "if-match": "1" },
+      });
+      expect(deletion.status).toBe(204);
+      expect((await api("/api/v1/collections/collection-b", token, { method: "DELETE" })).status).toBe(204);
+    });
+
+    expect(response.status).toBe(404);
+    expect(await readCollections()).toEqual({
+      "collection-a": { projectIds: [], updatedAt: now },
+      "collection-c": { projectIds: [], updatedAt: now },
+    });
+  });
+
+  it("leaves exactly the last replacement, not the union of racing replacements", async () => {
+    const response = await replace(projectId, ["collection-c"], async () => {
+      const competing = await replace(projectId, ["collection-b"]);
+      expect(competing.status).toBe(200);
+      expect(await competing.json()).toEqual({ collectionIds: ["collection-b"] });
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ collectionIds: ["collection-c"] });
+    const collections = await readCollections();
+    expect(Object.fromEntries(Object.entries(collections).map(([id, item]) => [id, item.projectIds]))).toEqual({
+      "collection-a": [],
+      "collection-b": [],
+      "collection-c": [projectId],
+    });
+  });
+
+  it("keeps the original memberships when another project takes the last available spot", async () => {
+    const limit = COLLECTION_LIMITS.maxProjectsPerCollection;
+    const fillers = Array.from({ length: limit - 1 }, (_, index) => `filler-${index}`);
+    await bindings.DB.batch([
+      bindings.DB.prepare("INSERT INTO projects (id, author_id) VALUES ('capacity-winner', ?)").bind(authorId),
+      bindings.DB.prepare("INSERT INTO projects (id, author_id) SELECT value, ? FROM json_each(?)").bind(
+        authorId,
+        JSON.stringify(fillers),
+      ),
+      bindings.DB.prepare(`
+        INSERT INTO collection_projects (collection_id, project_id, position, added_at)
+        SELECT 'collection-b', value, key, ? FROM json_each(?)
+      `).bind(now, JSON.stringify(fillers)),
+    ]);
+
+    const response = await replace(projectId, ["collection-b", "collection-c"], async () => {
+      expect((await replace("capacity-winner", ["collection-b"])).status).toBe(200);
+    });
+
+    expect(response.status).toBe(400);
+    const collections = await readCollections();
+    expect(collections["collection-a"]).toEqual({ projectIds: [projectId], updatedAt: now });
+    expect(collections["collection-b"]?.projectIds).toEqual([...fillers, "capacity-winner"]);
+    expect(collections["collection-c"]).toEqual({ projectIds: [], updatedAt: now });
   });
 });

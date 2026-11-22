@@ -73,7 +73,7 @@ function InstalledRow({ item, mutating, onRetry, onOpen, onUpdate, onUninstall, 
             {item.project?.publishedVersionId ? <span>最新快照：{item.project.publishedVersionId}</span> : null}
           </p>
         </details>
-        {removed ? <p className="hint">无法获取更新，仍可预览迁移或卸载。</p> : null}
+        {removed ? <p className="hint">项目已下架，无法获取更新。</p> : null}
         {item.failed ? <p className="hint">网络失败不代表下架；本地实例不受影响。</p> : null}
       </div>
       <div className="installed-actions">
@@ -106,6 +106,7 @@ function InstalledRow({ item, mutating, onRetry, onOpen, onUpdate, onUninstall, 
 export function Installed({
   scan,
   items,
+  installBlock,
   loading,
   scanning,
   converting,
@@ -122,6 +123,7 @@ export function Installed({
 }: {
   scan: InstallScan | null;
   items: InstalledItem[];
+  installBlock: string | null;
   loading: boolean;
   scanning: boolean;
   converting: boolean;
@@ -166,9 +168,9 @@ export function Installed({
           </Button>
         </div>
       </header>
-      {error ? (
-        <p role="alert" className="install-warning">
-          {error}
+      {error || installBlock ? (
+        <p role={error ? "alert" : "status"} className="install-warning">
+          {error ?? installBlock}
         </p>
       ) : null}
       {scan ? (
@@ -182,7 +184,7 @@ export function Installed({
           <Button
             type="button"
             variant="secondary"
-            disabled={scanning || mutating || converting || scan.scope.worldbooks.length === 0}
+            disabled={Boolean(installBlock) || scanning || mutating || converting || scan.scope.worldbooks.length === 0}
             onClick={() => {
               const worldbooks = [...scan.scope.worldbooks];
               if (
@@ -219,10 +221,13 @@ export function Installed({
                   </li>
                 ))}
               </ul>
-              <p>不支持手工认领。请先备份并检查疑似内容，再从项目详情重新安装到明确目标，避免重复条目。</p>
+              <p>
+                不支持手工认领。请先备份并检查疑似内容，避免重复条目。
+                {installBlock ? null : "如需重新安装，请从项目详情选择明确的目标。"}
+              </p>
               {onReinstall ? (
                 <Button type="button" variant="secondary" onClick={onReinstall} disabled={mutating}>
-                  浏览项目并重新安装
+                  {installBlock ? "浏览项目" : "浏览项目并重新安装"}
                 </Button>
               ) : null}
             </>
@@ -240,7 +245,9 @@ export function Installed({
           <p className="hint">
             {onlyUpdates
               ? "切换「仅看可更新」即可查看全部已安装实例。"
-              : "检查上方扫描范围、失败和疑似内容；可从项目详情新建安装。"}
+              : installBlock
+                ? "检查上方扫描范围、失败和疑似内容。"
+                : "检查上方扫描范围、失败和疑似内容；可从项目详情新建安装。"}
           </p>
         </div>
       ) : (
@@ -249,7 +256,7 @@ export function Installed({
             <InstalledRow
               key={item.instance.instanceId}
               item={item}
-              mutating={mutating}
+              mutating={mutating || Boolean(installBlock)}
               onRetry={onRetry}
               onOpen={onOpen}
               onUpdate={onUpdate}

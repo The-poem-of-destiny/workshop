@@ -85,6 +85,14 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+async function readHomeDiscovery() {
+  const { response, body } = await api("/api/v1/home");
+  assert(response.status === 200, `home ${response.status}: ${body}`);
+  const { discovery } = JSON.parse(body);
+  if (discovery?.ok !== true) throw new Error(`Home discovery section failed: ${JSON.stringify(discovery)}`);
+  return discovery.data;
+}
+
 async function screenshot(page, name) {
   if (!screenshotDir) return;
   mkdirSync(screenshotDir, { recursive: true });
@@ -138,6 +146,9 @@ async function main() {
       "wrangler.jsonc",
       "--env",
       "staging",
+      // Local R2 objects are not available through the hosted asset domain.
+      "--var",
+      "PUBLIC_ASSETS_BASE_URL:",
       "--port",
       String(port),
       "--persist-to",
@@ -694,9 +705,7 @@ async function main() {
             req.end();
           });
           assert(scheduled.outcome === "ok", `local scheduled event failed: ${scheduled.outcome}`);
-          const discovery = await api("/api/v1/projects/discovery");
-          assert(discovery.response.status === 200, `discovery ${discovery.response.status}: ${discovery.body}`);
-          const batch = JSON.parse(discovery.body);
+          const batch = await readHomeDiscovery();
           assert(
             batch.batchId && batch.items.some((item) => item.id === project.project.id),
             "the real scheduled discovery batch includes the published fixture",
@@ -1115,10 +1124,9 @@ async function main() {
             const deadline = Date.now() + 75_000;
             let projected;
             while (Date.now() < deadline) {
-              const discovery = await api("/api/v1/projects/discovery");
-              projected = JSON.parse(discovery.body)
-                .items.find((item) => item.id === project.project.id)
-                ?.recommendations.find((item) => item.curator.id === "e2e-member");
+              const discovery = await readHomeDiscovery();
+              const projectItem = discovery.items.find((item) => item.id === project.project.id);
+              projected = projectItem?.recommendations.find((item) => item.curator.id === "e2e-member");
               if (projected?.comment === "member edited after resubscribe") break;
               await sleep(500);
             }

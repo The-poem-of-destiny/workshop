@@ -508,10 +508,11 @@ class SourceIndexTest(unittest.TestCase):
             with self.subTest(table=table):
                 migrations = self.directory / (table + "-migrations")
                 migrations.mkdir(mode=0o700)
-                for path in MIGRATIONS.glob("*.sql"):
+                chain = list(MIGRATIONS.glob("*.sql"))
+                for path in chain:
                     taxonomy.private_write(migrations / path.name, path.read_bytes())
                 alteration = "ALTER TABLE " + taxonomy.quote(table) + " ADD COLUMN unaccounted_metadata TEXT;"
-                taxonomy.private_write(migrations / "0002_unmapped.sql", alteration.encode())
+                taxonomy.private_write(migrations / f"{len(chain) + 1:04d}_unmapped.sql", alteration.encode())
                 changed = self.directory / (table + "-unmapped.sqlite")
                 taxonomy.private_write(changed, current.read_bytes())
                 with sqlite3.connect(changed) as db:

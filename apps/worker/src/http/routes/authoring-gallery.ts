@@ -37,6 +37,8 @@ export function registerAuthoringGalleryRoutes(authoringRoutes: Hono<{ Bindings:
     if (response.kind === "version_conflict") return versionConflict(c, "project", expectedVersion, response.actual);
     const result = response.data;
     if (result.kind === "invalid") return jsonError(c, "bad_request", result.message);
+    if (result.kind === "withdrawal_pending")
+      return jsonError(c, "conflict", "Public gallery withdrawal pending; retry");
     return c.json(result);
   });
 }

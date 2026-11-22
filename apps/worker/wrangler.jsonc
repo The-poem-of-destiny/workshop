@@ -17,7 +17,8 @@
   },
   "assets": {
     "directory": "./web/dist",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
+    "run_worker_first": ["/", "/index.html"]
   },
   "durable_objects": {
     "bindings": [
@@ -61,9 +62,12 @@
   "env": {
     "staging": {
       "name": "workshop-staging",
+      "workers_dev": false,
+      "preview_urls": false,
       "vars": {
-        "ALLOWED_ORIGINS": "https://workshop-staging.poem-of-destiny.workers.dev",
-        "PUBLIC_ORIGIN": "https://workshop-staging.poem-of-destiny.workers.dev",
+        "ALLOWED_ORIGINS": "https://workshop-staging.poem-of-destiny.3378469.xyz",
+        "PUBLIC_ORIGIN": "https://workshop-staging.poem-of-destiny.3378469.xyz",
+        "PUBLIC_ASSETS_BASE_URL": "https://assets-staging.poem-of-destiny.3378469.xyz",
         "DISCORD_CLIENT_ID": "1562466173268926575",
         "DISCORD_ALLOWED_GUILD_IDS": "1417861565679669272,1134557553011998840",
         // 鸽子窝 1417861565679669272：只校验公会；类脑 1134557553011998840：需要“已验证”身份组。
@@ -93,6 +97,10 @@
         {
           "binding": "R2",
           "bucket_name": "workshop-client-staging"
+        },
+        {
+          "binding": "PUBLIC_COVERS",
+          "bucket_name": "workshop-covers-staging"
         }
       ],
       "version_metadata": { "binding": "VERSION_METADATA" },
@@ -101,8 +109,8 @@
     "production": {
       "name": "workshop",
       "vars": {
-        "ALLOWED_ORIGINS": "https://workshop.poem-of-destiny.workers.dev",
-        "PUBLIC_ORIGIN": "https://workshop.poem-of-destiny.workers.dev",
+        "ALLOWED_ORIGINS": "https://workshop.poem-of-destiny.3378469.xyz",
+        "PUBLIC_ORIGIN": "https://workshop.poem-of-destiny.3378469.xyz",
         "DISCORD_CLIENT_ID": "",
         "DISCORD_ALLOWED_GUILD_IDS": "",
         "DISCORD_GUILD_ROLE_IDS": ""

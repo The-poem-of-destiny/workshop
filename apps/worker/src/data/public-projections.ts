@@ -1,10 +1,11 @@
-import { homeResponseSchema, projectBatchQuerySchema, projectListQuerySchema } from "@workshop/contracts";
+import { homeResponseSchema } from "@workshop/contracts";
+import type { PublicRead } from "../http/public-cache";
 import { getPublicAuthorProfile, getPublicCollection } from "../storage/collections";
 import { getHome } from "../storage/home";
 import { getPublishedProjectsByIds } from "../storage/projects";
-import { distributionImage } from "./distribution-images";
+import { readPublicImage } from "./distribution-images";
 import * as distribution from "./distribution-operations";
-import { distributionClientAsset } from "./distribution-streams";
+import { readClientAsset } from "./distribution-streams";
 import type { DataEnv } from "./env";
 import * as projects from "./project-operations";
 
@@ -14,80 +15,60 @@ function error(status: number, code: string, message: string): Response {
   return Response.json({ error: { code, message } }, { status, headers: noStore });
 }
 
-async function projectBatch(url: URL, env: DataEnv): Promise<Response> {
-  if ([...url.searchParams.keys()].some((name) => name !== "ids") || url.searchParams.getAll("ids").length !== 1) {
-    return error(400, "bad_request", "Invalid query");
-  }
-  const parsed = projectBatchQuerySchema.safeParse({ ids: url.searchParams.get("ids") });
-  if (!parsed.success) return error(400, "bad_request", "Invalid query");
-  const found = await getPublishedProjectsByIds(env.DB, parsed.data.ids);
-  const items = parsed.data.ids.flatMap((id) => {
+async function projectBatch(ids: string[], env: DataEnv): Promise<Response> {
+  const found = await getPublishedProjectsByIds(env.DB, ids, env.PUBLIC_ASSETS_BASE_URL);
+  const items = ids.flatMap((id) => {
     const project = found.get(id);
     return project ? [project] : [];
   });
-  return Response.json({ items, missingIds: parsed.data.ids.filter((id) => !found.has(id)) });
+  return Response.json({ items, missingIds: ids.filter((id) => !found.has(id)) });
 }
 
-async function projectionDetail(path: string, env: DataEnv): Promise<Response> {
-  const project = /^\/api\/v1\/projects\/([^/]+)(\/entries)?$/.exec(path);
-  const collection = /^\/api\/v1\/collections\/([^/]+)$/.exec(path);
-  const author = /^\/api\/v1\/authors\/([^/]+)$/.exec(path);
-  try {
-    if (project) {
-      const id = decodeURIComponent(project[1]!);
-      const data = project[2] ? await projects.projectEntries(env, id) : await projects.projectDetail(env, id);
-      return data ? Response.json(data) : error(404, "not_found", "Project not found");
+export async function publicProjection(operation: PublicRead["operation"], env: DataEnv): Promise<Response> {
+  switch (operation.kind) {
+    case "image":
+      return readPublicImage(operation.key, env);
+    case "client-asset":
+      return readClientAsset(operation.asset, env);
+    case "home": {
+      const home = homeResponseSchema.parse(await getHome(env.DB, env));
+      const segments = [home.site, home.discovery, home.projects];
+      if (segments.every((segment) => !segment.ok)) return error(500, "internal", "Home unavailable");
+      return Response.json(home, segments.every((segment) => segment.ok) ? undefined : { headers: noStore });
     }
-    if (collection) {
-      const id = decodeURIComponent(collection[1]!);
-      const data = await getPublicCollection(env.DB, id);
-      return data ? Response.json(data) : error(404, "not_found", "Collection not found");
+    case "site":
+      return Response.json(await distribution.distributionSite(env));
+    case "recommendations":
+      return Response.json(await distribution.distributionRecommendations(env));
+    case "project-batch":
+      return projectBatch(operation.ids, env);
+    case "project-list": {
+      const result = await projects.projectList(env, operation.query);
+      return result.ok ? Response.json(result.data) : error(400, "bad_request", "Invalid cursor");
     }
-    if (author) {
-      const id = decodeURIComponent(author[1]!);
-      const data = await getPublicAuthorProfile(env.DB, id);
-      return data ? Response.json(data) : error(404, "not_found", "Author not found");
+    case "project-detail":
+    case "project-entries":
+    case "collection":
+    case "author": {
+      try {
+        const id = decodeURIComponent(operation.encodedId);
+        if (operation.kind === "collection") {
+          const collection = await getPublicCollection(env.DB, id);
+          return collection ? Response.json(collection) : error(404, "not_found", "Collection not found");
+        }
+        if (operation.kind === "author") {
+          const profile = await getPublicAuthorProfile(env.DB, id);
+          return profile ? Response.json(profile) : error(404, "not_found", "Author not found");
+        }
+        const project =
+          operation.kind === "project-entries"
+            ? await projects.projectEntries(env, id)
+            : await projects.projectDetail(env, id);
+        return project ? Response.json(project) : error(404, "not_found", "Project not found");
+      } catch (cause) {
+        if (cause instanceof URIError) return error(400, "bad_request", "Invalid path");
+        throw cause;
+      }
     }
-  } catch (cause) {
-    if (cause instanceof URIError) return error(400, "bad_request", "Invalid path");
-    throw cause;
   }
-  return error(404, "not_found", "Not found");
-}
-
-export async function publicProjection(request: Request, env: DataEnv): Promise<Response> {
-  const url = new URL(request.url);
-  const path = url.pathname.slice("/public/v1".length);
-  if (!path.startsWith("/api/v1/") && !path.startsWith("/client/")) return error(404, "not_found", "Not found");
-  if (path.startsWith("/api/v1/public-assets/")) {
-    const outer = new URL(request.url);
-    outer.pathname = path;
-    return distributionImage(new Request(outer, { method: request.method }), env);
-  }
-  if (path.startsWith("/client/checker/") || /^\/client\/v\/[a-f0-9]{8,64}\/index\.js$/.test(path)) {
-    const outer = new URL(request.url);
-    outer.pathname = path;
-    return distributionClientAsset(new Request(outer, { method: request.method }), env);
-  }
-  if (path === "/api/v1/home") {
-    const home = homeResponseSchema.parse(await getHome(env.DB));
-    const segments = [home.site, home.discovery, home.projects];
-    if (segments.every((segment) => !segment.ok)) return error(500, "internal", "Home unavailable");
-    return Response.json(home, segments.every((segment) => segment.ok) ? undefined : { headers: noStore });
-  }
-  if (path === "/api/v1/site") return Response.json(await distribution.distributionSite(env));
-  if (path === "/api/v1/recommendations") return Response.json(await distribution.distributionRecommendations(env));
-  if (path === "/api/v1/projects/discovery") return Response.json(await projects.projectDiscovery(env));
-  if (path === "/api/v1/projects/batch") return projectBatch(url, env);
-  if (path === "/api/v1/projects") {
-    const parsed = projectListQuerySchema.safeParse({
-      ...Object.fromEntries(url.searchParams),
-      projectType: url.searchParams.getAll("projectType"),
-      tag: url.searchParams.getAll("tag"),
-    });
-    if (!parsed.success) return error(400, "bad_request", "Invalid query");
-    const result = await projects.projectList(env, parsed.data);
-    return result.ok ? Response.json(result.data) : error(400, "bad_request", "Invalid cursor");
-  }
-  return projectionDetail(path, env);
 }

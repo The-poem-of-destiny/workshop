@@ -29,22 +29,82 @@ const DEFAULT_BANNER: Banner = {
   mobileZoom: 1,
 };
 
-export async function getBanner(db: D1Database): Promise<Banner> {
-  const row = await db
-    .prepare("SELECT value FROM site_settings WHERE key = ?")
-    .bind("discover_banner")
-    .first<{ value: string }>();
-  if (!row) return DEFAULT_BANNER;
+export const publicBannerPrefix = "covers/banner/";
+
+interface BannerOrigins {
+  PUBLIC_ORIGIN?: string;
+  PUBLIC_ASSETS_BASE_URL?: string;
+}
+
+export interface BannerState {
+  value: string;
+  banner_revision: string | null;
+  object_key: string | null;
+  phase: "reserving" | "copying" | "ready" | "withdrawing" | null;
+  reservation_etag: string | null;
+}
+
+export function bannerSourceKey(imageUrl: string | null, publicOrigin?: string): string | null {
+  if (!imageUrl || /[?#]/.test(imageUrl)) return null;
+  let path = imageUrl;
+  if (!imageUrl.startsWith("/")) {
+    const absolutePath = /^https?:\/\/[^/\\]+(\/[^\\]*)$/i.exec(imageUrl)?.[1];
+    if (!publicOrigin || !absolutePath) return null;
+    try {
+      const url = new URL(imageUrl);
+      if (url.origin !== new URL(publicOrigin).origin || url.username || url.password || url.pathname !== absolutePath)
+        return null;
+      path = url.pathname;
+    } catch {
+      return null;
+    }
+  }
+  const name = /^\/api\/v1\/(?:public-assets|assets)\/banners\/([A-Za-z0-9_.-]+)$/.exec(path)?.[1];
+  return name && name !== "." && name !== ".." ? `banners/${name}` : null;
+}
+
+export function bannerSourceUrl(state: BannerState | null): string | null {
+  if (!state) return null;
   try {
-    const banner = bannerSchema.parse(JSON.parse(row.value));
-    const pathname = banner.imageUrl?.startsWith("http") ? new URL(banner.imageUrl).pathname : banner.imageUrl;
-    if (pathname?.startsWith("/api/v1/assets/banners/")) {
-      banner.imageUrl = pathname.replace("/api/v1/assets/", "/api/v1/public-assets/");
+    const value = JSON.parse(state.value) as { imageUrl?: unknown } | null;
+    return typeof value?.imageUrl === "string" ? value.imageUrl : null;
+  } catch {
+    return null;
+  }
+}
+
+export function publicBannerUrl(baseUrl: string, key: string): string {
+  return `${baseUrl.replace(/\/+$/, "")}/${key}`;
+}
+
+export function readBannerState(db: D1Database): Promise<BannerState | null> {
+  return db
+    .prepare(`SELECT s.value, s.banner_revision, r.object_key, r.phase, r.reservation_etag FROM site_settings s
+    LEFT JOIN public_banner_replicas r ON r.id = 1 AND r.source_url =
+      CASE WHEN json_valid(s.value) THEN json_extract(s.value, '$.imageUrl') END
+    WHERE s.key = 'discover_banner'`)
+    .first<BannerState>();
+}
+
+export function projectBanner(state: BannerState | null, origins?: BannerOrigins): Banner {
+  if (!state) return DEFAULT_BANNER;
+  try {
+    const banner = bannerSchema.parse(JSON.parse(state.value));
+    const key = bannerSourceKey(banner.imageUrl, origins?.PUBLIC_ORIGIN);
+    if (key) {
+      banner.imageUrl =
+        state.phase === "ready" && state.object_key && origins?.PUBLIC_ASSETS_BASE_URL
+          ? publicBannerUrl(origins.PUBLIC_ASSETS_BASE_URL, state.object_key)
+          : `/api/v1/public-assets/${key}`;
     }
     return banner;
   } catch {
     return DEFAULT_BANNER;
   }
+}
+
+export async function getBanner(db: D1Database, origins?: BannerOrigins): Promise<Banner> {
+  return projectBanner(await readBannerState(db), origins);
 }
 
 export async function getSiteContent(db: D1Database): Promise<unknown> {
@@ -72,7 +132,7 @@ export async function getCommunityInviteUrl(db: D1Database): Promise<string> {
   return DEFAULT_COMMUNITY_INVITE_URL;
 }
 
-export async function listRecommendations(db: D1Database): Promise<Recommendation[]> {
+export async function listRecommendations(db: D1Database, publicAssetsBaseUrl?: string): Promise<Recommendation[]> {
   const rows = await db
     .prepare(`
     SELECT r.id, r.curator_id, r.project_id, r.comment, r.project_version_id,
@@ -89,6 +149,7 @@ export async function listRecommendations(db: D1Database): Promise<Recommendatio
   const projects = await getPublishedProjectsByIds(
     db,
     rows.results.map((row) => row.project_id),
+    publicAssetsBaseUrl,
   );
   return rows.results.flatMap((row) => {
     const project = projects.get(row.project_id);
@@ -111,8 +172,8 @@ export async function listRecommendations(db: D1Database): Promise<Recommendatio
   });
 }
 
-export async function getDiscovery(db: D1Database) {
-  const batch = await readRecommendationBatch(db);
+export async function getDiscovery(db: D1Database, publicAssetsBaseUrl?: string) {
+  const batch = await readRecommendationBatch(db, undefined, publicAssetsBaseUrl);
   return {
     batchId: batch?.batchId ?? null,
     scheduledAt: batch?.scheduledAt ?? null,
@@ -120,20 +181,24 @@ export async function getDiscovery(db: D1Database) {
   };
 }
 
-export async function getHome(db: D1Database): Promise<HomeResponse> {
+export async function getHome(db: D1Database, origins?: BannerOrigins): Promise<HomeResponse> {
   const [site, discovery, projects] = await Promise.allSettled([
-    Promise.all([getBanner(db), getSiteContent(db)]).then(([banner, siteContent]) =>
+    Promise.all([getBanner(db, origins), getSiteContent(db)]).then(([banner, siteContent]) =>
       siteSettingsSchema.parse({ banner, siteContent }),
     ),
-    getDiscovery(db),
-    listPublishedProjects(db, {
-      limit: 25,
-      sort: "updated",
-      period: "all",
-      projectType: [],
-      tag: [],
-      includeContained: false,
-    }),
+    getDiscovery(db, origins?.PUBLIC_ASSETS_BASE_URL),
+    listPublishedProjects(
+      db,
+      {
+        limit: 25,
+        sort: "updated",
+        period: "all",
+        projectType: [],
+        tag: [],
+        includeContained: false,
+      },
+      origins?.PUBLIC_ASSETS_BASE_URL,
+    ),
   ]);
   function section<T>(result: PromiseSettledResult<T>, message: string) {
     return result.status === "fulfilled"

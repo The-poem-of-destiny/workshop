@@ -1,10 +1,9 @@
 import { Hono } from "hono";
-import { dataClient, fetchPublic } from "../../data-client";
+import { dataClient } from "../../data-client";
 import type { Env } from "../../env";
 import { jsonError } from "../errors.js";
 
 export const siteRoutes = new Hono<{ Bindings: Env }>();
-siteRoutes.get("/", (c) => fetchPublic(c.executionCtx, c.req.raw));
 siteRoutes.post("/banner", (c) => dataClient(c.executionCtx).fetch(c.req.raw));
 siteRoutes.put("/", async (c) => {
   let body: unknown;
@@ -27,5 +26,6 @@ siteRoutes.put("/", async (c) => {
     return jsonError(c, "bad_request", "Invalid site settings", { formErrors, fieldErrors });
   }
   if (result.kind === "empty") return jsonError(c, "bad_request", "No site settings provided");
+  if (result.kind === "conflict") return jsonError(c, "conflict", result.message);
   return new Response(JSON.stringify(result.data), { headers: { "content-type": "application/json; charset=UTF-8" } });
 });

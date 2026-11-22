@@ -1,9 +1,10 @@
 import { env, SELF } from "cloudflare:test";
-import type { DiscoveryResponse } from "@workshop/contracts";
+import { homeResponseSchema } from "@workshop/contracts";
 import { CURRENT_POLICY_VERSION } from "@workshop/domain";
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { CachedReads } from "../src/data/cached-reads";
 import type { DataEnv } from "../src/data/env";
+import { canonicalPublicRequest, PUBLIC_READ_PATH } from "../src/http/public-cache";
 import { buildRecommendationBatch, readRecommendationBatch } from "../src/storage/recommendation-batches";
 import { applySchema } from "./support/schema";
 
@@ -82,15 +83,17 @@ async function buildBatch() {
 }
 async function discovery() {
   // Exercise the public projection without retaining cache entries between live mutations.
-  const worker = new CachedReads({ props: { kind: "public" } } as unknown as ExecutionContext, {
+  const classified = canonicalPublicRequest("GET", new URL("https://workshop.test/api/v1/home"));
+  if (classified.kind !== "public") throw new Error("Expected public home");
+  const worker = new CachedReads({ props: { kind: "public", read: classified.read } } as unknown as ExecutionContext, {
     ...bindings,
     CACHE_TTL_PUBLIC_SECONDS: "0",
   });
-  const response = await worker.fetch(
-    new Request("https://cached.workshop.invalid/public/v1/api/v1/projects/discovery"),
-  );
+  const response = await worker.fetch(new Request(`https://cached.workshop.invalid${PUBLIC_READ_PATH}`));
   expect(response.status).toBe(200);
-  return response.json<DiscoveryResponse>();
+  const { discovery } = homeResponseSchema.parse(await response.json());
+  if (!discovery.ok) throw new Error("Expected a successful home discovery section");
+  return discovery.data;
 }
 it("requires current subscription for creates and edits without mutating frozen contributions", async () => {
   expect(await state("player")).toMatchObject({

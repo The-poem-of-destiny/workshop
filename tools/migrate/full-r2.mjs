@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-// Transfer only explicitly mapped snapshot objects into the staging asset namespaces.
 import { createHash, createHmac } from "node:crypto";
-import { readFile, realpath } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// The private mode is pinned to staging; public mode transfers only generated generations.
 const BUCKET = "workshop-client-staging";
+const PUBLIC_FORMAT = "workshop-public-image-plan-v1";
+const PUBLIC_KEY =
+  /^covers\/(?:(gallery|banner)\/)?[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
+const UPLOAD_MIME = new Set(["image/png", "image/jpeg", "image/webp"]);
+const COVER_MIME = new Set([...UPLOAD_MIME, "image/gif", "image/avif"]);
+const PUBLIC_CACHE = "public, max-age=0, must-revalidate";
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const hmac = (key, value) => createHmac("sha256", key).update(value).digest();
 const encode = (value) =>
@@ -35,7 +42,7 @@ function configValue(value) {
 
 // curl uses standard HTTP(S)_PROXY/NO_PROXY variables. Credentials are sent on
 // stdin, never argv or a configuration file. Response bodies are bounded.
-async function curl(options, maxBytes) {
+async function curl(options, maxBytes, readHeaders) {
   const config =
     options.map(([name, value]) => (value === null ? name : `${name} = ${configValue(value)}`)).join("\n") + "\n";
   return await new Promise((done, reject) => {
@@ -44,42 +51,65 @@ async function curl(options, maxBytes) {
       STAGING_IMPORT_TOKEN: _stagingToken,
       STAGING_IMPORT_R2_ACCESS_KEY_ID: _accessKey,
       STAGING_IMPORT_R2_SECRET_ACCESS_KEY: _secret,
+      PUBLIC_IMAGE_IMPORT_R2_ACCESS_KEY_ID: _publicAccessKey,
+      PUBLIC_IMAGE_IMPORT_R2_SECRET_ACCESS_KEY: _publicSecret,
       ...env
     } = process.env;
     const child = spawn("curl", ["-q", "--config", "-"], { env, stdio: ["pipe", "pipe", "pipe"] });
     const chunks = [];
     let size = 0;
     let excessive = false;
+    const metadata = [];
+    let metadataSize = 0;
     child.stdout.on("data", (chunk) => {
       size += chunk.length;
-      if (size > maxBytes + 3) {
+      if (size > maxBytes) {
         excessive = true;
         child.kill();
       } else chunks.push(chunk);
     });
-    child.stderr.resume();
+    child.stderr.on("data", (chunk) => {
+      metadataSize += chunk.length;
+      if (metadataSize > 32 * 1024) {
+        excessive = true;
+        child.kill();
+      } else metadata.push(chunk);
+    });
     child.on("error", () => reject(new Error("could not start curl")));
     child.stdin.on("error", () => {});
     child.on("close", (code) => {
       if (excessive) return reject(new Error("remote response exceeded expected size"));
       if (code !== 0) return reject(new Error(`curl failed (exit ${code})`));
-      const result = Buffer.concat(chunks);
-      const status = result.subarray(-3).toString("ascii");
-      if (!/^\d{3}$/.test(status)) return reject(new Error("invalid HTTP status"));
-      done({ status: Number(status), body: result.subarray(0, -3) });
+      const result = Buffer.concat(metadata).toString("utf8");
+      const status = readHeaders ? result.slice(0, 3) : result;
+      if (!/^\d{3}$/.test(status)) return reject(new Error("invalid HTTP response status"));
+      try {
+        done({
+          status: Number(status),
+          headers: readHeaders ? JSON.parse(result.slice(3)) : undefined,
+          body: Buffer.concat(chunks, size),
+        });
+      } catch {
+        reject(new Error("invalid HTTP response headers (curl 7.84+ required for public verification)"));
+      }
     });
     child.stdin.end(config);
   });
 }
 
-async function request(account, credentials, method, key, object, file) {
+async function request(account, bucket, credentials, method, key, object, file) {
   const host = `${account}.r2.cloudflarestorage.com`;
-  const uri = `/${BUCKET}/${key.split("/").map(encode).join("/")}`;
+  const uri = `/${bucket}/${key.split("/").map(encode).join("/")}`;
   const date = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
   const scope = `${date.slice(0, 8)}/auto/s3/aws4_request`;
   const payloadHash = method === "PUT" ? object.sha256 : sha256("");
   const headers = { host, "x-amz-content-sha256": payloadHash, "x-amz-date": date };
-  if (method === "PUT") headers["if-none-match"] = "*";
+  const readHeaders = method === "GET" && !!object.cacheControl;
+  if (method === "PUT") {
+    headers["if-none-match"] = "*";
+    if (object.cacheControl) headers["cache-control"] = object.cacheControl;
+    if (object.contentType) headers["content-type"] = object.contentType;
+  }
   const names = Object.keys(headers).sort();
   const canonicalHeaders = names.map((name) => `${name}:${headers[name]}\n`).join("");
   const canonical = `${method}\n${uri}\n\n${canonicalHeaders}\n${names.join(";")}\n${payloadHash}`;
@@ -89,28 +119,37 @@ async function request(account, credentials, method, key, object, file) {
   const authorization = `AWS4-HMAC-SHA256 Credential=${credentials.accessKeyId}/${scope}, SignedHeaders=${names.join(";")}, Signature=${signature}`;
   const options = [
     ["silent", null],
-    ["show-error", null],
     ["path-as-is", null],
     ["globoff", null],
-    ["write-out", "%{http_code}"],
+    ["write-out", readHeaders ? "%{stderr}%{http_code}%{header_json}" : "%{stderr}%{http_code}"],
     ["url", `https://${host}${uri}`],
     ["header", `Authorization: ${authorization}`],
   ];
   for (const name of names) if (name !== "host") options.push(["header", `${name}: ${headers[name]}`]);
-  if (method === "PUT") {
-    options.push(["upload-file", file]);
-    if (object.contentType) options.push(["header", `Content-Type: ${object.contentType}`]);
-  }
-  return curl(options, method === "GET" ? Math.max(object.bytes, 1024 * 1024) : 1024 * 1024);
+  if (method === "PUT") options.push(["upload-file", file]);
+  return curl(options, method === "GET" ? Math.max(object.bytes, 1024 * 1024) : 1024 * 1024, readHeaders);
 }
 
 export async function loadPlan(backupDir, planPath) {
-  const root = await realpath(backupDir);
-  const manifest = JSON.parse(await readFile(resolve(root, "manifest.json"), "utf8"));
-  const plan = JSON.parse(await readFile(planPath, "utf8"));
-  if (!manifest.buckets || !Array.isArray(plan.objects)) fail("invalid snapshot manifest or transfer plan");
+  return loadObjects(backupDir, JSON.parse(await readFile(planPath, "utf8")), false);
+}
+
+function validTransferKeys(entry, privateBucket, publicTarget) {
+  if (!safeKey(entry.sourceKey) || !safeKey(entry.targetKey)) return false;
+  if (publicTarget) {
+    const key = PUBLIC_KEY.exec(entry.targetKey);
+    return key !== null && (key[1] ?? "cover") === entry.kind && entry.sourceBucket === privateBucket;
+  }
+  return (
+    entry.targetKey.startsWith("projects/") ||
+    entry.targetKey.startsWith("covers/") ||
+    entry.targetKey.startsWith("legacy-snapshot/")
+  );
+}
+
+function sourceObjects(buckets) {
   const sources = new Map();
-  for (const [bucket, data] of Object.entries(manifest.buckets)) {
+  for (const [bucket, data] of Object.entries(buckets)) {
     if (!Array.isArray(data.objects)) fail(`invalid snapshot bucket ${bucket}`);
     for (const object of data.objects) {
       const id = JSON.stringify([bucket, object.key]);
@@ -118,19 +157,22 @@ export async function loadPlan(backupDir, planPath) {
       sources.set(id, object);
     }
   }
+  return sources;
+}
+
+async function loadObjects(backupDir, plan, publicTarget) {
+  const root = await realpath(backupDir);
+  const raw = await readFile(resolve(root, "manifest.json"));
+  const manifest = JSON.parse(raw);
+  if (!manifest.buckets || !Array.isArray(plan.objects)) fail("invalid snapshot manifest or transfer plan");
+  if (publicTarget && (plan.format !== PUBLIC_FORMAT || sha256(raw) !== plan.manifestSha256))
+    fail("public transfer manifest differs from the prepared snapshot");
+  const sources = sourceObjects(manifest.buckets);
   const targets = new Set();
   const objects = [];
   for (const [index, entry] of plan.objects.entries()) {
-    if (
-      !safeKey(entry.sourceKey) ||
-      !safeKey(entry.targetKey) ||
-      !(
-        entry.targetKey.startsWith("projects/") ||
-        entry.targetKey.startsWith("covers/") ||
-        entry.targetKey.startsWith("legacy-snapshot/")
-      )
-    )
-      fail(`invalid source or staging asset key at objects[${index}]`);
+    if (!validTransferKeys(entry, plan.privateBucket, publicTarget))
+      fail(`invalid source or destination asset key at objects[${index}]`);
     if (targets.has(entry.targetKey)) fail(`duplicate target key: ${entry.targetKey}`);
     targets.add(entry.targetKey);
     const source = sources.get(JSON.stringify([entry.sourceBucket, entry.sourceKey]));
@@ -156,12 +198,19 @@ export async function loadPlan(backupDir, planPath) {
     const contentType = source.http_metadata?.contentType;
     if (contentType !== undefined && (typeof contentType !== "string" || /[\r\n\0]/.test(contentType)))
       fail("invalid content type");
+    if (
+      publicTarget &&
+      (!(entry.kind === "cover" ? COVER_MIME : UPLOAD_MIME).has(entry.contentType) ||
+        (entry.kind !== "gallery" && contentType !== entry.contentType))
+    )
+      fail(`public image MIME mismatch at objects[${index}]`);
     objects.push({
       targetKey: entry.targetKey,
       bytes: source.size,
       sha256: source.sha256.toLowerCase(),
       path,
-      contentType,
+      contentType: publicTarget ? entry.contentType : contentType,
+      cacheControl: publicTarget ? PUBLIC_CACHE : undefined,
     });
   }
   return objects;
@@ -171,14 +220,43 @@ async function verifyLocal(object) {
   const data = await readFile(object.path);
   if (data.length !== object.bytes || sha256(data) !== object.sha256)
     fail(`source verification failed: ${object.targetKey}`);
+  return data;
 }
-async function remoteMatches(account, creds, object, allowMissing) {
-  const response = await request(account, creds, "GET", object.targetKey, object);
+async function remoteMatches(account, bucket, creds, object, allowMissing) {
+  const response = await request(account, bucket, creds, "GET", object.targetKey, object);
   if (response.status === 404 && allowMissing) return false;
   if (response.status !== 200) fail(`GET ${object.targetKey} failed (HTTP ${response.status})`);
   if (response.body.length !== object.bytes || sha256(response.body) !== object.sha256)
     fail(`destination content mismatch: ${object.targetKey}`);
+  if (object.cacheControl) {
+    const { etag, "cache-control": cacheControl, "content-type": contentType } = response.headers;
+    const tag = Array.isArray(etag) && etag.length === 1 && /^"([\x21\x23-\x7e]+)"$/.exec(etag[0]);
+    if (
+      !Array.isArray(cacheControl) ||
+      cacheControl.length !== 1 ||
+      cacheControl[0] !== object.cacheControl ||
+      !Array.isArray(contentType) ||
+      contentType.length !== 1 ||
+      contentType[0] !== object.contentType ||
+      !tag
+    )
+      fail(`destination metadata mismatch: ${object.targetKey}`);
+    return tag[1];
+  }
   return true;
+}
+
+async function uploadObject(account, bucket, creds, object) {
+  if (!object.cacheControl) return request(account, bucket, creds, "PUT", object.targetKey, object, object.path);
+  const directory = await mkdtemp(resolve(tmpdir(), "workshop-public-image-"));
+  try {
+    // Publish the exact bytes we verified, even if the downloaded file changes before curl opens its input.
+    const path = resolve(directory, "verified-image");
+    await writeFile(path, await verifyLocal(object), { mode: 0o600, flag: "wx" });
+    return await request(account, bucket, creds, "PUT", object.targetKey, object, path);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 }
 
 export async function run(mode, backup, plan) {
@@ -186,31 +264,69 @@ export async function run(mode, backup, plan) {
   const objects = await loadPlan(backup, plan);
   for (const object of objects) await verifyLocal(object);
   if (mode === "check") return { objects: objects.length, bytes: objects.reduce((sum, o) => sum + o.bytes, 0) };
-  const account = process.env.CLOUDFLARE_ACCOUNT_ID;
-  const accessKeyId = process.env.STAGING_IMPORT_R2_ACCESS_KEY_ID;
-  const secret = process.env.STAGING_IMPORT_R2_SECRET_ACCESS_KEY;
+  return transfer(mode, objects, process.env.CLOUDFLARE_ACCOUNT_ID, BUCKET, false);
+}
+
+async function runPublic(mode, backup, plan) {
+  const { account, publicBucket, privateBucket } = plan;
+  if (
+    !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(publicBucket ?? "") ||
+    publicBucket === privateBucket ||
+    publicBucket.startsWith("workshop-client-")
+  )
+    fail("invalid or non-isolated public destination bucket");
+  const objects = await loadObjects(backup, plan, true);
+  for (const object of objects) await verifyLocal(object);
+  if (mode === "check") return { objects: objects.length, bytes: objects.reduce((sum, o) => sum + o.bytes, 0) };
+  return transfer(mode, objects, account, publicBucket, true);
+}
+
+async function transfer(mode, objects, account, bucket, publicTarget) {
+  const prefix = publicTarget ? "PUBLIC_IMAGE_IMPORT_R2" : "STAGING_IMPORT_R2";
+  const accessKeyId = process.env[`${prefix}_ACCESS_KEY_ID`];
+  const secret = process.env[`${prefix}_SECRET_ACCESS_KEY`];
   if (!/^[a-f0-9]{32}$/i.test(account ?? "") || !accessKeyId || !secret || /[\r\n\0]/.test(accessKeyId + secret))
-    fail("valid CLOUDFLARE_ACCOUNT_ID and dedicated staging R2 access key and secret are required");
+    fail(`valid target account and dedicated ${prefix} access key and secret are required`);
   const creds = { accessKeyId, secret };
   let uploaded = 0;
+  const etags = {};
   for (const object of objects) {
     if (mode === "verify") {
-      await remoteMatches(account, creds, object, false);
+      const matched = await remoteMatches(account, bucket, creds, object, false);
+      if (publicTarget) etags[object.targetKey] = matched;
       continue;
     }
-    if (await remoteMatches(account, creds, object, true)) continue;
-    const response = await request(account, creds, "PUT", object.targetKey, object, object.path);
+    if (await remoteMatches(account, bucket, creds, object, true)) continue;
+    const response = await uploadObject(account, bucket, creds, object);
     if (response.status !== 200 && response.status !== 412)
       fail(`PUT ${object.targetKey} failed (HTTP ${response.status})`);
-    await remoteMatches(account, creds, object, false);
+    await remoteMatches(account, bucket, creds, object, false);
     if (response.status === 200) uploaded++;
   }
-  return { objects: objects.length, uploaded, bytes: objects.reduce((sum, o) => sum + o.bytes, 0) };
+  return {
+    objects: objects.length,
+    uploaded,
+    bytes: objects.reduce((sum, o) => sum + o.bytes, 0),
+    ...(publicTarget && mode === "verify" ? { etags } : {}),
+  };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [, , mode, backup, plan, ...rest] = process.argv;
-  if (!mode || !backup || !plan || rest.length) {
+  if (["public-check", "public-upload", "public-verify"].includes(mode) && backup && !plan) {
+    new Promise((done, reject) => {
+      const chunks = [];
+      process.stdin.on("data", (chunk) => chunks.push(chunk));
+      process.stdin.on("end", () => done(Buffer.concat(chunks)));
+      process.stdin.on("error", reject);
+    })
+      .then((raw) => runPublic(mode.slice(7), backup, JSON.parse(raw)))
+      .then((result) => console.log(JSON.stringify(result)))
+      .catch((error) => {
+        console.error(error instanceof Error && !error.code ? error.message : "transfer failed");
+        process.exitCode = 1;
+      });
+  } else if (!mode || !backup || !plan || rest.length) {
     console.error("Usage: node tools/migrate/full-r2.mjs <check|upload|verify> <snapshot-dir> <plan.json>");
     process.exitCode = 1;
   } else {

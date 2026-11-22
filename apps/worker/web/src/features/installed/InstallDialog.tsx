@@ -11,6 +11,7 @@ export interface InstallDialogProps {
   intent: InstallIntent;
   scan: InstallScan | null;
   bridge: InstallBridge;
+  installBlock: string | null;
   primary?: string | null;
   onCompleted: (result: InstallCompletion) => void;
   onClose: () => void;
@@ -31,7 +32,16 @@ export function InstallDialog(props: InstallDialogProps) {
   ) : null;
 }
 
-function InstallSession({ projectTitle, intent, scan, bridge, primary, onCompleted, onClose }: InstallDialogProps) {
+function InstallSession({
+  projectTitle,
+  intent,
+  scan,
+  bridge,
+  installBlock,
+  primary,
+  onCompleted,
+  onClose,
+}: InstallDialogProps) {
   const instance = scan?.instances.find((item) => item.instanceId === intent.instanceId);
   const worldbookTarget =
     (Boolean(intent.files?.worldbook) &&
@@ -60,7 +70,7 @@ function InstallSession({ projectTitle, intent, scan, bridge, primary, onComplet
   }, [bridge]);
 
   async function prepare() {
-    if (lock.current) return;
+    if (lock.current || installBlock) return;
     lock.current = true;
     setBusy(true);
     setError(null);
@@ -113,7 +123,7 @@ function InstallSession({ projectTitle, intent, scan, bridge, primary, onComplet
     }
   }
   async function confirm() {
-    if (!preview || !acknowledged || stale || lock.current) return;
+    if (!preview || !acknowledged || stale || lock.current || installBlock) return;
     lock.current = true;
     setBusy(true);
     setError(null);
@@ -188,7 +198,7 @@ function InstallSession({ projectTitle, intent, scan, bridge, primary, onComplet
         {!preview ? (
           <>
             {worldbookTarget ? (
-              <fieldset className="install-targets" disabled={busy}>
+              <fieldset className="install-targets" disabled={busy || Boolean(installBlock)}>
                 <legend>目标世界书</legend>
                 <label className="install-option">
                   <input type="checkbox" checked={create} onChange={(event) => setCreate(event.target.checked)} />
@@ -278,13 +288,18 @@ function InstallSession({ projectTitle, intent, scan, bridge, primary, onComplet
               <input
                 type="checkbox"
                 checked={acknowledged}
-                disabled={busy || stale}
+                disabled={busy || stale || Boolean(installBlock)}
                 onChange={(event) => setAcknowledged(event.target.checked)}
               />
               我已核对完整差异、目标及版本，接受上述替换和删除。
             </label>
           </section>
         )}
+        {installBlock ? (
+          <p className="install-warning" role="status">
+            {installBlock}
+          </p>
+        ) : null}
         {error ? (
           <p className="install-warning" role="alert">
             {error}
@@ -296,16 +311,29 @@ function InstallSession({ projectTitle, intent, scan, bridge, primary, onComplet
             取消
           </Button>
           {preview ? (
-            <Button type="button" variant="secondary" disabled={busy} onClick={() => void revise()}>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={busy || (stale && Boolean(installBlock))}
+              onClick={() => void revise()}
+            >
               {stale ? "重新预览当前状态" : worldbookTarget ? "返回修改目标" : "重新核对"}
             </Button>
           ) : (
-            <Button type="button" disabled={busy || (worldbookTarget && !target.trim())} onClick={() => void prepare()}>
+            <Button
+              type="button"
+              disabled={busy || Boolean(installBlock) || (worldbookTarget && !target.trim())}
+              onClick={() => void prepare()}
+            >
               生成完整差异
             </Button>
           )}
           {preview ? (
-            <Button type="button" disabled={busy || stale || !acknowledged} onClick={() => void confirm()}>
+            <Button
+              type="button"
+              disabled={busy || stale || !acknowledged || Boolean(installBlock)}
+              onClick={() => void confirm()}
+            >
               确认{label}
             </Button>
           ) : null}

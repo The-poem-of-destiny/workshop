@@ -13,10 +13,12 @@ export interface InstallBridge {
 /** One bridge per host connection. The caller supplies the trusted, exact host origin. */
 export function createInstallBridge({
   origin,
+  getInstallBlock,
   source = window.parent,
   timeoutMs = 30_000,
 }: {
   origin: string;
+  getInstallBlock: () => string | null;
   source?: Window;
   timeoutMs?: number;
 }): InstallBridge {
@@ -72,11 +74,16 @@ export function createInstallBridge({
       }
     });
   }
+  function protectedRequest<T>(type: string, payload: Record<string, unknown>): Promise<T> {
+    const blocked = getInstallBlock();
+    return blocked ? Promise.reject(new Error(blocked)) : request<T>(type, payload);
+  }
   return {
     scan: () => request<InstallScan>("cw:scan"),
-    convertLegacy: (worldbooks) => request<{ converted: number; skipped: number }>("cw:convert-legacy", { worldbooks }),
-    preview: (intent) => request<InstallPreview>("cw:preview-install", { intent }),
-    confirm: (previewId) => request<InstallCompletion>("cw:confirm-install", { previewId }),
+    convertLegacy: (worldbooks) =>
+      protectedRequest<{ converted: number; skipped: number }>("cw:convert-legacy", { worldbooks }),
+    preview: (intent) => protectedRequest<InstallPreview>("cw:preview-install", { intent }),
+    confirm: (previewId) => protectedRequest<InstallCompletion>("cw:confirm-install", { previewId }),
     cancel: (previewId) => request<{ cancelled: boolean }>("cw:cancel-install", { previewId }),
     dispose() {
       disposed = true;

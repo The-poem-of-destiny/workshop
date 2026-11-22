@@ -394,55 +394,7 @@ authRoutes.get("/callback", async (c) => {
   }
   if (!code) return htmlResponse(errorHtml("缺少 Discord 授权码。"), 400);
 
-  try {
-    const result = await exchangeDiscord(c, flow, code);
-    const redeemCode = flow.mode === "embed" ? randomToken(32) : null;
-    const authorized = await c.executionCtx.exports.DataService.identityAuthorizeFlow(
-      flow.id,
-      result.user,
-      result.guildId,
-      redeemCode,
-    );
-    if (!authorized) return htmlResponse(errorHtml("登录状态已被使用。"), 409);
-    if (flow.mode === "browser") {
-      const token = authorized.token;
-      return htmlResponse(
-        callbackHtml(
-          JSON.stringify({
-            type: "oauth-success",
-            source: "creative-workshop-auth-callback",
-            state,
-            token,
-            targetOrigin: flow.origin,
-          }),
-        ),
-      );
-    }
-
-    if (flow.mode === "embed") {
-      return htmlResponse(
-        callbackHtml(
-          JSON.stringify({
-            type: "oauth-code",
-            source: "creative-workshop-auth-callback",
-            state,
-            code: redeemCode,
-            flowId: flow.id,
-          }),
-        ),
-      );
-    }
-    return htmlResponse(
-      callbackHtml(
-        JSON.stringify({
-          type: "oauth-authorized",
-          source: "creative-workshop-auth-callback",
-          state,
-          flowId: flow.id,
-        }),
-      ),
-    );
-  } catch (error) {
+  const result = await exchangeDiscord(c, flow, code).catch(async (error: unknown) => {
     const message = error instanceof Error ? error.message : "登录失败";
     await c.executionCtx.exports.DataService.identityFlowError(flow.id, message);
     const needsGuildInvite =
@@ -462,5 +414,50 @@ authRoutes.get("/callback", async (c) => {
           })
         : undefined;
     return htmlResponse(errorHtml(message, { inviteUrl, openerPayload }), 400);
+  });
+  if (result instanceof Response) return result;
+  const redeemCode = flow.mode === "embed" ? randomToken(32) : null;
+  const authorized = await c.executionCtx.exports.DataService.identityAuthorizeFlow(
+    flow.id,
+    result.user,
+    result.guildId,
+    redeemCode,
+  );
+  if (!authorized) return htmlResponse(errorHtml("登录状态已被使用。"), 409);
+  if (flow.mode === "browser") {
+    return htmlResponse(
+      callbackHtml(
+        JSON.stringify({
+          type: "oauth-success",
+          source: "creative-workshop-auth-callback",
+          state,
+          token: authorized.token,
+          targetOrigin: flow.origin,
+        }),
+      ),
+    );
   }
+  if (flow.mode === "embed") {
+    return htmlResponse(
+      callbackHtml(
+        JSON.stringify({
+          type: "oauth-code",
+          source: "creative-workshop-auth-callback",
+          state,
+          code: redeemCode,
+          flowId: flow.id,
+        }),
+      ),
+    );
+  }
+  return htmlResponse(
+    callbackHtml(
+      JSON.stringify({
+        type: "oauth-authorized",
+        source: "creative-workshop-auth-callback",
+        state,
+        flowId: flow.id,
+      }),
+    ),
+  );
 });

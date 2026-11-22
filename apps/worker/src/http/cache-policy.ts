@@ -1,6 +1,8 @@
 import type { Env } from "../env";
 
-type CacheClass = "public" | "reference" | "immutable" | "internal";
+import type { PublicCacheClass } from "./public-cache";
+
+type CacheClass = PublicCacheClass | "internal";
 
 const settings: Record<CacheClass, { key: keyof Env; fallback: number }> = {
   public: { key: "CACHE_TTL_PUBLIC_SECONDS", fallback: 60 },
@@ -16,10 +18,4 @@ export function cacheTtl(env: Env, category: CacheClass): number {
   if (typeof value !== "string" || !/^\d+$/.test(value)) return 0;
   const seconds = Number(value);
   return Number.isSafeInteger(seconds) && seconds <= 31536000 ? seconds : 0;
-}
-
-export function publicCacheClass(path: string): CacheClass {
-  if (path.startsWith("/client/")) return "immutable";
-  if (path === "/api/v1/site") return "reference";
-  return "public";
 }

@@ -62,27 +62,11 @@ export function maintenanceUnavailable(): Response {
   );
 }
 
-export function maintenanceDocument(): Response {
-  return new Response(
-    `<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>服务维护中</title></head>
-<body><main><h1>服务维护中</h1><p>创意工坊正在维护，暂时无法访问。请稍后重试。</p></main></body></html>`,
-    {
-      status: 503,
-      headers: {
-        "content-type": "text/html; charset=utf-8",
-        "cache-control": "private, no-store",
-        "retry-after": "30",
-        "x-content-type-options": "nosniff",
-      },
-    },
-  );
-}
-
 export async function withWriteBarrier<T>(
   env: Env,
   kind: string,
   operation: () => Promise<T>,
+  settled?: () => boolean,
 ): Promise<{ admitted: true; value: T } | { admitted: false }> {
   const id = crypto.randomUUID();
   const stub = coordinator(env);
@@ -98,6 +82,7 @@ export async function withWriteBarrier<T>(
   if (!admission.ok) return { admitted: false };
   // An interrupted or rejected operation is deliberately left outstanding.
   const value = await operation();
+  if (settled && !settled()) return { admitted: true, value };
   const release = await stub.fetch("https://write-barrier/release", {
     method: "POST",
     body: JSON.stringify({ id }),
@@ -106,10 +91,10 @@ export async function withWriteBarrier<T>(
   return { admitted: true, value };
 }
 
-export async function barrierControl(request: Request, env: Env): Promise<Response> {
+export async function hasMaintenanceBearer(request: Request, env: Env): Promise<boolean> {
   const expected = env.MAINTENANCE_TOKEN;
   const authorization = request.headers.get("authorization");
-  if (!expected || !authorization?.startsWith("Bearer ")) return new Response(null, { status: 401 });
+  if (!expected || !authorization?.startsWith("Bearer ")) return false;
   const encoder = new TextEncoder();
   const [a, b] = await Promise.all([
     crypto.subtle.digest("SHA-256", encoder.encode(expected)),
@@ -119,7 +104,11 @@ export async function barrierControl(request: Request, env: Env): Promise<Respon
   const right = new Uint8Array(b);
   let mismatch = 0;
   for (let i = 0; i < left.length; i++) mismatch |= left[i]! ^ right[i]!;
-  if (mismatch !== 0) return new Response(null, { status: 401 });
+  return mismatch === 0;
+}
+
+export async function barrierControl(request: Request, env: Env): Promise<Response> {
+  if (!(await hasMaintenanceBearer(request, env))) return new Response(null, { status: 401 });
   let path = "/status";
   if (request.method === "POST") {
     let body: unknown;

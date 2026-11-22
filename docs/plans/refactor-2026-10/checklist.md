@@ -4,6 +4,8 @@
 
 状态口径：下节“当前交付与验收门槛”的 `[x]` 表示对应源码已实现且已有明确范围的证据；精确合并和 CI 状态以各 PR 为准，`[ ]` 表示该项尚未完成。**本文件不是全部旧复选框清零即可上线的授权书**：历史清单不再定义当前 backlog，真实数据切换和生产发布必须另获授权。
 
+按主题选择下一项工作或查找尚未定案的线头，见[上线前重构：待核对与收口清单](open-threads.md)。本页继续跟踪交付与验收，不重复记录设计待办。
+
 ## 当前交付与验收门槛
 
 - [x] 核心 Worker／Web／Tavern client 源码已合入：统一冻结送审、审核与作者／管理工作区、安装实例与整体预览／确认、玩家改动保护；本地行为与 CI 证据见 state，不代表真实 Discord／SillyTavern 已验收。
@@ -11,12 +13,12 @@
 - [x] 历史 staging 迁移在 2026-11-06 取得 210/210 批及源／目标／搜索对账验收；这是既有 schema 的阶段证据，不是当前 taxonomy／新 schema 切换完成。
 - [x] 版本绑定的本人体验／评分备忘：[PR #94](https://github.com/The-poem-of-destiny/workshop/pull/94) 已实现、独立审查且 exact-head required checks 通过后正常合并；本地证据不代表线上启用，不将旧无版本评分猜配到任一版本或公开。
 - [x] 当前订阅才可新增／编辑玩家推荐：[PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) 已纠正并以真实合成本地 Worker API 和 Chromium 验证，exact-head required checks 成功后正常合并。退订立即失去资格，既有推荐保留且本人可撤回；重新订阅恢复资格，不保留历史资格或从下载、安装、评分推断订阅。该证据不代表部署或真实数据切换。
-- [ ] 当前 schema／taxonomy 真实数据切换：须另行授权并核验完整当前快照、审阅决定、候选、对象引用及切换后结果；本轮明确暂不执行。
+- [ ] 当前 schema／taxonomy 真实切换：另行授权；保留当前源 D1/R2，检查候选 schema 与关键数据，切换后验证受影响路径。不要求完整恢复演练或逐项独立对账。
 - [ ] 当前版本真实 Discord 完整登录／准入与真实 SillyTavern 安装／更新／卸载验收，见 [user-actions.md](user-actions.md)。合成本地账号与消息宿主不替代它们。
 - [ ] 目标环境 Cache API hosted 行为与陈旧风险验收；方案以 [D-49](decisions.md#d-49-分类-ttl-cache-api)、[缓存设计](../../reference/cache-design.md)和[运行配置](../../reference/runtime-configuration.md)为准，不验证全球 purge 或旧 Workers Cache 方案。
-- [ ] 生产备份恢复、停写／迁移／回滚、发布审批和精确部署版本验收；生产切换未执行，不因历史 staging 成功关闭。
+- [ ] 生产首次切换、发布审批和精确部署版本验收；按[切换手册](../../operations/deployment-safety.md#schema-evolution-and-production-cutover)保留恢复点，生产切换尚未执行。
 
-最新授权允许文档 #92 与纠正后的推荐资格 #93 在必要验证和 exact-head required checks 通过后正常合并；版本备忘 #94 已正常合并。不启用 auto-merge，不绕过分支保护，不发布／建 tag／部署／操作真实数据。staging schema-change pause、`ACCEPTED_SCHEMA_SHA=f2491599cfb97a6405b5f73ead73227387786478` 与 production schema 停止门禁保持不变；`0001_initial.sql` 只可初始化空库，不对既有库执行。经典界面迁移、双前端开关及每日抽签继续暂缓。
+文档 #92、推荐资格 #93 和版本备忘 #94 的合并授权不包含建 tag、生产部署或生产数据操作。不绕过分支保护。发布按[滚动规则](../../operations/deployment-safety.md#routes)进行；`0001_initial.sql` 只初始化空库。经典界面迁移、双前端开关及每日抽签继续暂缓。
 
 ## 本轮工作包（2026-10-26）
 
@@ -29,8 +31,8 @@
 - [x] W5 修改 diff 与整体操作（D-42）：先预览再确认，整体替换／删除选中实例内容，取消零写入、状态变化重核对、无关内容保留；确定性客户端测试通过。宿主无跨资源事务，未知部分写入必须重扫，不保证底层原子 CAS。
 - [x] W6 全项目查询与分页（D-44）：四类排序、7／30／90 天点赞净增量与有效下载、完整结果集及 total；真实 D1 边界／分页／Worker 网关回归和浏览器排序 E2E 通过。不恢复旧发现接口。
 - [x] W7 配套脚本版本推送（D-45）：owner API、不可变版本登记与匿名读取、独立调用工具；Worker API 回归及 CLI 真实本地 HTTP 3 tests 通过。不上传／执行脚本，不做前端健康面板。
-- [ ] W8 当前快照迁移准备及演练：既有 staging 迁移及源对账已在 2026-11-06 验收，历史 210/210 不是当前六分类／新 schema 切换。当前离线工具已合入，真实当前库候选审阅、切换与验收未执行，须单独授权；不等于完整历史恢复或生产切换验收。
-- [ ] W9 正式切换（D-40）：所有旅程及迁移演练验收后另获授权，停写、备份、完整迁移、对账、旧网页失效提示／要求升级；不提供旧协议长期兼容，不提前执行生产操作。
+- [ ] W8 当前快照迁移：历史 210/210 只代表 2026-11-06 的 staging 演练；当前库仍需另行授权并准备、核对候选。
+- [ ] W9 正式切换（D-40）：另获授权后按[切换手册](../../operations/deployment-safety.md#schema-evolution-and-production-cutover)停写、保留来源、切换并冒烟；不提供旧协议长期兼容。
 
 每包验收需实际运行改变的路径；界面需桌面／手机操作证据。本轮依用户明确要求，客户端／宿主行为用确定性代码级测试验收，不进行真实 SillyTavern 操作；报告必须保留这个证据边界。完成决策记录不等于完成实现，既有本地／staging 样本也不等于 W8／W9。
 

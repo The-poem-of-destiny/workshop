@@ -69,6 +69,7 @@ export function WorkshopWorkspaces({
   installedAvailable,
   installedItems,
   context,
+  installBlock,
   installedLoading,
   installedPending,
   embedded,
@@ -97,6 +98,7 @@ export function WorkshopWorkspaces({
   installedAvailable: boolean;
   installedItems: ReturnType<typeof useInstalledProjects>["installedItems"];
   context: ReturnType<typeof useHostConnection>["context"];
+  installBlock: string | null;
   installedLoading: ReturnType<typeof useInstalledProjects>["installedLoading"];
   installedPending: ReturnType<typeof useInstalledProjects>["installedPending"];
   embedded: boolean;
@@ -192,6 +194,7 @@ export function WorkshopWorkspaces({
     <Installed
       items={installedItems}
       scan={context?.installationScan ?? null}
+      installBlock={installBlock}
       loading={installedLoading || installedPending || (embedded && context === null)}
       scanning={scanning}
       converting={converting}
