@@ -138,7 +138,13 @@ export class ApiError extends Error {
   readonly details: unknown;
 
   constructor(status: number, statusText: string, code: string | null, message: string, details: unknown) {
-    super(`${status} ${code ? `${code}: ` : ""}${message || statusText}`);
+    super(
+      code === "quota_exceeded" && message
+        ? message
+        : status >= 500 && code !== "maintenance"
+          ? "服务暂时繁忙，请稍后刷新页面再试。"
+          : `${status} ${code ? `${code}: ` : ""}${message || statusText}`,
+    );
     this.name = "ApiError";
     this.status = status;
     this.code = code;

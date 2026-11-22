@@ -22,11 +22,35 @@ import { WorkshopMessages } from "./WorkshopMessages";
 import { WorkshopSidebar } from "./WorkshopSidebar";
 import { WorkshopWorkspaces } from "./WorkshopWorkspaces";
 
-function MaintenanceNotice() {
+function StatusNotice({
+  title,
+  body,
+  detail,
+  reset,
+}: {
+  title: string;
+  body: string;
+  detail?: string | null;
+  reset?: boolean;
+}) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!reset) return;
+    const id = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [reset]);
+  const hms = reset ? new Date(864e5 - (Date.now() % 864e5)).toISOString().slice(11, 19).split(":") : null;
   return (
     <main role="status">
-      <h1>工坊维护中</h1>
-      <p>请稍后刷新页面再试。</p>
+      <h1>{title}</h1>
+      <p>{body}</p>
+      {hms && <p>{`距离下次额度刷新还有 ${hms[0]} 小时 ${hms[1]} 分 ${hms[2]} 秒（北京时间 08:00）`}</p>}
+      {detail && (
+        <details>
+          <summary>错误详情</summary>
+          <code>{detail}</code>
+        </details>
+      )}
     </main>
   );
 }
@@ -55,41 +79,20 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const embedded = new URLSearchParams(location.search).get("embed") === "1";
+  const nav = useWorkshopNavigation();
   const {
     view,
     onDirtyChange,
     confirmLeave,
     setView,
     setSidebarOpen,
-    headerRef,
     isMobile,
     sidebarOpen,
     sidebarCollapsed,
-    setSidebarCollapsed,
     drawerToggle,
-    drawerClose,
-  } = useWorkshopNavigation();
+  } = nav;
   const catalogue = useCatalogue({ enabled: view === "browse", setError, home });
-  const {
-    addTags,
-    toggleTag,
-    removeTag,
-    tagLimitMessage,
-    search,
-    setSearch,
-    projectTypes,
-    setProjectTypes,
-    includeContained,
-    setIncludeContained,
-    tags,
-    author,
-    collection,
-    clearFilters,
-    pageTags,
-    setAuthor,
-    setCollection,
-    hasFilters,
-  } = catalogue;
+  const { addTags, setProjectTypes, setAuthor, setCollection, hasFilters } = catalogue;
   const {
     me,
     pendingPolicyUser,
@@ -153,7 +156,8 @@ export function App() {
   }, [view]);
   const refreshSession = useEffectEvent(() => void refreshMe());
   useEffect(() => {
-    if (home.status === "error") setError(String(home.error));
+    if (home.status === "error")
+      setError(home.error instanceof Error ? home.error.message : "服务暂时繁忙，请稍后刷新页面再试。");
     else if (home.status === "ready" && !home.data.site.ok) setError(home.data.site.error.message);
   }, [home]);
   useEffect(() => {
@@ -170,27 +174,25 @@ export function App() {
     setSelected(null);
   };
 
-  if (
-    home.status === "error" &&
-    home.error instanceof ApiError &&
-    home.error.status === 503 &&
-    home.error.code === "maintenance"
-  ) {
-    return <MaintenanceNotice />;
+  const errorDetail =
+    home.status === "error" && home.error instanceof ApiError && typeof home.error.details === "string"
+      ? home.error.details
+      : null;
+
+  if (home.status === "error" && home.error instanceof ApiError && home.error.status === 503) {
+    if (home.error.code === "maintenance") {
+      return <StatusNotice title="工坊维护中" body="请稍后刷新页面再试。" />;
+    }
+    if (home.error.code === "quota_exceeded" && !installedAvailable) {
+      return <StatusNotice title="今日云端额度已用完" body={home.error.message} detail={errorDetail} reset />;
+    }
   }
 
   return (
     <div className={`shell${embedded ? " embedded" : ""}${me ? " authenticated" : ""}`}>
       <WorkshopHeader
-        headerRef={headerRef}
-        isMobile={isMobile}
-        sidebarOpen={sidebarOpen}
-        sidebarCollapsed={sidebarCollapsed}
-        setSidebarCollapsed={setSidebarCollapsed}
-        confirmLeave={confirmLeave}
-        search={search}
-        setSearch={setSearch}
-        setView={setView}
+        {...nav}
+        {...catalogue}
         connectionStatus={connectionStatus}
         connectionLabel={connectionLabel}
         connectionTitle={connectionTitle}
@@ -206,10 +208,6 @@ export function App() {
           if (confirmLeave()) logout();
         }}
         login={login}
-        drawerToggle={drawerToggle}
-        setSidebarOpen={setSidebarOpen}
-        hasFilters={hasFilters}
-        view={view}
         reviewer={reviewer}
       />
 
@@ -231,6 +229,7 @@ export function App() {
           site={site}
           view={view}
           error={error}
+          errorDetail={errorDetail}
           setError={setError}
           authInviteHint={authInviteHint}
           clearAuthInviteHint={clearAuthInviteHint}
@@ -259,31 +258,10 @@ export function App() {
       <div className={`shell-body${sidebarCollapsed || !showDesktopSidebar ? " sidebar-collapsed" : ""}`}>
         {showDesktopSidebar || isMobile ? (
           <WorkshopSidebar
-            sidebarOpen={sidebarOpen}
-            isMobile={isMobile}
-            drawerClose={drawerClose}
-            setSidebarOpen={setSidebarOpen}
-            drawerToggle={drawerToggle}
-            view={view}
-            projectTypes={projectTypes}
-            setView={setView}
-            setProjectTypes={setProjectTypes}
-            includeContained={includeContained}
-            setIncludeContained={setIncludeContained}
+            {...nav}
+            {...catalogue}
             installedAvailable={installedAvailable}
             installedUpdateCount={installedUpdateCount}
-            tags={tags}
-            tagLimitMessage={tagLimitMessage}
-            author={author}
-            collection={collection}
-            hasFilters={hasFilters}
-            clearFilters={clearFilters}
-            addTags={addTags}
-            toggleTag={toggleTag}
-            removeTag={removeTag}
-            pageTags={pageTags}
-            setAuthor={setAuthor}
-            setCollection={setCollection}
           />
         ) : null}
 
@@ -361,89 +339,6 @@ export function App() {
         </main>
       </div>
 
-      <WorkshopGlobalDialogs
-        policyDialogOpen={policyDialogOpen}
-        setPolicyDialogOpen={setPolicyDialogOpen}
-        pendingPolicyUser={pendingPolicyUser}
-        policyState={policyState}
-        completePolicy={completePolicy}
-        logout={logout}
-        discordPrompt={discordPrompt}
-        setDiscordPrompt={setDiscordPrompt}
-        faqOpen={faqOpen}
-        setFaqOpen={setFaqOpen}
-        communityInviteUrl={communityInviteUrl}
-        me={me}
-        installTarget={installTarget}
-        setInstallTarget={setInstallTarget}
-        bridge={bridge}
-        context={context}
-        installBlock={installBlock}
-        completeInstall={completeInstall}
-        instanceChoice={instanceChoice}
-        setInstanceChoice={setInstanceChoice}
-        installing={installing}
-        prepareInstall={prepareInstall}
-        instanceOperation={instanceOperation}
-        installedItems={installedItems}
-      />
-    </div>
-  );
-}
-
-function WorkshopGlobalDialogs({
-  policyDialogOpen,
-  setPolicyDialogOpen,
-  pendingPolicyUser,
-  policyState,
-  completePolicy,
-  logout,
-  discordPrompt,
-  setDiscordPrompt,
-  faqOpen,
-  setFaqOpen,
-  communityInviteUrl,
-  me,
-  installTarget,
-  setInstallTarget,
-  bridge,
-  context,
-  installBlock,
-  completeInstall,
-  instanceChoice,
-  setInstanceChoice,
-  installing,
-  prepareInstall,
-  instanceOperation,
-  installedItems,
-}: {
-  policyDialogOpen: boolean;
-  setPolicyDialogOpen: (open: boolean) => void;
-  pendingPolicyUser: ReturnType<typeof useWorkshopSession>["pendingPolicyUser"];
-  policyState: ReturnType<typeof useWorkshopSession>["policyState"];
-  completePolicy: ReturnType<typeof useWorkshopSession>["completePolicy"];
-  logout: ReturnType<typeof useWorkshopSession>["logout"];
-  discordPrompt: DiscordPromptTarget | null;
-  setDiscordPrompt: (target: DiscordPromptTarget | null) => void;
-  faqOpen: boolean;
-  setFaqOpen: (open: boolean) => void;
-  communityInviteUrl: string;
-  me: ReturnType<typeof useWorkshopSession>["me"];
-  installTarget: ReturnType<typeof useHostConnection>["installTarget"];
-  setInstallTarget: ReturnType<typeof useHostConnection>["setInstallTarget"];
-  bridge: ReturnType<typeof useHostConnection>["bridge"];
-  context: ReturnType<typeof useHostConnection>["context"];
-  installBlock: string | null;
-  completeInstall: ReturnType<typeof useHostConnection>["completeInstall"];
-  instanceChoice: ReturnType<typeof useHostConnection>["instanceChoice"];
-  setInstanceChoice: ReturnType<typeof useHostConnection>["setInstanceChoice"];
-  installing: ReturnType<typeof useHostConnection>["installing"];
-  prepareInstall: ReturnType<typeof useHostConnection>["prepareInstall"];
-  instanceOperation: ReturnType<typeof useHostConnection>["instanceOperation"];
-  installedItems: ReturnType<typeof useInstalledProjects>["installedItems"];
-}) {
-  return (
-    <>
       <PolicyGateDialog
         open={policyDialogOpen}
         onOpenChange={setPolicyDialogOpen}
@@ -452,20 +347,17 @@ function WorkshopGlobalDialogs({
         onCompleted={completePolicy}
         onLogout={logout}
       />
-
       <DiscordLinkPrompt
         target={discordPrompt}
         communityInviteUrl={communityInviteUrl}
         onClose={() => setDiscordPrompt(null)}
       />
-
       <WorkshopFaqDialog
         open={faqOpen}
         onOpenChange={setFaqOpen}
         communityInviteUrl={communityInviteUrl}
         onOpenPolicy={() => setPolicyDialogOpen(true)}
       />
-
       {me && installTarget && bridge ? (
         <InstallDialog
           open
@@ -488,6 +380,6 @@ function WorkshopGlobalDialogs({
         instanceOperation={instanceOperation}
         installedItems={installedItems}
       />
-    </>
+    </div>
   );
 }

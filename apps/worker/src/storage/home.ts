@@ -6,6 +6,7 @@ import {
   siteSettingsSchema,
 } from "@workshop/contracts";
 import { DEFAULT_COMMUNITY_INVITE_URL, parseDiscordInviteUrl } from "@workshop/domain";
+import { isStorageQuotaError, quotaErrorDetail, quotaExceededMessage } from "../quota-error.js";
 import { getPublishedProjectsByIds, listPublishedProjects } from "./projects.js";
 import { readRecommendationBatch } from "./recommendation-batches.js";
 
@@ -201,9 +202,18 @@ export async function getHome(db: D1Database, origins?: BannerOrigins): Promise<
     ),
   ]);
   function section<T>(result: PromiseSettledResult<T>, message: string) {
-    return result.status === "fulfilled"
-      ? { ok: true as const, data: result.value }
-      : { ok: false as const, error: { code: "internal" as const, message } };
+    if (result.status === "fulfilled") return { ok: true as const, data: result.value };
+    if (isStorageQuotaError(result.reason)) {
+      return {
+        ok: false as const,
+        error: {
+          code: "quota_exceeded" as const,
+          message: quotaExceededMessage(),
+          details: quotaErrorDetail(result.reason),
+        },
+      };
+    }
+    return { ok: false as const, error: { code: "internal" as const, message } };
   }
   return {
     site: section(site, "Site unavailable"),

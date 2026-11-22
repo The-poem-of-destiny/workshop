@@ -1,6 +1,6 @@
 import type { ProjectType } from "@workshop/domain";
 import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from "react";
-import { api, type ProjectSummary } from "./api";
+import { ApiError, api, type ProjectSummary } from "./api";
 import { type CatalogueFilters, type CatalogueSort, useCatalogueFilters } from "./useCatalogueFilters";
 import type { HomeLoadState } from "./useWorkshopHome";
 
@@ -188,7 +188,15 @@ function useCatalogueProjects({
         setTotal(result.total);
         setLoadedQuery(queryKey);
       } else {
-        setError("项目加载失败，请重新加载。");
+        const msg =
+          initialHome.status === "error"
+            ? initialHome.error instanceof ApiError &&
+              initialHome.error.code === "quota_exceeded" &&
+              initialHome.error.message
+            : !initialHome.data.projects.ok &&
+              initialHome.data.projects.error.code === "quota_exceeded" &&
+              initialHome.data.projects.error.message;
+        setError(msg || "项目加载失败，请重新加载。");
       }
       setListLoading(false);
       return () => {
@@ -218,9 +226,11 @@ function useCatalogueProjects({
             setListLoading(false);
           }
         })
-        .catch(() => {
+        .catch((err: unknown) => {
           if (!cancelled && requestId === listRequest.current) {
-            setError("项目加载失败，请重新加载。");
+            setError(
+              err instanceof ApiError && err.code === "quota_exceeded" ? err.message : "项目加载失败，请重新加载。",
+            );
             setListLoading(false);
           }
         });

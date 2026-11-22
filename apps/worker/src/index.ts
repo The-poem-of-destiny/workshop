@@ -4,6 +4,7 @@ import type { Env } from "./env";
 import { canonicalPublicRequest } from "./http/public-cache";
 import { publicResponse } from "./http/public-response";
 import { isReadOnlyRequest } from "./http/read-only-request";
+import { isStorageQuotaError, quotaErrorDetail, quotaExceededMessage } from "./quota-error";
 import { runScheduled } from "./scheduler";
 import { barrierControl, maintenanceUnavailable, withWriteBarrier } from "./write-barrier";
 
@@ -127,8 +128,18 @@ async function fetchGatewayPublic(
     return publicResponse(await fetchPublic(ctx, request.method, read), read.category, request.headers);
   } catch (error) {
     console.error("Unhandled worker error", error);
+    const quota = isStorageQuotaError(error);
     return publicResponse(
-      Response.json({ error: { code: "internal", message: "Internal server error" } }, { status: 500 }),
+      Response.json(
+        {
+          error: {
+            code: quota ? "quota_exceeded" : "internal",
+            message: quota ? quotaExceededMessage() : "Internal server error",
+            ...(quota ? { details: quotaErrorDetail(error) } : {}),
+          },
+        },
+        { status: quota ? 503 : 500 },
+      ),
       read.category,
       request.headers,
     );

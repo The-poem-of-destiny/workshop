@@ -248,6 +248,44 @@ describe("public read path", () => {
     }
   });
 
+  it("maps D1 daily quota exhaustion to a friendly no-store 503 without leaking D1_ERROR", async () => {
+    await seed();
+    const originalPrepare = bindings.DB.prepare.bind(bindings.DB);
+    bindings.DB.prepare = (() => {
+      throw new Error(
+        "D1_ERROR: Your account has exceeded D1's free tier daily row read limit. Upgrade to a paid plan or wait until tomorrow (midnight UTC) to continue.",
+      );
+    }) as typeof bindings.DB.prepare;
+    try {
+      const home = await SELF.fetch("https://workshop.test/api/v1/home");
+      expect(home.status).toBe(503);
+      expect(home.headers.get("cache-control")).toContain("no-store");
+      const homeBody = (await home.json()) as { error: { code: string; message: string; details?: string } };
+      expect(homeBody.error.code).toBe("quota_exceeded");
+      expect(homeBody.error.message).toContain("08:00");
+      expect(homeBody.error.message).not.toContain("免费");
+      expect(homeBody.error.message).not.toContain("D1_ERROR");
+      expect(homeBody.error.details).toContain("D1_ERROR");
+
+      const projects = await SELF.fetch("https://workshop.test/api/v1/projects?search=quota-miss");
+      expect(projects.status).toBe(503);
+      expect(projects.headers.get("cache-control")).toContain("no-store");
+      await expect(projects.json()).resolves.toMatchObject({
+        error: { code: "quota_exceeded" },
+      });
+
+      const me = await SELF.fetch("https://workshop.test/api/v1/me", {
+        headers: { authorization: "Bearer probe-token" },
+      });
+      expect(me.status).toBe(503);
+      await expect(me.json()).resolves.toMatchObject({
+        error: { code: "quota_exceeded" },
+      });
+    } finally {
+      bindings.DB.prepare = originalPrepare;
+    }
+  });
+
   it("serves only published public preview text to authenticated readers", async () => {
     await seed();
     await bindings.DB.prepare(
