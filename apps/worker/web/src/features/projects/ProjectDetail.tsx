@@ -37,7 +37,7 @@ export function ProjectDetail({
   installState,
   loggedIn,
   installing,
-  connected,
+  installBlock,
   installedWorldbook,
   opener,
 }: {
@@ -57,7 +57,7 @@ export function ProjectDetail({
   installState: InstallState;
   loggedIn: boolean;
   installing: boolean;
-  connected: boolean;
+  installBlock: string | null;
   installedWorldbook: string | null;
   opener: RefObject<HTMLElement | null>;
 }) {
@@ -257,8 +257,10 @@ export function ProjectDetail({
                   <p className="rail-muted">尚未安装到当前角色。</p>
                 )}
                 {installedWorldbook ? <p className="installed">已安装到 · {installedWorldbook}</p> : null}
-                {!connected ? (
-                  <p className="hint">安装请从 SillyTavern 内的「命定创意工坊」按钮打开。</p>
+                {installBlock ? (
+                  <p className="hint" role="status">
+                    {installBlock}
+                  </p>
                 ) : !loggedIn ? (
                   <div className="actions">
                     <button type="button" className="primary" onClick={onLogin}>

@@ -1,8 +1,8 @@
 import type { InstallScan } from "@workshop/contracts";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { MeResponse, ProjectSummary } from "./api";
 import type { InstallState } from "./features/projects/ProjectDetail";
-import { hostConnectionStatus } from "./hostConnectionStatus";
+import { hostConnectionStatus, installBlockReason } from "./hostConnectionStatus";
 import { createInstallBridge, type InstallBridge, type InstallCompletion } from "./lib/install-bridge";
 import { useHostMessages } from "./useHostMessages";
 import { useHostMutations } from "./useHostMutations";
@@ -14,11 +14,17 @@ export interface HostContext {
   worldbooks: { primary: string | null; additional: string[]; available: string[] };
   installationScan: InstallScan;
   clientVersion: string;
+  installCompatibility?: {
+    state: "compatible" | "version_mismatch" | "channel_unavailable" | "unverified";
+    required?: string;
+  };
   error?: string;
 }
 type HostConnectionOptions = Feedback & { embedded: boolean; me: MeResponse["user"] | null; login: () => void };
 export function useHostConnection({ embedded, me, login, setError, setNotice }: HostConnectionOptions) {
   const [context, setContext] = useState<HostContext | null>(null);
+  const latestHostContext = useRef<HostContext | null>(null);
+  const getInstallBlock = useCallback(() => installBlockReason(latestHostContext.current, embedded), [embedded]);
   const [scanning, setScanning] = useState(false);
   const [converting, setConverting] = useState(false);
   const [bridge, setBridge] = useState<InstallBridge | null>(null);
@@ -37,7 +43,7 @@ export function useHostConnection({ embedded, me, login, setError, setNotice }: 
     setContext((previous) => (previous ? { ...previous, installationScan: result.scan } : previous));
   }
   const mutations = useHostMutations({
-    context,
+    getInstallBlock,
     bridge,
     me,
     login,
@@ -61,6 +67,11 @@ export function useHostConnection({ embedded, me, login, setError, setNotice }: 
   }
   async function convertLegacy(worldbooks: string[]): Promise<void> {
     if (!bridge || converting || scanning) return;
+    const blocked = getInstallBlock();
+    if (blocked) {
+      setError(blocked);
+      return;
+    }
     setConverting(true);
     setError(null);
     setNotice(null);
@@ -85,14 +96,22 @@ export function useHostConnection({ embedded, me, login, setError, setNotice }: 
   }
   useEffect(() => {
     if (!hostOrigin || window.parent === window) return;
-    const connection = createInstallBridge({ origin: hostOrigin, source: window.parent });
+    const connection = createInstallBridge({ origin: hostOrigin, source: window.parent, getInstallBlock });
     setBridge(connection);
     return () => {
       connection.dispose();
       setBridge(null);
     };
-  }, [hostOrigin]);
-  useHostMessages({ postToHost, embedded, hostOrigin, setContext });
+  }, [getInstallBlock, hostOrigin]);
+  useHostMessages({
+    postToHost,
+    embedded,
+    hostOrigin,
+    onContext: (next) => {
+      latestHostContext.current = next;
+      setContext(next);
+    },
+  });
   function installationState(project: ProjectSummary): InstallState {
     const instances =
       context?.installationScan?.instances.filter((instance) => instance.projectId === project.id) ?? [];
@@ -107,13 +126,14 @@ export function useHostConnection({ embedded, me, login, setError, setNotice }: 
       return "scanIncomplete";
     return "upToDate";
   }
-  const { connectionStatus, connectionLabel, connectionTitle } = hostConnectionStatus(context, embedded);
+  const { connectionStatus, connectionLabel, connectionTitle, installBlock } = hostConnectionStatus(context, embedded);
   return {
     installationState,
     context,
     connectionStatus,
     connectionLabel,
     connectionTitle,
+    installBlock,
     postToHost,
     bridge,
     scanning,

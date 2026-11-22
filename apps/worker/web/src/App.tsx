@@ -31,6 +31,18 @@ function MaintenanceNotice() {
   );
 }
 
+function useAvatarFailure(avatarUrl: string | null | undefined) {
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  const previousAvatar = useRef(avatarUrl);
+  useEffect(() => {
+    if (previousAvatar.current !== avatarUrl) {
+      previousAvatar.current = avatarUrl;
+      setAvatarFailed(false);
+    }
+  }, [avatarUrl]);
+  return [avatarFailed, setAvatarFailed] as const;
+}
+
 export function App() {
   const home = useWorkshopHome();
   const site = home.status === "ready" && home.data.site.ok ? home.data.site.data : null;
@@ -104,6 +116,7 @@ export function App() {
     connectionStatus,
     connectionLabel,
     connectionTitle,
+    installBlock,
     postToHost,
     bridge,
     scanning,
@@ -124,14 +137,7 @@ export function App() {
   } = useHostConnection({ embedded, me, login, setError, setNotice });
   const { installedUpdateCount, installedItems, installedLoading, installedPending, reloadInstalledProjects } =
     useInstalledProjects(context, view === "installed");
-  const [avatarFailed, setAvatarFailed] = useState(false);
-  const previousAvatar = useRef(me?.avatarUrl);
-  useEffect(() => {
-    if (previousAvatar.current !== me?.avatarUrl) {
-      previousAvatar.current = me?.avatarUrl;
-      setAvatarFailed(false);
-    }
-  }, [me?.avatarUrl]);
+  const [avatarFailed, setAvatarFailed] = useAvatarFailure(me?.avatarUrl);
   useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(null), 4500);
@@ -298,6 +304,7 @@ export function App() {
             installedAvailable={installedAvailable}
             installedItems={installedItems}
             context={context}
+            installBlock={installBlock}
             installedLoading={installedLoading}
             installedPending={installedPending}
             embedded={embedded}
@@ -347,7 +354,7 @@ export function App() {
               installState={selectedInstallState}
               loggedIn={Boolean(me)}
               installing={installing || installTarget !== null}
-              connected={Boolean(context?.connected)}
+              installBlock={installBlock}
               opener={detailOpener}
             />
           ) : null}
@@ -371,6 +378,7 @@ export function App() {
         setInstallTarget={setInstallTarget}
         bridge={bridge}
         context={context}
+        installBlock={installBlock}
         completeInstall={completeInstall}
         instanceChoice={instanceChoice}
         setInstanceChoice={setInstanceChoice}
@@ -400,6 +408,7 @@ function WorkshopGlobalDialogs({
   setInstallTarget,
   bridge,
   context,
+  installBlock,
   completeInstall,
   instanceChoice,
   setInstanceChoice,
@@ -424,6 +433,7 @@ function WorkshopGlobalDialogs({
   setInstallTarget: ReturnType<typeof useHostConnection>["setInstallTarget"];
   bridge: ReturnType<typeof useHostConnection>["bridge"];
   context: ReturnType<typeof useHostConnection>["context"];
+  installBlock: string | null;
   completeInstall: ReturnType<typeof useHostConnection>["completeInstall"];
   instanceChoice: ReturnType<typeof useHostConnection>["instanceChoice"];
   setInstanceChoice: ReturnType<typeof useHostConnection>["setInstanceChoice"];
@@ -463,6 +473,7 @@ function WorkshopGlobalDialogs({
           intent={installTarget.intent}
           scan={context?.installationScan ?? null}
           bridge={bridge}
+          installBlock={installBlock}
           primary={context?.worldbooks?.primary ?? null}
           onCompleted={completeInstall}
           onClose={() => setInstallTarget(null)}
@@ -472,6 +483,7 @@ function WorkshopGlobalDialogs({
         instanceChoice={me ? instanceChoice : null}
         setInstanceChoice={setInstanceChoice}
         installing={installing}
+        installBlock={installBlock}
         prepareInstall={prepareInstall}
         instanceOperation={instanceOperation}
         installedItems={installedItems}

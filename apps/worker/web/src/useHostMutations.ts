@@ -3,10 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import { api, type MeResponse, type ProjectSummary } from "./api";
 import type { InstalledItem } from "./features/installed/Installed";
 import type { InstallBridge, InstallCompletion } from "./lib/install-bridge";
-import type { HostContext } from "./useHostConnection";
 
 type HostMutationOptions = {
-  context: HostContext | null;
+  getInstallBlock: () => string | null;
   bridge: InstallBridge | null;
   me: MeResponse["user"] | null;
   login: () => void;
@@ -16,7 +15,7 @@ type HostMutationOptions = {
   onCompleted: (result: InstallCompletion) => void;
 };
 export function useHostMutations({
-  context,
+  getInstallBlock,
   bridge,
   me,
   login,
@@ -40,20 +39,23 @@ export function useHostMutations({
       setInstanceChoice(null);
     }
   }, [me]);
+  function operationUser(): MeResponse["user"] | null {
+    if (hostMutationPending.current || installTarget) return null;
+    const blocked = getInstallBlock();
+    if (blocked || !bridge) {
+      setError(blocked ?? "没有可信的 SillyTavern 连接，请从酒馆内重新打开。");
+      return null;
+    }
+    if (!me) login();
+    return me;
+  }
   async function prepareInstall(
     project: ProjectSummary,
     action: "install" | "update" = "install",
     instanceId?: string,
   ): Promise<void> {
-    if (hostMutationPending.current || installTarget) return;
-    if (!context?.connected || !bridge) {
-      setError("没有可信的 SillyTavern 连接，请从酒馆内重新打开。");
-      return;
-    }
-    if (!me) {
-      login();
-      return;
-    }
+    const user = operationUser();
+    if (!user) return;
     hostMutationPending.current = true;
     setInstalling(true);
     setError(null);
@@ -61,7 +63,12 @@ export function useHostMutations({
       const payload = await api.acquisitions(project.id);
       const files: { worldbook?: string; regex?: string } = {};
       for (const file of payload.downloads) files[file.kind] = await api.downloadText(file.url);
-      if (!currentUser.current || currentUser.current.id !== me.id) return;
+      if (currentUser.current?.id !== user.id) return;
+      const blocked = getInstallBlock();
+      if (blocked) {
+        setError(blocked);
+        return;
+      }
       setInstanceChoice(null);
       setInstallTarget({
         title: project.title,
@@ -86,39 +93,18 @@ export function useHostMutations({
     }
   }
   function install(project: ProjectSummary): void {
-    if (hostMutationPending.current || installTarget) return;
-    if (!context?.connected || !bridge) {
-      setError("没有可信的 SillyTavern 连接，请从酒馆内重新打开。");
-      return;
-    }
-    if (!me) {
-      login();
-      return;
-    }
     void prepareInstall(project);
   }
   function requestUpdate(project: ProjectSummary): void {
-    if (hostMutationPending.current || installTarget) return;
-    if (!me) {
-      login();
-      return;
-    }
+    if (!operationUser()) return;
     setInstanceChoice({ project, action: "update" });
   }
   function requestUninstall(project: ProjectSummary): void {
-    if (hostMutationPending.current || installTarget) return;
-    if (!me) {
-      login();
-      return;
-    }
+    if (!operationUser()) return;
     setInstanceChoice({ project, action: "uninstall" });
   }
   function instanceOperation(item: InstalledItem, action: "uninstall" | "migrate"): void {
-    if (!bridge || hostMutationPending.current || installTarget) return;
-    if (!me) {
-      login();
-      return;
-    }
+    if (!operationUser()) return;
     setInstanceChoice(null);
     setInstallTarget({
       title: item.project?.title ?? item.instance.projectId,
