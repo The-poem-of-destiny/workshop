@@ -331,9 +331,10 @@ async function seedExamples() {
 }
 
 async function seedDiscoveryRecommendations() {
-  const response = await fetch(`${backend}/api/v1/projects/discovery`);
-  if (!response.ok) throw new Error(`Local preview discovery: ${response.status}`);
-  const discovery = await response.json();
+  const response = await fetch(`${backend}/api/v1/home`);
+  if (!response.ok) throw new Error(`Local preview home: ${response.status}`);
+  const { discovery } = await response.json();
+  if (discovery?.ok !== true) throw new Error(`Local preview home discovery section: ${JSON.stringify(discovery)}`);
   const curators = [
     { id: "preview-discovery-reader-1", name: "阿岚（预览）" },
     { id: "preview-discovery-reader-2", name: "雾港旅人（预览）" },
@@ -354,7 +355,7 @@ async function seedDiscoveryRecommendations() {
       ON CONFLICT(id) DO UPDATE SET global_name=excluded.global_name;`,
   );
   sql.push(`DELETE FROM recommendations WHERE curator_id IN (${curators.map(({ id }) => quote(id)).join(",")});`);
-  const projects = discovery.items.slice(0, 3);
+  const projects = discovery.data.items.slice(0, 3);
   for (const [projectIndex, project] of projects.entries()) {
     const sampleComments = projectIndex === 0 ? comments : [comments[projectIndex - 1]];
     for (const [index, comment] of sampleComments.entries()) {

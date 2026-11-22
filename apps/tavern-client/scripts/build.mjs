@@ -21,7 +21,7 @@ await build({
   define: {
     __CW_CLIENT_VERSION__: JSON.stringify(packageJson.version),
     __CW_DEFAULT_ORIGIN__: JSON.stringify(
-      process.env.CW_DEFAULT_ORIGIN ?? "https://workshop.poem-of-destiny.workers.dev",
+      process.env.CW_DEFAULT_ORIGIN ?? "https://workshop.poem-of-destiny.3378469.xyz",
     ),
   },
 });

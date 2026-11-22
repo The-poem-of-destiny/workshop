@@ -9,11 +9,15 @@
 | Worker 名称 | `workshop` | `workshop-staging` | `workshop` |
 | `DB` D1 | `workshop-staging` | `workshop-staging` | `workshop-prod` |
 | `R2` | `workshop-client-staging` | `workshop-client-staging` | `workshop-client-prod` |
-| `ALLOWED_ORIGINS` | `http://localhost:8787,http://127.0.0.1:8787` | `https://workshop-staging.poem-of-destiny.workers.dev` | `https://workshop.poem-of-destiny.workers.dev` |
-| `PUBLIC_ORIGIN` | `http://localhost:8787` | `https://workshop-staging.poem-of-destiny.workers.dev` | `https://workshop.poem-of-destiny.workers.dev` |
+| `ALLOWED_ORIGINS` | `http://localhost:8787,http://127.0.0.1:8787` | `https://workshop-staging.poem-of-destiny.3378469.xyz` | `https://workshop.poem-of-destiny.3378469.xyz`（待部署） |
+| `PUBLIC_ORIGIN` | `http://localhost:8787` | `https://workshop-staging.poem-of-destiny.3378469.xyz` | `https://workshop.poem-of-destiny.3378469.xyz`（待部署） |
 | `DISCORD_CLIENT_ID` | `1562466173268926575` | `1562466173268926575` | 空字符串 |
 | `DISCORD_ALLOWED_GUILD_IDS` | `1417861565679669272,1134557553011998840` | 同顶层 | 空字符串 |
 | `DISCORD_GUILD_ROLE_IDS` | `1134557553011998840:1335363403870502912` | 同顶层 | 空字符串 |
+
+staging 配置 `workers_dev: false`、`preview_urls: false`，只通过自定义域访问；迁移控制 CLI 也使用此域。两个应用自定义域的目录限流、production 替代入口的覆盖限制及线上证据见[边缘上线记录](../plans/refactor-2026-10/edge-cache-rollout.md#2-waf-与速率限制)。
+
+Tavern 客户端构建默认打开 `https://workshop.poem-of-destiny.3378469.xyz`。构建时可用 `CW_DEFAULT_ORIGIN` 覆盖默认值；用户已保存的 `cw_worker_origin` 设置继续优先，不会随新构建改写。
 
 顶层配置还声明 `ASSETS` 静态资源绑定，目录为 `./web/dist`，`/api/*`、`/client/*`、`/assets/*` 先运行 Worker；`CONTENT_SERVICE` 是 `ContentService` Durable Object，使用 SQLite 类迁移 `v1`；`WRITE_BARRIER` 是 `WriteBarrier` Durable Object，使用 SQLite 类迁移 `v2`，各环境均声明绑定。D1 迁移目录为 `./migrations`，定时触发为每分钟。具体环境的资源、部署配置和最终绑定应在授权部署时核实，不能仅凭表中仓库值推断线上状态。
 
@@ -21,6 +25,8 @@
 
 - `ALLOWED_ORIGINS` 是逗号分隔、去除空白后的精确 origin 列表。API CORS 的预检对不允许的 origin 返回 403；创建 OAuth flow 也要求请求有匹配的 `Origin`。它不是通配符列表。
 - `PUBLIC_ORIGIN` 用于生成 OAuth 回调地址 `<PUBLIC_ORIGIN>/api/v1/auth/callback`，末尾斜杠会移除；变量未定义时回退到请求 origin。应与 Discord 应用登记的回调地址一致，并使用该环境实际公开地址。
+- Production 自定义域已绑定现有 `workshop` Worker；新域 `/api/v1/health` 已通过 HTTPS 返回 200。生产 Discord 回调已由应用维护者确认登记，GitHub `production` environment 的 `PRODUCTION_URL` 已切到新域并回读确认；未验证完整 OAuth 往返。本表中的生产 origin 是下次获准部署时使用的源码配置，未修改线上 Worker 环境变量，也未部署。
+- `STAGING_AUTHOR_TOKEN`：仅在 staging 的 Worker secret 中配置，与维护令牌及 Discord 凭据分开。通过 staging 自定义域向 `POST /api/v1/staging/author-session` 提交该 Bearer，签发固定 `staging-cover-test-author` 普通成员的 15 分钟会话；不接受用户 ID 参数。该账户须预先在 staging D1 创建，再经正常政策确认接口完成准入。测试结束调用 `DELETE /api/v1/sessions/current` 撤销会话；不在 production 配置该 secret。
 - `DISCORD_CLIENT_ID` 是 OAuth 应用 ID；`DISCORD_CLIENT_SECRET` 是服务端 secret，不写入 `vars` 或仓库。缺少 ID 时 flow 创建会返回本地 pending 地址而不是 Discord 授权地址；兑换授权码要求 ID 和 secret，缺失会失败。生产仓库中的 ID 和公会列表为空，不能据此宣称生产登录已就绪。
 - `DISCORD_ALLOWED_GUILD_IDS` 是逗号分隔的公会 ID；登录时必须至少属于其中一个，空列表会拒绝。`DISCORD_GUILD_ROLE_IDS` 格式为 `公会ID:角色ID,角色ID;公会ID:角色ID`，公会及角色 ID 必须为 17 至 20 位数字；同公会条目合并，满足任一指定角色即可。未列角色要求的允许公会只检查成员资格。空角色配置表示不要求角色；非空配置格式无效会在创建 flow 和兑换时失败。默认及 staging 中 `1417861565679669272` 只检查公会，`1134557553011998840` 要求角色 `1335363403870502912`。OAuth 固定请求 `identify`、`guilds`，配置角色要求时另请求 `guilds.members.read`。
 - `SESSION_HASH_SECRET` 是会话令牌存储哈希的服务端 secret；存在时使用 HMAC-SHA-256，缺失时代码退回普通 SHA-256。配置或轮换 secret 会改变令牌哈希，已有会话可能失效，应事先安排重新登录。不要把缺省行为当作生产安全配置。
@@ -34,7 +40,7 @@ OAuth flow 的有效期为 10 分钟，使用 state、PKCE，并设置浏览器�
 - GitHub Actions 的 `staging`、`production` environment 均已配置专用 secret `CLOUDFLARE_API_TOKEN`（staging 于 2026-11-03 通过 secret 名称清单确认；production 由用户确认，未读取值）；对应部署工作流使用它，并从 environment variable `CLOUDFLARE_ACCOUNT_ID` 读取账号。该凭据可作为后续获授权的 Actions 运维流程的凭据来源，但不代表任意维护动作已有工作流实现，也不证明其权限始终足够。凭据存在不等于生产操作已授权；执行前核实目标环境、资源身份及实际权限。
 - 获用户明确授权后，本地 staging 导入、迁移和重建可直接从本地 `.env` 读取个人 `CLOUDFLARE_API_TOKEN`，仅在内存中传给明确目标的工具；不必为此新增 Actions 流程。不得打印、复制进其他文件、上传为 GitHub secret 或部署为 Worker secret；CI 继续使用其专用凭据。
 - 平台 API token 与应用 `MAINTENANCE_TOKEN` 分工不同。需要关写排空时，可用已授权的平台凭据设置独立随机的 staging 维护 secret，再调用维护接口并确认排空；不得把个人平台 token 本身设为应用维护 secret。GitHub secret 不能通过 API 读回值，本地操作也不依赖取回 Actions 凭据。
-- 本地 `.env` 分别使用 `STAGING_MAINTENANCE_TOKEN`、`PRODUCTION_MAINTENANCE_TOKEN` 保存不同的随机密码，不使用无环境前缀的 `MAINTENANCE_TOKEN`；文件权限为 `0600`，不得提交。GitHub 各 environment 中均使用 secret 名称 `MAINTENANCE_TOKEN`，Worker 内也使用同名 secret，由环境隔离。两个部署工作流在部署前通过 stdin 调用对应环境的 `wrangler secret put`，缺失密码时失败，不输出值；production 步骤仍在既有生产 schema 授权保护之后。仅更新 GitHub secret 不会立即改变已部署 Worker 的密码，必须显式同步或执行获授权的部署。
+- 本地 `.env` 分别使用 `STAGING_MAINTENANCE_TOKEN`、`PRODUCTION_MAINTENANCE_TOKEN` 保存不同的随机密码；文件权限为 `0600`，不得提交。Worker 内使用同名 `MAINTENANCE_TOKEN` secret，由环境隔离。日常发版不读取 GitHub 中的维护密码，不写入或轮换 Worker secret；授权运维时单独配置。production workflow 只检查 Worker 上需要的 secret 名称，不读取值。
 
 会话沿用 30 天滑动有效期，每 24 小时最多续期一次；每次解析从当前 users 读取角色并检查撤销／过期，续期以原 session_version 和未撤销／未过期条件做原子更新，不复活已撤销会话。下载打开对象后再次鉴权。Discord 公会资格在 OAuth 登录时验证；当前不保存 provider access token，因此没有后台持续刷新资格的能力，用户离开公会不会自动触发本地撤销。管理员角色调整和本地会话撤销即时影响后续鉴权；重新登录重新验证公会。这个边界不是持续资格保证。
 
