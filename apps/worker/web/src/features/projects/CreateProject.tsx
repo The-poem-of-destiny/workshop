@@ -1,3 +1,4 @@
+import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { Input } from "../../components/ui/input";
@@ -68,7 +69,7 @@ export function CreateProject({
     try {
       const created = await api.createProject(metadataPayload({ ...form, title: form.title.trim() }));
       onDirtyChange?.(false);
-      onNotice("项目草稿已创建，可以开始上传内容文件。");
+      onNotice("草稿已创建，接下来可上传世界书、正则与封面。");
       onCreated(created.project.id);
     } catch (reason) {
       onError(String(reason));
@@ -81,55 +82,37 @@ export function CreateProject({
     <section className="workspace-section workspace-create">
       <div className="workspace-heading">
         <div>
-          <p className="workspace-kicker">作者工作区</p>
+          <p className="workspace-kicker">创作者工作台</p>
           <h2>新建项目</h2>
-          <p className="workspace-muted">先创建草稿，再在编辑器中上传世界书、正则和封面。</p>
+          <p className="workspace-muted">填写基本资料创建草稿后，即可进入编辑器上传文件与封面。</p>
         </div>
         <button type="button" onClick={cancel} disabled={busy}>
+          <ArrowLeft aria-hidden="true" />
           返回我的项目
         </button>
       </div>
 
-      <section className="authoring-section">
-        <h3>基本资料</h3>
+      <section className="authoring-section authoring-card">
+        <h3>核心资料</h3>
         <div className="workspace-form-grid">
           <label htmlFor="create-title">
             标题
             <Input
               id="create-title"
+              placeholder="输入作品名称"
               value={form.title}
               disabled={busy}
               onChange={(event) => update("title", event.target.value)}
             />
           </label>
           <label htmlFor="create-version">
-            版本号
+            版本号（选填）
             <Input
               id="create-version"
+              placeholder="例如 1.0.0"
               value={form.versionLabel}
               disabled={busy}
               onChange={(event) => update("versionLabel", event.target.value)}
-            />
-          </label>
-          <label htmlFor="create-schema">
-            适配 schema
-            <Input
-              id="create-schema"
-              value={form.schemaVersion}
-              disabled={busy}
-              onChange={(event) => update("schemaVersion", event.target.value)}
-            />
-            <small className="field-hint">
-              填写世界书适配的 schema 版本，例如角色卡 v2；不确定可以留空，检查报告会提示不匹配的地方。
-            </small>
-          </label>
-          <label htmlFor="create-discord">
-            Discord 讨论链接
-            <Input
-              id="create-discord"
-              value={form.discordThreadUrl}
-              disabled={busy}
-              onChange={(event) => update("discordThreadUrl", event.target.value)}
             />
           </label>
         </div>
@@ -142,11 +125,20 @@ export function CreateProject({
             setForm((previous) => ({ ...previous, projectType, includedTypes }))
           }
         />
+        <label htmlFor="create-description">
+          作品简介（支持 Markdown）
+          <Textarea
+            id="create-description"
+            placeholder="介绍设定亮点、触发方式或游玩建议…"
+            value={form.description}
+            disabled={busy}
+            onChange={(event) => update("description", event.target.value)}
+          />
+        </label>
       </section>
 
-      <section className="authoring-section">
-        <h3>分类与标签</h3>
-        <p className="field-hint">所有分类都可选用下方标签；主要分类相关的标签组优先展示，普通标签最多 20 个。</p>
+      <section className="authoring-section authoring-card">
+        <h3>作品标签（选填，最多 20 个）</h3>
         <TagPicker
           idPrefix="create"
           value={form.tags}
@@ -156,25 +148,40 @@ export function CreateProject({
         />
       </section>
 
-      <section className="authoring-section">
-        <h3>说明</h3>
-        <label htmlFor="create-description">
-          简介
-          <Textarea
-            id="create-description"
-            value={form.description}
+      <details className="authoring-section authoring-card editor-collapsible">
+        <summary>进阶选填（适配版本、讨论串、前置依赖与冲突）</summary>
+        <div className="editor-collapsible-body">
+          <div className="workspace-form-grid">
+            <label htmlFor="create-schema">
+              适配卡版本（选填）
+              <Input
+                id="create-schema"
+                placeholder="例如 v4.3，不确定可留空"
+                value={form.schemaVersion}
+                disabled={busy}
+                onChange={(event) => update("schemaVersion", event.target.value)}
+              />
+            </label>
+            <label htmlFor="create-discord">
+              Discord 讨论链接（选填）
+              <Input
+                id="create-discord"
+                placeholder="https://discord.com/channels/..."
+                value={form.discordThreadUrl}
+                disabled={busy}
+                onChange={(event) => update("discordThreadUrl", event.target.value)}
+              />
+            </label>
+          </div>
+          <RequirementsEditor
+            value={form.requirements}
             disabled={busy}
-            onChange={(event) => update("description", event.target.value)}
+            onChange={(requirements) => setForm((previous) => ({ ...previous, requirements }))}
           />
-        </label>
-        <RequirementsEditor
-          value={form.requirements}
-          disabled={busy}
-          onChange={(requirements) => setForm((previous) => ({ ...previous, requirements }))}
-        />
-      </section>
+        </div>
+      </details>
 
-      <div className="workspace-actions">
+      <div className="workspace-actions create-footer-actions">
         <button type="button" onClick={cancel} disabled={busy}>
           取消
         </button>

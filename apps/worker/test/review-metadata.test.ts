@@ -65,7 +65,7 @@ describe("review metadata evidence", () => {
         title: "frozen title",
         description: null,
         projectType: "角色",
-        includedTypes: ["内容扩展", "事件"],
+        includedTypes: ["内容扩展", "规则扩展"],
         searchTags: ["人类", "温柔", "合集"],
         manifestHash: null,
         createdAt: "now",
@@ -79,7 +79,7 @@ describe("review metadata evidence", () => {
     expect(markdown).not.toContain("invalid finding");
     expect(markdown).toContain("# 审核复核 · frozen title");
     expect(markdown).toContain("| 主要分类 | 角色 |");
-    expect(markdown).toContain("| 包含类型 | 内容扩展、事件 |");
+    expect(markdown).toContain("| 包含类型 | 内容扩展、规则扩展 |");
     expect(markdown).toContain("| 普通标签 | 人类、温柔、合集 |");
   });
 

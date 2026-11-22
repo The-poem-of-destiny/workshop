@@ -174,7 +174,7 @@ function InstallSession({
       }}
     >
       <DialogContent
-        className="install-dialog"
+        className="install-dialog mobile-sheet"
         onEscapeKeyDown={(event) => {
           if (busy) event.preventDefault();
         }}
@@ -186,9 +186,7 @@ function InstallSession({
           <DialogTitle>
             {label}「{projectTitle}」
           </DialogTitle>
-          <DialogDescription>
-            先选择明确目标，再核对全部修改。只有最后确认才会写入；取消不会安装、更新、迁移或删除内容。
-          </DialogDescription>
+          <DialogDescription>选择目标位置并预览变更明细，确认无误后才会执行写入。</DialogDescription>
         </DialogHeader>
         {intent.instanceId ? (
           <p className="installed-meta">
@@ -243,47 +241,38 @@ function InstallSession({
               </p>
             )}
             <p className="install-warning">
-              更新会整体替换此实例拥有的条目与正则；卸载会删除其拥有内容，包括玩家对这些内容的修改。迁移也会删除原位置内容。不是逐项合并，不能在此保留或勾选部分修改。其他实例与无关条目不在本次操作内。
+              更新将整体替换本模组所属条目（不保留本地手改）；操作前建议先备份角色卡与世界书。
             </p>
           </>
         ) : (
           <section className="install-preview" aria-label="完整修改预览">
             <h3>
-              {label}预览{stale ? "（已失效，不能确认）" : ""}
+              {label}预览{stale ? "（已失效，请重新预览）" : ""}
             </h3>
             {preview.instance ? (
               <p>
                 原位置：世界书「{preview.instance.location.worldbook ?? "无"}」 / 角色「
-                {preview.instance.location.character ?? "无"}」；原版本：<code>{preview.instance.version}</code>。
+                {preview.instance.location.character ?? "无"}」 · 原版本：<code>{preview.instance.version}</code>
               </p>
             ) : null}
             <p>
-              目标世界书：{preview.target.worldbook ?? "无"}；角色正则：{preview.target.character ?? "无"}
+              目标世界书：{preview.target.worldbook ?? "无"} · 角色正则：{preview.target.character ?? "无"}
             </p>
             {worldbookTarget ? (
               <p>
-                {create ? "新建目标世界书" : "使用现有世界书"}；{bind ? "绑定到当前角色" : "不新增角色绑定"}。
+                {create ? "新建目标世界书" : "写入现有世界书"} · {bind ? "绑定到当前角色" : "不新增角色绑定"}
               </p>
             ) : null}
-            <p>
-              实例：<code>{preview.instanceId}</code>；操作：{actionLabels[preview.action]}
-            </p>
             {intent.project ? (
               <p>
-                将写入版本：<code>{intent.project.version}</code>
+                目标版本：<code>{intent.project.version}</code>
               </p>
             ) : null}
-            <h4>玩家修改 / 未知基线内容（{preview.playerChanges.length} 项）</h4>
-            <p className="hint">
-              有基线时显示与安装基线的差异；基线未知时展示当前拥有的全部内容，不等同于确认它们都是玩家修改。
-            </p>
-            <DiffList changes={preview.playerChanges} empty="未发现与安装基线不同的内容。" />
-            <h4>本次完整写入差异（{preview.changes.length} 项）</h4>
-            <DiffList changes={preview.changes} empty="没有内容修改。仍请核对目标及绑定设置。" />
-            <p className="install-warning">
-              before 为操作前内容，after
-              为操作后内容；「不存在」代表新增或删除。确认后整体执行这些替换和删除，玩家修改不会自动合并或保留。
-            </p>
+            <h4>本地差异项（{preview.playerChanges.length} 项）</h4>
+            <DiffList changes={preview.playerChanges} empty="未发现本地修改。" />
+            <h4>本次将写入变更（{preview.changes.length} 项）</h4>
+            <DiffList changes={preview.changes} empty="条目无变化，仅核对绑定设置。" />
+            <p className="install-warning">确认后将按下方明细整体替换或移除条目，本地手改不会自动合并。</p>
             <label className="install-option">
               <input
                 type="checkbox"
@@ -362,12 +351,12 @@ function DiffList({ changes, empty }: { changes: InstallDiff[]; empty: string })
           </h5>
           <div className="install-diff-columns">
             <div>
-              <strong>before · 操作前</strong>
-              <pre>{change.before ?? "（不存在）"}</pre>
+              <strong>修改前</strong>
+              <pre>{change.before ?? "（无）"}</pre>
             </div>
             <div>
-              <strong>after · 操作后</strong>
-              <pre>{change.after ?? "（不存在）"}</pre>
+              <strong>修改后</strong>
+              <pre>{change.after ?? "（移除）"}</pre>
             </div>
           </div>
         </li>

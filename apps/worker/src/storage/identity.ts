@@ -5,7 +5,12 @@ import {
   type Role,
   serializeAuditDetail,
 } from "@workshop/contracts";
-import { CURRENT_POLICY_VERSION, evaluatePolicyQuiz, hasAcceptedCurrentPolicy } from "@workshop/domain";
+import {
+  CURRENT_POLICY_VERSION,
+  discordAvatarUrl,
+  evaluatePolicyQuiz,
+  hasAcceptedCurrentPolicy,
+} from "@workshop/domain";
 import { hashSessionToken } from "./session-hash.js";
 
 interface UserRow {
@@ -18,11 +23,7 @@ interface UserRow {
   policy_accepted_at: string | null;
 }
 
-function avatarUrl(userId: string, avatar: string | null): string | null {
-  if (!avatar) return null;
-  if (avatar.startsWith("https://")) return avatar;
-  return `https://cdn.discordapp.com/avatars/${userId}/${avatar}.png`;
-}
+const avatarUrl = discordAvatarUrl;
 
 export async function getMe(db: D1Database, userId: string): Promise<MeResponse | null> {
   const row = await db

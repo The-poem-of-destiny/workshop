@@ -2,9 +2,11 @@
   "name": "@workshop/contracts",
   "version": "0.0.0",
   "private": true,
+  "sideEffects": false,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./install": "./src/install.ts"
   },
   "types": "./src/index.ts",
   "scripts": {

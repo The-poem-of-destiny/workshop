@@ -1,4 +1,4 @@
-export const PROJECT_TYPES = ["系统核心", "角色", "内容扩展", "玩法", "事件", "体验优化"] as const;
+export const PROJECT_TYPES = ["系统核心", "角色", "内容扩展", "规则扩展", "体验优化"] as const;
 export type ProjectType = (typeof PROJECT_TYPES)[number];
 
 export const MAX_CUSTOM_TAGS = 20;
@@ -117,7 +117,7 @@ export const PRESET_TAG_GROUPS: readonly PresetTagGroup[] = [
   },
   {
     name: "玩法方向",
-    projectTypes: ["玩法"],
+    projectTypes: ["规则扩展"],
     tags: [
       "战斗",
       "生产制作",
@@ -133,7 +133,7 @@ export const PRESET_TAG_GROUPS: readonly PresetTagGroup[] = [
   },
   {
     name: "事件形式",
-    projectTypes: ["事件"],
+    projectTypes: ["内容扩展"],
     tags: ["单次事件", "事件链", "BOSS 战", "肉鸽挑战", "开局剧本"],
   },
   {

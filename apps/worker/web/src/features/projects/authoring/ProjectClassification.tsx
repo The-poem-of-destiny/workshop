@@ -43,14 +43,13 @@ export function ProjectClassification({
         </select>
       </label>
       <p id={`${idPrefix}-classification-hint`} className="field-hint">
-        每个项目只有一个主要分类。系统核心是陪伴玩家的「命定核心」，不是整套游戏替换。
+        「系统核心」仅限陪伴玩家的命定核心作品；可额外勾选作品兼有的其他类型。
       </p>
       <fieldset className="included-types" disabled={disabled || !projectType}>
         <legend>包含的其他类型（可选）</legend>
-        <p className="field-hint">与主要分类分开记录，不占标签名额；更换主要分类会移除重复的包含类型。</p>
         <div className="included-type-options">
           {availableTypes.map((type) => (
-            <label key={type}>
+            <label key={type} className="included-type-option">
               <input
                 type="checkbox"
                 checked={includedTypes.includes(type)}

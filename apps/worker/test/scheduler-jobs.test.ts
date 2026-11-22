@@ -6,6 +6,7 @@ import {
   observeCleanupCandidates,
   readRecommendationBatch,
 } from "../src/storage/recommendation-batches";
+import { FIXED_TRAFFIC_PROFILE } from "../src/traffic-profile";
 import { applySchema } from "./support/schema";
 
 const bindings = env as unknown as DataEnv;
@@ -64,10 +65,16 @@ describe("scheduled jobs", () => {
   it("serves only current versions within the successful run display interval", async () => {
     await seedProject("p1", 10);
     await seedProject("p2", 3);
-    await buildRecommendationBatch(bindings.DB, new Date(now), undefined, {
-      start: Date.parse(now),
-      end: Date.parse(now) + 3_600_000,
-    });
+    await buildRecommendationBatch(
+      bindings.DB,
+      new Date(now),
+      undefined,
+      {
+        start: Date.parse(now),
+        end: Date.parse(now) + 3_600_000,
+      },
+      FIXED_TRAFFIC_PROFILE,
+    );
     const run = await readRecommendationBatch(bindings.DB, Date.parse(now));
     expect(run?.items.map((item) => item.project_id).sort()).toEqual(["p1", "p2"]);
     expect(run?.items.map((item) => item.project_version_id).sort()).toEqual(["r-p1", "r-p2"]);

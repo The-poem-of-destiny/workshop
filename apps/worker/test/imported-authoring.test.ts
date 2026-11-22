@@ -51,7 +51,7 @@ async function seedImported(workingNo = 7, publishedNo = workingNo) {
   const created = await request("", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ title: "Working", projectType: "角色", includedTypes: ["玩法"] }),
+    body: JSON.stringify({ title: "Working", projectType: "角色", includedTypes: ["规则扩展"] }),
   });
   const { project, workingVersionId } = (await created.json()) as { project: { id: string }; workingVersionId: string };
   const publishedId = workingNo === publishedNo ? workingVersionId : crypto.randomUUID();
@@ -187,7 +187,7 @@ describe("imported publication authoring", () => {
     const expected = {
       description: null,
       projectType: "角色",
-      includedTypes: ["玩法"],
+      includedTypes: ["规则扩展"],
       versionLabel: null,
     };
     await expect((await request(`/${projectId}/draft`)).json()).resolves.toMatchObject({ project: expected });

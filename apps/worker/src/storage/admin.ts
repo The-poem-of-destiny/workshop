@@ -447,3 +447,29 @@ export async function reviewAdminSubmission(
   }
   return { kind: "ok" as const, id: reviewId, status: nextStatus };
 }
+
+export async function requeueAdminSubmission(db: D1Database, submissionId: string) {
+  const [requeued] = await db.batch([
+    db
+      .prepare(`
+      UPDATE automated_reviews SET status = 'queued', attempts = 0, lease_until = NULL, lease_token = NULL, error = NULL,
+        checker_version = NULL, route_gate = NULL, report_r2_key = NULL, report_hash = NULL, report_cleaned_at = NULL, checked_at = NULL, duration_ms = NULL
+      WHERE submission_id = ? AND status NOT IN ('queued','running')
+        AND EXISTS(SELECT 1 FROM submissions s WHERE s.id = submission_id AND s.status IN ('pending','checking'))
+    `)
+      .bind(submissionId),
+    db
+      .prepare(`UPDATE submissions SET status = 'pending' WHERE id = ? AND changes() = 1
+      AND status IN ('pending','checking')`)
+      .bind(submissionId),
+  ]);
+  if ((requeued?.meta.changes ?? 0) !== 0) return { kind: "ok" as const };
+
+  const target = await db
+    .prepare("SELECT status FROM submissions WHERE id = ?")
+    .bind(submissionId)
+    .first<{ status: string }>();
+  if (!target) return { kind: "not_found" as const };
+  if (target.status !== "pending" && target.status !== "checking") return { kind: "resolved" as const };
+  return { kind: "running" as const };
+}

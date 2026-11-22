@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from "react";
+import { type Dispatch, type SetStateAction, useState } from "react";
 import { Input } from "../../../components/ui/input";
 import { Textarea } from "../../../components/ui/textarea";
 import type { ProjectForm } from "../projectMetadata";
@@ -21,73 +21,49 @@ export function ProjectDraftMetadata({
     setForm((previous) => ({ ...previous, [key]: value }));
   }
 
-  const input = (key: TextField, label: string, multiline = false) =>
-    multiline ? (
-      <label htmlFor={`${key}-field`}>
-        {label}
-        <Textarea
-          id={`${key}-field`}
-          disabled={disabled}
-          value={form[key]}
-          onChange={(event) => update(key, event.target.value)}
-        />
-      </label>
-    ) : (
-      <label htmlFor={`${key}-field`}>
-        {label}
-        <Input
-          id={`${key}-field`}
-          disabled={disabled}
-          value={form[key]}
-          onChange={(event) => update(key, event.target.value)}
-        />
-      </label>
-    );
+  const hasRequirements = Boolean(
+    form.requirements.notes.trim() ||
+      form.requirements.dependencies.length > 0 ||
+      form.requirements.conflicts.length > 0 ||
+      (form.requirements.recommended && form.requirements.recommended.length > 0),
+  );
+  const [reqOpen, setReqOpen] = useState(hasRequirements);
 
   return (
-    <>
-      <section className="workspace-section authoring-section">
-        <h3>基本资料</h3>
-        {input("title", "标题")}
-        {input("description", "简介", true)}
-        <RequirementsEditor
-          value={form.requirements}
-          disabled={disabled}
-          onChange={(requirements) => setForm((previous) => ({ ...previous, requirements }))}
-        />
-        <div className="form-grid">
-          <label htmlFor="schemaVersion-field">
-            适配 schema
-            <Input
-              id="schemaVersion-field"
-              disabled={disabled}
-              value={form.schemaVersion}
-              onChange={(event) => update("schemaVersion", event.target.value)}
-            />
-            <small className="field-hint">填写世界书适配的 schema 版本，例如角色卡 v2；不确定可以留空。</small>
-          </label>
-          {input("discordThreadUrl", "Discord 讨论链接")}
-        </div>
-        <div className="form-grid">{input("versionLabel", "版本号")}</div>
-        <ProjectClassification
-          idPrefix="project"
-          projectType={form.projectType}
-          includedTypes={form.includedTypes}
-          disabled={disabled}
-          onChange={(projectType, includedTypes) =>
-            setForm((previous) => ({ ...previous, projectType, includedTypes }))
-          }
-        />
-        <div className="form-grid">
-          {input("coverPositionX", "封面横向位置（0–100）")}
-          {input("coverPositionY", "封面纵向位置（0–100）")}
-          {input("coverZoom", "封面缩放（1–3）")}
-        </div>
-      </section>
+    <section id="editor-sec-basics" className="workspace-section authoring-section authoring-card">
+      <h3>① 基础资料与分类标签</h3>
+      <div className="form-grid">
+        <label htmlFor="title-field">
+          标题
+          <Input
+            id="title-field"
+            disabled={disabled}
+            value={form.title}
+            onChange={(event) => update("title", event.target.value)}
+          />
+        </label>
+        <label htmlFor="versionLabel-field">
+          版本号
+          <Input
+            id="versionLabel-field"
+            placeholder="例如 1.0.0"
+            disabled={disabled}
+            value={form.versionLabel}
+            onChange={(event) => update("versionLabel", event.target.value)}
+          />
+        </label>
+      </div>
 
-      <section className="workspace-section authoring-section">
-        <h3>分类与标签</h3>
-        <p className="field-hint">所有分类的标签组都可使用；主要分类相关的组优先展示，普通标签最多 20 个。</p>
+      <ProjectClassification
+        idPrefix="project"
+        projectType={form.projectType}
+        includedTypes={form.includedTypes}
+        disabled={disabled}
+        onChange={(projectType, includedTypes) => setForm((previous) => ({ ...previous, projectType, includedTypes }))}
+      />
+
+      <div className="editor-subsection">
+        <span className="editor-subsection-label">作品标签（最多 20 个）</span>
         <TagPicker
           idPrefix="project"
           value={form.tags}
@@ -95,7 +71,62 @@ export function ProjectDraftMetadata({
           disabled={disabled}
           onChange={(tags) => setForm((previous) => ({ ...previous, tags }))}
         />
-      </section>
-    </>
+      </div>
+
+      <label htmlFor="description-field">
+        简介（支持 Markdown）
+        <Textarea
+          id="description-field"
+          disabled={disabled}
+          value={form.description}
+          placeholder="介绍作品设定、使用方法或注意事项…"
+          onChange={(event) => update("description", event.target.value)}
+        />
+      </label>
+
+      <div className="form-grid">
+        <label htmlFor="schemaVersion-field">
+          适配卡版本（选填）
+          <Input
+            id="schemaVersion-field"
+            placeholder="例如 v4.3，不确定可留空"
+            disabled={disabled}
+            value={form.schemaVersion}
+            onChange={(event) => update("schemaVersion", event.target.value)}
+          />
+        </label>
+        <label htmlFor="discordThreadUrl-field">
+          Discord 讨论链接（选填）
+          <Input
+            id="discordThreadUrl-field"
+            placeholder="https://discord.com/channels/..."
+            disabled={disabled}
+            value={form.discordThreadUrl}
+            onChange={(event) => update("discordThreadUrl", event.target.value)}
+          />
+        </label>
+      </div>
+
+      <details className="editor-collapsible" open={reqOpen} onToggle={(event) => setReqOpen(event.currentTarget.open)}>
+        <summary>
+          前置依赖、冲突与搭配建议（选填
+          {hasRequirements
+            ? ` · 已填 ${
+                form.requirements.dependencies.length +
+                form.requirements.conflicts.length +
+                (form.requirements.recommended?.length ?? 0)
+              } 条`
+            : ""}
+          ）
+        </summary>
+        <div className="editor-collapsible-body">
+          <RequirementsEditor
+            value={form.requirements}
+            disabled={disabled}
+            onChange={(requirements) => setForm((previous) => ({ ...previous, requirements }))}
+          />
+        </div>
+      </details>
+    </section>
   );
 }

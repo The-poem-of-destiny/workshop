@@ -58,3 +58,8 @@ export function normalizeDiscordThreadUrl(
   }
   return { ok: true, value: parsed.value };
 }
+
+export function discordAvatarUrl(userId: string, avatar: string | null | undefined): string | null {
+  if (!avatar) return null;
+  return avatar.startsWith("https://") ? avatar : `https://cdn.discordapp.com/avatars/${userId}/${avatar}.png`;
+}

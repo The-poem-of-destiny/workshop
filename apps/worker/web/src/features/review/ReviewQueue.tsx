@@ -8,6 +8,13 @@ const checkStatusLabels: Record<string, string> = {
   failed: "失败",
 };
 
+const gateLabels: Record<string, string> = {
+  pass: "通过",
+  warn: "提示",
+  block: "阻断",
+  missing: "未预检",
+};
+
 function formatDate(value: string): string {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime())
@@ -100,7 +107,9 @@ export function ReviewQueue({
                   {formatDate(item.submittedAt)} · {checkStatusLabels[item.checkStatus] ?? item.checkStatus}
                 </small>
               </span>
-              <span className={`review-gate review-gate-${item.gate ?? "missing"}`}>{item.gate ?? "missing"}</span>
+              <span className={`review-gate review-gate-${item.gate ?? "missing"}`}>
+                {gateLabels[item.gate ?? "missing"] ?? item.gate}
+              </span>
             </button>
           ))}
         </div>

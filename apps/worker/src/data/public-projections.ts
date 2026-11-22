@@ -1,5 +1,5 @@
 import { homeResponseSchema } from "@workshop/contracts";
-import type { PublicRead } from "../http/public-cache";
+import type { PublicRead } from "../cache/public-cache";
 import { isStorageQuotaError, quotaErrorDetail, quotaExceededMessage } from "../quota-error";
 import { getPublicAuthorProfile, getPublicCollection } from "../storage/collections";
 import { getHome } from "../storage/home";
@@ -36,7 +36,13 @@ export async function publicProjection(operation: PublicRead["operation"], env: 
       case "client-asset":
         return await readClientAsset(operation.asset, env);
       case "home": {
-        const home = homeResponseSchema.parse(await getHome(env.DB, env));
+        const home = homeResponseSchema.parse(
+          await getHome(env.DB, env, (reason) =>
+            isStorageQuotaError(reason)
+              ? { code: "quota_exceeded", message: quotaExceededMessage(), details: quotaErrorDetail(reason) }
+              : null,
+          ),
+        );
         const segments = [home.site, home.discovery, home.projects];
         if (segments.every((segment) => !segment.ok)) {
           const quotaSeg = segments.find((segment) => !segment.ok && segment.error.code === "quota_exceeded");

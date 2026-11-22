@@ -55,3 +55,10 @@ export function normalizeProjectVersionBase(value: unknown): string {
 export function bumpProjectVersionWithLegacyFallback(value: unknown, bump: ProjectVersionBump = "patch"): string {
   return bumpProjectVersion(normalizeProjectVersionBase(value), bump);
 }
+
+export function ifMatchVersion(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const unquoted = value.trim().replace(/^"|"$|^'|'$/g, "");
+  const parsed = Number(unquoted);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}

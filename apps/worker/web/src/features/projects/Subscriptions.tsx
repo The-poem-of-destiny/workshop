@@ -1,3 +1,4 @@
+import { Image as ImageIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api, type ProjectSummary } from "../../api";
 import "../../styles/workspaces.css";
@@ -119,17 +120,51 @@ export function Subscriptions({
         <div className="subscription-list">
           {visibleItems.map((project) => (
             <article key={project.id} className="subscription-row">
+              <button
+                type="button"
+                className="subscription-cover"
+                aria-label={`查看 ${project.title} 详情`}
+                onClick={(event) => onOpen(project, event.currentTarget)}
+              >
+                {project.coverUrl ? (
+                  <img src={project.coverUrl} alt="" loading="lazy" decoding="async" />
+                ) : (
+                  <span className="subscription-cover-placeholder" aria-hidden="true">
+                    <ImageIcon />
+                  </span>
+                )}
+              </button>
               <div className="subscription-copy">
-                <h3>{project.title}</h3>
+                <h3>
+                  <button
+                    type="button"
+                    className="subscription-title-button"
+                    onClick={(event) => onOpen(project, event.currentTarget)}
+                  >
+                    {project.title}
+                  </button>
+                </h3>
                 <p className="workspace-muted">
-                  {project.author.name} · {project.projectType}
-                  {project.includedTypes.length ? `（包含：${project.includedTypes.join("、")}）` : ""}
-                  {" · "}v{project.versionLabel ?? "未标注"}
+                  {project.author.name} · v{project.versionLabel ?? "未标注"}
+                  {project.includedTypes.length ? ` · 包含：${project.includedTypes.join("、")}` : ""}
                 </p>
                 <p className="subscription-date">
                   最近更新 {project.updatedAt ? new Date(project.updatedAt).toLocaleDateString() : "日期未知"}
                   {project.publishedAt ? ` · 发布于 ${new Date(project.publishedAt).toLocaleDateString()}` : ""}
                 </p>
+                <div className="subscription-tags">
+                  <span className="project-type-tag" data-type={project.projectType}>
+                    {project.projectType}
+                  </span>
+                  {project.tags
+                    .filter((tag) => tag !== project.projectType)
+                    .slice(0, 8)
+                    .map((tag) => (
+                      <span key={tag} className="subscription-tag">
+                        {tag}
+                      </span>
+                    ))}
+                </div>
               </div>
               <div className="subscription-actions">
                 <button

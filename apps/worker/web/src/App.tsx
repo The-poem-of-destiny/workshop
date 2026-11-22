@@ -1,26 +1,22 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { ApiError, type ProjectSummary } from "./api";
-import { InstallDialog } from "./features/installed/InstallDialog";
-import { DiscordLinkPrompt, type DiscordPromptTarget } from "./features/policy/DiscordLinkPrompt";
-import { PolicyGateDialog } from "./features/policy/PolicyGateDialog";
-import { WorkshopFaqDialog } from "./features/policy/WorkshopFaqDialog";
+import { useCatalogue } from "./features/catalogue/useCatalogue";
+import { WorkshopCatalogue } from "./features/catalogue/WorkshopCatalogue";
+import { useHostConnection } from "./features/installed/useHostConnection";
+import { useInstalledProjects } from "./features/installed/useInstalledProjects";
+import type { DiscordPromptTarget } from "./features/policy/DiscordLinkPrompt";
 import { Discovery } from "./features/projects/Discovery";
 import { ProjectDetail } from "./features/projects/ProjectDetail";
-import { InstallInstanceChoice } from "./InstallInstanceChoice";
 import { parseSiteContent } from "./lib/siteContent";
-
-import { useCatalogue } from "./useCatalogue";
-import { useHostConnection } from "./useHostConnection";
-import { useInstalledProjects } from "./useInstalledProjects";
-import { useWorkshopHome } from "./useWorkshopHome";
-import { useWorkshopNavigation } from "./useWorkshopNavigation";
-import { useWorkshopSession } from "./useWorkshopSession";
-import { WorkshopCatalogue } from "./WorkshopCatalogue";
-import { WorkshopHeader } from "./WorkshopHeader";
-import { WorkshopMessages } from "./WorkshopMessages";
-import { WorkshopSidebar } from "./WorkshopSidebar";
-import { WorkshopWorkspaces } from "./WorkshopWorkspaces";
+import { useWorkshopHome } from "./shell/useWorkshopHome";
+import { useWorkshopNavigation } from "./shell/useWorkshopNavigation";
+import { useWorkshopSession } from "./shell/useWorkshopSession";
+import { WorkshopGlobalDialogs } from "./shell/WorkshopGlobalDialogs";
+import { WorkshopHeader } from "./shell/WorkshopHeader";
+import { WorkshopMessages } from "./shell/WorkshopMessages";
+import { WorkshopSidebar } from "./shell/WorkshopSidebar";
+import { WorkshopWorkspaces } from "./shell/WorkshopWorkspaces";
 
 function StatusNotice({
   title,
@@ -89,6 +85,7 @@ export function App() {
     isMobile,
     sidebarOpen,
     sidebarCollapsed,
+    setSidebarCollapsed,
     drawerToggle,
   } = nav;
   const catalogue = useCatalogue({ enabled: view === "browse", setError, home });
@@ -177,7 +174,11 @@ export function App() {
   const errorDetail =
     home.status === "error" && home.error instanceof ApiError && typeof home.error.details === "string"
       ? home.error.details
-      : null;
+      : home.status === "ready" && !home.data.site.ok && typeof home.data.site.error.details === "string"
+        ? home.data.site.error.details
+        : home.status === "ready" && !home.data.projects.ok && typeof home.data.projects.error.details === "string"
+          ? home.data.projects.error.details
+          : null;
 
   if (home.status === "error" && home.error instanceof ApiError && home.error.status === 503) {
     if (home.error.code === "maintenance") {
@@ -224,48 +225,49 @@ export function App() {
         />
       ) : null}
 
-      <div className="page-stage" inert={isMobile && sidebarOpen}>
-        <WorkshopMessages
-          site={site}
-          view={view}
-          error={error}
-          errorDetail={errorDetail}
-          setError={setError}
-          authInviteHint={authInviteHint}
-          clearAuthInviteHint={clearAuthInviteHint}
-          pendingPolicyUser={pendingPolicyUser}
-          onOpenPolicy={() => setPolicyDialogOpen(true)}
-          sessionError={sessionError}
-          retrySession={() => void refreshMe()}
-          loginFallback={loginFallback}
-          notice={notice}
-          setNotice={setNotice}
-        />
-
-        {view === "browse" && !hasFilters ? (
-          <div className="discovery-stage">
-            <Discovery
-              home={home}
-              onOpen={(project, opener) => {
-                detailOpener.current = opener;
-                setSelected(project);
-              }}
-            />
-          </div>
-        ) : null}
-      </div>
-
       <div className={`shell-body${sidebarCollapsed || !showDesktopSidebar ? " sidebar-collapsed" : ""}`}>
         {showDesktopSidebar || isMobile ? (
           <WorkshopSidebar
             {...nav}
             {...catalogue}
+            onCollapseDesktop={() => setSidebarCollapsed(true)}
+            me={me}
+            reviewer={reviewer}
             installedAvailable={installedAvailable}
             installedUpdateCount={installedUpdateCount}
           />
         ) : null}
 
         <main className="workshop-main" inert={isMobile && sidebarOpen}>
+          <WorkshopMessages
+            site={site}
+            view={view}
+            error={error}
+            errorDetail={errorDetail}
+            setError={setError}
+            authInviteHint={authInviteHint}
+            clearAuthInviteHint={clearAuthInviteHint}
+            pendingPolicyUser={pendingPolicyUser}
+            onOpenPolicy={() => setPolicyDialogOpen(true)}
+            sessionError={sessionError}
+            retrySession={() => void refreshMe()}
+            loginFallback={loginFallback}
+            notice={notice}
+            setNotice={setNotice}
+          />
+
+          {view === "browse" && !hasFilters ? (
+            <div className="discovery-stage">
+              <Discovery
+                home={home}
+                onOpen={(project, opener) => {
+                  detailOpener.current = opener;
+                  setSelected(project);
+                }}
+              />
+            </div>
+          ) : null}
+
           <WorkshopWorkspaces
             view={view}
             onDirtyChange={onDirtyChange}
@@ -297,6 +299,10 @@ export function App() {
           >
             <WorkshopCatalogue
               catalogue={catalogue}
+              isMobile={isMobile}
+              sidebarCollapsed={sidebarCollapsed}
+              onExpandSidebar={() => setSidebarCollapsed(false)}
+              onOpenMobileFilters={() => setSidebarOpen(true)}
               detailOpener={detailOpener}
               setSelected={setSelected}
               onDiscordPrompt={setDiscordPrompt}
@@ -339,43 +345,28 @@ export function App() {
         </main>
       </div>
 
-      <PolicyGateDialog
-        open={policyDialogOpen}
-        onOpenChange={setPolicyDialogOpen}
-        pendingUser={pendingPolicyUser}
+      <WorkshopGlobalDialogs
+        policyDialogOpen={policyDialogOpen}
+        setPolicyDialogOpen={setPolicyDialogOpen}
+        pendingPolicyUser={pendingPolicyUser}
         policyState={policyState}
-        onCompleted={completePolicy}
-        onLogout={logout}
-      />
-      <DiscordLinkPrompt
-        target={discordPrompt}
+        completePolicy={completePolicy}
+        logout={logout}
+        discordPrompt={discordPrompt}
+        setDiscordPrompt={setDiscordPrompt}
+        faqOpen={faqOpen}
+        setFaqOpen={setFaqOpen}
         communityInviteUrl={communityInviteUrl}
-        onClose={() => setDiscordPrompt(null)}
-      />
-      <WorkshopFaqDialog
-        open={faqOpen}
-        onOpenChange={setFaqOpen}
-        communityInviteUrl={communityInviteUrl}
-        onOpenPolicy={() => setPolicyDialogOpen(true)}
-      />
-      {me && installTarget && bridge ? (
-        <InstallDialog
-          open
-          projectTitle={installTarget.title}
-          intent={installTarget.intent}
-          scan={context?.installationScan ?? null}
-          bridge={bridge}
-          installBlock={installBlock}
-          primary={context?.worldbooks?.primary ?? null}
-          onCompleted={completeInstall}
-          onClose={() => setInstallTarget(null)}
-        />
-      ) : null}
-      <InstallInstanceChoice
-        instanceChoice={me ? instanceChoice : null}
+        me={me}
+        installTarget={installTarget}
+        setInstallTarget={setInstallTarget}
+        bridge={bridge}
+        context={context}
+        installBlock={installBlock}
+        completeInstall={completeInstall}
+        instanceChoice={instanceChoice}
         setInstanceChoice={setInstanceChoice}
         installing={installing}
-        installBlock={installBlock}
         prepareInstall={prepareInstall}
         instanceOperation={instanceOperation}
         installedItems={installedItems}

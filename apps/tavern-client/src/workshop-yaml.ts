@@ -1,5 +1,5 @@
+import type { InstallProject } from "@workshop/contracts/install";
 import { type Document, isMap, isNode, isScalar, parseDocument, visit } from "yaml";
-import type { InstallProject } from "../../../packages/contracts/src/install.js";
 import { projectWorldbook } from "./host-projection.js";
 import type { Identity, Row } from "./install-model.js";
 

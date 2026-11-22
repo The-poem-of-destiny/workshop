@@ -1,5 +1,5 @@
 import { WORKSHOP_LIMITS } from "@workshop/domain";
-import { type ClientAsset, clientChannelAsset, versionedClientAsset } from "../http/public-cache";
+import { type ClientAsset, clientChannelAsset, versionedClientAsset } from "../cache/public-cache";
 import { updateAdminSite } from "../storage/admin-site.js";
 import { bannerSourceUrl, getBanner, projectBanner, readBannerState } from "../storage/home.js";
 import { getSessionByToken } from "../storage/sessions.js";

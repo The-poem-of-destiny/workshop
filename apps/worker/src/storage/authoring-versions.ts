@@ -219,3 +219,29 @@ export async function getVersionForProject(
     .bind(versionId, projectId, session.userId, session.role)
     .first<VersionAccess>();
 }
+
+export async function countRecentMetadataMutations(
+  db: D1Database,
+  projectId: string,
+  userId: string,
+  cutoffIso: string,
+): Promise<number> {
+  const count = await db
+    .prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM audit_events WHERE target_id = ? AND actor_id = ?
+          AND action IN ('project.patch', 'project.published_metadata.patch', 'project.published_cover.put') AND created_at > ?)
+        + (SELECT COUNT(*) FROM project_versions WHERE project_id = ? AND created_by = ? AND created_at > ?) AS total
+    `)
+    .bind(projectId, userId, cutoffIso, projectId, userId, cutoffIso)
+    .first<{ total: number }>();
+  return count?.total ?? 0;
+}
+
+export async function listVersionsChangeEvidenceRows(db: D1Database, projectId: string, versionIds: [string, string]) {
+  const rows = await db
+    .prepare("SELECT id, manifest_hash, entry_index FROM project_versions WHERE project_id = ? AND id IN (?, ?)")
+    .bind(projectId, versionIds[0], versionIds[1])
+    .all<{ id: string; manifest_hash: string | null; entry_index: string | null }>();
+  return rows.results;
+}

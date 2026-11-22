@@ -7,23 +7,10 @@ import {
   validateProjectContentText,
 } from "@workshop/domain";
 import { analyzeFiles, REVIEW_CHECKER_VERSION, routeGate } from "./content-checker";
+import type { RunTarget } from "./data/contracts";
 import type { Env } from "./env";
 import { validateContentStream } from "./streaming-content";
 import { maintenanceUnavailable, withWriteBarrier } from "./write-barrier";
-
-interface RunTarget {
-  id: string;
-  project_id: string;
-  version_id: string;
-  base_published_version_id: string | null;
-  status: string;
-  check_status: string;
-  check_attempts: number;
-  lease_token: string | null;
-  lease_until: string | null;
-  client_gate: string | null;
-  checker_version: string | null;
-}
 
 const MAX_ATTEMPTS = 3;
 

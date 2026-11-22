@@ -148,8 +148,8 @@ def create_current_snapshot(path, migrations=MIGRATIONS):
 
 def review_current_fixture(document):
     """Explicit decisions for the known synthetic fixture identities only."""
-    choices = {"vp": ("系统核心", []), "vw": ("玩法", ["事件"]), "vn": ("体验优化", []),
-               "vr": ("角色", []), "vc": ("系统核心", []), "ve": ("事件", []), "vu": ("内容扩展", [])}
+    choices = {"vp": ("系统核心", []), "vw": ("规则扩展", ["内容扩展"]), "vn": ("体验优化", []),
+               "vr": ("角色", []), "vc": ("系统核心", []), "ve": ("内容扩展", []), "vu": ("内容扩展", [])}
     if {row["id"] for row in document["records"]} != set(choices):
         raise ValueError("not the synthetic current snapshot fixture")
     for row in document["records"]:
@@ -221,7 +221,7 @@ class SourceReconciliationTest(unittest.TestCase):
         with taxonomy.snapshot(source) as (db, source_hash):
             review = taxonomy.review_document(db, source_hash, "legacy")
         for row in review["records"]:
-            row.update(projectType="玩法" if row["id"] == "draft" else "角色",
+            row.update(projectType="规则扩展" if row["id"] == "draft" else "角色",
                        includedTypes=["内容扩展"] if row["id"] == "draft" else [],
                        reviewed=True, tagsAcknowledged=True)
         return review
@@ -363,7 +363,7 @@ class SourceReconciliationTest(unittest.TestCase):
                        if row["id"] == project["working_version_id"])
         expected = {
             "title": "Working title", "description": "Working description",
-            "project_type": "玩法", "included_types": '["内容扩展"]',
+            "project_type": "规则扩展", "included_types": '["内容扩展"]',
             "version_label": "working-2", "requirements": json.dumps({"schemaVersion":1,"dependencies":[],"conflicts":[],"notes":"Working precautions"},sort_keys=True,separators=(",",":")),
             "cover_position_x": 0.7, "cover_position_y": 0.8, "cover_zoom": 2.1,
             "tags": '["working","shared","working-custom","working-facet"]',
@@ -518,7 +518,7 @@ class TaxonomyReviewTest(unittest.TestCase):
                     else:
                         db.execute("CREATE TABLE projects (id TEXT)")
                         db.execute("CREATE TABLE project_versions (id TEXT, project_id TEXT, project_type TEXT, tags TEXT)")
-                    for index, primary in enumerate(("系统", *taxonomy.PROJECT_TYPES)):
+                    for index, primary in enumerate(("系统", "事件", "玩法", *taxonomy.PROJECT_TYPES)):
                         identity = str(index)
                         if kind == "legacy":
                             db.execute("INSERT INTO projects VALUES (?,?,?)", (identity, primary, '["人类"]'))
@@ -534,9 +534,9 @@ class TaxonomyReviewTest(unittest.TestCase):
                     review_path = directory / (kind + "-review.json")
                     result = taxonomy.prepare_review(source, kind, review_path)
                     document = taxonomy.read_review(review_path)
-                    self.assertEqual(result, {"ok": True, "records": 7, "unresolved": 7})
+                    self.assertEqual(result, {"ok": True, "records": 8, "unresolved": 8})
                     self.assertEqual([row["projectType"] for row in document["records"]],
-                                     ["系统核心", *taxonomy.PROJECT_TYPES])
+                                     ["系统核心", "内容扩展", "规则扩展", *taxonomy.PROJECT_TYPES])
                     self.assertTrue(all(row["required"] == [] and row["tags"]["issues"] == []
                                         and row["reviewed"] is False and row["tagsAcknowledged"] is False
                                         for row in document["records"]))
@@ -552,7 +552,7 @@ class TaxonomyReviewTest(unittest.TestCase):
                     for row in document["records"]:
                         row.update(reviewed=True, tagsAcknowledged=True)
                     review_path.write_text(taxonomy.stable(document), encoding="utf-8")
-                    self.assertEqual(len(taxonomy.load_review(source, review_path, kind)), 7)
+                    self.assertEqual(len(taxonomy.load_review(source, review_path, kind)), 8)
                     self.assertEqual(source.read_bytes(), original)
 
 
@@ -600,7 +600,7 @@ class CurrentTaxonomySnapshotTest(unittest.TestCase):
             self.assertEqual(db.execute("SELECT project_type,included_types,tags FROM project_versions WHERE id='vp'").fetchone(),
                              ("系统核心", "[]", '["cbz","hnh","1011"]'))
             self.assertEqual(db.execute("SELECT project_type,included_types FROM project_versions WHERE id='vw'").fetchone(),
-                             ("玩法", '["事件"]'))
+                             ("规则扩展", '["内容扩展"]'))
             self.assertEqual(db.execute("SELECT p.id FROM project_search s JOIN projects p ON p.rowid=s.rowid "
                                         "WHERE project_search MATCH '1011'").fetchall(), [("p",)])
             self.assertFalse(set(taxonomy.columns(db, "project_versions")) & taxonomy.OBSOLETE)
@@ -864,7 +864,7 @@ sys.stderr.write(status + (json.dumps(meta) if '%{header_json}' in options['writ
                  "UPDATE project_versions SET description=(SELECT description FROM original.project_versions WHERE id='vn') WHERE id='vn'"),
                 ("UPDATE project_unversioned_notes SET comment_text='lost old note'",
                  "UPDATE project_unversioned_notes SET comment_text=(SELECT comment_text FROM original.project_ratings)"),
-                ("UPDATE project_versions SET project_type='事件' WHERE id='vn'", "UPDATE project_versions SET project_type='体验优化' WHERE id='vn'")):
+                ("UPDATE project_versions SET project_type='内容扩展' WHERE id='vn'", "UPDATE project_versions SET project_type='体验优化' WHERE id='vn'")):
             with self.subTest(sql=sql):
                 with sqlite3.connect(path) as db:
                     db.execute(sql)

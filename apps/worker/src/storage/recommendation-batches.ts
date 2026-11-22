@@ -3,8 +3,12 @@ import {
   type RecommendationMetadata,
   recommendationBatchResultSchema,
 } from "@workshop/contracts";
-import { type RecommendationCandidate, selectRecommendations } from "@workshop/domain";
-import { FIXED_TRAFFIC_PROFILE } from "../traffic-profile.js";
+import {
+  discordAvatarUrl,
+  type RecommendationCandidate,
+  selectRecommendations,
+  type TrafficProfile,
+} from "@workshop/domain";
 import { getPublishedProjectsByIds } from "./projects.js";
 import { loadEstimatedOpportunities } from "./recommendation-opportunities";
 import { recommendationPolicy } from "./recommendation-policy";
@@ -91,6 +95,7 @@ export async function buildRecommendationBatch(
   referenceTime: Date | number,
   configuration: string | undefined,
   slot: { start: number; end: number },
+  trafficProfile: TrafficProfile,
 ): Promise<void> {
   const policy = recommendationPolicy(configuration);
   const reference = new Date(referenceTime);
@@ -185,7 +190,7 @@ export async function buildRecommendationBatch(
       db
         .prepare(`INSERT INTO recommendation_batch_activations(batch_id,hourly_mean,activated_at)
           SELECT id,?,? FROM recommendation_batches WHERE id=? AND status='complete'`)
-        .bind(JSON.stringify(FIXED_TRAFFIC_PROFILE.hourlyMean), activatedAt, batchId),
+        .bind(JSON.stringify(trafficProfile.hourlyMean), activatedAt, batchId),
       db
         .prepare(`INSERT INTO recommendation_batch_eligibility(batch_id,project_id,project_version_id)
           SELECT a.batch_id, p.id, p.published_version_id FROM recommendation_batch_activations a, projects p, json_each(?) item
@@ -253,9 +258,7 @@ export async function readRecommendationBatch(db: D1Database, now = Date.now(), 
                   curator: {
                     id: rec.curator_id,
                     name: rec.curator_name,
-                    avatarUrl: rec.curator_avatar
-                      ? `https://cdn.discordapp.com/avatars/${rec.curator_id}/${rec.curator_avatar}.png`
-                      : null,
+                    avatarUrl: discordAvatarUrl(rec.curator_id, rec.curator_avatar),
                   },
                   comment: rec.comment,
                   projectVersionId: rec.project_version_id,

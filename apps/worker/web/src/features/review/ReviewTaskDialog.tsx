@@ -31,7 +31,7 @@ export function ReviewTaskDialog({
       }}
     >
       <DialogContent
-        className="review-task-dialog"
+        className="review-task-dialog mobile-sheet"
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           if (returnFocus.current?.isConnected) returnFocus.current.focus({ preventScroll: true });

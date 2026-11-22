@@ -2,10 +2,11 @@ import { env, SELF } from "cloudflare:test";
 import { homeResponseSchema } from "@workshop/contracts";
 import { CURRENT_POLICY_VERSION } from "@workshop/domain";
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
+import { canonicalPublicRequest, PUBLIC_READ_PATH } from "../src/cache/public-cache";
 import { CachedReads } from "../src/data/cached-reads";
 import type { DataEnv } from "../src/data/env";
-import { canonicalPublicRequest, PUBLIC_READ_PATH } from "../src/http/public-cache";
 import { buildRecommendationBatch, readRecommendationBatch } from "../src/storage/recommendation-batches";
+import { FIXED_TRAFFIC_PROFILE } from "../src/traffic-profile";
 import { applySchema } from "./support/schema";
 
 const bindings = env as unknown as DataEnv;
@@ -79,7 +80,7 @@ async function seedRecommendation(
 }
 async function buildBatch() {
   const start = Date.now();
-  await buildRecommendationBatch(bindings.DB, start, undefined, { start, end: start + hourMs });
+  await buildRecommendationBatch(bindings.DB, start, undefined, { start, end: start + hourMs }, FIXED_TRAFFIC_PROFILE);
 }
 async function discovery() {
   // Exercise the public projection without retaining cache entries between live mutations.

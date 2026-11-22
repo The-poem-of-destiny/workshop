@@ -5,8 +5,8 @@ import {
   projectDetailSchema,
   projectListResponseSchema,
 } from "@workshop/contracts";
-import { presetTagGroup } from "@workshop/domain";
-import { parseIncludedTypes, parseRequirements } from "./authoring-model.js";
+import { discordAvatarUrl, presetTagGroup } from "@workshop/domain";
+import { parseIncludedTypes, parseRequirements, parseTags } from "./authoring-model.js";
 import { listPublicCollectionsForProject } from "./collections.js";
 import { sha256Hex } from "./identity.js";
 
@@ -103,14 +103,6 @@ const PUBLIC_PROJECT = `
   AND p.deleted_at IS NULL
 `;
 
-function parseTags(value: string): string[] {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((tag): tag is string => typeof tag === "string") : [];
-  } catch {
-    return [];
-  }
-}
 function publicImageUrl(key: string, publicKey: string | null, baseUrl?: string): string {
   return baseUrl && publicKey ? `${baseUrl.replace(/\/$/, "")}/${publicKey}` : `/api/v1/public-assets/${key}`;
 }
@@ -133,11 +125,8 @@ function parseGallery(value: string, baseUrl?: string): ProjectSummary["gallery"
     return [];
   }
 }
-function avatarUrl(userId: string, avatar: string | null): string | null {
-  if (!avatar) return null;
-  if (avatar.startsWith("https://")) return avatar;
-  return `https://cdn.discordapp.com/avatars/${userId}/${avatar}.png`;
-}
+
+const avatarUrl = discordAvatarUrl;
 
 function toSummary(row: ProjectRow, publicAssetsBaseUrl?: string): ProjectSummary {
   return {
@@ -292,15 +281,16 @@ export async function listPublishedProjects(
   const bindings: unknown[] = search ? [search.match] : [];
 
   if (query.projectType.length > 0) {
-    const placeholders = query.projectType.map(() => "?").join(", ");
-    const primary = `r.project_type IN (${placeholders})`;
-    where.push(
-      query.includeContained
-        ? `(${primary} OR EXISTS (SELECT 1 FROM json_each(r.included_types) WHERE value IN (${placeholders})))`
-        : primary,
-    );
-    bindings.push(...query.projectType);
-    if (query.includeContained) bindings.push(...query.projectType);
+    if (query.includeContained) {
+      for (const type of query.projectType) {
+        where.push("(r.project_type = ? OR EXISTS (SELECT 1 FROM json_each(r.included_types) WHERE value = ?))");
+        bindings.push(type, type);
+      }
+    } else {
+      const placeholders = query.projectType.map(() => "?").join(", ");
+      where.push(`r.project_type IN (${placeholders})`);
+      bindings.push(...query.projectType);
+    }
   }
   if (query.authorId) {
     where.push("p.author_id = ?");

@@ -7,8 +7,10 @@ import {
   serializeAuditDetail,
   type VisibilityUpdate,
 } from "@workshop/contracts";
+import { discordAvatarUrl } from "@workshop/domain";
 import {
   getAuthoringProject,
+  parseGallery,
   parseIncludedTypes,
   parseRequirements,
   parseTags,
@@ -51,27 +53,7 @@ export interface AuthoringProject {
   workingVersionId: string;
 }
 
-function avatarUrl(userId: string, avatar: string | null): string | null {
-  if (!avatar) return null;
-  return avatar.startsWith("https://") ? avatar : `https://cdn.discordapp.com/avatars/${userId}/${avatar}.png`;
-}
-function parseGallery(value: string): Array<{ slot: number; url: string }> {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (item): item is { slot: number; url: string } =>
-        typeof item === "object" &&
-        item !== null &&
-        "slot" in item &&
-        typeof item.slot === "number" &&
-        "url" in item &&
-        typeof item.url === "string",
-    );
-  } catch {
-    return [];
-  }
-}
+const avatarUrl = discordAvatarUrl;
 
 function toSummary(row: SummaryRow): ProjectSummary {
   return {
@@ -385,4 +367,24 @@ export async function updateVisibility(
     )
     .run();
   return nextVersion;
+}
+
+export async function getLatestProjectSubmission(db: D1Database, projectId: string) {
+  return db
+    .prepare(`
+      SELECT s.id, s.version_id, s.status, ar.status AS check_status, s.resolved_at, r.decision, r.reason
+      FROM submissions s JOIN automated_reviews ar ON ar.submission_id = s.id
+      LEFT JOIN manual_reviews r ON r.submission_id = s.id
+      WHERE s.project_id = ? ORDER BY s.submitted_at DESC LIMIT 1
+    `)
+    .bind(projectId)
+    .first<{
+      id: string;
+      version_id: string;
+      status: string;
+      check_status: string;
+      resolved_at: string | null;
+      decision: string | null;
+      reason: string | null;
+    }>();
 }

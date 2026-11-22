@@ -1,4 +1,4 @@
-import { MAX_CUSTOM_TAGS, MAX_SELECTED_TAGS, PROJECT_TYPES } from "@workshop/domain";
+import { MAX_CUSTOM_TAGS, MAX_SELECTED_TAGS, PROJECT_TYPES, WORKSHOP_LIMITS } from "@workshop/domain";
 import { z } from "zod";
 import { projectCollectionBadgeSchema } from "./collections.js";
 import { visibilitySchema } from "./identity.js";
@@ -174,7 +174,12 @@ export const projectBatchQuerySchema = z
     ids: z
       .string()
       .transform((value) => value.split(",").map((id) => id.trim()))
-      .pipe(z.array(z.string().min(1).max(80)).min(1).max(50))
+      .pipe(
+        z
+          .array(z.string().min(1).max(WORKSHOP_LIMITS.projectBatchMaxIdLength))
+          .min(1)
+          .max(WORKSHOP_LIMITS.projectBatchMaxIds),
+      )
       .transform((ids) => [...new Set(ids)].sort()),
   })
   .strict();

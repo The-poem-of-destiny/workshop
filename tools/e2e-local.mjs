@@ -253,7 +253,7 @@ async function main() {
             description: "e2e",
             discordThreadUrl: "https://discord.com/channels/1417861565679669272/222222222222222222",
             projectType: "角色",
-            includedTypes: ["内容扩展", "玩法"],
+            includedTypes: ["内容扩展", "规则扩展"],
             tags: taxonomyTags,
           }),
         },
@@ -263,7 +263,10 @@ async function main() {
       project = JSON.parse(body);
       assert(project.project.id && project.workingVersionId, "create shape");
       assert(project.project.projectType === "角色", "one required primary type is returned");
-      assert(project.project.includedTypes.join("、") === "内容扩展、玩法", "included types stay separate from tags");
+      assert(
+        project.project.includedTypes.join("、") === "内容扩展、规则扩展",
+        "included types stay separate from tags",
+      );
       assert(project.project.tags.length === 20, "twenty ordinary tags are stored without classification slots");
       const afterCreate = await api("/api/v1/projects");
       assert(afterCreate.response.status === 200, `post-create list ${afterCreate.response.status}`);
@@ -399,7 +402,7 @@ async function main() {
           body: JSON.stringify({
             title: "E2E Sort",
             description: "ordering",
-            projectType: "事件",
+            projectType: "体验优化",
             includedTypes: [],
             tags: ["兽族", "冒险者", "e2e-a"],
           }),
@@ -531,8 +534,8 @@ async function main() {
           body: JSON.stringify({
             title,
             description: "manual review",
-            projectType: "事件",
-            includedTypes: ["角色", "内容扩展"],
+            projectType: "内容扩展",
+            includedTypes: ["角色", "规则扩展"],
             tags: ["单次事件", "人类", "cbz"],
           }),
         },
@@ -737,7 +740,7 @@ async function main() {
             "detail renders all twenty ordinary tags",
           );
           assert(
-            (await page.locator(".detail-included-types").textContent()).includes("玩法"),
+            (await page.locator(".detail-included-types").textContent()).includes("规则扩展"),
             "detail labels contained types separately",
           );
           assert(
@@ -808,17 +811,33 @@ async function main() {
             count: 0,
             label: "primary filter is not an implicit containment filter",
           });
-          await expectFilters(() => sidebar.getByRole("checkbox", { name: "同时匹配包含该类型的项目" }).check(), {
+          await expectFilters(() => sidebar.getByRole("button", { name: "体验优化", exact: true }).click(), {
+            projectTypes: ["体验优化"],
+            count: 1,
+            label: "default primary category buttons behave as single-select",
+          });
+          await expectFilters(() => sidebar.getByRole("button", { name: "内容扩展", exact: true }).click(), {
+            projectTypes: ["内容扩展"],
+            count: 0,
+            label: "switching single-select primary category replaces previous selection",
+          });
+          await expectFilters(() => sidebar.getByRole("checkbox", { name: "筛选同时满足多个主要分类的项目" }).check(), {
             projectTypes: ["内容扩展"],
             includeContained: true,
             count: 1,
-            label: "containment toggle includes the character project",
+            label: "multi-category mode includes projects containing the category",
           });
-          await expectFilters(() => sidebar.getByRole("button", { name: "事件", exact: true }).click(), {
-            projectTypes: ["内容扩展", "事件"],
+          await expectFilters(() => sidebar.getByRole("button", { name: "规则扩展", exact: true }).click(), {
+            projectTypes: ["内容扩展", "规则扩展"],
             includeContained: true,
-            count: 2,
-            label: "multiple primary buttons serialize repeated OR parameters",
+            count: 1,
+            label: "multi-category mode allows selecting multiple categories with AND logic",
+          });
+          await expectFilters(() => sidebar.getByRole("button", { name: "体验优化", exact: true }).click(), {
+            projectTypes: ["内容扩展", "规则扩展", "体验优化"],
+            includeContained: true,
+            count: 0,
+            label: "multi-category AND excludes projects missing any selected category",
           });
           await expectFilters(() => sidebar.getByRole("button", { name: "重置", exact: true }).click(), {
             count: 2,
@@ -1047,11 +1066,17 @@ async function main() {
             };
             await openDetail();
             const form = page.getByRole("region", { name: "版本推荐", exact: true });
-            const ineligible = "请先订阅此项目，再推荐当前版本；取消订阅后不可新增或编辑，仍可撤回已有推荐。";
+            const ineligible = "订阅作品后即可推荐当前版本。";
+            assert(
+              (await form.count()) === 0 &&
+                (await page.locator(".detail").getByRole("textbox", { name: /推荐/ }).count()) === 0,
+              "project detail keeps the public recommendation section collapsed until clicked",
+            );
+            await page.locator(".detail").getByRole("button", { name: "写推荐语", exact: true }).click();
             await form.getByText(ineligible, { exact: true }).waitFor();
             assert(
               (await page.locator(".detail").getByRole("textbox", { name: /推荐/ }).count()) === 1,
-              "project detail exposes one public recommendation editor",
+              "clicking the toggle reveals one public recommendation editor",
             );
             assert(
               await form.getByRole("button", { name: "推荐当前版本", exact: true }).isDisabled(),
@@ -1085,6 +1110,7 @@ async function main() {
               "unsubscribe immediately disables create/edit while preserving own retraction",
             );
             await openDetail();
+            await page.locator(".detail").getByRole("button", { name: "编辑推荐语", exact: true }).click();
             await form.getByText(ineligible, { exact: true }).waitFor();
             assert(
               (await form.getByRole("button", { name: "更新当前版本推荐", exact: true }).isDisabled()) &&
@@ -1145,6 +1171,7 @@ async function main() {
               "own retraction succeeds without restoring subscription or eligibility",
             );
             await openDetail();
+            await page.locator(".detail").getByRole("button", { name: "写推荐语", exact: true }).click();
             await form.getByText(ineligible, { exact: true }).waitFor();
             assert(
               (await form.getByRole("textbox", { name: "公开推荐说明（可选）" }).inputValue()) === "" &&
@@ -1266,8 +1293,8 @@ async function main() {
               await primary
                 .locator("option")
                 .evaluateAll((options) => options.map((option) => option.value).filter(Boolean)),
-            ) === JSON.stringify(["系统核心", "角色", "内容扩展", "玩法", "事件", "体验优化"]),
-            "creation offers exactly the six approved primary types",
+            ) === JSON.stringify(["系统核心", "角色", "内容扩展", "规则扩展", "体验优化"]),
+            "creation offers exactly the five approved primary types",
           );
           await primary.selectOption("角色");
           const included = create.getByRole("group", { name: "包含的其他类型（可选）", exact: true });
@@ -1279,23 +1306,23 @@ async function main() {
             (await included.getByRole("checkbox", { name: "角色", exact: true }).count()) === 0,
             "primary is not offered as an included type",
           );
-          await included.getByRole("checkbox", { name: "事件", exact: true }).check();
+          await included.getByRole("checkbox", { name: "规则扩展", exact: true }).check();
           await included.getByRole("checkbox", { name: "内容扩展", exact: true }).check();
-          await primary.selectOption("事件");
+          await primary.selectOption("规则扩展");
           assert(
-            (await included.getByRole("checkbox", { name: "事件", exact: true }).count()) === 0,
+            (await included.getByRole("checkbox", { name: "规则扩展", exact: true }).count()) === 0,
             "changing primary removes its duplicate inclusion",
           );
           await primary.selectOption("体验优化");
           assert(
-            !(await included.getByRole("checkbox", { name: "事件", exact: true }).isChecked()),
+            !(await included.getByRole("checkbox", { name: "规则扩展", exact: true }).isChecked()),
             "cleaned inclusion does not return after another primary change",
           );
           assert(
             await included.getByRole("checkbox", { name: "内容扩展", exact: true }).isChecked(),
             "unrelated included choices survive primary changes",
           );
-          await included.getByRole("checkbox", { name: "玩法", exact: true }).check();
+          await included.getByRole("checkbox", { name: "规则扩展", exact: true }).check();
           assert(
             (await create.locator(".tag-group summary").first().textContent()).startsWith("优化方向"),
             "chosen primary's tag groups are first",
@@ -1339,7 +1366,7 @@ async function main() {
           const submitted = createdResponse.request().postDataJSON();
           assert(submitted.projectType === "体验优化", "creation submits one primary value");
           assert(
-            submitted.includedTypes.join("、") === "内容扩展、玩法",
+            submitted.includedTypes.join("、") === "内容扩展、规则扩展",
             "creation submits separate included types after cleanup",
           );
           assert(
@@ -1350,12 +1377,12 @@ async function main() {
             !("extensionType" in submitted) && !("displayTags" in submitted) && !("facets" in submitted),
             "creation sends no obsolete taxonomy semantics",
           );
-          let editor = page.getByRole("dialog", { name: "E2E Taxonomy Draft · 编辑任务", exact: true });
+          let editor = page.getByRole("dialog", { name: "E2E Taxonomy Draft · 编辑项目", exact: true });
           await editor.waitFor({ state: "visible", timeout: 10_000 });
-          await editor.getByRole("combobox", { name: "主要分类（必选）", exact: true }).selectOption("玩法");
+          await editor.getByRole("combobox", { name: "主要分类（必选）", exact: true }).selectOption("规则扩展");
           const editIncluded = editor.getByRole("group", { name: "包含的其他类型（可选）", exact: true });
           assert(
-            (await editIncluded.getByRole("checkbox", { name: "玩法", exact: true }).count()) === 0,
+            (await editIncluded.getByRole("checkbox", { name: "规则扩展", exact: true }).count()) === 0,
             "editor also excludes the selected primary",
           );
           await editIncluded.getByRole("checkbox", { name: "角色", exact: true }).check();
@@ -1371,8 +1398,8 @@ async function main() {
           assert(saved.ok(), `browser taxonomy save ${saved.status()}: ${await saved.text()}`);
           const patch = saved.request().postDataJSON();
           assert(
-            patch.projectType === "玩法" &&
-              !patch.includedTypes.includes("玩法") &&
+            patch.projectType === "规则扩展" &&
+              !patch.includedTypes.includes("规则扩展") &&
               patch.includedTypes.includes("角色"),
             "edit payload maintains primary/included invariants",
           );
@@ -1390,10 +1417,10 @@ async function main() {
           await page.reload({ waitUntil: "networkidle" });
           await page.getByRole("button", { name: "我的项目", exact: true }).click();
           await page.locator(".workspace-project-row").filter({ hasText: "E2E Taxonomy Draft" }).click();
-          editor = page.getByRole("dialog", { name: "E2E Taxonomy Draft · 编辑任务", exact: true });
+          editor = page.getByRole("dialog", { name: "E2E Taxonomy Draft · 编辑项目", exact: true });
           await editor.waitFor({ state: "visible" });
           assert(
-            (await editor.getByRole("combobox", { name: "主要分类（必选）", exact: true }).inputValue()) === "玩法",
+            (await editor.getByRole("combobox", { name: "主要分类（必选）", exact: true }).inputValue()) === "规则扩展",
             "saved primary survives a full reload",
           );
           assert(
@@ -1440,7 +1467,7 @@ async function main() {
           const indexedProject = page.locator(".project-list .member-row").filter({ hasText: "E2E Project" });
           await indexedProject.waitFor({ state: "visible" });
           assert(
-            (await indexedProject.locator(".status").textContent()).includes("角色（包含：内容扩展、玩法）"),
+            (await indexedProject.locator(".status").textContent()).includes("角色（包含：内容扩展、规则扩展）"),
             "admin index separates primary and included types",
           );
           await screenshot(page, "admin-project-taxonomy");
@@ -1472,8 +1499,8 @@ async function main() {
           await item.press("Enter");
           await task.getByRole("button", { name: "返回队列", exact: true }).waitFor({ state: "visible" });
           const taxonomyFacts = (await task.locator(".review-facts").textContent()).replace(/\s+/g, "");
-          assert(taxonomyFacts.includes("主要分类事件"), "review displays the frozen primary classification");
-          assert(taxonomyFacts.includes("包含类型角色、内容扩展"), "review displays frozen included types");
+          assert(taxonomyFacts.includes("主要分类内容扩展"), "review displays the frozen primary classification");
+          assert(taxonomyFacts.includes("包含类型角色、规则扩展"), "review displays frozen included types");
           assert(
             taxonomyFacts.includes("普通标签单次事件、人类、cbz"),
             "review retains full ordinary tags and stored abbreviations",
@@ -1619,8 +1646,8 @@ async function main() {
               return /\/submit$/.test(url.pathname) && response.request().method() === "POST";
             }),
             page
-              .getByRole("dialog", { name: "E2E Pending · 编辑任务", exact: true })
-              .getByRole("button", { name: "资料、封面与内容统一送审", exact: true })
+              .getByRole("dialog", { name: "E2E Pending · 编辑项目", exact: true })
+              .getByRole("button", { name: "提交审核", exact: true })
               .click(),
           ]);
           assert(
@@ -1766,7 +1793,7 @@ async function main() {
             await page.goto(`${base}/`, { waitUntil: "networkidle" });
             await page.getByRole("button", { name: "我的项目", exact: true }).click();
             await page.locator(".workspace-project-row").filter({ hasText: "E2E Taxonomy Draft" }).click();
-            const editor = page.getByRole("dialog", { name: "E2E Taxonomy Draft · 编辑任务", exact: true });
+            const editor = page.getByRole("dialog", { name: "E2E Taxonomy Draft · 编辑项目", exact: true });
             const titleBox = editor.getByRole("textbox", { name: "标题", exact: true });
             await editor.waitFor({ state: "visible" });
             assert(await titleBox.isDisabled(), "editor is frozen while submission is pending review");
