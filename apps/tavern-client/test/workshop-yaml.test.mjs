@@ -38,7 +38,9 @@ test("quoted and flow-style root namespaces are recognized", () => {
   const content = block('{"workshop_entry": {version: 1, project_id: project, entry_key: entry, version_id: v1}}');
   assert.deepEqual(entryIdentity(content), id);
   const index = block('{"workshop_index": {version: 1, projects: []}}');
+  assert.equal(INDEX_NAME, "[工坊]创意工坊项目注册表");
   assert.deepEqual(readIndex([{ name: INDEX_NAME, content: index }]), []);
+  assert.deepEqual(readIndex([{ name: "[WS]创意工坊项目注册表", content: index }]), []);
 });
 
 test("damaged or duplicate root namespaces are rejected", () => {

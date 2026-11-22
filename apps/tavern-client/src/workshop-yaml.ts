@@ -3,7 +3,8 @@ import { type Document, isMap, isNode, isScalar, parseDocument, visit } from "ya
 import { projectWorldbook } from "./host-projection.js";
 import type { Identity, Row } from "./install-model.js";
 
-export const INDEX_NAME = "[WS]创意工坊项目注册表";
+export const INDEX_NAME = "[工坊]创意工坊项目注册表";
+const LEGACY_INDEX_NAME = "[WS]创意工坊项目注册表";
 const BLOCK = /<%#([\s\S]*?)%>/g;
 const LEGACY = /<%# poem-workshop-meta:v1-start\n[\s\S]*?\npoem-workshop-meta:v1-end %>/g;
 
@@ -76,7 +77,8 @@ export function writeEntry(row: Row, id: Identity): Row {
   return result;
 }
 export function isIndex(row: Row) {
-  return String(row.name ?? row.comment ?? "") === INDEX_NAME;
+  const name = String(row.name ?? row.comment ?? "");
+  return name === INDEX_NAME || name === LEGACY_INDEX_NAME;
 }
 export function readIndex(rows: Row[]): IndexProject[] {
   const indices = rows.filter(isIndex);
@@ -114,6 +116,8 @@ export function updateIndex(rows: Row[], remove: string | null, project: IndexPr
   const row: Row = old
     ? structuredClone(old)
     : projectWorldbook({ uid, name: INDEX_NAME, enabled: false, content: "" });
+  row.name = INDEX_NAME;
+  if ("comment" in row) row.comment = INDEX_NAME;
   row.content = setNamespace(String(row.content ?? ""), "workshop_index", { version: 1, projects });
   return old ? rows.map((item) => (item === old ? row : item)) : [...rows, row];
 }

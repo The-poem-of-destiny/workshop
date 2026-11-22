@@ -18,7 +18,7 @@ const bindings = env as unknown as DataEnv;
 const now = "2026-10-21T00:00:00.000Z";
 const validWorldbook = JSON.stringify({ entries: [{ uid: 1, name: "Entry", content: "Text" }] });
 const validWorldbookBytes = new TextEncoder().encode(validWorldbook).byteLength;
-const markedWorldbook = JSON.stringify({ entries: [{ uid: 1, name: "[WS] Entry", content: "Text" }] });
+const markedWorldbook = JSON.stringify({ entries: [{ uid: 1, name: "[工坊] Entry", content: "Text" }] });
 
 async function tokenHash(token: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
@@ -107,13 +107,13 @@ describe("authoring write paths", () => {
     const source = JSON.stringify({
       entries: {
         one: { comment: "Library", content: "data" },
-        two: { name: "[WS] Caller", content: "<%- await getwi(/^\\[WS\\] Library$/) %>" },
+        two: { name: "[工坊] Caller", content: "<%- await getwi(/^\\[工坊\\] Library$/) %>" },
       },
     });
     const preview = await loadWorldbookAsset(new File([source], "book.json"));
     expect(preview.ok).toBe(true);
     if (!preview.ok) throw new Error(preview.error);
-    expect(preview.value.entries.map((entry) => entry.name)).toEqual(["[WS] Library", "[WS] Caller"]);
+    expect(preview.value.entries.map((entry) => entry.name)).toEqual(["[工坊] Library", "[工坊] Caller"]);
     const path = `/${draft.project.id}/versions/${draft.workingVersionId}/files/worldbook`;
     const uploaded = await request(path, {
       method: "PUT",
@@ -129,8 +129,8 @@ describe("authoring write paths", () => {
       entries: Record<string, { name: string; comment?: string; content: string }>;
     };
     expect(JSON.parse(preview.value.text)).toEqual(saved);
-    expect(saved.entries.one).toEqual({ name: "[WS] Library", comment: "[WS] Library", content: "data" });
-    expect(saved.entries.two).toEqual({ name: "[WS] Caller", content: "<%- await getwi(/^\\[WS\\] Library$/) %>" });
+    expect(saved.entries.one).toEqual({ name: "[工坊] Library", comment: "[工坊] Library", content: "data" });
+    expect(saved.entries.two).toEqual({ name: "[工坊] Caller", content: "<%- await getwi(/^\\[工坊\\] Library$/) %>" });
   });
   it("creates projects and enforces the row-version CAS", async () => {
     const created = await request("/", {
@@ -541,8 +541,8 @@ describe("authoring write paths", () => {
     expect(saved.headers.get("cache-control")).toBe("private, no-store");
     const normalized = JSON.stringify({
       entries: [
-        { uid: 1, name: "[WS] One", content: "a" },
-        { uid: 2, name: "[WS] Two", content: "b" },
+        { uid: 1, name: "[工坊] One", content: "a" },
+        { uid: 2, name: "[工坊] Two", content: "b" },
       ],
     });
     expect(await saved.text()).toBe(normalized);
@@ -611,7 +611,7 @@ describe("authoring write paths", () => {
       .first<{ worldbook_count: number }>();
     expect(worldbookCount?.worldbook_count).toBe(1);
     const text = await (await bindings.R2.get(asset!.r2_key))?.text();
-    expect(JSON.parse(text ?? "{}").entries).toEqual([{ uid: 2, name: "[WS] Two", content: "b" }]);
+    expect(JSON.parse(text ?? "{}").entries).toEqual([{ uid: 2, name: "[工坊] Two", content: "b" }]);
     const oldAsset = await bindings.DB.prepare("SELECT r2_key FROM assets WHERE version_id = ? AND kind = 'worldbook'")
       .bind(first.workingVersionId)
       .first<{ r2_key: string }>();
@@ -722,8 +722,8 @@ describe("authoring write paths", () => {
     expect(await original.text()).toBe(
       JSON.stringify({
         entries: [
-          { uid: 1, content: "one", name: "[WS] " },
-          { uid: 2, content: "two", name: "[WS] " },
+          { uid: 1, content: "one", name: "[工坊] " },
+          { uid: 2, content: "two", name: "[工坊] " },
         ],
       }),
     );

@@ -154,7 +154,8 @@ export function identity(row: Row): Identity | null {
     meta = values[0]!;
   }
   if (!meta.cw_project_id) {
-    if (/\[WS\]/.test(String(row.name ?? row.comment ?? ""))) throw new Error("仅有工坊标记，不能证明项目身份");
+    if (/\[(?:工坊|WS)\]/.test(String(row.name ?? row.comment ?? "")))
+      throw new Error("仅有工坊标记，不能证明项目身份");
     return null;
   }
   if (

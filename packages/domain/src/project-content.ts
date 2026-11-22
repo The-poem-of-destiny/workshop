@@ -103,7 +103,7 @@ export function extractProjectEntries(raw: unknown, kind: ProjectEntryKind): Ent
 export function markWorldbookNames(raw: unknown): void {
   for (const { entry } of extractProjectEntries(raw, "worldbook")) {
     const name = typeof entry.name === "string" ? entry.name : typeof entry.comment === "string" ? entry.comment : "";
-    const marked = name.includes("[WS]") ? name : `[WS] ${name}`;
+    const marked = name.includes("[工坊]") ? name : `[工坊] ${name}`;
     entry.name = marked;
     if ("comment" in entry) entry.comment = marked;
   }
