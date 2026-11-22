@@ -16,6 +16,7 @@ import { meRoutes } from "./http/routes/me";
 import { projectsRoutes } from "./http/routes/projects";
 import { recommendationRoutes } from "./http/routes/recommendations";
 import { siteRoutes } from "./http/routes/site";
+import { isStorageQuotaError, quotaErrorDetail, quotaExceededMessage } from "./quota-error";
 import { hasMaintenanceBearer } from "./write-barrier";
 
 export const app = new Hono<{ Bindings: Env }>();
@@ -155,5 +156,8 @@ app.onError((error, c) => {
   // Hono may replace the error response (e.g. HEAD); track the request instead.
   uncertainRequests.add(c.req.raw);
   console.error("Unhandled worker error", error);
+  if (isStorageQuotaError(error)) {
+    return jsonError(c, "quota_exceeded", quotaExceededMessage(), quotaErrorDetail(error));
+  }
   return jsonError(c, "internal", "Internal server error");
 });

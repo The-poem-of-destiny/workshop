@@ -9,6 +9,7 @@ export function WorkshopMessages({
   site: home,
   view,
   error,
+  errorDetail,
   setError,
   authInviteHint,
   clearAuthInviteHint,
@@ -23,6 +24,7 @@ export function WorkshopMessages({
   site: SiteSettings | null;
   view: ReturnType<typeof useWorkshopNavigation>["view"];
   error: string | null;
+  errorDetail?: string | null;
   setError: (message: string | null) => void;
   authInviteHint?: boolean;
   clearAuthInviteHint?: () => void;
@@ -82,6 +84,12 @@ export function WorkshopMessages({
         <div className="error" role="alert">
           <div className="error-main">
             <span>{error}</span>
+            {errorDetail ? (
+              <details>
+                <summary>错误详情</summary>
+                <code>{errorDetail}</code>
+              </details>
+            ) : null}
             {authInviteHint ? (
               <a className="error-invite-link" href={communityInviteUrl} target="_blank" rel="noopener noreferrer">
                 尚未加入社区服务器？前往 Discord 社区服务器 →
