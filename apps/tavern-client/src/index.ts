@@ -3,11 +3,11 @@ import type { InstallIntent } from "@workshop/contracts/install";
 import { hostJQuery, hostWindow, showAgreement, showOriginSettings } from "./dialogs.js";
 import { createInstallManager } from "./install.js";
 import type { RecordSet } from "./install-model.js";
-import { saveScriptVariables, scriptVariables, workshopOrigin } from "./install-registry.js";
+import { SCRIPT_RUNTIME, saveScriptVariables, scriptVariables, workshopOrigin } from "./install-registry.js";
 import { characterRegexHost } from "./regex-host.js";
 
 const CLIENT_VERSION = __CW_CLIENT_VERSION__;
-const DEFAULT_ORIGIN = __CW_DEFAULT_ORIGIN__;
+const DEFAULT_ORIGIN = SCRIPT_RUNTIME.defaultOrigin;
 
 const BUTTON_ID = "cw-open-button";
 const OVERLAY_ID = "cw-overlay";
@@ -16,14 +16,7 @@ const AGREEMENT_KEY = "cw_agreement_accepted";
 let activeFrame: HTMLIFrameElement | null = null;
 let cleanupResize: (() => void) | null = null;
 
-const SCRIPT_CHANNEL: "stable" | "staging" = (() => {
-  try {
-    const script = document.currentScript;
-    return script instanceof HTMLScriptElement && /\/staging\//.test(script.src) ? "staging" : "stable";
-  } catch {
-    return "stable";
-  }
-})();
+const SCRIPT_CHANNEL = SCRIPT_RUNTIME.channel;
 
 const installations = createInstallManager({
   character() {
@@ -304,6 +297,21 @@ function installButton() {
     bind();
     const observer = new MutationObserver(bind);
     observer.observe(document.body, { childList: true });
+    try {
+      if (typeof replaceScriptButtons === "function") {
+        const existing = typeof getScriptButtons === "function" ? getScriptButtons() : [];
+        if (!Array.isArray(existing) || !existing.some((item) => item?.name === "命定创意工坊")) {
+          replaceScriptButtons([{ name: "命定创意工坊", visible: true }]);
+        }
+      }
+      if (typeof eventOn === "function" && typeof getButtonEvent === "function") {
+        eventOn(getButtonEvent("命定创意工坊"), () => {
+          void openWithAgreement().catch((error) => console.error("[CreativeWorkshop] open failed", error));
+        });
+      }
+    } catch (error) {
+      console.error("[CreativeWorkshop] script button bind failed", error);
+    }
   });
 }
 

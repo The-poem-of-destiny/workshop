@@ -42,3 +42,37 @@ export function normalizeWorkshopOrigin(value: unknown, fallback: string): strin
     return fallback;
   }
 }
+
+export function detectCurrentScriptUrl(currentScriptSrc?: string | null, stack?: string): string | null {
+  if (typeof currentScriptSrc === "string" && currentScriptSrc.trim()) return currentScriptSrc.trim();
+  if (typeof stack === "string") {
+    const match = /https?:\/\/[^\s)"']+\/client\/(?:staging|stable|v\/[a-f0-9]+)\/index\.js\b/.exec(stack);
+    if (match) return match[0];
+  }
+  return null;
+}
+
+export function resolveScriptRuntime(
+  scriptUrl: string | null | undefined,
+  fallbackOrigin: string,
+): { channel: "stable" | "staging"; defaultOrigin: string } {
+  if (typeof scriptUrl === "string" && scriptUrl.trim()) {
+    try {
+      const url = new URL(scriptUrl.trim());
+      if (url.protocol === "https:" || url.protocol === "http:") {
+        if (/\/client\/staging\/index\.js$/.test(url.pathname)) {
+          const defaultOrigin = url.hostname.startsWith("assets-staging.")
+            ? `${url.protocol}//workshop-staging.${url.host.slice("assets-staging.".length)}`
+            : url.origin;
+          return { channel: "staging", defaultOrigin };
+        }
+        if (/\/staging\//.test(url.pathname)) {
+          return { channel: "staging", defaultOrigin: fallbackOrigin };
+        }
+      }
+    } catch {
+      // Ignore malformed script URLs and fall back to build defaults.
+    }
+  }
+  return { channel: "stable", defaultOrigin: fallbackOrigin };
+}

@@ -1,7 +1,16 @@
-import { normalizeWorkshopOrigin } from "./lib.js";
+import { detectCurrentScriptUrl, normalizeWorkshopOrigin, resolveScriptRuntime } from "./lib.js";
 
-const DEFAULT_ORIGIN = __CW_DEFAULT_ORIGIN__;
 const ORIGIN_VARIABLE = "cw_worker_origin";
+
+export const SCRIPT_RUNTIME = (() => {
+  try {
+    const script = typeof document !== "undefined" ? document.currentScript : null;
+    const src = script instanceof HTMLScriptElement ? script.src : null;
+    return resolveScriptRuntime(detectCurrentScriptUrl(src, new Error().stack), __CW_DEFAULT_ORIGIN__);
+  } catch {
+    return { channel: "stable" as const, defaultOrigin: __CW_DEFAULT_ORIGIN__ };
+  }
+})();
 
 export function scriptVariables(): Record<string, unknown> {
   try {
@@ -23,5 +32,5 @@ export async function saveScriptVariables(updater: (variables: Record<string, un
 
 export function workshopOrigin(): string {
   const variables = scriptVariables();
-  return normalizeWorkshopOrigin(variables[ORIGIN_VARIABLE], DEFAULT_ORIGIN);
+  return normalizeWorkshopOrigin(variables[ORIGIN_VARIABLE], SCRIPT_RUNTIME.defaultOrigin);
 }

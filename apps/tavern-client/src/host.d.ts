@@ -52,6 +52,10 @@ declare function updateTavernRegexesWith(
   updater: (regexes: WorkshopHostRow[]) => WorkshopHostRow[],
   options: { type: "character" },
 ): Promise<WorkshopHostRow[]>;
+declare const getButtonEvent: ((buttonName: string) => string) | undefined;
+declare const eventOn: ((eventName: string, listener: () => void) => void) | undefined;
+declare const getScriptButtons: (() => { name: string; visible: boolean }[]) | undefined;
+declare const replaceScriptButtons: ((buttons: { name: string; visible: boolean }[]) => void) | undefined;
 
 declare const __CW_CLIENT_VERSION__: string;
 declare const __CW_DEFAULT_ORIGIN__: string;

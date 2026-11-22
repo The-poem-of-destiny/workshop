@@ -49,6 +49,40 @@ test("workshop origins normalize to scheme and host and reject invalid schemes",
   assert.equal(lib.normalizeWorkshopOrigin("", "https://fallback.example"), "https://fallback.example");
 });
 
+test("script runtime derives staging origin and channel while preserving production fallback", () => {
+  const prod = "https://workshop.poem-of-destiny.3378469.xyz";
+  const stagingUrl = lib.detectCurrentScriptUrl(
+    null,
+    "Error\n    at https://workshop-staging.poem-of-destiny.3378469.xyz/client/staging/index.js:1:12",
+  );
+  assert.deepEqual(lib.resolveScriptRuntime(stagingUrl, prod), {
+    channel: "staging",
+    defaultOrigin: "https://workshop-staging.poem-of-destiny.3378469.xyz",
+  });
+  assert.deepEqual(
+    lib.resolveScriptRuntime("https://assets-staging.poem-of-destiny.3378469.xyz/client/staging/index.js", prod),
+    {
+      channel: "staging",
+      defaultOrigin: "https://workshop-staging.poem-of-destiny.3378469.xyz",
+    },
+  );
+  assert.deepEqual(
+    lib.resolveScriptRuntime("https://workshop.poem-of-destiny.3378469.xyz/client/stable/index.js", prod),
+    { channel: "stable", defaultOrigin: prod },
+  );
+  assert.deepEqual(
+    lib.resolveScriptRuntime("https://assets.poem-of-destiny.3378469.xyz/client/stable/index.js", prod),
+    {
+      channel: "stable",
+      defaultOrigin: prod,
+    },
+  );
+  assert.deepEqual(lib.resolveScriptRuntime("https://cdn.example/assets/1.0.0/workshop.js", prod), {
+    channel: "stable",
+    defaultOrigin: prod,
+  });
+});
+
 after(async () => {
   await rm(dir, { recursive: true, force: true });
 });
