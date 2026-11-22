@@ -364,7 +364,13 @@ export class AuthCallback extends OpenAPIRoute {
       return createAuthHtmlResponse(successHtml(token, userData, parsedState.origin, state));
     } catch (error) {
       console.error('OAuth callback error:', error);
-      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      const rawError = error instanceof Error ? error.message : '未知错误';
+      const isQuota = /D1_ERROR.*(?:exceeded|daily row|free tier|quota|limit)|daily row (?:read|write) limit/i.test(rawError);
+      const errorMessage = isQuota
+        ? '今日工坊云端数据库额度已用完，暂时无法完成登录，将于北京时间每日 08:00 自动恢复（本地已安装 DLC 仍可免登录管理）'
+        : /^D1_ERROR:/i.test(rawError)
+          ? '云端数据库暂时繁忙，请稍后再试'
+          : rawError;
 
       if (state) {
         await c.env.SESSION_KV.put(

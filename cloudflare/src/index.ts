@@ -90,13 +90,60 @@ const WORKSHOP_STAGING_HOSTS = new Set(
 
 const app = new Hono<{ Bindings: Env }>();
 
+export const D1_QUOTA_EXCEEDED_CODE = 'D1_DAILY_QUOTA_EXCEEDED';
+
+export function nextQuotaResetIso(nowMs = Date.now()): string {
+  const now = new Date(nowMs);
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0)).toISOString();
+}
+
+export function buildQuotaFriendlyMessage(nowMs = Date.now()): string {
+  const resetMs = Date.parse(nextQuotaResetIso(nowMs));
+  const remainMinutes = Math.max(1, Math.ceil((resetMs - nowMs) / 60000));
+  const hours = Math.floor(remainMinutes / 60);
+  const mins = remainMinutes % 60;
+  const eta = hours > 0 ? `${hours} 小时 ${mins} 分钟` : `${mins} 分钟`;
+  return `今日工坊访问量较大，云端数据库额度已用完，预计 ${eta} 后（北京时间 08:00）自动刷新～（本地已安装的 DLC 与世界书不受影响，仍可正常管理）`;
+}
+
+export function sanitizeQuotaDebugDetail(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error || '');
+  return raw.replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]').slice(0, 240);
+}
+
+export function isD1QuotaExceededError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return /D1_ERROR.*(?:exceeded|daily row|free tier|quota|limit)|daily row (?:read|write) limit/i.test(message);
+}
+
 app.onError((error, c) => {
   console.error('Unhandled worker error:', error);
+  if (isD1QuotaExceededError(error)) {
+    return c.json(
+      {
+        code: D1_QUOTA_EXCEEDED_CODE,
+        resetAt: nextQuotaResetIso(),
+        error: buildQuotaFriendlyMessage(),
+        detail: sanitizeQuotaDebugDetail(error),
+      },
+      503,
+      {
+        'Cache-Control': 'private, no-store',
+        'Retry-After': '300',
+      },
+    );
+  }
+  const rawMessage = error instanceof Error ? error.message : 'Internal server error';
+  const isD1 = /^D1_ERROR:/i.test(rawMessage);
   return c.json(
     {
-      error: error instanceof Error ? error.message : 'Internal server error',
+      error: isD1 ? '云端数据库暂时繁忙，请稍后再试' : rawMessage,
+      ...(isD1 ? { detail: sanitizeQuotaDebugDetail(error) } : {}),
     },
     500,
+    {
+      'Cache-Control': 'private, no-store',
+    },
   );
 });
 
@@ -316,7 +363,19 @@ app.get('/api/files/*', async c => {
     });
   } catch (error) {
     console.error('Error downloading file:', error);
-    return c.json({ error: 'Internal server error' }, 500);
+    if (isD1QuotaExceededError(error)) {
+      return c.json(
+        {
+          code: D1_QUOTA_EXCEEDED_CODE,
+          resetAt: nextQuotaResetIso(),
+          error: buildQuotaFriendlyMessage(),
+          detail: sanitizeQuotaDebugDetail(error),
+        },
+        503,
+        { 'Cache-Control': 'private, no-store', 'Retry-After': '300' },
+      );
+    }
+    return c.json({ error: '文件服务暂时繁忙，请稍后再试' }, 500, { 'Cache-Control': 'private, no-store' });
   }
 });
 

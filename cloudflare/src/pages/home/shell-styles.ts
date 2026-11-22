@@ -11,6 +11,106 @@ export const homeShellStyles = String.raw`
 .detail-description,
 .entry-title { font-family:var(--workshop-content-font); }
 .desktop-sidebar { display:none; }
+.service-quota-banner {
+  display:flex;
+  align-items:flex-start;
+  gap:14px;
+  margin:14px 0 18px;
+  padding:18px 20px;
+  border:1px solid rgba(185,161,128,.28);
+  border-radius:14px;
+  background:linear-gradient(145deg, rgba(35,33,29,.94), rgba(24,25,28,.96));
+  box-shadow:0 12px 30px rgba(0,0,0,.22);
+}
+.service-quota-banner__icon {
+  width:40px;
+  height:40px;
+  flex:none;
+  display:grid;
+  place-items:center;
+  border-radius:10px;
+  border:1px solid rgba(185,161,128,.28);
+  background:rgba(185,161,128,.12);
+  color:#d2b995;
+  font-size:1rem;
+}
+.service-quota-banner__body {
+  min-width:0;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.service-quota-banner__body strong {
+  color:#f2eee7;
+  font-size:.98rem;
+  font-weight:760;
+}
+.service-quota-banner__timer {
+  display:inline-flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+  margin:2px 0 4px;
+  padding:7px 11px;
+  border-radius:9px;
+  border:1px solid rgba(185,161,128,.24);
+  background:rgba(185,161,128,.09);
+  color:#e4cfa9;
+  font-size:.82rem;
+  font-weight:680;
+  font-variant-numeric:tabular-nums;
+}
+.service-quota-banner__retry {
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  margin-left:4px;
+  padding:4px 10px;
+  border-radius:7px;
+  border:1px solid rgba(185,161,128,.32);
+  background:rgba(255,255,255,.04);
+  color:#f2eee7;
+  font-size:.76rem;
+  font-weight:650;
+  cursor:pointer;
+}
+.service-quota-banner__retry:hover {
+  background:rgba(185,161,128,.18);
+}
+.service-quota-banner__debug {
+  margin-top:4px;
+  font-size:.75rem;
+  color:#8a857c;
+}
+.service-quota-banner__debug summary {
+  cursor:pointer;
+  user-select:none;
+  width:fit-content;
+}
+.service-quota-banner__debug code {
+  display:block;
+  margin-top:6px;
+  padding:8px 10px;
+  border-radius:8px;
+  border:1px solid rgba(255,255,255,.07);
+  background:rgba(0,0,0,.28);
+  color:#b6b1a7;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:.73rem;
+  line-height:1.5;
+  overflow-wrap:anywhere;
+  white-space:pre-wrap;
+}
+.service-quota-banner__body p {
+  margin:0;
+  color:#c5c1b8;
+  font-size:.84rem;
+  line-height:1.6;
+}
+.service-quota-banner__body .service-quota-banner__sub {
+  color:#9c978d;
+  font-size:.79rem;
+}
 .my-projects-page-head {
   display:flex;
   align-items:center;

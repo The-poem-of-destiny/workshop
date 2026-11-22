@@ -13,17 +13,43 @@ function assertUploadSize(file) {
   }
 }
 
+const FRIENDLY_D1_QUOTA_UI_MESSAGE = '今日工坊访问量较大，云端数据库额度已用完，将于北京时间每日 08:00 自动恢复，请稍后再来～（本地已安装的 DLC 与世界书不受影响，仍可正常管理）';
+
+function isQuotaExhaustedPayload(rawText, data) {
+  if (data && data.code === 'D1_DAILY_QUOTA_EXCEEDED') return true;
+  const combined = String(rawText || '') + ' ' + String(data?.error || '') + ' ' + String(data?.message || '');
+  return /D1_ERROR.*(?:exceeded|daily row|free tier|quota|limit)|daily row (?:read|write) limit|云端数据库(?:免费)?额度已用完/i.test(combined);
+}
+
+function computeNextUtcMidnightMs() {
+  const now = new Date();
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0);
+}
+
 function resolveApiErrorMessage(status, rawText, data, fallbackMessage) {
   const text = String(rawText || '').trim();
-  if (/\b1027\b/.test(text)) return '服务额度用尽，请稍后再试';
+  if (isQuotaExhaustedPayload(rawText, data)) {
+    const parsedReset = data?.resetAt ? Date.parse(String(data.resetAt)) : NaN;
+    state.serviceQuotaResetAt = Number.isFinite(parsedReset) ? parsedReset : (state.serviceQuotaResetAt || computeNextUtcMidnightMs());
+    const rawDetail = data?.detail || (/^D1_ERROR:/i.test(String(data?.error || '')) ? data.error : (/^D1_ERROR:/i.test(text) ? text : ''));
+    if (rawDetail) state.serviceQuotaDetail = String(rawDetail).slice(0, 240);
+    state.serviceQuotaNotice = (data && (data.error || data.message) && !/^D1_ERROR:/i.test(String(data.error || data.message)))
+      ? String(data.error || data.message)
+      : FRIENDLY_D1_QUOTA_UI_MESSAGE;
+    return state.serviceQuotaNotice;
+  }
+  if (/\b1027\b/.test(text)) return '今日工坊访问量较大，云端服务额度已用完，将于北京时间每日 08:00 自动恢复，请稍后再来～';
   if (/\b1102\b/.test(text) || /Worker exceeded resource limits/i.test(text)) return '服务器未能完成这次处理。重复操作可能仍会失败，请联系管理员，并附上当前页面截图。';
   if (status === 429 || /rate limit|too many requests|quota|limit exceeded/i.test(text)) return '请求过于频繁，请稍后再试';
-  if (data && (data.error || data.message)) return data.error || data.message;
+  if (data && (data.error || data.message)) {
+    const msg = String(data.error || data.message);
+    return /^D1_ERROR:/i.test(msg) ? '云端数据库暂时繁忙，请稍后再试' : msg;
+  }
   const lowerText = text.toLowerCase();
   if (lowerText.startsWith('<!doctype html') || lowerText.startsWith('<html') || lowerText.includes('<body') || lowerText.includes('</html>')) {
     return '服务暂时不可用，请稍后再试';
   }
-  if (text) return text.slice(0, 300);
+  if (text) return /^D1_ERROR:/i.test(text) ? '云端数据库暂时繁忙，请稍后再试' : text.slice(0, 300);
   return fallbackMessage || ('请求失败(' + status + ')');
 }
 
@@ -178,6 +204,9 @@ async function fetchDiscoverShelves(forceRefresh = false) {
     }));
     const shelves = { discover: [], published: [], updated: [], downloads: [], likes: [], loading: false };
     results.forEach(([key, projects]) => { shelves[key] = projects; });
+    state.serviceQuotaNotice = '';
+    state.serviceQuotaDetail = '';
+    state.serviceQuotaResetAt = 0;
     setDiscoverShelves(shelves);
     syncProjectStats(state.projects);
     renderApp();
@@ -316,6 +345,9 @@ async function fetchProjects(forceRefresh = false, options = {}) {
       writeProjectListClientCache(projectListClientCacheKey, data);
     }
     const projectList = data.projects || [];
+    state.serviceQuotaNotice = '';
+    state.serviceQuotaDetail = '';
+    state.serviceQuotaResetAt = 0;
 
     setProjectsPage({
       projects: projectList,
