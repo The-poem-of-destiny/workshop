@@ -38,7 +38,7 @@ GitHub currently reports no open vulnerability alerts. No real merge request was
 
 ## Release Decision And Artifact
 
-Select an exact commit on `main` with a successful staging deployment. `main` can keep moving while production approval is pending; the tag pins the release. Before creating the authorized tag, review the target bindings, runtime configuration, migration compatibility, recovery owner and acceptance window. The configured production Discord application ID and guilds in [`wrangler.jsonc`](../../apps/worker/wrangler.jsonc) still need values. Configure the dedicated CI token and Worker runtime secrets separately; neither release rotates secrets. Production checks the required runtime secret names but cannot verify their values or the Discord journey.
+Select an exact commit on `main` with a successful staging deployment. `main` can keep moving while production approval is pending; the tag pins the release. Before creating the authorized tag, review the target bindings, runtime configuration (including the production Discord application ID and guilds in [`wrangler.jsonc`](../../apps/worker/wrangler.jsonc)), migration compatibility, recovery owner and acceptance window. Configure the dedicated CI token and Worker runtime secrets separately; neither release rotates secrets. Production checks the required runtime secret names but cannot verify their values or the Discord journey.
 
 Staging retains Worker, Web and client files, `artifact.sha256` and `artifact-manifest.json` as `release-<source SHA>` for **30 days**. Successful deployment, client publication, smoke and verification of 100% Worker traffic produce `staging-evidence-<source SHA>-<attempt>` for **90 days**. `artifactHash` is the SHA-256 of the checksum manifest file, not a hash of the artifact archive.
 
@@ -48,7 +48,7 @@ Before mutating production, the job verifies the live target schema and records 
 
 ## Schema Evolution And Production Cutover
 
-[`0001_initial.sql`](../../apps/worker/migrations/0001_initial.sql) initializes an empty database only; the ordered migration chain defines the current schema. Never replay the initial file on a populated database or rewrite a migration already applied. Apply missing migrations or prepare a target from a current snapshot separately, with authorization. An older legacy snapshot does not include newer writes.
+[`0001_initial.sql`](../../apps/worker/migrations/0001_initial.sql) is the launch baseline for empty databases, including all three public image replica tables. Existing staging and production databases with the equivalent schema do not need to replay it. Apply future missing migrations or prepare a target from a current snapshot separately, with authorization.
 
 Both workflows compare the target D1's actual tables, indexes, views and triggers with the exact migration chain from the selected commit. They never apply migrations or change bindings to work around a mismatch. If schema differs, inspect the reported objects and target binding, apply the authorized data change separately, then retry. The schema check does not reconcile data or prove a snapshot is safe to switch to.
 
@@ -72,6 +72,8 @@ Before using the result, independently stop external D1/R2 writers, including cl
 After recovery acceptance and reconciliation, send authenticated `POST` JSON `{"action":"open"}`. Reopening is rejected while any ticket remains. Verify the response and restore external writers only after the intended Worker and data have been accepted.
 
 ## Staging public image backfill
+
+The target public image buckets are `workshop-img-staging` and `workshop-img-prod`. When replacing an existing bucket, drain image writers, verify the currently referenced keys and bytes in the new bucket, then switch the custom domain and Worker binding before reopening writes. Keep the old bucket unexposed until rollback is no longer needed.
 
 Apply only missing additive image migrations to the existing staging D1; never replay the initial schema against an already populated database. Deploy the matching Worker with the staging public image bucket and `PUBLIC_ASSETS_BASE_URL`. With the maintenance barrier open, use `offline.py control public-images --token-file FILE --project-id ID` (repeat IDs) and `--banner` for the current banner. The token file must be private. The authenticated endpoint backfills one project or banner per request, reads only current public sources, and returns replica phases. Check non-ready results before reporting completion; a missing phase is normal only when no eligible image exists. Do not remove a `reserving` row based on elapsed time: an unconditional R2 reservation can still be in flight.
 

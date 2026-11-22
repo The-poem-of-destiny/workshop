@@ -108,12 +108,41 @@ def dimensions(private_bucket, public_bucket, account, origin):
             "sourceOrigin": source_origin(origin)}
 
 
-def preparation(db, source_hash, verification, backup, migrations, target, previous=None):
-    report_raw = verification.read_bytes()
-    report = json.loads(report_raw, object_pairs_hook=taxonomy.reject_duplicate_json_keys)
-    if (report["format"] != "workshop-taxonomy-verification-v1" or report["ok"] is not True
-            or report["candidateSha256"] != source_hash):
-        raise InputError("taxonomy verification does not match the candidate SQLite bytes")
+def verify_sealed_plan(db, sealed_plan, source_hash, manifest, manifest_sha, canonical_pins, target_private_bucket):
+    planner = taxonomy.module("public_image_planner", "multiday-plan.py")
+    plan_file = sealed_plan.resolve()
+    plan = planner.validate_plan(plan_file)
+    receipt_rel = plan.get("expected", {}).get("byte_hash_receipt", "")
+    receipt_file = (plan_file.parent / receipt_rel).resolve()
+    expected_byte_sha = json.loads(receipt_file.read_text(encoding="utf-8")).get("sha256") if receipt_file.is_file() else None
+    if (not isinstance(plan, dict) or expected_byte_sha != source_hash
+            or plan.get("expected", {}).get("logical_sha256") != planner.rows_digest(db)):
+        raise InputError("sealed plan does not match the candidate SQLite bytes")
+    if plan.get("inputs", {}).get("manifest", {}).get("sha256") != manifest_sha:
+        raise InputError("sealed plan manifest does not match the downloaded R2 manifest")
+    plan_migs = [{"name": m["name"], "sha256": m["sha256"]} for m in plan.get("inputs", {}).get("migrations", [])]
+    canon_migs = [{"name": m["name"], "sha256": m["sha256"]} for m in canonical_pins]
+    if plan_migs != canon_migs:
+        raise InputError("sealed plan migrations differ from canonical D1 migrations")
+    source_sha = plan.get("inputs", {}).get("source", {}).get("sha256")
+    paired_sources = [database for database in manifest["databases"] if database["sha256"] == source_sha]
+    if len(paired_sources) != 1:
+        raise InputError("sealed plan source must match exactly one D1 export in the downloaded R2 manifest")
+    prep_file = plan_file.parent / "preparation.json"
+    if not prep_file.is_file() or taxonomy.file_hash(prep_file) != plan.get("inputs", {}).get("preparation", {}).get("sha256"):
+        raise InputError("sealed plan preparation.json is missing or altered")
+    prep_data = json.loads(prep_file.read_bytes(), object_pairs_hook=taxonomy.reject_duplicate_json_keys)
+    key_map = {
+        entry["targetKey"]: entry["sourceKey"]
+        for entry in prep_data.get("objects", [])
+        if entry.get("sourceBucket") == target_private_bucket
+    }
+    return {"sealedPlanSha256": taxonomy.file_hash(plan_file)}, key_map
+
+
+def preparation(db, source_hash, verification, backup, migrations, target, previous=None, sealed_plan=None):
+    if (verification is None) == (sealed_plan is None):
+        raise InputError("supply exactly one of --candidate-verification or --sealed-plan")
     planner = taxonomy.module("public_image_planner", "multiday-plan.py")
     canonical, migration_pins = taxonomy.canonical(migrations)
     with closing(canonical):
@@ -121,18 +150,30 @@ def preparation(db, source_hash, verification, backup, migrations, target, previ
             raise InputError("candidate must use the complete canonical D1 schema")
     manifest_path = backup / "manifest.json"
     raw = manifest_path.read_bytes()
+    manifest_sha = hashlib.sha256(raw).hexdigest()
     manifest = json.loads(raw, object_pairs_hook=taxonomy.reject_duplicate_json_keys)
-    paired_sources = [database for database in manifest["databases"]
-                      if database["sha256"] == report["sourceSha256"]]
-    if len(paired_sources) != 1:
-        raise InputError("taxonomy source must match exactly one D1 export in the downloaded R2 manifest")
+    if verification is not None:
+        report_raw = verification.read_bytes()
+        report = json.loads(report_raw, object_pairs_hook=taxonomy.reject_duplicate_json_keys)
+        if (report["format"] != "workshop-taxonomy-verification-v1" or report["ok"] is not True
+                or report["candidateSha256"] != source_hash):
+            raise InputError("taxonomy verification does not match the candidate SQLite bytes")
+        paired_sources = [database for database in manifest["databases"]
+                          if database["sha256"] == report["sourceSha256"]]
+        if len(paired_sources) != 1:
+            raise InputError("taxonomy source must match exactly one D1 export in the downloaded R2 manifest")
+        provenance = {"verificationSha256": hashlib.sha256(report_raw).hexdigest()}
+        key_map = {}
+    else:
+        provenance, key_map = verify_sealed_plan(
+            db, sealed_plan, source_hash, manifest, manifest_sha, migration_pins, target["privateBucket"]
+        )
     objects = manifest["buckets"][target["privateBucket"]]["objects"]
     sources = {obj["key"]: obj for obj in objects}
     if len(sources) != len(objects):
         raise InputError("duplicate private snapshot object")
-    result = {"format": FORMAT, "d1Sha256": source_hash, "manifestSha256": hashlib.sha256(raw).hexdigest(),
-              "verificationSha256": hashlib.sha256(report_raw).hexdigest(),
-              "migrations": migration_pins, **target, "objects": []}
+    result = {"format": FORMAT, "d1Sha256": source_hash, "manifestSha256": manifest_sha,
+              **provenance, "migrations": migration_pins, **target, "objects": []}
     if previous is not None and (not isinstance(previous["objects"], list)
                                  or any(not isinstance(entry, dict) for entry in previous["objects"])):
         raise InputError("invalid prepared image entries")
@@ -140,7 +181,8 @@ def preparation(db, source_hash, verification, backup, migrations, target, previ
     keys, identities = set(), set()
     for kind, identity, source_key, size, digest, asset_mime in eligible_images(db, target["sourceOrigin"]):
         namespace = KINDS[kind][1]
-        source = sources.get(source_key)
+        lookup_key = key_map.get(source_key, source_key)
+        source = sources.get(lookup_key)
         if source is None:
             raise InputError("eligible image is absent from the downloaded private bucket")
         source_bytes, source_sha = source["size"], source["sha256"]
@@ -161,7 +203,7 @@ def preparation(db, source_hash, verification, backup, migrations, target, previ
         keys.add(key)
         identities.add(logical_id)
         result["objects"].append({"kind": kind, "identity": identity, "sourceBucket": target["privateBucket"],
-                                  "sourceKey": source_key, "targetKey": key, "bytes": source_bytes,
+                                  "sourceKey": lookup_key, "targetKey": key, "bytes": source_bytes,
                                   "sha256": source_sha, "contentType": content_type})
     if previous is not None and result != previous:
         raise InputError("prepared plan disagrees with the snapshot, schema or eligible images")
@@ -176,7 +218,27 @@ def transfer(mode, backup, plan):
     return json.loads(result.stdout)
 
 
-def write_ready(db, destination, plan, verified):
+def sql_literal(value):
+    if value is None:
+        return "NULL"
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise InputError("unsupported replica column value")
+    return str(value) if isinstance(value, int) else "'" + value.replace("'", "''") + "'"
+
+
+def replicas_sql_text(plan, etags):
+    lines = ["PRAGMA foreign_keys = ON;"]
+    for table in sorted(taxonomy.PUBLIC_REPLICAS):
+        lines.append(f"DELETE FROM {table};")
+    for obj in plan["objects"]:
+        table, _, columns = KINDS[obj["kind"]]
+        key = obj["targetKey"]
+        values = [sql_literal(v) for v in (*obj["identity"], key, "ready", etags[key])]
+        lines.append(f"INSERT INTO {table} ({','.join(columns)},object_key,phase,reservation_etag) VALUES ({','.join(values)});")
+    return "\n".join(lines) + "\n"
+
+
+def write_ready(db, destination, plan, verified, replicas_sql=None):
     etags = verified["etags"]
     if (not isinstance(etags, dict) or etags.keys() != {obj["targetKey"] for obj in plan["objects"]}
             or any(not isinstance(tag, str) or not re.fullmatch(r'[\x21\x23-\x7e]+', tag) for tag in etags.values())):
@@ -196,6 +258,8 @@ def write_ready(db, destination, plan, verified):
                                   f" VALUES ({placeholders},?,'ready',?)", (*obj["identity"], key, etags[key]))
             if candidate.execute("PRAGMA foreign_key_check").fetchone():
                 raise InputError("ready candidate failed D1 foreign-key reconciliation")
+    if replicas_sql is not None:
+        taxonomy.private_write(replicas_sql, replicas_sql_text(plan, etags).encode("utf-8"))
 
 
 def configure(parser):
@@ -205,8 +269,11 @@ def configure(parser):
                             ("finalize", "verify public objects and emit a new ready SQLite candidate")):
         command = commands.add_parser(mode, help=help_text)
         command.add_argument("--candidate", type=Path, required=True, help="verified canonical SQLite candidate")
-        command.add_argument("--candidate-verification", type=Path, required=True,
-                             help="offline.py taxonomy verify --report for these exact SQLite bytes")
+        provenance = command.add_mutually_exclusive_group(required=True)
+        provenance.add_argument("--candidate-verification", type=Path,
+                                help="offline.py taxonomy verify --report for these exact SQLite bytes")
+        provenance.add_argument("--sealed-plan", type=Path,
+                                help="sealed legacy multiday plan.json matching these exact SQLite bytes")
         command.add_argument("--backup", type=Path, required=True, help="downloaded R2 mirror containing manifest.json")
         command.add_argument("--migrations", type=Path, required=True)
         command.add_argument("--plan", type=Path, required=True, help="private output for prepare; pinned input otherwise")
@@ -220,6 +287,7 @@ def configure(parser):
                                  help="confirm separately authorized access to the public R2 target pinned in the plan")
         if mode == "finalize":
             command.add_argument("--output", type=Path, required=True, help="fresh ready SQLite file; never replaces existing files")
+            command.add_argument("--replicas-sql", type=Path, help="optional private SQL file for importing ready replica rows")
 
 
 def run(args):
@@ -230,7 +298,8 @@ def run(args):
                 raise InputError("plan already exists; select a fresh file")
             target = dimensions(args.source_private_bucket, args.target_public_bucket, args.target_account_id, args.source_origin)
             with taxonomy.snapshot(args.candidate) as (db, source_hash):
-                plan = preparation(db, source_hash, args.candidate_verification, args.backup, args.migrations, target)
+                plan = preparation(db, source_hash, args.candidate_verification, args.backup, args.migrations, target,
+                                   sealed_plan=args.sealed_plan)
                 result = transfer("check", args.backup, plan)
                 if taxonomy.file_hash(manifest) != plan["manifestSha256"]:
                     raise InputError("downloaded manifest changed during verification")
@@ -240,20 +309,26 @@ def run(args):
             target = dimensions(previous["privateBucket"], previous["publicBucket"], previous["account"], previous["sourceOrigin"])
             if args.image_mode == "upload":
                 with taxonomy.snapshot(args.candidate) as (db, source_hash):
-                    plan = preparation(db, source_hash, args.candidate_verification, args.backup, args.migrations, target, previous)
+                    plan = preparation(db, source_hash, args.candidate_verification, args.backup, args.migrations, target,
+                                       previous, sealed_plan=args.sealed_plan)
                     result = transfer("upload", args.backup, plan)
             else:
-                if args.output.exists():
-                    raise InputError("ready candidate already exists; select a fresh file")
+                if args.output.exists() or (args.replicas_sql is not None and args.replicas_sql.exists()):
+                    raise InputError("ready candidate or replicas SQL already exists; select a fresh file")
                 with TemporaryDirectory(dir=args.output.parent, prefix=".public-images-") as directory:
                     ready = Path(directory) / "ready.sqlite"
+                    sql_tmp = Path(directory) / "replicas.sql" if args.replicas_sql is not None else None
                     with taxonomy.snapshot(args.candidate) as (db, source_hash):
-                        plan = preparation(db, source_hash, args.candidate_verification, args.backup, args.migrations, target, previous)
+                        plan = preparation(db, source_hash, args.candidate_verification, args.backup, args.migrations, target,
+                                           previous, sealed_plan=args.sealed_plan)
                         result = transfer("verify", args.backup, plan)
                         if taxonomy.file_hash(manifest) != plan["manifestSha256"]:
                             raise InputError("downloaded manifest changed during verification")
-                        write_ready(db, ready, plan, result)
+                        write_ready(db, ready, plan, result, replicas_sql=sql_tmp)
                     result["readySha256"] = taxonomy.file_hash(ready)
+                    if sql_tmp is not None:
+                        result["replicasSqlSha256"] = taxonomy.file_hash(sql_tmp)
+                        os.link(sql_tmp, args.replicas_sql)
                     os.link(ready, args.output)
         result.pop("etags", None)
         print(json.dumps({"ok": True, "mode": args.image_mode, "targetPublicBucket": plan["publicBucket"], **result}))

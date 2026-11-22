@@ -98,6 +98,8 @@ Provenance qualifies an inherited exception; it is **not** an old snapshot to re
 
 Keep the backup manifest beside the original `r2/<bucket>/<key>` mirror. Set `BACKUP` to that backup's absolute directory and place generated artifacts under the original project's `.local/tasks/multiday-staging-migration/`. Select the actual SQL dump and manifest, not a sample export. First create and edit a `legacy` review; the existing `prepare` command requires `--review`. Neither the preparation file nor output plan directory may exist yet.
 
+For a new remote D1 snapshot, use [Cloudflare's native D1 export](https://developers.cloudflare.com/d1/best-practices/import-export-data/#export-an-existing-d1-database). Export business data only; rebuild FTS and other derived structures in the target. Native export can block requests while it runs, and Cloudflare documents a limitation on databases with virtual tables. Do not assume `--table` bypasses that limitation. If necessary, use an isolated copy where derived structures can be removed; if no supported path is available, stop. Never remove live source indexes or substitute paginated `SELECT` dumps. For preload and offline preparation, reuse an already verified local snapshot.
+
 ```sh
 umask 077
 BACKUP=/absolute/path/to/legacy-backup
@@ -211,7 +213,7 @@ A verified candidate is not automatically activated. Independently verify R2, ap
 
 ## Production preparation and acceptance gates
 
-The current remote CLI is staging-only. Do not rename a staging token, bypass target checks or substitute a production database ID to reuse it. Production execution requires a separately authorized, explicitly production-targeted entry point with equivalent identity, journal, quota and no-replay protections. Reuse the offline transformation, sealed-plan construction, receipt accounting and independent reconciliation rather than copying task-local recovery scripts into production.
+`offline.py staging` remains staging-only; never rename a staging token, bypass target checks or substitute a production database ID to reuse it. Separately authorized preload into an empty target database uses `offline.py preload {advance,status,verify,replicas}` with explicit `--database-id`, `--database-name`, `--migrations` and `--confirm-bound-target`, enforcing empty-schema verification on initialization, durable receipt/budget journals and post-import reconciliation before loading verified public-cover replica rows (`--replicas-sql`). For a two-stage cutover where legacy stayed writable after an initial preload, build a fresh validated candidate from the final frozen snapshot and use `offline.py delta --from-sqlite <preloaded.sqlite> --to-sqlite <final.sqlite> --migrations apps/worker/migrations --output <delta.sql>` to generate and self-verify an incremental SQL diff (business rows, derived FTS rebuild and row-digest reconciliation) instead of wiping or re-importing the target database.
 
 Prepare authenticated acceptance access before the cutover. `SESSION_HASH_SECRET` HMAC-signs session verifiers; a plain-SHA fixture that works locally will not authenticate remotely. Use an authorized application login/session, not Cloudflare credentials or the maintenance password. Never rotate, remove or weaken the signing secret to make smoke checks pass. Public smoke alone is not authenticated acceptance.
 

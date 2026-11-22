@@ -100,7 +100,7 @@
         },
         {
           "binding": "PUBLIC_COVERS",
-          "bucket_name": "workshop-covers-staging"
+          "bucket_name": "workshop-img-staging"
         }
       ],
       "version_metadata": { "binding": "VERSION_METADATA" },
@@ -111,9 +111,10 @@
       "vars": {
         "ALLOWED_ORIGINS": "https://workshop.poem-of-destiny.3378469.xyz",
         "PUBLIC_ORIGIN": "https://workshop.poem-of-destiny.3378469.xyz",
-        "DISCORD_CLIENT_ID": "",
-        "DISCORD_ALLOWED_GUILD_IDS": "",
-        "DISCORD_GUILD_ROLE_IDS": ""
+        "PUBLIC_ASSETS_BASE_URL": "https://assets.poem-of-destiny.3378469.xyz",
+        "DISCORD_CLIENT_ID": "1562466173268926575",
+        "DISCORD_ALLOWED_GUILD_IDS": "1417861565679669272,1134557553011998840",
+        "DISCORD_GUILD_ROLE_IDS": "1134557553011998840:1335363403870502912"
       },
       "durable_objects": {
         "bindings": [
@@ -139,9 +140,14 @@
         {
           "binding": "R2",
           "bucket_name": "workshop-client-prod"
+        },
+        {
+          "binding": "PUBLIC_COVERS",
+          "bucket_name": "workshop-img-prod"
         }
       ],
-      "version_metadata": { "binding": "VERSION_METADATA" }
+      "version_metadata": { "binding": "VERSION_METADATA" },
+      "triggers": { "crons": ["*/1 * * * *"] }
     }
   }
 }

@@ -6,6 +6,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import bound_preload
+import d1_delta
 import public_images
 
 HERE = Path(__file__).resolve().parent
@@ -27,11 +29,14 @@ def main():
     taxonomy_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(taxonomy_module)
     taxonomy_module.configure(taxonomy)
-    objects = commands.add_parser("objects", help="check locally or transfer and verify staging objects")
+    objects = commands.add_parser("objects", help="check locally or transfer and verify snapshot objects")
     objects.add_argument("mode", choices=("check", "upload", "verify"))
     objects.add_argument("--backup", type=Path, required=True)
     objects.add_argument("--preparation", type=Path, required=True)
+    objects.add_argument("--bucket", default="workshop-client-staging")
     public_images.configure(commands.add_parser("public-images", help="prepare and reconcile current snapshot public images"))
+    bound_preload.configure(commands.add_parser("preload", help="advance or verify an empty bound D1 preload target"))
+    d1_delta.configure(commands.add_parser("delta", help="build and verify an incremental SQL delta between two SQLite snapshots"))
     staging = commands.add_parser("staging", help="advance, inspect, or verify a staging candidate")
     staging.add_argument("mode", choices=("advance", "watch", "verify", "status", "adopt"))
     staging.add_argument("--plan", type=Path, required=True)
@@ -62,9 +67,13 @@ def main():
         elif args.command == "taxonomy":
             return taxonomy_module.run(args)
         elif args.command == "objects":
-            run("node", str(HERE / "full-r2.mjs"), args.mode, str(args.backup), str(args.preparation))
+            run("node", str(HERE / "full-r2.mjs"), args.mode, str(args.backup), str(args.preparation), "--bucket", args.bucket)
         elif args.command == "public-images":
             return public_images.run(args)
+        elif args.command == "preload":
+            return bound_preload.run(args)
+        elif args.command == "delta":
+            return d1_delta.run(args)
         elif args.command == "control":
             spec = importlib.util.spec_from_file_location("staging_control", HERE / "full-staging-control.py")
             module = importlib.util.module_from_spec(spec)
