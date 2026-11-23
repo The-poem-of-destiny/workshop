@@ -11,7 +11,10 @@
   background: transparent;
 }
 .sorts button {
-  padding: 6px 9px;
+  display: inline-flex;
+  align-items: center;
+  height: var(--toolbar-control-height);
+  padding: 0 9px;
   border: 1px solid transparent;
   border-radius: 4px;
   background: transparent;
