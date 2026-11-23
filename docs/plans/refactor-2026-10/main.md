@@ -1,5 +1,7 @@
 # Creative Workshop 重构方案（综合定稿）
 
+> 架构基线说明（2026-11-22 更新）：本文保留 2026-10 重构立项时的总体架构裁决与迁移背景，供重构流程与历史追溯参考；文中早期表名、票据取件与局部公开导入等细节已被后续演进取代，**不作为现行接口或运维合同**。当前线上／合并行为权威分别以 [`worker-api.md`](../../reference/worker-api.md)、[`host-protocol.md`](../../reference/host-protocol.md)、[`cache-design.md`](../../reference/cache-design.md)、[`runtime-configuration.md`](../../reference/runtime-configuration.md)、[`using-workshop.md`](../../guides/using-workshop.md) 与 [`legacy-data-migration.md`](../../operations/legacy-data-migration.md) 为准。
+
 日期：2026-10-20  
 输入：历史独立方案 + 本次逐文件复核（原始 model 方案已删除，裁决结论保留在本文件）。  
 性质：**架构与迁移方案**；决策唯一来源是 [`decisions.md`](decisions.md)。冲突项在 §12 裁决，采纳来源逐条标注。

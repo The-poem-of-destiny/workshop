@@ -15,12 +15,13 @@
 
 ## 维护控制
 
-`/api/v1/maintenance` 在入口层处理，只接受独立 `MAINTENANCE_TOKEN` 的 Bearer 凭据，不接受普通用户会话。它不经过业务路由的 CORS 处理；缺失或错误凭据返回无 JSON body 的 401。
+`/api/v1/maintenance` 在入口层处理，只接受独立 `MAINTENANCE_TOKEN` 的 Bearer 凭据，不接受普通用户会话。它不经过业务路由的 CORS 处理；缺失或错误凭据返回无 JSON body 的 401。`POST /api/v1/maintenance/public-images` 同样校验 `MAINTENANCE_TOKEN` Bearer，但挂载在业务路由层且受维护屏障准入约束（须在屏障开放且已配置 `PUBLIC_COVERS` 与 `PUBLIC_ASSETS_BASE_URL` 时调用）。
 
 | 方法和路径 | 输入与结果 |
 | --- | --- |
 | GET `/api/v1/maintenance` | 返回 `closed`、`drained`、`outstanding`（最多 100 张工作票据）与 `outstandingTruncated`；成功响应为 `no-store`。 |
 | POST `/api/v1/maintenance` | JSON `{"action":"close"}` 或 `{"action":"open"}`；返回同样状态。无效 JSON／action 为 400；还有票据时 open 返回 409 `{"error":"not_drained"}`；其他方法为 405。 |
+| POST `/api/v1/maintenance/public-images` | JSON `{"target":"banner"}` 或 `{"target":"project","projectId":"<1..128字符>"}`；按当前公开资格将横幅或指定项目的封面与画廊回填至 `PUBLIC_COVERS`，返回 `{"banner": phase}` 或 `{"cover": phase, "gallery": [{"kind", "phase"}]}`。凭据缺失或错误返回空体 401，输入不合法返回空体 400，未配置公开图片桶／域名返回空体 503，维护屏障关闭时返回 503 `maintenance`。 |
 
 关闭准入不等于已排空；独立 GET 必须同时确认 `closed`、`drained` 为 true、`outstanding` 为空且 `outstandingTruncated` 为 false。关闭或无法确认准入时，可能写入的请求（包括可能续期会话的读请求）返回 503 `{"error":{"code":"maintenance","message":"Service temporarily unavailable"}}`，带 `Cache-Control: private, no-store` 和 `Retry-After: 30`。静态资源、规范公开读入口及已核对为纯读的 health、客户端分发等不受停写影响；未知路径不按纯读放行。运维步骤和外部写入者限制见[维护屏障操作规范](../operations/deployment-safety.md#maintenance-barrier)。
 
@@ -211,7 +212,7 @@ curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "If-Match: $VERSION" -H '
 | PUT `/members/:id/role` | owner；JSON 例如 `{"role":"reviewer"}`，角色取值为 member、reviewer 或 owner；成功 `{ok:true}`；最后一个 owner 不能降级，返回 409。 |
 | GET `/audit-events` | `limit`、`cursor`、`action`；`action` 必须符合 `auditActionSchema`，未知值 400。事件按 action 判别 detail，读写复用 `adminAuditEventSchema`，不接受任意 JSON 冒充已知操作。 |
 | PUT `/recommendations/:projectId` | owner；`adminRecommendationUpdateSchema`，返回推荐内容；项目不存在 404。 |
-| DELETE `/recommendations/:projectId` | owner；204，不存在 404。 |
+| DELETE `/recommendations/:projectId` | owner；不传 `id` 时删除本人对该项目的推荐，传入可选查询参数 `?id=<recommendationId>` 时删除该项目下的指定推荐记录（用于内容治理）并写入审计；成功 204，不存在 404，无效参数 400。 |
 
 操作审计不保存项目批准、拒绝或计数重算；批准与拒绝的权威记录属于审查表。迁移明确排除对应三种旧日志，原始备份不变。历史兼容信息修改统一为 `project.patch`，detail 保留来源表、原作者／目标标识及 beforeValue／afterValue；不因此恢复兼容字段。其余保留的历史管理操作使用明确的 `legacy.*` 枚举，不开放任意前缀。
 

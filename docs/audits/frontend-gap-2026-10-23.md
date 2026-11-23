@@ -1,5 +1,7 @@
 # 旧站与 staging 前端差距报告
 
+> 历史审计提示（2026-11-22 补充）：本文记录 2026-10-23 时点的匿名页面与早期 `App.tsx` 静态对照，不是当前 `main` 的前端实现状态或待修复清单。后续统一送审、条目阅读／删除、五分类与合集、全宽发现舞台及响应式布局已合入；现行交互见 [using-workshop.md](../guides/using-workshop.md)，当前进度与人工验收门槛见 [state.md](../plans/refactor-2026-10/state.md)。
+
 更新：2026-10-23  
 范围：匿名线上表面实测 + 当前代码与只读 legacy 代码对照。  
 旧站：`https://poemofdestinycreativeworkshop.1528779666.workers.dev/`  

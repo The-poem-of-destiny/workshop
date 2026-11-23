@@ -1,5 +1,7 @@
 # 功能审计 A：features.md 第 1–6、13 节与 Checker 规则内容
 
+> 历史审计提示（2026-11-22 补充）：本文仅针对 2026-10-21 的 `refactor/2026-10`（`e103ee4`）早期骨架做静态时点审计，不是当前 `main` 的缺口清单。文中引用的早期 `features.md`、`p6-cleanup.md` 已归档至 [`../archived/refactor-2026-10/`](../archived/refactor-2026-10/README.md)；现行实现与待验收门槛见 [worker-api.md](../reference/worker-api.md) 和 [state.md](../plans/refactor-2026-10/state.md)。
+
 - 审计日期：2026-10-21
 - 审计对象：分支 `refactor/2026-10`，HEAD `e103ee4`
 - 审计方式：只读静态审计。未运行测试、未启动 Worker、未修改源码（仅新增本报告）。

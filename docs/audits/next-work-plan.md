@@ -1,6 +1,6 @@
 # Creative Workshop 后续工作规划审计
 
-> 历史审计提示（2026-11-17 补充）：本文结论仅适用于下述 `0ce8f845e558ef123427a274ff6d753301f2df64` 基线，不是当前 main 的缺口清单。后续核心 Web／Worker／Tavern client、统一审核、六分类与离线候选等已经合入；原文中的“backend-only”“客户端／UI 未闭环”及旧待办不得平移到现在。当前合并源码、本地／CI 证据、历史 staging 验收、两个尚未合入的功能缺口与真实环境／切换门槛见 [state.md](../plans/refactor-2026-10/state.md) 和 [user-actions.md](../plans/refactor-2026-10/user-actions.md)。保留原审计正文与当时测量，不据本次整理宣称新审计通过或线上已更新。
+> 历史审计提示（2026-11-22 更新）：本文结论仅适用于下述 `0ce8f845e558ef123427a274ff6d753301f2df64` 早期基线，不是当前 `main` 的缺口清单。后续核心 Web／Worker／Tavern client、统一审核、版本备忘、订阅推荐资格、政策准入与合集、五分类（`规则扩展`）、`[工坊]` 标记及离线迁移工具链均已合入；原文提及的 `features.md`、`archive/*` 已归档至 [`../archived/refactor-2026-10/`](../archived/refactor-2026-10/README.md)，旧 `.mjs`/`from_d1_sql.py` 迁移脚本亦已由 [`legacy-data-migration.md`](../operations/legacy-data-migration.md) 取代。当前合并状态与真实环境／切换门槛见 [state.md](../plans/refactor-2026-10/state.md) 和 [user-actions.md](../plans/refactor-2026-10/user-actions.md)。
 
 
 ## 1. 总体结论

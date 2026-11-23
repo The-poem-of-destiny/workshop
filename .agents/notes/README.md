@@ -32,3 +32,16 @@ Use a stable lowercase kebab-case filename. Link the note to the current documen
 Before creating a note, search active notes for overlap or supersession. A proposal becomes `in-progress/` after acceptance when implementation or verification remains, then `implemented/` after shipping and recording verification. A declined proposal moves to `rejected/` with its reason. A superseded implemented note moves to `archived/` through the archival workflow.
 
 Archived notes are frozen historical evidence and are never edited. Repair inbound links from active documents instead.
+
+## Current notes index
+
+### `implemented/` (shipped on `main`)
+
+- [`community-access-collections-and-ux-refinement.md`](implemented/community-access-collections-and-ux-refinement.md) — discreet Discord invite touchpoints, versioned policy 3-question quiz gate, author collections & showcase views, five-category consolidation (`规则扩展`), elastic 2K/ultrawide layout and `[工坊]` worldbook marker.
+- [`six-category-taxonomy-and-reviewed-cutover.md`](implemented/six-category-taxonomy-and-reviewed-cutover.md) — structured `projectType` / `includedTypes` / ordinary `tags` boundaries, grouped tag filtering and source-pinned offline `taxonomy` review/build/verify tooling (primary enum partially superseded from 6 to 5 categories by the note above).
+- [`version-experience-notes-and-recommendations.md`](implemented/version-experience-notes-and-recommendations.md) — private per-version experience/rating notes, read-only unversioned legacy note retention and current-subscription player recommendation eligibility.
+- [`new-ui-visual-direction.md`](implemented/new-ui-visual-direction.md) — dark-gold visual direction, 16:9 media ratio, full discovery batch & manual recommendation reading (layout evolved by `community-access-collections-and-ux-refinement.md`).
+
+### `in-progress/` (accepted, implementation deferred)
+
+- [`dual-frontend-migration.md`](in-progress/dual-frontend-migration.md) — long-term shared-backend dual-UI target; classic UI migration and switcher remain intentionally deferred while the new UI ships.

@@ -4,9 +4,9 @@
 
 ## 连接与信任边界
 
-客户端在 SillyTavern 中直接打开工坊 iframe，URL 带 `embed=1`、`clientVersion` 和 `clientChannel`，不等待版本探测。服务地址可在宿主设置中修改，仅应使用可信工坊；地址归一化为 HTTP(S) origin，无效值回退到构建时默认值。
+客户端 `showOverlay` 在 SillyTavern 中直接打开工坊 iframe，URL 带 `embed=1`、`clientVersion`、`clientChannel`（宿主协议为 HTTP(S) 时同时附带 `hostOrigin`），并为 iframe 设置 `referrerpolicy="origin"`，不等待版本探测。服务地址可在宿主设置中修改，仅应使用可信工坊；地址归一化为 HTTP(S) origin，无效值回退到构建时默认值。
 
-页面从 `document.referrer`，或其为空时从 `hostOrigin` 查询参数取得 HTTP(S) 宿主 origin；无有效 origin 或没有父窗口时不创建安装桥。桥要求精确 origin，不接受 `*`、`null` 或非 origin URL。页面发送 `cw:ready`，宿主也响应 `cw:request-context`，返回 `cw:context`；`cw:close` 请求关闭 iframe。宿主只接受当前活动 iframe 的 `source` 和配置工坊 origin 均匹配的消息，回复也发送到该 origin。页面只接受来自 `window.parent` 且 origin 匹配的上下文；安装响应还必须匹配请求 ID、响应类型和布尔 `ok`。这些校验限制通信对象，并不替代对工坊地址的信任或服务端权限检查。
+页面从 `document.referrer`，或其为空时从 `hostOrigin` 查询参数取得 HTTP(S) 宿主 origin；无有效 origin 或没有父窗口时不创建安装桥。桥要求精确 origin，不接受 `*`、`null` 或非 origin URL。页面向 `window.parent`（目标 origin 为 `hostOrigin`）发送 `cw:ready`，宿主也响应 `cw:request-context`，返回 `cw:context`；`cw:close` 请求关闭 iframe。宿主只接受当前活动 iframe 的 `source` 和配置工坊 origin 均匹配的消息，回复也发送到该 origin。页面仅当 `event.origin === hostOrigin` 且 `event.source` 为 `window.parent` 或 `window.parent` 的同源子 frame（如 TavernHelper 脚本运行所在的 iframe，即 `event.source.parent === window.parent`）时接受宿主上下文与桥接回复；安装响应还必须匹配请求 ID、响应类型和布尔 `ok`。这些校验限制通信对象，并不替代对工坊地址的信任或服务端权限检查。
 
 成功的 `cw:context` 包含 `connected: true`、`characterName`、`worldbooks: { primary, additional, available }`、`installationScan` 和 `clientVersion`；获取失败时返回 `connected: false` 和 `error`。上下文与扫描会暴露当前角色名称、世界书名称和安装实例摘要给可信工坊页面；不是完整宿主数据的传输。
 

@@ -1,5 +1,7 @@
 # CI/CD 问题清单与预期路线
 
+> 历史审计提示（2026-11-22 补充）：本文记录 2026-10-21 时点的早期工作流缺口与路线评估，不是当前 `main` 的未闭环清单。后续精确产物逐级提升、schema 只读校验、Gitleaks 与生产恢复书签等已合入，现行发布与恢复规范见 [deployment-safety.md](../operations/deployment-safety.md)，当前进度与未执行门槛见 [state.md](../plans/refactor-2026-10/state.md)。
+
 更新：2026-10-21
 
 范围：`.github/workflows/`、`package.json` 检查入口、Cloudflare staging/production 部署、生产迁移与回滚。本文是待审查的路线清单，不是已完成状态记录。

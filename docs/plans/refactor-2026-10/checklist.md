@@ -1,24 +1,24 @@
 # Creative Workshop 重构 Checklist
 
-更新：2026-11-17。当前核对基线为 `main` / `origin/main` 的 `c450263a82c33a883bbaec5b0336130d9cfe1d12`，已正常合并版本备忘 #94；精确合并与验证证据见 [state.md](state.md)。
+更新：2026-11-22。当前核对基线为 `origin/main` 的 `bd13703`（含版本备忘 #94、当前订阅推荐资格 #93、政策准入与合集 #95、五分类 `规则扩展` #107 及 `[工坊]` 标记 #108）；精确合并与验证证据见 [state.md](state.md)。
 
-状态口径：下节“当前交付与验收门槛”的 `[x]` 表示对应源码已实现且已有明确范围的证据；精确合并和 CI 状态以各 PR 为准，`[ ]` 表示该项尚未完成。**本文件不是全部旧复选框清零即可上线的授权书**：历史清单不再定义当前 backlog，真实数据切换和生产发布必须另获授权。
+状态口径：下节“当前交付与验收门槛”的 `[x]` 表示对应源码已合入 `main` 且已有明确范围的本地／CI 证据；`[ ]` 表示该项尚未完成。**本文件不是全部旧复选框清零即可上线的授权书**：源码合入不等于线上生产已部署，历史清单不再定义当前 backlog，真实数据切换和生产发布必须另获授权。
 
 按主题选择下一项工作或查找尚未定案的线头，见[上线前重构：待核对与收口清单](open-threads.md)。本页继续跟踪交付与验收，不重复记录设计待办。
 
 ## 当前交付与验收门槛
 
-- [x] 核心 Worker／Web／Tavern client 源码已合入：统一冻结送审、审核与作者／管理工作区、安装实例与整体预览／确认、玩家改动保护；本地行为与 CI 证据见 state，不代表真实 Discord／SillyTavern 已验收。
-- [x] PR #89 四普通标签上限、PR #90 六分类与显式审阅离线候选工具、PR #91 预览／焦点／完整发现批次与手动推荐阅读已合并。六分类详情见[决定记录](../../../.agents/notes/in-progress/six-category-taxonomy-and-reviewed-cutover.md)，视觉范围见[映射](frontend-fidelity.md)。
-- [x] 历史 staging 迁移在 2026-11-06 取得 210/210 批及源／目标／搜索对账验收；这是既有 schema 的阶段证据，不是当前 taxonomy／新 schema 切换完成。
-- [x] 版本绑定的本人体验／评分备忘：[PR #94](https://github.com/The-poem-of-destiny/workshop/pull/94) 已实现、独立审查且 exact-head required checks 通过后正常合并；本地证据不代表线上启用，不将旧无版本评分猜配到任一版本或公开。
-- [x] 当前订阅才可新增／编辑玩家推荐：[PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) 已纠正并以真实合成本地 Worker API 和 Chromium 验证，exact-head required checks 成功后正常合并。退订立即失去资格，既有推荐保留且本人可撤回；重新订阅恢复资格，不保留历史资格或从下载、安装、评分推断订阅。该证据不代表部署或真实数据切换。
-- [ ] 当前 schema／taxonomy 真实切换：另行授权；保留当前源 D1/R2，检查候选 schema 与关键数据，切换后验证受影响路径。不要求完整恢复演练或逐项独立对账。
+- [x] 核心 Worker／Web／Tavern client 源码已合入：统一冻结送审、审核与作者／管理工作区、安装实例与整体预览／确认、玩家改动保护及 `[工坊]` 世界书条目／注册表标记（读取兼容历史 `[WS]`，PR #108）；本地行为与 CI 证据见 state，不代表真实 Discord／SillyTavern 已验收。
+- [x] PR #89 四普通标签上限、PR #90 结构化分类与显式审阅离线候选工具、PR #91 预览／焦点／完整发现批次与手动推荐阅读、PR #95 社区低调入口／政策 3 题准入／合集、以及 PR #107 **五分类收敛**（`系统核心`、`角色`、`内容扩展`、`规则扩展`、`体验优化`）与布局重做均已合并。决策依据见[五分类与体验精修记录](../../../.agents/notes/implemented/community-access-collections-and-ux-refinement.md)与[离线切换基础记录](../../../.agents/notes/implemented/six-category-taxonomy-and-reviewed-cutover.md)，视觉范围见[映射](frontend-fidelity.md)。
+- [x] 历史 staging 迁移在 2026-11-06 取得 210/210 批及源／目标／搜索对账验收；这是既有 schema 的阶段证据，不是当前五分类／新 schema 生产切换完成。
+- [x] 版本绑定的本人体验／评分备忘：[PR #94](https://github.com/The-poem-of-destiny/workshop/pull/94) 已实现、独立审查且 exact-head required checks 通过后正常合并；本地证据不代表生产启用，不将旧无版本评分猜配到任一版本或公开。
+- [x] 当前订阅才可新增／编辑玩家推荐：[PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) 已纠正并通过 Worker API、Chromium 与 exact-head required checks 后正常合并（`b7be9ee`）。退订立即失去资格，既有推荐保留且本人可撤回；重新订阅恢复资格，不保留历史资格或从下载、安装、评分推断订阅。该证据不代表生产部署或真实生产数据切换。
+- [ ] 当前五分类 schema／taxonomy 真实生产切换：另行授权；保留当前源 D1/R2，检查候选 schema 与关键数据，切换后验证受影响路径。不要求完整恢复演练或逐项独立对账。
 - [ ] 当前版本真实 Discord 完整登录／准入与真实 SillyTavern 安装／更新／卸载验收，见 [user-actions.md](user-actions.md)。合成本地账号与消息宿主不替代它们。
 - [ ] 目标环境 Cache API hosted 行为与陈旧风险验收；方案以 [D-49](decisions.md#d-49-分类-ttl-cache-api)、[缓存设计](../../reference/cache-design.md)和[运行配置](../../reference/runtime-configuration.md)为准，不验证全球 purge 或旧 Workers Cache 方案。
 - [ ] 生产首次切换、发布审批和精确部署版本验收；按[切换手册](../../operations/deployment-safety.md#schema-evolution-and-production-cutover)保留恢复点，生产切换尚未执行。
 
-文档 #92、推荐资格 #93 和版本备忘 #94 的合并授权不包含建 tag、生产部署或生产数据操作。不绕过分支保护。发布按[滚动规则](../../operations/deployment-safety.md#routes)进行；`0001_initial.sql` 只初始化空库。经典界面迁移、双前端开关及每日抽签继续暂缓。
+已合并功能 PR 的授权不包含建 tag、生产部署或生产数据操作。不绕过分支保护。发布按[滚动规则](../../operations/deployment-safety.md#routes)进行；`0001_initial.sql` 只初始化空库。经典界面迁移、双前端开关及每日抽签继续暂缓。
 
 ## 本轮工作包（2026-10-26）
 
@@ -38,7 +38,7 @@
 
 ## 历史细项（2026-10-21～2026-10-26）
 
-以下第 0～12 节保留当时的勾选、实现名称、schema 链、测试数与部署版本，**不是当前实现合同或待办**。其中旧 shim、项目级评分、四卡发现区、独立展示资料修改及旧 migration 链等已被后续决定／实现取代；不要按本节执行迁移或恢复已删除兼容路径。当前状态以本页顶部、[API 参考](../../reference/worker-api.md)、[客户端宿主协议](../../reference/host-protocol.md)及[用户验收事项](user-actions.md)为准。
+以下第 0～12 节保留当时的勾选、实现名称、schema 链、测试数与部署版本，**不是当前实现合同或待办**（早期 `features.md` 与原 `archive/*` 已统一归档至 [`../../archived/refactor-2026-10/`](../../archived/refactor-2026-10/README.md)）。其中旧 shim、项目级评分、四卡发现区、独立展示资料修改及旧 migration 链等已被后续决定／实现取代；不要按本节执行迁移或恢复已删除兼容路径。当前状态以本页顶部、[API 参考](../../reference/worker-api.md)、[客户端宿主协议](../../reference/host-protocol.md)及[用户验收事项](user-actions.md)为准。
 
 
 ## 0. 文档与仓库
