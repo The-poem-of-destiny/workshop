@@ -644,7 +644,12 @@ async function main() {
     if (!httpOnly && executablePath) {
       const browser = await chromium.launch({ headless: true, executablePath });
       const browserDiagnostics = [];
-      function observePage(page) {
+      async function observePage(page, { allowIntroSplash = false } = {}) {
+        if (!allowIntroSplash) {
+          await page.addInitScript(() => {
+            window.sessionStorage.setItem("workshop:intro-splash-seen:v1", "1");
+          });
+        }
         page.on("pageerror", (error) => browserDiagnostics.push(`pageerror ${page.url()}: ${error.stack ?? error}`));
         page.on("response", (response) => {
           if (response.status() >= 400) browserDiagnostics.push(`HTTP ${response.status()} ${response.url()}`);
@@ -714,8 +719,13 @@ async function main() {
             "the real scheduled discovery batch includes the published fixture",
           );
           const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-          observePage(page);
+          await observePage(page, { allowIntroSplash: true });
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
+          const enterWorkshop = page.getByRole("button", { name: "进入工坊", exact: true });
+          if (await enterWorkshop.isVisible()) {
+            await enterWorkshop.click();
+            await enterWorkshop.waitFor({ state: "hidden", timeout: 5_000 });
+          }
           await page.locator(".card").first().waitFor({ state: "visible", timeout: 10_000 });
           await page.locator(".discovery-directory-item").filter({ hasText: "E2E Project" }).click();
           const discoveryImage = page.locator('.discovery-main-image[aria-label="查看 E2E Project 详情"]');
@@ -774,7 +784,7 @@ async function main() {
 
         await check("browser taxonomy filters compose and never request thirteen tags", async () => {
           const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-          observePage(page);
+          await observePage(page);
           const catalogueRequests = [];
           page.on("request", (request) => {
             const url = new URL(request.url());
@@ -927,7 +937,7 @@ async function main() {
 
         await check("browser mobile browse and detail", async () => {
           const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true });
-          observePage(page);
+          await observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.locator(".card").first().waitFor({ state: "visible", timeout: 10_000 });
           await screenshot(page, "browse-mobile");
@@ -979,7 +989,7 @@ async function main() {
 
         await check("browser sort tabs reorder actual cards", async () => {
           const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-          observePage(page);
+          await observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           const sortRequest = (value) =>
             page.waitForResponse((response) => {
@@ -1029,7 +1039,7 @@ async function main() {
           const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), authorToken);
           const page = await context.newPage();
-          observePage(page);
+          await observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.locator(".card", { hasText: "E2E Project" }).first().locator(".card-title").click();
           await page.locator(".detail").waitFor({ state: "visible" });
@@ -1058,7 +1068,7 @@ async function main() {
             const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
             await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), memberToken);
             const page = await context.newPage();
-            observePage(page);
+            await observePage(page);
             const openDetail = async () => {
               await page.goto(`${base}/`, { waitUntil: "networkidle" });
               await page.locator(".card", { hasText: "E2E Project" }).first().locator(".card-title").click();
@@ -1187,7 +1197,7 @@ async function main() {
           const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), memberToken);
           const page = await context.newPage();
-          observePage(page);
+          await observePage(page);
           const open = async () => {
             await page.goto(`${base}/`, { waitUntil: "networkidle" });
             await page.locator(".card", { hasText: "E2E Project" }).first().locator(".card-title").click();
@@ -1276,7 +1286,7 @@ async function main() {
           const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), authorToken);
           const page = await context.newPage();
-          observePage(page);
+          await observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.getByRole("button", { name: "我的项目", exact: true }).click();
           await page.locator(".workspace-projects").getByRole("button", { name: "新建项目", exact: true }).click();
@@ -1440,7 +1450,7 @@ async function main() {
           const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), ownerToken);
           const page = await context.newPage();
-          observePage(page);
+          await observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.getByRole("button", { name: "管理", exact: true }).click();
           const management = page.getByRole("navigation", { name: "管理任务" });
@@ -1482,7 +1492,7 @@ async function main() {
           const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), ownerToken);
           const page = await context.newPage();
-          observePage(page);
+          await observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.getByRole("button", { name: "审核台", exact: true }).click();
           await page.getByRole("searchbox", { name: "搜索当前队列", exact: true }).fill("E2E Approve");
@@ -1539,7 +1549,7 @@ async function main() {
           const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), ownerToken);
           const page = await context.newPage();
-          observePage(page);
+          await observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.getByRole("button", { name: "审核台", exact: true }).click();
           const item = page.getByTestId("review-queue-item").filter({ hasText: "E2E Pending" }).first();
@@ -1594,7 +1604,7 @@ async function main() {
           const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), authorToken);
           const page = await context.newPage();
-          observePage(page);
+          await observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.getByRole("button", { name: "我的项目", exact: true }).click();
           await page.getByText("E2E Pending", { exact: true }).first().click();
@@ -1674,7 +1684,7 @@ async function main() {
           const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), unacceptedToken);
           const page = await context.newPage();
-          observePage(page);
+          await observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           const policyDialog = page.getByRole("dialog", { name: "创意工坊使用政策与须知", exact: true });
           await policyDialog.waitFor({ state: "visible", timeout: 10_000 });
@@ -1704,7 +1714,7 @@ async function main() {
           const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
           await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), authorToken);
           const page = await context.newPage();
-          observePage(page);
+          await observePage(page);
           await page.goto(`${base}/`, { waitUntil: "networkidle" });
           await page.getByRole("button", { name: "我的项目", exact: true }).click();
           await page.getByRole("button", { name: "新建合集", exact: true }).click();
@@ -1789,7 +1799,7 @@ async function main() {
             const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
             await context.addInitScript((token) => sessionStorage.setItem("cw_session_token", token), authorToken);
             const page = await context.newPage();
-            observePage(page);
+            await observePage(page);
             await page.goto(`${base}/`, { waitUntil: "networkidle" });
             await page.getByRole("button", { name: "我的项目", exact: true }).click();
             await page.locator(".workspace-project-row").filter({ hasText: "E2E Taxonomy Draft" }).click();

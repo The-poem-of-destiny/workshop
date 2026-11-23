@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { ApiError, formatApiErrorMessage, formatUserError, type ProjectSummary } from "./api";
+import { IntroSplash } from "./components/IntroSplash";
 import { useCatalogue } from "./features/catalogue/useCatalogue";
 import { WorkshopCatalogue } from "./features/catalogue/WorkshopCatalogue";
 import { useHostConnection } from "./features/installed/useHostConnection";
@@ -377,6 +378,8 @@ export function App() {
         instanceOperation={instanceOperation}
         installedItems={installedItems}
       />
+
+      <IntroSplash blocked={policyDialogOpen} />
     </div>
   );
 }
