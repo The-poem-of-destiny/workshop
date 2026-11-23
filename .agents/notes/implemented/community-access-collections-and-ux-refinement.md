@@ -1,10 +1,11 @@
 # 社区低调入口、政策问答准入、合集体系与界面体验精修
 
 - Status: implemented
-- 确认日期：2026-11-18（源码已合入 `main`：PR #95、#107、#108；线上生产切换与真实宿主验收另见 [`state.md`](../../../docs/plans/refactor-2026-10/state.md)）
+- 确认日期：2026-11-18（源码已合入 `main`：PR #95、#107、#108、#109 `d7deb9d`，并在 `staging` 跑通 `deploy-staging` 全链部署验收；`staging` 与 `production` D1 均已完成五分类 + 98 对象预装载，正式 `v*` 生产切流与真实宿主验收见 [`state.md`](../../../docs/plans/refactor-2026-10/state.md)）
 - 决策负责人：项目所有者；实现负责人：当前维护者。
 - 关联与局部取代：
-  - 局部取代 [分类体系与显式审阅的离线切换](six-category-taxonomy-and-reviewed-cutover.md) 的主分类枚举：将原六分类收敛为五分类（`系统核心`、`角色`、`内容扩展`、`规则扩展`、`体验优化`），把原`事件`合并入`内容扩展`（`事件形式`预设标签组挂载至`内容扩展`），把原`玩法`更名为`规则扩展`（`玩法方向`预设标签组挂载至`规则扩展`），离线审阅工具将历史`事件`/`玩法`确定性预填为`内容扩展`/`规则扩展`（仍须显式勾选确认）；世界书新条目与项目注册表标记同步统一为 `[工坊]`（兼容读取历史 `[WS]`，PR #108）。
+  - 局部取代 [分类体系与显式审阅的离线切换（六分类初版，主类已由五分类部分替代）](six-category-taxonomy-and-reviewed-cutover.md) 的主分类枚举：将原六分类收敛为五分类（`系统核心`、`角色`、`内容扩展`、`规则扩展`、`体验优化`），把原`事件`合并入`内容扩展`（`事件形式`预设标签组挂载至`内容扩展`），把原`玩法`更名为`规则扩展`（`玩法方向`预设标签组挂载至`规则扩展`），离线审阅工具将历史`事件`/`玩法`确定性预填为`内容扩展`/`规则扩展`（仍须显式勾选确认）；世界书新条目与项目注册表标记同步统一为 `[工坊]`（兼容读取历史 `[WS]`，PR #108）。
+  - 协同 [上线前加固：双桶 CDN 客户端分发、跨站分区 OAuth、TavernHelper 桥接与威胁门禁](pre-launch-hardening-oauth-bridge-and-cdn.md)（PR #109）：补齐跨站酒馆内嵌 CHIPS 分区下的 OAuth `launch/bind` 弹窗绑定与兼容 TavernHelper 同源子 iframe 的宿主桥接校验。
   - 局部演进 [新站视觉优化：暗金基调与内容型悬浮卡片](new-ui-visual-direction.md)：保留暗金基调、16:9 媒体位、悬浮倾斜卡片与完整发现批次，但采用全宽可折叠顶部聚光灯发现舞台（推荐语全文可纵向滚动不截断）+ 下方独立左侧筛选栏与右侧卡片/列表双视图目录（恢复`世界书`完整名称，卡片作者行右端与统计行右端分别用独立图标展示最新更新时间与首次上传时间），并将卡片网格基准宽度调优以自适应 1080p / 2K / 21:9 带鱼屏及移动端双列小卡与全屏抽屉。
   - 取代 [决策记录 D-32](../../../docs/plans/refactor-2026-10/decisions.md#d-32-前端旧模块处置定稿) 中“不做作者主页”的限制：在不脱离单一目录筛选引擎的前提下，复用公开项目查询管线提供作者作品展示视图与合集展示视图。
   - 更新 [双界面迁移决策](../in-progress/dual-frontend-migration.md) 中的只读旧版工作树路径引用为 `worktrees/workshop-legacy`。
@@ -97,14 +98,14 @@
 ## 后果与风险
 
 - **全员重签影响**：上线切换后，所有既有用户首次使用安装、点赞、订阅、阅读源码或创作功能前均需完成一次政策勾选与 3 题单选；普通游客浏览目录与摘要不受阻断。
-- **Schema 门禁约束**：当前仓库仍处于上线前空库 `0001_initial.sql` 基线阶段，变更同步纳入 `0001_initial.sql`、`tools/check-schema.mjs` 及 `tools/migrate/` 离线迁移与校验脚本；真实远端数据库切换仍受既有部署门禁保护，不在本分支直接触碰线上 D1/R2。
+- **Schema 门禁约束**：上线前 98 对象空库基线统一维护在 `0001_initial.sql`、`tools/check-schema.mjs` 及 `tools/migrate/` 离线迁移与校验脚本中；截至 2026-11-23，`staging`（`workshop-staging-migrate-977ebb415bf6`）与 `production`（`workshop-prod`）D1 均已预装载对齐该 98 对象五分类 schema，`deploy-staging` 已在 `d7deb9d` 验证通过，正式生产切流仍受受保护 `v*` tag 与停写 `delta` 门禁保护。
 - **公共缓存一致性**：新增的公开合集与作者摘要接口遵循现行分类 TTL Cache API 策略（60 秒公开投影），合集变更后在缓存有效期内允许短暂陈旧，不影响私有授权边界。
 
 ---
 
 ## 验证要求
 
-1. `pnpm check` 全链路通过（workspace、architecture、data-boundary、Knip unused/cycles、Biome 零警告零错误、全包 TypeScript 严格类型检查、domain/content/tavern-client/worker 单元与集成测试、schema 不变量检查、6 套 Python 迁移对账测试、backup 校验、Wrangler dry-run 与 bundle gzip 预算门禁）。
+1. `pnpm check` 全链路通过（workspace、architecture、data-boundary、Knip unused/cycles、Biome 零警告零错误、全包 TypeScript 严格类型检查、domain/content/tavern-client/worker 单元与集成测试、98 对象 schema 不变量检查、含 `test-cutover-delta.py` 在内的 **7 套 Python 迁移对账测试**、backup 校验、Wrangler dry-run 与 bundle gzip 预算门禁）。
 2. Worker 真实 workerd + 本地 D1/R2 集成测试覆盖：
    - 未同意政策或政策版本过期时，`GET /api/v1/me` 返回 `accepted: false`，安装取件、源码预览、互动、创作与管理接口均返回 `403`，答错任一单选题拒绝通过，全对提交后立即恢复完整权限并记录审计；
    - OAuth 登录失败在 `device` 与 `browser` 模式下准确记录并回传错误原因；

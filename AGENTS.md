@@ -29,7 +29,7 @@ Create task checkouts from refreshed `origin/main`, under the primary checkout's
 - Batch related code, tests, config and docs into one PR.
 - Do not open a PR for docs, comments or small config alone; fold them into the next change.
 - Run `pnpm check` and the relevant E2E tests before opening; report what actually ran.
-- Merge only when `check` and `e2e` pass; delete task branches afterwards.
+- Merge only when `check`, `e2e`, and `secrets` pass; delete task branches afterwards.
 
 ## Repository boundaries
 
@@ -38,7 +38,7 @@ Create task checkouts from refreshed `origin/main`, under the primary checkout's
 - `docs/` owns current knowledge and refactor records; `.agents/` owns notes and reusable agent procedures. Follow `docs/AGENTS.md` for document placement.
 - `tools/` owns checks, migrations, local E2E and backup verification. Do not duplicate tool logic in ad-hoc scripts.
 - `worktrees/workshop-legacy` is read-only reference. Never edit or build it from this repository.
-- Generated output (`.wrangler/`, `web/dist/`, `tavern-client/dist/`, `data_backup/`) is excluded from Git and never maintained by hand.
+- Generated output (`.wrangler/`, `apps/worker/build/`, `web/dist/`, `tavern-client/dist/`, `packages/content/dist/`, `data_backup/`) is excluded from Git and never maintained by hand.
 - Do not reintroduce the deleted legacy entry points (`cloudflare/`, old `src/`, `util/`, old `config/`, `test-dist/` or the old webpack chain).
 
 ## Local Python tooling

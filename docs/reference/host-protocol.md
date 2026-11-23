@@ -8,9 +8,9 @@
 
 页面从 `document.referrer`，或其为空时从 `hostOrigin` 查询参数取得 HTTP(S) 宿主 origin；无有效 origin 或没有父窗口时不创建安装桥。桥要求精确 origin，不接受 `*`、`null` 或非 origin URL。页面向 `window.parent`（目标 origin 为 `hostOrigin`）发送 `cw:ready`，宿主也响应 `cw:request-context`，返回 `cw:context`；`cw:close` 请求关闭 iframe。宿主只接受当前活动 iframe 的 `source` 和配置工坊 origin 均匹配的消息，回复也发送到该 origin。页面仅当 `event.origin === hostOrigin` 且 `event.source` 为 `window.parent` 或 `window.parent` 的同源子 frame（如 TavernHelper 脚本运行所在的 iframe，即 `event.source.parent === window.parent`）时接受宿主上下文与桥接回复；安装响应还必须匹配请求 ID、响应类型和布尔 `ok`。这些校验限制通信对象，并不替代对工坊地址的信任或服务端权限检查。
 
-成功的 `cw:context` 包含 `connected: true`、`characterName`、`worldbooks: { primary, additional, available }`、`installationScan` 和 `clientVersion`；获取失败时返回 `connected: false` 和 `error`。上下文与扫描会暴露当前角色名称、世界书名称和安装实例摘要给可信工坊页面；不是完整宿主数据的传输。
+成功的 `cw:context` 包含 `connected: true`、`characterName`、`worldbooks: { primary, additional, available }`、`installationScan`、`clientVersion` 与 `installCompatibility: { state, required? }`；获取失败时返回 `connected: false` 和 `error`。上下文与扫描会暴露当前角色名称、世界书名称和安装实例摘要给可信工坊页面；不是完整宿主数据的传输。
 
-新版宿主额外返回 `installCompatibility: { state, required? }`。`state` 为 `compatible`、`version_mismatch`、`channel_unavailable` 或 `unverified`；版本不符时附上 `required`。新版页面仅在明确兼容时允许发起宿主写入；缺少状态的旧桥接仍可浏览和扫描。旧脚本若在 iframe 加载前自行拦截版本，需升级脚本。
+`installCompatibility.state` 取值为 `compatible`、`version_mismatch`、`channel_unavailable` 或 `unverified`；版本不符时附上 `required`。工坊页面仅在 `state === "compatible"` 时允许发起宿主写入；缺少兼容状态时仍可浏览和扫描。
 
 ## 安装消息
 
@@ -19,29 +19,29 @@
 | 请求 | 附加载荷 | 成功结果 |
 | --- | --- | --- |
 | `cw:scan` | 无 | `InstallScan` |
+| `cw:convert-legacy` | `worldbooks: string[]` | `{ converted: number, skipped: number }` |
 | `cw:preview-install` | `intent: InstallIntent` | `InstallPreview` |
 | `cw:confirm-install` | `previewId` | `{ instanceId, action, scan }` |
 | `cw:cancel-install` | `previewId` | `{ cancelled: boolean }` |
 
 宿主在预览、确认和 `cw:convert-legacy` 前重新探测兼容性。只接受当前频道明确匹配的结果；不符、无频道、请求失败或超时均拒绝，扫描、取消和关闭不受影响。服务端获取另有独立版本校验。
 
-`InstallIntent.action` 为 `install`、`update`、`uninstall` 或 `migrate`。`instanceId` 指定已有实例；安装和更新提供 `project`（`id`、`version`，可选 `title`、`projectType`）及 `files`（可选 `worldbook`、`regex` JSON 文本）。目标选择使用 `targetWorldbook`、`createWorldbook` 和 `bindWorldbook`。新安装不能指定已有实例；其他操作须指定有效实例；卸载不能携带项目、文件或变更目标和绑定。具体校验还包括角色匹配、来源和目标可读、目标身份无歧义及不能在同一目标重复安装同一项目。
+`InstallIntent.action` 为 `install`、`update`、`uninstall` 或 `migrate`。`instanceId` 指定已有实例；安装和更新提供 `project`（`InstallProject`：`id`、`version`，可选 `title`、`description`、`author`、`versionLabel`）及 `files`（可选 `worldbook`、`regex` JSON 文本）。目标选择使用 `targetWorldbook`、`createWorldbook` 和 `bindWorldbook`。新安装不能指定已有实例；其他操作须指定有效实例；卸载不能携带项目、文件或变更目标和绑定。具体校验还包括角色匹配、来源和目标可读、目标身份无歧义及不能在同一目标重复安装同一项目。
 
 `InstallScan` 返回 `instances`、`scope`、`failures` 和 `ambiguous`。实例包含 ID、项目、版本、世界书及角色位置、`native`/`legacy` 来源、`clean`/`localChanged`/`baselineUnknown` 状态和条目数量。`scope.worldbooks` 是扫描的世界书名称，`scope.character` 是当前角色；正则范围为 `current-character-only`，其他角色标记 `not-scanned`。读取失败与身份存疑不等同于未安装。
 
 预览返回 `previewId`、`instanceId`、`action`、原 `instance` 或 null、`target`、`playerChanges` 和 `changes`。差异项有 `kind`（`worldbook` 或 `regex`）、`key`、`before`、`after`，null 表示该侧不存在。`playerChanges` 是相对基线的差异；基线未知时列出当前归属内容，并不证明全是玩家修改。预览不写入宿主数据。
 
-新上传的世界书条目名称在保存时加上 `[工坊]`，作者预览显示最终名称，作者负责相应修改按名称查找的引用；动态 EJS 无法完全自动检查。安装、更新和迁移保留文件或已有实例中的名称，不在宿主端重命名；历史发布内容（含旧 `[WS]` 条目）因此保留原名以免破坏引用。标记本身不证明归属，缺少可靠身份的 `[工坊]` 或 `[WS]` 条目会阻止对应位置的操作，不能自动认领或删除。`[DLC]` 或旧名称本身不是归属证据，也不会仅因名称而被认领。已有可靠身份的旧条目仍可管理。位置判断按世界书完整名称和角色范围区分。
+世界书条目名称在服务端保存时加上 `[工坊]`，作者预览显示最终名称，作者负责相应修改按名称查找的引用；动态 EJS 无法完全自动检查。安装、更新和迁移保留文件或已有实例中的名称，不在宿主端重命名；历史发布内容（含旧 `[WS]` 条目）因此保留原名以免破坏引用。标记本身不证明归属，缺少可靠身份的 `[工坊]` 或 `[WS]` 条目会阻止对应位置的操作，不能自动认领或删除。`[DLC]` 或旧名称本身不是归属证据，也不会仅因名称而被认领。已有可靠身份的旧条目仍可管理。位置判断按世界书完整名称和角色范围区分。
 
 ## 世界书归属数据
 
 每本含工坊项目的世界书使用名为 `[工坊]创意工坊项目注册表` 的条目记录项目索引（读取时兼容旧名 `[WS]创意工坊项目注册表`）；同一本世界书中同一项目最多安装一份。注册表正文整体是 EJS 注释，注释内为 YAML，顶层命名空间是 `workshop_index`，包含 `version: 1` 和 `projects` 列表。列表元素包含 `project_id`、`title`、`description`、`author`（含 `id`、`name`）、`version_id` 和 `version_label`，缺失的资料为 null，`project_id` 在同一本书内唯一。项目内容条目以 EJS 注释包裹 YAML 元数据，顶层 `workshop_entry` 包含 `version: 1`、`project_id`、`entry_key` 和 `version_id`。这些标记用于识别归属，不应手工补写或按名称推断归属。
 仅 YAML 根映射中的键是工坊命名空间；其他命名空间内的同名键或文本不是归属标记。损坏或重复的工坊根命名空间不能用于识别或写入。
 
-新写入使用上述格式；读取兼容旧的 `extra`/`extensions` 元数据和 `poem-workshop-meta:v1` 注释，并提供旧格式一键转换。转换范围为当前可见世界书，按项目转换，跳过歧义或冲突；写入失败可能已有部分写入，完成后需重新扫描。转换和写入必须保留 YAML 中其他顶层命名空间；处理注释正文时也须保证数据中的 `%>` 不会提前结束 EJS 注释。身份冲突或无法可靠识别时不要猜测归属或覆盖内容，应先备份并按提示处理。注册表和元数据不是对其他角色正则的扫描或管理能力。
+宿主写入使用上述格式；读取兼容旧的 `extra`/`extensions` 元数据和 `poem-workshop-meta:v1` 注释，并通过 `cw:convert-legacy` 提供旧格式一键转换。转换范围为当前可见世界书，按项目转换，跳过歧义或冲突；写入失败可能已有部分写入，完成后需重新扫描。转换和写入必须保留 YAML 中其他顶层命名空间；处理注释正文时也须保证数据中的 `%>` 不会提前结束 EJS 注释。身份冲突或无法可靠识别时不要猜测归属或覆盖内容，应先备份并按提示处理。注册表和元数据不是对其他角色正则的扫描或管理能力。
 转换请求须携带用户确认的世界书名单；宿主比对当前扫描范围，范围变化时拒绝并要求重新扫描、重新确认。转换期间范围变化也会中止，但先前世界书可能已经写入。
 转换不重写历史安装基线；元数据格式变化可能使实例显示本地修改，预览时应核对实际差异。仅含角色正则、未安装世界书内容的项目不会创建世界书注册表。
-
 
 ## 生命周期与失败
 

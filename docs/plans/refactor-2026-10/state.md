@@ -1,178 +1,48 @@
-# 当前状态（2026-11-22）
+# 当前状态（2026-11-23）
 
-本文件区分已合并源码、本地验证、历史 staging 验收与尚未执行的真实切换；commit、CI 通过和 PR 合并都不等于线上已更新。当前行为以 [API 参考](../../reference/worker-api.md)、[使用指南](../../guides/using-workshop.md)、[宿主协议](../../reference/host-protocol.md)及[运行配置](../../reference/runtime-configuration.md)为准。早期设计和审计保留为历史，不作为当前缺口清单。
+本文件区分已合并源码、本地验证、线上 `staging` 实测状态与尚未完成正式切换的 `production` 预装载状态；commit、CI 通过、PR 合并以及 `staging` 部署都不等于 `production` 已正式切换上线。当前行为以 [API 参考](../../reference/worker-api.md)、[使用指南](../../guides/using-workshop.md)、[宿主协议](../../reference/host-protocol.md)及[运行配置](../../reference/runtime-configuration.md)为准。2026 年 10 月重构阶段的设计草稿、时点审计与过程记录已归档至 [`../../archived/refactor-2026-10/`](../../archived/refactor-2026-10/README.md)，不作为当前缺口清单。
 
-## 当前 staging：入口与发布检查（2026-11-22）
+## 当前远端环境实况（2026-11-23）
 
-- 两个应用自定义域的目录限流已实测；staging 的 `workers.dev` 与版本入口已关闭。production 仅变更 zone WAF，未部署 Worker；仍是占位服务。范围和绕过边界见[边缘上线记录](edge-cache-rollout.md#2-waf-与速率限制)。
-- staging 线上健康、首页、目录和客户端检查通过，匿名 `/me` 返回 401；GitHub `STAGING_URL` 与现行入口一致。[历史 CI run 44868535747](https://github.com/The-poem-of-destiny/workshop/actions/runs/44868535747) 的客户端文件与线上字节相同，线上 D1 频道为 `staging`、版本 `0.2.0`、revision 与产物 SHA-256 一致。线上 Worker `bc986055-f550-448c-9f96-38db8c755b09` 是后来手工部署，不是该 CI run 的 Worker `bb91f1ae-d310-4448-856c-e8ebcb45fbf8`；不能用旧 run 验收尚未发布的工作流。Discord 授权往返和真实 SillyTavern 未验收。
-- [API-01](open-threads.md#api-与业务行为) 已本地收口，Worker 30 项及类型检查通过；未部署该 API 或发布工作流改动。
-- 滚动发版本地验证：workflow `actionlint`、staging 基线及中断恢复、production 精确产物选择、拒绝错配验收证据、HTTP smoke 均通过；用新脚本只读核对线上 staging D1 共 94 个 schema 对象，与 migrations 一致。Wrangler staging 构建及 production 使用同一 staging bundle 的 dry-run 通过。未触发新 GitHub Actions 发布或写生产数据。
+### 1. `staging`（滚动发布全链已跑通并在线运行 `d7deb9d`）
 
-## 当前 staging：三类公开图片
+- **GitHub Actions `deploy-staging` 全链验收通过**：基线 `d7deb9d`（PR #109）在 GitHub Actions 依次通过 `Verify live staging schema`（98/98 个 canonical schema 对象完全一致）、`Deploy staging worker`（`workshop-staging`）、`Publish staging client`（同时通过 S3 SigV4 上传至私有桶 `workshop-client-staging` 与公开 CDN 桶 `workshop-img-staging`，并原子更新 `site_settings.client_channels`）、`Smoke test`（健康检查、公开目录、匿名 `/me` 401、Web 入口及客户端字节与频道版本核验），已生成保留 90 天的 `staging-evidence` 验收凭证。
+- **线上入口与安全边界**：应用自定义域 `https://workshop-staging.poem-of-destiny.3378469.xyz` 与公开资源 CDN 域 `https://assets-staging.poem-of-destiny.3378469.xyz` 均正常服务；`workshop-staging` 的 `workers.dev` 与 `preview_urls` 已关闭（实测 404）。两个应用自定义域共用的 Free zone 目录宽松限流（60 请求／10 秒）已在边缘实测生效，见[边缘上线记录](edge-cache-rollout.md#2-waf-与速率限制)。
+- **数据库与公开图片桶状态**：绑定的 `workshop-staging-migrate-977ebb415bf6` D1（`da75f6bf-1daa-40aa-b4ea-03293d8c6aac`）已对齐五分类与 98/98 个 canonical schema 对象（含 593 个项目版本、585 条 FTS 搜索索引）；`workshop-img-staging` 承载公开封面／画廊／横幅副本与 `staging` 客户端产物。真实 Discord 跨站嵌入登录与真实 SillyTavern 宿主完整旅程现可直接在 `staging` 开展人工验收（见 [user-actions.md](user-actions.md)）。
 
-- 已向既有 staging D1 单独应用 `0003_public_gallery_replicas.sql`、`0004_public_banner_replicas.sql`，未重跑初始 schema；Worker `bc986055-f550-448c-9f96-38db8c755b09` 已部署，入口健康检查 200。
-- 本地 Worker 类型、封面／画廊／目录 17 项、横幅 2 项、快照导入 25 项通过；快照工具未向 production 上传或写入。操作入口见[回填手册](../../operations/deployment-safety.md#staging-public-image-backfill)和[快照导入手册](../../operations/legacy-data-migration.md#public-images-from-the-paired-snapshot)。
-- 在线回填处理 525 个公开项目，513 个封面 `ready`，12 个无封面，零请求错误；库内没有符合条件的画廊图片，也未配置横幅。匿名目录投影到 CDN，抽样 PNG 返回 `200 MISS` → `200 HIT`。画廊和横幅的替换、撤回及并发边界在本地 D1/R2 验证，未以线上空数据宣称验收。
+### 2. `production`（D1/R2 预装载已完成，Worker 尚未执行 `v*` 切换）
+
+- **目标 D1 与 R2 预装载完成**：`workshop-prod` D1（`ebf2963e-dcd7-43db-93b0-4d1cff524656`）已完成 100% 预装载（246/246 批全量导入与独立对账通过，含 531 条 `public_cover_replicas`）并升级对齐五分类与 98/98 个 canonical schema 对象（616 个项目版本、607 条 FTS 搜索索引）。`workshop-client-prod`（1,272 个对象）、`workshop-img-prod`（531 张公开封面，绑定 `https://assets.poem-of-destiny.3378469.xyz`）及长期备份桶 `workshop-backups-prod` 均已就绪。
+- **冗余历史资源已清理**：早期试点与过渡阶段的冗余资源 `workshop-covers-staging`、`workshop-covers-prod`（R2 桶）及 `workshop-staging-migrate-f3b98515735f`（D1 库）已于 2026-11-23 删除。
+- **尚未执行的正式上线切换**：`production` Worker 尚未通过 `v*` tag 触发受保护发布，应用域 `https://workshop.poem-of-destiny.3378469.xyz` 仍为切流前占位状态；旧线上系统停写后的最终增量 `delta` 同步（若快照后旧站仍有新增写入）、`v*` tag 审批提升、角色卡仓库 PR #48／#49 合并及旧站入口跳转均待用户下达正式上线授权后执行。
 
 ## 当前 staging：EDGE-01
 
-- [60 秒 CDN 探针](edge-cache-rollout.md#普通公开封面独立撤回试验)已在 NRT 验证命中、自然到期和精确 URL purge；没有接入业务封面或修改 production。
-- staging Worker `3a4f7796-e7a4-4c06-9760-f87e33070593` 已部署；远端已有 589 个项目且迁移账本未标记 `0001_initial.sql`，因此只执行了 `0002_public_cover_replicas.sql`，未重放空库迁移。后续不能直接对该库运行整链 `migrations apply`。健康、匿名目录和首页封面域 CSP 已实测。未改 production。
-- staging 入口已切到 `https://workshop-staging.poem-of-destiny.3378469.xyz`（Worker `271222e4-3b3b-436a-8af1-c3f462d35664`）；GitHub `staging` environment 的 `STAGING_URL` 已同步并回读。浏览器登录初始化返回 201 和新回调；旧 Origin 返回 403。未完成 Discord 授权往返。
-- staging 专用普通成员可独立签发 15 分钟会话；错误签发凭据返回 401，作者访问管理接口返回 403。无需 Discord 登录，测试会话已撤销。
-- 线上实际项目经自动审核通过后从私有切到公开：匿名封面返回 `200 MISS` → `200 HIT`。切回私有后，短暂仍可读取缓存的项目详情和封面，随后两者均返回 `404`（封面 `BYPASS`）。测试项目已软删除。仍未验收真实并发、人工审核发布或额度对照；未改 production。
-- 编号迁移链另经 `python3 tools/migrate/test-multiday-plan.py` 验证，6 项通过。
+- **三类公开图片与客户端双桶架构已收口**：封面（`public_cover_replicas`）、画廊（`public_gallery_replicas`）与站点横幅（`public_banner_replicas`）三张公开副本表及触发器已统一并入上线前 98 对象空库基线 `apps/worker/migrations/0001_initial.sql`（早期临时拆分的 `0002`～`0004` 增量文件已在 PR #104 合并收口）。公开桶统一为 `workshop-img-staging` 与 `workshop-img-prod`。
+- **历史边缘与回填验证**：[60 秒 CDN 探针](edge-cache-rollout.md#普通公开封面独立撤回试验)在 NRT 实测 `200 MISS` → `200 HIT`、自然到期与精确 URL purge；`staging` 在线回填 525 个公开项目（513 个封面 `ready`、12 个无封面，零错误），且真实项目公开→私有的下架撤回窗口已实测回到 `404 BYPASS`。本地 D1/R2 另覆盖画廊与横幅的替换、撤回、并发围栏及 `delta-withdrawals.json` 先删源再推进状态的边界。真实生产流量下的多 PoP 命中与额度实耗仍待上线后按 [edge-cache-rollout.md](edge-cache-rollout.md#4-workersd1r2-实耗验收) 核验。
 
 ## 当前 main 与已完成范围
 
-当前 `origin/main` 基线为 `bd13703`（含 PR #93、#94、#95、#99～#105、#107、#108）。源码合入 `main` 与本地／CI 验证通过均**不代表生产环境已切换或线上已全量发布**；实际部署与数据库切换边界见上节及[发布手册](../../operations/deployment-safety.md)。
+当前 `origin/main` 基线为 `d7deb9d`（含 PR #87～#95、#99～#105、#107～#109）。源码合入 `main` 与 `staging` 部署成功**不代表 `production` 已完成正式切换上线**；部署与切换门禁见[发布手册](../../operations/deployment-safety.md)。
 
-- 统一项目版本、元数据／封面／内容冻结送审、自动与人工审核、报告校验、权限及作者／审核者／owner 工作区已合入；旧展示资料直写不是现行路径。
-- Web、Worker 与 Tavern client 的核心路径已实现并取得本地行为证据：目录／搜索／周期排序、安装实例扫描、整体安装／更新／卸载预览与确认、玩家改动保护及可靠旧身份转换。真实 Discord 全旅程和真实 SillyTavern 操作仍未完成当前版本验收，不能把本地宿主模拟当成真实宿主运行。
-- [PR #89](https://github.com/The-poem-of-destiny/workshop/pull/89) 的四普通标签展示上限、[PR #90](https://github.com/The-poem-of-destiny/workshop/pull/90) 的结构化分类与显式审阅离线候选工具、以及 [PR #107](https://github.com/The-poem-of-destiny/workshop/pull/107) 的**五分类收敛**（`系统核心`、`角色`、`内容扩展`、`规则扩展`、`体验优化`）已合入；[PR #108](https://github.com/The-poem-of-destiny/workshop/pull/108) 将新写入的世界书条目与项目注册表标记统一为 `[工坊]`（读取兼容历史 `[WS]`）。上线前空库基线为 `0001_initial.sql`（[PR #104](https://github.com/The-poem-of-destiny/workshop/pull/104) 同时合入空目标库 `preload` 与增量 `delta` 工具），不能在既有数据库直接执行。源码／本地候选完成不表示已切换真实生产数据。
-- [PR #91](https://github.com/The-poem-of-destiny/workshop/pull/91) 的本地预览安全边界、审核焦点、发现区完整批次／手动玩家推荐阅读，以及 [PR #95](https://github.com/The-poem-of-destiny/workshop/pull/95)／[PR #107](https://github.com/The-poem-of-destiny/workshop/pull/107) 的社区低调入口、使用政策 3 题单选准入、作品合集与作者主页视图、2K／带鱼屏弹性布局重做、[PR #105](https://github.com/The-poem-of-destiny/workshop/pull/105) 的 `503 quota_exceeded` 配额耗尽倒计时提示已合入；详见[社区准入、合集与体验精修记录](../../../.agents/notes/implemented/community-access-collections-and-ux-refinement.md)与[视觉方向记录](../../../.agents/notes/implemented/new-ui-visual-direction.md)。经典界面迁移与双前端开关继续暂缓。
-- [PR #87](https://github.com/The-poem-of-destiny/workshop/pull/87) 与 [PR #88](https://github.com/The-poem-of-destiny/workshop/pull/88) 的依赖更新及官方 Workers Vitest 插件修复已合入，未以生产代码或 workflow 绕过测试。
-- [PR #94](https://github.com/The-poem-of-destiny/workshop/pull/94) 的本人版本体验／评分备忘与 [PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) 的当前订阅推荐资格均已正常合并：新体验备忘绑定具体不可变版本，无版本旧备忘原样只读保留且本人可删除；玩家推荐仅限当前订阅用户新增／编辑，退订立即失去写入资格但保留既有推荐与本人撤回权。真实生产数据转换未执行。
+- **统一版本、送审与审核安全边界**：统一项目版本、元数据／封面／正文冻结送审、自动与人工审核、报告校验、权限及作者／审核者／owner 工作区已合入。[PR #109](https://github.com/The-poem-of-destiny/workshop/pull/109) 进一步收敛自动发布与人工审核威胁边界：仅数据外带／动态代码执行风险（`M1–M4`）、工坊隔离公约违规（`L1–L7`）及检查未完成项（`FILE`、`CHECKER-LIMIT`、`CHECKER-INTERNAL`）阻断转人工审核，卸载可恢复的语法／死循环／外链提示保持 `warn` 自动发布并透明披露；详见[上线前加固记录](../../../.agents/notes/implemented/pre-launch-hardening-oauth-bridge-and-cdn.md)。
+- **跨站内嵌登录、TavernHelper 宿主桥接与双桶客户端分发**：[PR #107](https://github.com/The-poem-of-destiny/workshop/pull/107) 与 [PR #109](https://github.com/The-poem-of-destiny/workshop/pull/109) 落地双桶 R2 CDN 客户端分发（先写私有桶与公开 CDN 桶的版本化 `immutable` 对象及 300s 频道对象，再以 `json_set` 原子更新 `site_settings.client_channels`）、CHIPS 分区环境下的跨站嵌入 OAuth 启动绑定（`/api/v1/auth/flows/:id/launch` + `POST /api/v1/auth/flows/:id/bind` + `cw_oauth_binding_p` `Partitioned` cookie）以及兼容 TavernHelper 同源子 iframe 的宿主桥接校验（`isTrustedHostSource`）。
+- **五分类体系、`[工坊]` 标记与两阶段预装载／增量迁移工具**：[PR #89](https://github.com/The-poem-of-destiny/workshop/pull/89) 四普通标签展示上限、[PR #90](https://github.com/The-poem-of-destiny/workshop/pull/90) 结构化分类与离线审阅对账工具、[PR #104](https://github.com/The-poem-of-destiny/workshop/pull/104) 98 对象基线收口与绑定目标库 `preload`／停写增量 `delta` 工具、[PR #107](https://github.com/The-poem-of-destiny/workshop/pull/107) **五分类收敛**（`系统核心`、`角色`、`内容扩展`、`规则扩展`、`体验优化`）、[PR #108](https://github.com/The-poem-of-destiny/workshop/pull/108) `[工坊]` 世界书与注册表标记（兼容读取历史 `[WS]`）及 [PR #109](https://github.com/The-poem-of-destiny/workshop/pull/109) 的 FTS `char(0)` 净化与备份校验加固均已合入。
+- **社区政策准入、合集、个人备忘与界面精修**：[PR #91](https://github.com/The-poem-of-destiny/workshop/pull/91) 完整发现批次与手动推荐阅读、[PR #93](https://github.com/The-poem-of-destiny/workshop/pull/93) 当前订阅玩家推荐资格、[PR #94](https://github.com/The-poem-of-destiny/workshop/pull/94) 个人版本体验备忘（无版本历史旧备忘只读保留）、[PR #95](https://github.com/The-poem-of-destiny/workshop/pull/95)／[PR #107](https://github.com/The-poem-of-destiny/workshop/pull/107) 低调 Discord 社区引导、使用政策 3 题单选准入、合集与作者展示页、2K／带鱼屏弹性卡片网格以及 [PR #105](https://github.com/The-poem-of-destiny/workshop/pull/105) `503 quota_exceeded` 配额耗尽倒计时提示均已合入并部署至 `staging`。详见[社区准入、合集与体验精修记录](../../../.agents/notes/implemented/community-access-collections-and-ux-refinement.md)、[版本备忘与推荐记录](../../../.agents/notes/implemented/version-experience-notes-and-recommendations.md)与[视觉方向记录](../../../.agents/notes/implemented/new-ui-visual-direction.md)。经典界面迁移与双前端开关继续暂缓。
 
 ## 证据与边界
 
 | 层次 | 已有证据 | 不能推导的结论 |
 | --- | --- | --- |
-| 初始合并基线 CI | `fc7a6343ab729971238e922538c598aa1bdeea66` 的 [CI 43906178691](https://github.com/The-poem-of-destiny/workshop/actions/runs/43906178691) 成功，含 check、E2E、secrets；本次文档整理未重复运行旧基线全套检查 | 不证明后续功能分支通过，也不证明已部署 |
-| 本地行为 | PR #90／#91、#93～#95、#104～#108 各切片已分别取得对应检查与本地运行时／E2E 证据；仅适用于各自已验证 head 与隔离状态 | 不等于真实 Discord、公会／身份组或 SillyTavern 验收，也不代表生产已部署 |
-| 版本备忘 PR #94 与推荐资格 PR #93 | PR #94 独立审查与 CI 通过后合并为 `c450263a82c33a883bbaec5b0336130d9cfe1d12`；PR #93 纠正当前订阅资格并通过本地 Worker API／Chromium 与 required checks 后合并为 `b7be9ee` | 不证明真实 Discord／SillyTavern、生产运行时或已填充生产数据库转换 |
-| 历史 staging | 2026-11-06 记录的既有迁移 210/210 批完成并经源／目标／搜索对账，公开读、私有拒绝及合成角色权限／写入取得证据 | 不是当前五分类／新 schema 的真实生产切换，不证明生产运行版本 |
-| 初始基线 staging workflow | `fc7a6343ab729971238e922538c598aa1bdeea66` 对应 [43906830697](https://github.com/The-poem-of-destiny/workshop/actions/runs/43906830697) 的 changes 成功，build／deploy 均 skipped | 这是该基线的历史 workflow 观察，不是当前远端运行版本；workflow 整体成功不等于已部署 |
-
-当前缓存以 [Cache API 设计](../../reference/cache-design.md)为准：按分类 TTL、各 PoP 独立缓存；不使用 Workers Cache、全球 purge 或 epoch。本地证据不证明真实边缘 HIT、跨 PoP 行为或费用；允许到期前显示陈旧数据的既定取舍不改变授权和私有响应边界。
+| `main` 全链路门禁与 CI | `d7deb9d`（PR #109）通过 `pnpm check`（含严格 Knip、架构／数据边界、Biome 零警告、全包类型与单测、98 对象 schema 检查、7 套 Python 迁移与 `delta` 测试、备份校验、bundle 预算）、`pnpm e2e:local` 与 `secrets` 门禁 | 本地与 CI 测试不替代真实 Discord 账号准入、真实 SillyTavern 宿主环境或生产线上流量 |
+| `staging` 滚动自动发布 | `d7deb9d` 的 `deploy-staging` 工作流跑通 98/98 schema 只读核验、Worker 部署、双桶客户端发布、HTTP smoke 及 `staging-evidence` 归档；`workshop-staging-migrate-977ebb415bf6` 含 593 版本与 585 条 FTS 记录 | 不代表已完成真实 SillyTavern 内嵌跨站 OAuth／安装人工验收，也不代表 `production` Worker 已发布 |
+| `production` 预装载状态 | `workshop-prod` D1 已完成 246/246 批对账导入 + 531 条 `public_cover_replicas` 并升级至五分类 98/98 schema（616 版本、607 条 FTS）；`workshop-client-prod`（1,272 对象）与 `workshop-img-prod`（531 封面）就绪 | 预装载不等于正式切换：旧站停写后的最终 `delta` 补齐（如有新写入）及 `v*` tag 受保护部署尚未执行 |
+| 边缘缓存与限流 | 应用域按 [Cache API 设计](../../reference/cache-design.md) 采用分类 TTL、各 PoP 独立缓存；`staging` 已实测目录 60/10s 限流、R2 CDN 命中与撤回 `404 BYPASS` | 单 PoP 探针不构成全球即时失效承诺，亦未替代正式业务流量下的多日额度对账 |
 
 ## 当前待交付与发布门槛
 
-- **核心产品契约已合入 `main`**：版本体验备忘（#94）、当前订阅推荐资格（#93，见[已实现决定](../../../.agents/notes/implemented/version-experience-notes-and-recommendations.md)）、社区政策准入与合集（#95）、五分类 `规则扩展` 收敛（#107）及 `[工坊]` 世界书标记（#108）均已合并至 `main`；合并到 `main` 不等于线上生产已部署。
-- **真实生产数据迁移暂未执行**：现有五分类离线审阅／`preload`／`delta` 工具与历史 staging 验收不授权真实生产数据操作。实际切换需当前源数据和恢复点、候选 schema／关键数据抽查及另行授权；不要求独立全量对账。
-- **滚动发版与生产提升门禁**：staging 和 production 发布前只读核对实际 D1 schema，不自动执行破坏性迁移；production 仅提升通过 staging 验收的精确产物（仍待首次正式受保护发布审批）。见[发布手册](../../operations/deployment-safety.md#release-decision-and-artifact)。
-- **真实环境验收及生产切换未完成**：真实 Discord 完整登录／准入和真实 SillyTavern 安装／更新／卸载见 [user-actions.md](user-actions.md)；生产备份恢复、停写、迁移、回滚和精确版本验收仍需授权。不因这些人工门槛把已实现核心客户端重新列为代码待办。
+- **真实宿主与 Discord 人工验收（可在 `staging` 立即执行）**：在真实 SillyTavern + TavernHelper 环境及真实 Discord 账号下核验跨站内嵌登录（`/flows/:id/launch` + `bind` + `Partitioned` cookie）、公会／身份组正反例、政策 3 题准入，以及世界书／正则安装、更新、卸载与旧身份转换，详见 [user-actions.md](user-actions.md)。
+- **生产最终停写 `delta` 与 `v*` tag 受保护切换（待上线授权）**：获正式切换授权后，对旧系统停写并检查快照后是否存在增量写入（按需执行 `d1_delta.py` 与 `delta-withdrawals.json`），创建受保护 `v*` tag 将 `staging` 已验收的精确产物提升至 `production`，合并角色卡仓库 PR #48／#49 并切换旧入口跳转。见[发布手册](../../operations/deployment-safety.md#release-decision-and-artifact)。
+- **上线后边缘实耗与限流观察**：在真实流量下核验 Workers／D1／R2 额度表现与 WAF 阈值，确认生产 `workers.dev` 与 `preview_urls` 关闭生效，详见 [edge-cache-rollout.md](edge-cache-rollout.md#4-workersd1r2-实耗验收)。
 
-当前可执行与人工验收边界见 [Checklist](checklist.md) 和 [用户事项](user-actions.md)。只读 legacy 结构参考固定为 `worktrees/workshop-legacy` 的 `15303df5e3b30aa7f3fc924296ae57497a7ad09a`；经典界面迁移不是本轮待办。
-
-## 历史记录阅读口径
-
-以下保留 2026-10-22 至 2026-11-03 各阶段的原始实现、失败、授权和测试记录。其中“当前”“本轮”“未 push”“正在修复”、旧版本号／表数／测试数仅指当时；已经结束的迁移与整合阶段不是当前 backlog。其部署、缓存、schema 和授权表述如与上文或现行 reference 冲突，以本页当前摘要和对应 reference 为准。
-
-## 历史：早期已落地工作
-
-- Workers Cache 官方研究保存在被忽略的 `ref/cloudflare-workers-cache/`；入口、性质、使用约束写入 `AGENTS.local.md`，`/ref/` 已忽略。
-- 区分新的 Workers Cache 和旧 Cache API。已移除 `caches.default` helper，加入显式 uncached gateway、命名 `Public`、可信 epoch props、30 秒内部策略与外部 `private, no-store`。production 缓存保持关闭；没有 hosted HIT／tiering／purge 证明。
-- authoring upload/submit 使用 If-Match 和 rowVersion；提交前授权、DO 内容校验／索引，最终 D1 batch 冻结快照、创建任务和捕获发布基线。
-- 冻结快照禁止 PATCH；当前公开展示通过独立 published-metadata／published-cover 读写，与 pending revision 分离。
-- manual/automatic publication 使用持久化发布基线与项目删除状态；ticket 消费和 public 日计量同 batch；旧裸 release manifest/files 路由已移除。
-- 排行使用统一 scheduled reference time、有界日期窗口、准备完毕后的原子可见性切换。
-- React + Vite + Tailwind v4 + Radix/CVA shadcn-compatible primitives 已实际使用。前端按指定 legacy 的卡片顺序、204px sidebar、1480px detail、media/reading/summary rail 重建；不恢复发现页。
-
-## 历史独立 review 与停止条件
-
-- 原 API 设计第 1–2 轮、实现第 3–4 轮完成后因三个 P2 暂停；用户明确“继续”后已重新开放并修复：
-  1. migration `0020` 增加独立 `entry_index_ready`，提交与完整索引同批写入；历史默认未完成，不再以 manifest 推断。
-  2. 消费时用 D1 当前事务时钟检查 ticket/session 到期，日计量取持久化 consumed_at；后续复核又要求锁定当前精确 session token hash，已实现。
-  3. 历史索引通过 DO `indexRevision` 只读生成，不运行当前提交准入／baseline rules；原 500 回归通过。
-- 前端：第 1 轮修复 7 项布局／可访问性问题；第 2 轮修复 dirty published metadata 丢失与冻结控件静默 no-op；第 3/4 轮只读复核确认这两项修复正确。浏览器证据另记 frontend-fidelity。
-- 续作首轮独立复核确认 index-ready／历史读取／时间一致性，发现同用户多 session 的替代授权边界；已补强原过期回归，保留第二条有效 session，仅使当前 session 过期仍不得消费或计数。
-- 续作最终独立 `SessionBoundaryReviewRetry` 无 findings：精确当前 session 的消费校验不能由另一 session 代替，内部 hash 不进入公共 Session／me／auth；DB consumed_at 与 daily event 同批一致，详情状态未知时不写关系。前一次同范围 review 因上游 HTTP403 失败，未计通过。
-
-## 历史：早期 schema 收敛验证证据
-
-- 当前 `pnpm check` 全链通过：workspace、Biome（无 errors，47 warnings／1 info）、各 package typecheck/tests、schema、migration/export/backup checks、Web build、Wrangler staging dry-run。
-- Worker suite **13/13 files、85/85 tests 通过**；当前索引回归验证 manifest 不代表完成、ready=0 返回 404、持久索引不读取原文件及合法空索引；R2 后 ticket／精确当前 session 到期回归仍通过。
-- 当前 worker/frontend typecheck 与 Web build 通过；bundle 仍有 >500 kB 提示，不以调高阈值隐藏。
-- `pnpm check:schema` 与 migration transformer 检查通过；Web bundle 已构建。
-- 本次 `pnpm e2e:local` **21/21 通过**（subagent `SchemaCutoverE2E`）；含新发布冻结条目索引、普通票据取件、排序、subscription、作者 workspace、owner、审核批准／拒绝及 successor 再提交。后续三个导入工具修复不修改该 Worker/Web 运行路径，另有真实备份样例烟雾覆盖。
-- 视觉 subagent 内部检查了 7 张本轮截图：desktop/mobile browse/detail、作者、owner tools、review；desktop 无可见水平溢出，detail 左 media/reading、右 operations；mobile 为 media→reading→operations。1280px 截图不能证明 1480px cap；mobile detail 截图不能排除所有溢出，未声称逐像素一致。
-- 未验证真实 Workers Cache hosted HIT、tiering、global purge 或费用；没有本地 Cache API fallback／伪造 x-cache。production 缓存仍关闭。
-
-## 历史：当时保留与未验证事项
-
-- 本轮工作树及既有未提交改动全部保留；研究目录和 AGENTS.local.md 是本机材料，不提交。
-- 重构交付时未验证生产、staging 部署、远程数据导入、真实 Discord OAuth、真实 SillyTavern 游玩或全球缓存行为。随后用户单独授权了备份样例导入 staging，结果见下；该授权不包含 Worker／Web 代码部署或 production 操作。
-- 原暂停及续作授权、独立复核、修复证据保留在已归档的 [api-audit](../../archived/refactor-2026-10/api-audit.md)；未把旧结果覆盖为新成功，也未删掉失败用例逃避回归。
-
-## 历史：当时的最终交付结论
-
-此前把核心实现与本地检查通过记为整体完成，未充分审计 schema 和仅为旧数据保留的兼容路径，结论过早。用户要求先纠错、再完成收敛及本地 commit；本次已按下节完成。该结论只覆盖本次 API／前端重构与 schema／导入工具收敛，不将已归档 [features.md](../../archived/refactor-2026-10/features.md) 中仍列为部分／未实现的其他产品功能宣称为完成，也不代表线上发布。
-
-## 后续授权：备份样例导入 staging
-
-- 用户明确允许将 `data_backup` 部分数据整理进 staging，并提醒旧格式变化。目标仅 `workshop-staging` D1 与 `workshop-client-staging` R2，未操作 production、未 commit／push、未部署 Worker／Web。
-- staging 原 projects／users／assets 均为 0、schema 停在 `0011`。先保留非 FTS 业务表快照与 Time Travel bookmark；Wrangler 全库 export 因虚拟表限制失败，未把该命令记作成功备份。快照、书签、SQL、转换结果及验证回执保存在已忽略的 `data_backup/staging-import-20261022/`，目录 0700、文件 0600。
-- 从旧库严格选 `approved AND is_published=1 AND visibility=1`，最终导入 **9 个公开项目、9 个发布 revision、6 位必要作者（均 member）、21 个文件共 15,678,301 bytes**。未导入旧管理员权限、会话、OAuth、私有／草稿、未完审核、互动、历史计数、排行或站点配置。
-- 格式转换保留公开项目 ID／版本／发布日期，以现行 taxonomy 转换旧 tags；从真实内容按现行 parser 建立 **39 条 worldbook + 4 条 regex 索引**，重算计数／manifest，并原子写完整索引后设置 ready。修正旧导出器将单个 regex 对象的字段数误作条目数的派生数据；没有修改原备份字节。
-- 排除 `819cb54c-7448-42ce-9955-62bcf46e7e99`：其 `regex-*.json` 实际为 worldbook，未猜测合并语义或将它冒充正则。所选扩展缺少旧版 subtype，保留 null；未知 schemaVersion 亦保留 null，不伪造。
-- 本地隔离迁移和同一份 SQL／R2 演练成功，全部 9 个 detail／cover／entries 匹配。随后 staging 应用现有 migrations `0012`–`0020`，先上传文件并逐个下载校验 SHA／bytes，再执行 106 条加法 SQL；无 DELETE／REPLACE 或既有项目覆盖。
-- 线上核验：catalogue 9 项、detail 9 项、cover SHA 9 项、index 43 条、搜索正常；21 个 R2 对象 roundtrip 全匹配，FK 违反 0、索引计数偏差 0。当前 deployed API 未返回工作树新增的 publishedRevisionId 字段，未宣称未部署的新代码已经上线。
-
-
-## 本次纠错、收敛与本地提交
-
-- 按实际 reader／writer 和产品不变量核对 28 张表，均有用途；删的是 7 个死／镜像字段、旧 OAuth helper、两个无项目业务用途的 asset kind 和整个历史索引读取回退，不凭旧库行数决定保留范围。类型化 metadata 审计、最新 checker 报告投影、checker history、排行／发现／引用／互动仍有明确用途，保留。
-- 新增 `0021_remove_obsolete_state.sql`：保留有效 release、共享 R2 引用和作者历史；撤下 ready=0 的旧发布并清除不完整派生索引；不删除原 R2 对象。该迁移只在本地验证，**尚未应用到远程 staging／production**。
-- 导入仅产出 users／projects／当前 revision／assets／完整 entry index，不恢复旧权限、草稿、会话、审核或互动。索引解析／entry key 复用 domain 模块，不再复制一套 legacy parser。
-- `SchemaCutoverReview` 首轮发现三个导入缺陷：旧封面 key 不在 served namespace、缺少内容 key 时可能静默丢掉发布文件、共享对象复制清单重复。已修复：封面进入 `covers/imported/<sha256>`，原 key 只放 `meta.assetSources`（不进 DB）；内容缺 key 拒绝整项目；共享 destination 按 hash／bytes 去重并拒绝冲突。限定复核无剩余 actionable findings，不将其称为全产品无缺陷证明。
-- 修复后完整 `pnpm check` 成功：Worker 85/85、domain 17/17、content 7/7、Tavern client 6/6，schema／导入／SQL export／backup／typecheck／build／staging dry-run 全过。仍有 Biome 47 warnings／1 info、Web bundle >500 kB 提示，未压制。
-- 非空升级烟雾确认：有效发布指针、3 条 revision 历史、2 个共享对象 association、当前公开封面、OAuth PKCE／binding、canonical checker 报告均保留；旧不完整发布撤下；FK、搜索与 epoch 正常。脚本为临时演练，不增加永久测试框架。
-- 原 9 个真实备份项目经新工具重新转换／本地 D1 加载：6 位 member、21 文件、43 索引；copy manifest 对 21 文件逐个 SHA／bytes 校验。以最终映射 R2 启动 workerd，实际验证 catalogue 9、detail 9、封面 SHA 9、索引 43，并通过本地合成会话取得 12 份原始内容文件，全部 bytes／SHA 匹配。这不是 Discord OAuth 或远程部署验证。一次附加并发本地 R2 灌入出现连接错误，最终改顺序灌入 21 个文件成功，未把失败尝试记为通过。
-- 便于追踪的本地源码提交：
-  - `ce63274` — API／schema 不变量与旧状态清理；Web 调用方迁移与下一提交配套。
-  - `fe61959` — legacy 层级前端重建、真实 primitives、API／客户端调用方及 E2E。
-  - `8bdaf97` — 仅导入真实可验证公开内容的本地工具及回归。
-- 设计／审计／状态文档另作独立 docs commit，完整提交 SHA 以 Git 历史为准。机器配置、凭据、研究目录、备份和生成物不纳入提交；真实样例目标与验证摘要保留在已忽略的 `data_backup/schema-cleanup-20261022/`。本次无 push、PR、部署或远程数据清理。
-
-## 合并、部署与客户端发布（2026-10-22）
-
-- PR #23 合并到 `main`（merge `8e3567f`），PR CI 与合并后 main CI 均通过。deploy-staging 首次运行完成 `0021` 迁移与 Worker/Web 部署，但在 `Publish staging client` 失败。
-- 故障归因：`wrangler r2 object put` 使用 Cloudflare REST API，而桶级 R2 权限（Object Read & Write / Bucket Item Write）只对 S3 API 生效。用同一凭据按 SigV4 写同一桶返回 200，证明不是权限缺失，而是调用方式不匹配。此前“该 token 完全没有 R2 权限”的判断已更正。
-- 修复：`apps/tavern-client/scripts/publish.mjs` 的对象上传改为 SigV4 直连 `<account>.r2.cloudflarestorage.com`（access key = token id，secret = SHA-256(token)），D1 记录仍用 Wrangler，写入顺序不变。
-- 同时修复 deploy smoke 的断言写法：`curl | grep -q` 会让 `grep` 提前退出，在 `pipefail` 下表现为 `curl (23)`；现改为先落盘再断言，staging 与 production 工作流同步。
-- 最终 deploy-staging（`7b0719e`）**全绿**：迁移、Worker/Web 部署、客户端发布（bucket `workshop-client-staging`）、版本记录与 smoke 全通过。当前 staging Worker 版本 `3e3f7d8b-995d-4d32-89a2-bb0d7174aff0`；`/client/staging/index.js` 的 SHA 与 `/api/v1/client/version?channel=staging` 的 revision 一致。
-- 两个环境经配置、部署绑定与实测确认分开：staging = `workshop-staging` D1 + `workshop-client-staging` R2；production = `workshop-prod` D1 + `workshop-client-prod` R2。production 本次未被部署或修改。
-- 临时诊断工作流与任务分支均已删除，`main` 仅保留原有四个 workflow。本机 token 未上传到 GitHub；该约束记录在机器本地 `AGENTS.local.md`。
-
-
-## 本轮 W1～W7 改造与验证（2026-10-26，完成）
-
-- 范围依 D-40～D-47；本轮不 commit／push／PR／部署，不操作远程业务数据。W8 完整数据迁移与 W9 正式切换不在本轮执行范围。
-- 已整合统一资料／封面／内容冻结送审、人工 block／missing 路由、撤回历史与失效任务保护；独立审核／作者编辑／正文阅读任务层、管理分区；安装多位置实例及 diff 确认；周期排序／总数；配套脚本版本登记 API 与 CLI。实现存在不等于全部验收完成。
-- 全量检查第三轮曾退出 0：Worker 114 tests、domain 23 tests、Tavern client 13 tests、类型／schema／迁移／备份／Web build／Worker dry-run；另推送命令真实本地 HTTP 3 tests 通过。该结果早于下列独立复核修正，不能代替最终检查。
-- W1 后续复核修正：主动重检显式升级固定 checker；人工重检 pending 的耗尽租约回收；approve／reject 的最终 D1 事务按检查状态、报告 hash、checker revision、manifest CAS。新增竞争与租约回归后统一送审 16 tests 通过；撤回／替代完成后不发布、不重新排队，旧公开更新时间亦不受草稿修改影响。
-- W4／W5 第二轮按真实 Tavern Helper 字段投影修正：世界书身份存 extra，正则 UUID 归属记录按角色绑定且写前 pending 留痕；RegExp 的 source／flags 参与 diff 与状态核对；无角色证据的旧 registry 不赋予版本。当前安装客户端 16 tests 通过；测试宿主模拟实际字段剥除及默认值回读，并非真实 SillyTavern 运行。
-- 宿主能力边界：扫描全部可读世界书和当前角色正则，其他角色明确未扫描；宿主不存在跨世界书／正则事务，写入中断可能部分完成，必须报告失败并重扫，不伪称回滚成功或自动覆盖玩家内容。
-- W6 网关回归已通过：`SELF.fetch` 完整 Worker 入口覆盖 `period=all` 与周期隔离，10 tests 通过；实际浏览器 7d 下载排序返回 200、total=55、25 items，并在排序／周期变化后清 cursor。
-- 安装第三轮修复后客户端 17/17 tests 通过；实际 adapter 使用 Tavern Helper `type: "character"` 而非旧 scope 分支。完整扫描确认中断实例全部内容已不存在后，可在明确新装确认时清 pending；预览／取消不写。客户端构建通过（0.1.3，revision `aecc6567690f9c757401adaedb2116ab48e0fb0e8c18b87b7753816ff0720976`）。这不是实际 SillyTavern 验证，也不是最终全量检查。
-- 历史停止点：HTTP E2E 第五轮退出 1，按原上限停止；前 14 场景通过，旧点赞 selector `/^点赞\s*\d/` 超时（当前按钮只有“点赞／已点赞”，数量在独立统计区）。随后另获追加授权并于首轮完整通过，结果见下；未跳过后续旅程。
-- 本地 1440×1000／390×844 实际操作已覆盖作者独立任务层 dirty 取消、创建／上传／自检／提交及冻结历史，审核完整内容与差异、手机固定操作区和返回队列焦点，管理分区搜索保留，匿名不取正文、登录后独立阅读，周期切换及 Web 无宿主入口。证据 `/tmp/wb-w1-w7-ui-20261026/`；只写隔离本地，8800 的 0023／0024 仅 `/tmp/wb-preview-8800-state`。
-- 最终开放式对比发现的阅读关闭焦点与 HTTP `crypto.randomUUID is not a function` 均已修；阅读层显式恢复原条目按钮，桥使用 `getRandomValues` 生成关联 ID。评分评论回填／隐私说明与整体替换文案亦已修，具体差异和未纳入本轮的产品建议见已归档的 [completion-audit](../../archived/refactor-2026-10/completion-audit.md)。
-- 用户明确批准追加最多 **3 轮**；本次使用追加第 **1** 轮即获得完整 E2E 通过。浏览器专项一度因 1 天本地 debug session 到期返回 401；仅在隔离 state 续期后继续阻塞步骤，不改线上会话或扩大重试轮数。
-- 追加首轮 HTTP E2E **21/21 通过**（`local://modern-e2e-extra-round-1.log`）：包含真实排序、详情点赞、作者工作区、owner 工具、批准、拒绝理由及拒绝后再提交。后续详情安全修复由专项浏览器复验覆盖，不将早于修复的 E2E 冒充这些新增行为证明。
-- 最终 `pnpm check` 退出 0（`artifact://6319`）：Worker **123/123**（16 files）、domain **23/23**、content **7/7**、Tavern client **17/17**；类型检查、28 表 schema、迁移／SQL export／备份、Web build 与 staging dry-run 均通过。前一次仅被安装源码／regex-host 测试格式阻断，格式化这两文件后重跑成功；Biome **106 warnings** 与 bundle >500 kB 提示未隐藏。
-- CLI `node --test tools/push-companion-version.test.mjs`：3/3 通过，覆盖真实本地 HTTP PUT／匿名精确版本核对、拒绝不安全输入及凭据不泄漏；不代表已向线上推送版本。
-- HTTP 真实浏览器桥协议专项：未注入 UUID，原生 randomUUID 缺失仍可生成 requestId；scan／confirm 超时、dispose、严格 origin/source/requestId/type 过滤、preview → confirm → cancel 均符合预期。纯消息 host 模拟，无真实宿主写入。证据 `/tmp/wb-w1-w7-ui-20261026/retest-protocol.json`。
-- 会话恢复后专项浏览器完成：`/me` 200；1440×1000 和 390×844 下，阅读返回按钮及 Escape 都恢复原条目 option 焦点。评分评论保存、关闭重开回填、仅改星保留评论均通过；手机清空保存后重开评论为空、星级保留。4 次评分写入均 204，手机 scrollWidth=390，无横向 viewport overflow。证据 `/tmp/wb-w1-w7-ui-20261026/retest-auth-ui.json` 及同目录截图；自建 tab 已关闭。
-- W1～W7 与最终开放式对比审计完成；文档 checklist 已按本轮证据更新。清单外“阅读行为配置”“已存内容逐条删除”及其他可借鉴项仍明确记录为差异／建议，不声称全旧站等同；W8／W9、真实 ST、线上部署未执行。用户既有修改保留，无本轮 commit／push／PR／部署。
-- 用户随后授权补齐开放式对比审计中的两项明确缺口：阅读预览返回白名单行为配置并在登录阅读层纯文本展示；作者编辑器读取当前工作版本已保存世界书／正则条目，确认删除生成 successor，未保存本地选择或冻结版本阻止删除，公开快照不变且仍统一送审。行为配置只保留已确证字段；缺省为“未指定”，role 0/1/2 映射系统／用户／助手，未知值原样显示；regex `findRegex`、替换内容与源码不执行。
-- 补充最终 `pnpm check` 通过（`artifact://6405`）：覆盖新版本继承计数修复与回归；Worker 126/126、domain 23/23，schema／迁移／备份／Web build／staging dry-run 通过，Biome 107 warnings 未隐藏。此前专项阅读测试 18/18 通过。编辑器最后格式修正后 Worker/Web 类型检查也通过。
-- 真实浏览器桌面 1440×1000／手机 390×844 验收通过：世界书主副关键词、长词、position/order/depth、启用状态和正则表达式／替换长度与真实 preview GET 一致；脚本形态文本没有执行。作者 dirty 时禁用删除，取消零请求，确认删除生成新 revision 并保持旧文件／公开预览不变；关闭重开保留结果，统一送审后冻结。手机阅读与删除确认均无 viewport 横向溢出。证据 `/tmp/wb-gap-supplement/behavior-evidence.json`、`delete-evidence.json` 及同目录截图。
-- 删除验收发现新建版本虽继承内容但 summary 计数归零，已修复 `createRevision` 继承当前 revision 的条目计数。新增继承回归与真实 fixture 局部确认通过：未上传替代内容，新 draft worldbook=2，文件实际2条，UI同样显示2条；证据 `/tmp/wb-gap-supplement/delete-inherited-count-confirm.json`。浏览器自建 tab 已关闭，仅写本地隔离 fixture；没有 commit／push／PR／部署或远程业务写入。
-- 用户授权修复 107 条 lint 警告：补全 Hook 响应依赖、稳定回调、请求刷新身份与项目／版本重置边界；管理初始加载和轮询通过 Effect Event 读取最新通知回调；重复发现／条目使用内容身份加重复次数的 key；检查器循环移出条件赋值，CSS 按原匹配范围与值调整级联。未关闭规则、增加 suppress 或排除源码。
-- 修复后 `pnpm check` 通过（`artifact://6417`）：Biome 检查 219 个文件，零错误／零警告；Worker 126、domain 23、content 7、Tavern client 17 tests 全通过，类型／schema／迁移／备份／Web build／staging dry-run 通过。Vite 主 JS 845.71 kB 的 >500 kB 构建提示仍存在，不等于 lint 警告。
-- 修复后完整 `pnpm e2e:local` 单轮 21/21 通过（`local://lint-e2e-result.log`），未改断言或跳过旅程。当前没有文件行数、函数长度或认知复杂度上限；Biome 默认 1 MiB 是跳过分析阈值而非质量门禁，已在 README 明确。没有擅加阈值、commit／push／部署或远程业务写入。
-- CSS／Hook 专项真实 Chromium 1440×1000、390×844 通过：卡片 More 圆形／列表 More 方形及展开、侧栏 active 图标、桌面与手机详情尺寸、主按钮 hover、reduced-motion 均保留；筛选／清除／每页 50 可操作，作者任务层 idle 无 DOM 更新循环，各已测页面无横向溢出。截图 `/tmp/wb-lint-smoke/`；自建 tab 已关闭。该数据集只有一页，未专项验证下一页或错误重试；手机另有 7 条外部 Discord 头像 ORB 请求失败，无 JS console 错误，不将外部请求失败混为本次 lint 清零。
-
-## 历史：2026-10-28 main 产品整合过程
-
-- 用户原 `feat/frontend-workflows` 工作树及索引保留；本地保护快照 `local/product-preserved-20261028` 为 `dc15e29b1186deabcde2a58eeecd8989efeb613f`，不推送该混合快照。整合在 `.worktree/product-integration-20261028/`，基线 `origin/main` 为 `bf095ce`，不是把旧架构覆盖 main。
-- 保留 main 的模块职责拆分、懒加载、Knip 循环／依赖门禁及 Biome 复杂度／函数与文件行数上限。上节没有行数门禁的描述是旧分支历史，不再描述本次基线。
-- `pnpm install --frozen-lockfile` 与完整 `pnpm check` 已通过：Biome 无警告，Knip 依赖／循环、全部工作区类型／测试、真实 workerd Worker 16 文件 126 测试、schema／迁移／备份、Wrangler 和 bundle 门禁通过；未降低规则。客户端 `0.2.0` 构建通过，打包 SHA-256 `fd148b434a6624956e36f96973181db00279e665d80f0aa6f67ea6a3bd2cf25d`；不代表发布渠道已上传。配套版本 CLI 本地 HTTP 风险测试 3/3 通过。独立本地 E2E 与专项浏览器正在执行；后续修复仍须重跑最终 head 的强制检查。
-- 本次授权范围为按关注点 commit／push／PR、强制 CI 与独立审查通过后正常合并；无生产部署、tag、远程业务迁移或个人 Cloudflare 凭据使用。W8／W9 与真实 SillyTavern 验证仍未执行。
-- 第一轮独立后端审查无发现；客户端／UI 审查指出纯正则实例更新首次新增世界书时缺少目标选择，已修复所有选择与预览消费者并获只读复核关闭。该修复仍需真实本地 UI 验证，静态审查不等于运行通过。
-- 第二轮产品独立审查无发现；工具审查发现导入包 SQL 未绑定已验证 target，以及 R2 无条件上传可覆盖旧对象两项 P1。正在修复为生成 SQL 精确校验及隔离副本、相同内容复用／不同内容拒绝／原子条件新建；远程导入未执行，修复与复审通过前不可合并工具切片。
-
-以上“正在执行／修复”是当时停止点，并非当前未完成项；后续源码整合、工具修正及 PR #89～#91 的合并状态见本页顶部。历史检查数字、临时路径和权限记录不随本次文档刷新改写为新测量。
+当前可执行与人工验收边界见 [Checklist](checklist.md) 和 [用户事项](user-actions.md)。只读 legacy 结构参考固定为 `worktrees/workshop-legacy` 的 `15303df5e3b30aa7f3fc924296ae57497a7ad09a`；2026 年 10 月早期阶段性验证记录见 [`../../archived/refactor-2026-10/`](../../archived/refactor-2026-10/README.md)。

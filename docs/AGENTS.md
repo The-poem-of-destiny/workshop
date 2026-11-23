@@ -9,8 +9,9 @@ Give every durable fact one authoritative home and link to it elsewhere.
 - `AGENTS.md`: standing instructions for the directory.
 - Source-directory `README.md`: concise, stable AI navigation colocated with the source; scope and maintenance rules live in [the root AGENTS.md](../AGENTS.md#directory-readmes). These are navigation references, not a second home for detailed architecture, contracts or standing instructions.
 - Overview and architecture: purpose, boundaries, composition and major flows.
-- Tutorials: ordered steps to reach an outcome, including prerequisites and verification.
-- References: current behavior, contracts, definitions, configuration and lookup information.
+- `docs/guides/` (tutorials): ordered steps to reach an outcome, including prerequisites and verification.
+- `docs/operations/` (operational runbooks): deployment, migration, backup, recovery and release procedures with explicit authorization and safety gates.
+- `docs/reference/` (references): current behavior, contracts, definitions, configuration and lookup information.
 - `docs/plans/`: active plans, checklists, state snapshots and user actions. These are working governance records, not current behavior or API authority.
 - `docs/audits/`: audit evidence, findings and reports. They describe a point in time and do not replace a reference.
 - `docs/research/`: durable external research with provenance, scope, date/version, verification status and local assessment. Create it only when there is owned content.

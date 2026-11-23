@@ -37,6 +37,7 @@ Archived notes are frozen historical evidence and are never edited. Repair inbou
 
 ### `implemented/` (shipped on `main`)
 
+- [`pre-launch-hardening-oauth-bridge-and-cdn.md`](implemented/pre-launch-hardening-oauth-bridge-and-cdn.md) — dual-bucket R2 CDN client publishing + atomic `json_set` channel metadata, cross-site CHIPS-partitioned OAuth popup `launch/bind`, TavernHelper child-iframe host bridge, checker auto-publish threat boundary, 98-object FTS `char(0)` sanitization and two-phase `preload`/`delta` cutover guards.
 - [`community-access-collections-and-ux-refinement.md`](implemented/community-access-collections-and-ux-refinement.md) — discreet Discord invite touchpoints, versioned policy 3-question quiz gate, author collections & showcase views, five-category consolidation (`规则扩展`), elastic 2K/ultrawide layout and `[工坊]` worldbook marker.
 - [`six-category-taxonomy-and-reviewed-cutover.md`](implemented/six-category-taxonomy-and-reviewed-cutover.md) — structured `projectType` / `includedTypes` / ordinary `tags` boundaries, grouped tag filtering and source-pinned offline `taxonomy` review/build/verify tooling (primary enum partially superseded from 6 to 5 categories by the note above).
 - [`version-experience-notes-and-recommendations.md`](implemented/version-experience-notes-and-recommendations.md) — private per-version experience/rating notes, read-only unversioned legacy note retention and current-subscription player recommendation eligibility.
