@@ -145,12 +145,18 @@ describe("admin writes", () => {
     expect((await request("/api/v1/admin/projects", "member-token")).status).toBe(403);
   });
 
-  it("upserts and deletes recommendations", async () => {
+  it("upserts and moderates recommendations with accurate actor audit provenance", async () => {
     const put = await request("/api/v1/admin/recommendations/p1", "owner-token", {
       method: "PUT",
       body: JSON.stringify({ comment: "Great", projectVersionId: "r1" }),
     });
     expect(put.status).toBe(200);
+    const putBody = (await put.json()) as { id: string; comment: string; projectVersionId: string };
+    expect(putBody).toEqual({
+      id: expect.any(String),
+      comment: "Great",
+      projectVersionId: "r1",
+    });
     expect(
       (
         await bindings.DB.prepare("SELECT comment FROM recommendations WHERE project_id = 'p1'").first<{
@@ -159,5 +165,24 @@ describe("admin writes", () => {
       )?.comment,
     ).toBe("Great");
     expect((await request("/api/v1/admin/recommendations/p1", "owner-token", { method: "DELETE" })).status).toBe(204);
+
+    // Seed a player recommendation and moderate it by ?id= as owner
+    await bindings.DB.prepare(
+      "INSERT INTO recommendations (id, curator_id, project_id, project_version_id, comment, created_at, updated_at) VALUES ('rec-member', 'member', 'p1', 'r1', 'Player rec', ?, ?)",
+    )
+      .bind(now, now)
+      .run();
+    const moderated = await request("/api/v1/admin/recommendations/p1?id=rec-member", "owner-token", {
+      method: "DELETE",
+    });
+    expect(moderated.status).toBe(204);
+    expect(await bindings.DB.prepare("SELECT id FROM recommendations WHERE id = 'rec-member'").first()).toBeNull();
+    const audit = await bindings.DB.prepare(
+      "SELECT actor_id, detail FROM audit_events WHERE action = 'recommendation.delete' ORDER BY rowid DESC LIMIT 1",
+    ).first<{ actor_id: string; detail: string }>();
+    expect(audit?.actor_id).toBe("owner");
+    expect(JSON.parse(audit!.detail)).toEqual({
+      before: { projectVersionId: "r1", comment: "Player rec", curatorId: "member" },
+    });
   });
 });

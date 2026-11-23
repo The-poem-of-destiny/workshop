@@ -16,6 +16,10 @@ type EntryRef = {
   objectKey?: string;
 };
 
+const MAX_PROJECT_ENTRIES = 2000;
+const MAX_PROJECT_ENTRY_KEY_LENGTH = 2000;
+const MAX_PROJECT_ENTRY_NAME_LENGTH = 2000;
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -23,7 +27,8 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function primitiveId(value: unknown): string | null {
-  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (typeof value === "string") return value.trim().length > 0 ? value : null;
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : null;
   return null;
 }
 
@@ -99,17 +104,24 @@ export function extractProjectEntries(raw: unknown, kind: ProjectEntryKind): Ent
   return [];
 }
 
+function formatWorldbookEntryName(entry: Record<string, unknown>): string {
+  const base =
+    [entry.name, entry.comment].find(
+      (value): value is string => typeof value === "string" && value.trim().length > 0,
+    ) ?? "";
+  return base.trimStart().startsWith("[工坊]") ? base : `[工坊] ${base}`;
+}
+
 /** Mutates parsed upload entries so all consumers see the same installed name. */
 export function markWorldbookNames(raw: unknown): void {
   for (const { entry } of extractProjectEntries(raw, "worldbook")) {
-    const name = typeof entry.name === "string" ? entry.name : typeof entry.comment === "string" ? entry.comment : "";
-    const marked = name.includes("[工坊]") ? name : `[工坊] ${name}`;
+    const marked = formatWorldbookEntryName(entry);
     entry.name = marked;
     if ("comment" in entry) entry.comment = marked;
   }
 }
 
-export function parseProjectJson(text: string): unknown {
+function parseProjectJson(text: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
@@ -152,38 +164,9 @@ function isSillyTavernRegexJson(raw: unknown): boolean {
     values.length > 0 &&
     values.every((value) => {
       const record = asRecord(value);
-      return Boolean(record && isNonEmptyString(record.scriptName));
+      return Boolean(record && isNonEmptyString(record.scriptName) && typeof record.replaceString === "string");
     })
   );
-}
-
-/**
- * Empty payloads are used as update tombstones when the last entry is removed.
- * Upload endpoints still reject them; review treats them as "content absent" so
- * the centralized project policy can decide whether the project remains valid.
- */
-export function isEmptyProjectContentText(text: string, kind: ProjectEntryKind): boolean {
-  let raw: unknown;
-  try {
-    raw = parseProjectJson(text);
-  } catch {
-    return false;
-  }
-
-  if (kind === "worldbook") {
-    const values = getWorldbookImportValues(raw);
-    return values !== null && values.length === 0;
-  }
-
-  if (Array.isArray(raw)) return raw.length === 0;
-
-  // Compatibility for malformed legacy regex containers that were previously
-  // accepted as { entries: ... } and can become empty after entry deletion.
-  const record = asRecord(raw);
-  if (!record) return false;
-  if (Array.isArray(record.entries)) return record.entries.length === 0;
-  const entriesObject = asRecord(record.entries);
-  return entriesObject !== null && Object.keys(entriesObject).length === 0;
 }
 
 export function validateProjectContentText(text: string, kind: ProjectEntryKind): ProjectContentValidation {
@@ -198,6 +181,29 @@ export function validateProjectContentText(text: string, kind: ProjectEntryKind)
     };
   }
   return validateProjectContent(raw, kind);
+}
+
+function validateExtractedEntries(refs: EntryRef[], kind: ProjectEntryKind): ProjectContentValidation | null {
+  const label = kind === "worldbook" ? "世界书" : "正则";
+  const seenKeys = new Set<string>();
+  for (const ref of refs) {
+    if (ref.entryKey.length > MAX_PROJECT_ENTRY_KEY_LENGTH) {
+      return { valid: false, entryCount: 0, error: `${label}条目标识不能超过 2000 个字符` };
+    }
+    if (seenKeys.has(ref.entryKey)) {
+      return { valid: false, entryCount: 0, error: `${label}存在重复的条目标识` };
+    }
+    seenKeys.add(ref.entryKey);
+
+    const candidateNames =
+      kind === "worldbook"
+        ? [formatWorldbookEntryName(ref.entry), ref.entry.name, ref.entry.comment]
+        : [ref.entry.scriptName, ref.entry.name, ref.entry.comment];
+    if (candidateNames.some((value) => typeof value === "string" && value.length > MAX_PROJECT_ENTRY_NAME_LENGTH)) {
+      return { valid: false, entryCount: 0, error: `${label}条目名称不能超过 2000 个字符` };
+    }
+  }
+  return null;
 }
 
 export function validateProjectContent(raw: unknown, kind: ProjectEntryKind): ProjectContentValidation {
@@ -215,9 +221,14 @@ export function validateProjectContent(raw: unknown, kind: ProjectEntryKind): Pr
     if (values.length === 0) {
       return { valid: false, entryCount: 0, error: "世界书没有可识别的条目" };
     }
+    if (values.length > MAX_PROJECT_ENTRIES) {
+      return { valid: false, entryCount: 0, error: "世界书条目数量不能超过 2000 条" };
+    }
     if (!values.every((value) => asRecord(value) !== null)) {
       return { valid: false, entryCount: 0, error: "世界书 JSON 格式不正确：entries 必须只包含条目对象" };
     }
+    const entryError = validateExtractedEntries(extractProjectEntries(raw, "worldbook"), "worldbook");
+    if (entryError) return entryError;
     return { valid: true, entryCount: values.length };
   }
 
@@ -227,6 +238,9 @@ export function validateProjectContent(raw: unknown, kind: ProjectEntryKind): Pr
   }
   if (values.length === 0) {
     return { valid: false, entryCount: 0, error: "正则文件没有可识别的条目" };
+  }
+  if (values.length > MAX_PROJECT_ENTRIES) {
+    return { valid: false, entryCount: 0, error: "正则条目数量不能超过 2000 条" };
   }
   if (
     !values.every((value) => {
@@ -242,42 +256,15 @@ export function validateProjectContent(raw: unknown, kind: ProjectEntryKind): Pr
         : "正则 JSON 格式不正确：每个正则必须包含非空 scriptName",
     };
   }
-
-  return { valid: true, entryCount: values.length };
-}
-
-export function removeProjectEntryFromJson(
-  text: string,
-  kind: ProjectEntryKind,
-  entryKey: string,
-): { text: string; removed: Record<string, unknown> } {
-  const raw = parseProjectJson(text);
-  const refs = extractProjectEntries(raw, kind);
-  const target = refs.find((ref) => ref.entryKey === entryKey);
-  if (!target) throw new Error("条目不存在，项目可能已被其他人更新");
-
-  if (Array.isArray(raw)) {
-    raw.splice(target.index, 1);
-  } else {
-    const record = asRecord(raw);
-    if (!record) throw new Error("项目 JSON 结构无效");
-
-    if (Array.isArray(record.entries)) {
-      record.entries.splice(target.index, 1);
-    } else {
-      const entriesObject = asRecord(record.entries);
-      if (entriesObject && target.objectKey !== undefined) {
-        delete entriesObject[target.objectKey];
-      } else if (kind === "regex") {
-        return { text: "[]", removed: target.entry };
-      } else {
-        throw new Error("项目 JSON 结构不支持删除条目");
-      }
-    }
+  if (!values.every((value) => typeof asRecord(value)?.replaceString === "string")) {
+    return {
+      valid: false,
+      entryCount: 0,
+      error: "正则 JSON 格式不正确：每个正则必须包含字符串类型的 replaceString",
+    };
   }
 
-  return {
-    text: JSON.stringify(raw, null, 2),
-    removed: target.entry,
-  };
+  const entryError = validateExtractedEntries(extractProjectEntries(raw, "regex"), "regex");
+  if (entryError) return entryError;
+  return { valid: true, entryCount: values.length };
 }

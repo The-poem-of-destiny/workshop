@@ -1,6 +1,14 @@
 import { parseDiscordInviteUrl, WORKSHOP_LIMITS } from "@workshop/domain";
-import { useState } from "react";
-import { type AdminProject, api, type JsonValue, type SiteBanner, type SiteSettings } from "../../api";
+import { useRef, useState } from "react";
+import {
+  type AdminProject,
+  api,
+  formatUserError,
+  getSessionGeneration,
+  type JsonValue,
+  type SiteBanner,
+  type SiteSettings,
+} from "../../api";
 import { parseSiteContent } from "../../lib/siteContent";
 import type { useAdminMembers } from "./useAdminMembers";
 import type { useAdminRecommendations } from "./useAdminRecommendations";
@@ -25,30 +33,37 @@ function parseExtraObject(text: string): Record<string, JsonValue> {
   return parsed as Record<string, JsonValue>;
 }
 
-type AdminDataOptions = Pick<
-  ReturnType<typeof useAdminMembers> & ReturnType<typeof useAdminRecommendations>,
-  "setMembers" | "setMemberCursor" | "setMemberError" | "setRecommendations"
-> & { onError: (message: string) => void; onNotice: (message: string) => void };
+function buildSitePayload(
+  siteText: string,
+  communityInviteInput: string,
+  announcementInput: string,
+): { ok: true; siteContent: Record<string, JsonValue> } | { ok: false; message: string } {
+  const extra = parseExtraObject(siteText);
+  const checkedInvite = parseDiscordInviteUrl(communityInviteInput);
+  if (!checkedInvite.ok) {
+    return { ok: false, message: "社区邀请链接格式无效，请输入 https://discord.gg/... 格式的邀请链接。" };
+  }
+  const siteContent: Record<string, JsonValue> = { ...extra };
+  if (checkedInvite.value) siteContent.communityInviteUrl = checkedInvite.value;
+  else delete siteContent.communityInviteUrl;
+  const announcement = announcementInput.trim();
+  if (announcement) siteContent.announcement = announcement;
+  else delete siteContent.announcement;
+  return { ok: true, siteContent };
+}
 
-export function useAdminData({
-  setMembers,
-  setMemberCursor,
-  setMemberError,
-  setRecommendations,
+function useAdminSiteState({
   onError,
   onNotice,
-}: AdminDataOptions) {
-  const [projects, setProjects] = useState<AdminProject[]>([]);
-  const [projectSearch, setProjectSearch] = useState("");
+}: {
+  onError: (message: string) => void;
+  onNotice: (message: string) => void;
+}) {
   const [site, setSite] = useState<SiteSettings | null>(null);
   const [banner, setBanner] = useState<SiteBanner>(EMPTY_BANNER);
   const [communityInviteInput, setCommunityInviteInput] = useState("");
   const [announcementInput, setAnnouncementInput] = useState("");
   const [siteText, setSiteText] = useState("{}");
-  const [busy, setBusy] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [projectBusy, setProjectBusy] = useState(false);
-  const [projectError, setProjectError] = useState<string | null>(null);
 
   function hydrateSite(siteValue: SiteSettings): void {
     setSite(siteValue);
@@ -57,69 +72,6 @@ export function useAdminData({
     setCommunityInviteInput(parsed.customInviteUrl);
     setAnnouncementInput(parsed.announcement);
     setSiteText(JSON.stringify(parsed.extra, null, 2));
-  }
-
-  async function refresh(): Promise<void> {
-    setBusy(true);
-    setLoadError(null);
-    try {
-      const [projectList, memberList, siteValue, recommendationList] = await Promise.all([
-        api.adminProjects(projectSearch || undefined),
-        api.adminMembers(),
-        api.site(),
-        api.recommendations(),
-      ]);
-      setProjects(projectList.items);
-      setMembers(memberList.items);
-      setMemberCursor(memberList.nextCursor);
-      setMemberError(null);
-      hydrateSite(siteValue);
-      setRecommendations(recommendationList.items);
-    } catch (value) {
-      setLoadError(`管理数据加载失败：${String(value)}`);
-      onError(String(value));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function searchProjects(): Promise<void> {
-    if (projectBusy) return;
-    setProjectBusy(true);
-    setProjectError(null);
-    try {
-      const result = await api.adminProjects(projectSearch.trim() || undefined);
-      setProjects(result.items);
-    } catch (value) {
-      setProjectError(`项目搜索失败：${String(value)}`);
-    } finally {
-      setProjectBusy(false);
-    }
-  }
-
-  async function toggleProjectVisibility(project: AdminProject): Promise<void> {
-    const next = project.visibility === "public" ? "private" : "public";
-    try {
-      const result = await api.setVisibility(project.id, project.rowVersion, next);
-      setProjects((prev) =>
-        prev.map((item) =>
-          item.id === project.id ? { ...item, visibility: next, rowVersion: result.rowVersion } : item,
-        ),
-      );
-      onNotice(next === "private" ? `已将《${project.title}》设为私有（下架）。` : `已恢复公开《${project.title}》。`);
-    } catch (value) {
-      onError(`更新项目可见性失败：${String(value)}`);
-    }
-  }
-
-  async function removeAdminProject(project: AdminProject): Promise<void> {
-    try {
-      await api.deleteProject(project.id, project.rowVersion);
-      setProjects((prev) => prev.filter((item) => item.id !== project.id));
-      onNotice(`已删除项目《${project.title}》。`);
-    } catch (value) {
-      onError(`删除项目失败：${String(value)}`);
-    }
   }
 
   async function uploadBanner(file: File | undefined): Promise<void> {
@@ -134,30 +86,144 @@ export function useAdminData({
       setSite((previous) => (previous ? { ...previous, banner: result.banner } : previous));
       onNotice("Banner 已上传。");
     } catch (value) {
-      onError(`Banner 上传失败：${String(value)}`);
+      onError(`Banner 上传失败：${formatUserError(value)}`);
     }
   }
 
   async function saveSite(): Promise<void> {
     try {
-      const extra = parseExtraObject(siteText);
-      const checkedInvite = parseDiscordInviteUrl(communityInviteInput);
-      if (!checkedInvite.ok) {
-        onError("社区邀请链接格式无效，请输入 https://discord.gg/... 格式的邀请链接。");
+      const built = buildSitePayload(siteText, communityInviteInput, announcementInput);
+      if (!built.ok) {
+        onError(built.message);
         return;
       }
-      const nextContent: Record<string, JsonValue> = { ...extra };
-      if (checkedInvite.value) nextContent.communityInviteUrl = checkedInvite.value;
-      else delete nextContent.communityInviteUrl;
-      const announcement = announcementInput.trim();
-      if (announcement) nextContent.announcement = announcement;
-      else delete nextContent.announcement;
-
-      const updated = await api.updateSite({ banner, siteContent: nextContent });
+      const updated = await api.updateSite({ banner, siteContent: built.siteContent });
       hydrateSite(updated);
       onNotice("站点设置已保存。");
     } catch (value) {
-      onError(`站点设置保存失败：${String(value)}`);
+      onError(`站点设置保存失败：${formatUserError(value)}`);
+    }
+  }
+
+  return {
+    site,
+    banner,
+    setBanner,
+    communityInviteInput,
+    setCommunityInviteInput,
+    announcementInput,
+    setAnnouncementInput,
+    siteText,
+    setSiteText,
+    hydrateSite,
+    uploadBanner,
+    saveSite,
+  };
+}
+
+type AdminDataOptions = Pick<
+  ReturnType<typeof useAdminMembers> & ReturnType<typeof useAdminRecommendations>,
+  "setMembers" | "setMemberCursor" | "setMemberError" | "resetMemberLoads" | "setRecommendations"
+> & { onError: (message: string) => void; onNotice: (message: string) => void };
+
+export function useAdminData({
+  setMembers,
+  setMemberCursor,
+  setMemberError,
+  resetMemberLoads,
+  setRecommendations,
+  onError,
+  onNotice,
+}: AdminDataOptions) {
+  const [projects, setProjects] = useState<AdminProject[]>([]);
+  const [projectSearch, setProjectSearch] = useState("");
+  const [busy, setBusy] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [projectBusy, setProjectBusy] = useState(false);
+  const [projectError, setProjectError] = useState<string | null>(null);
+  const refreshGeneration = useRef(0);
+  const projectSearchGeneration = useRef(0);
+  const siteState = useAdminSiteState({ onError, onNotice });
+
+  async function refresh(): Promise<void> {
+    const generation = ++refreshGeneration.current;
+    const searchGen = ++projectSearchGeneration.current;
+    const sessionGeneration = getSessionGeneration();
+    resetMemberLoads();
+    setProjectBusy(false);
+    setBusy(true);
+    setLoadError(null);
+    try {
+      const [projectList, memberList, siteValue, recommendationList] = await Promise.all([
+        api.adminProjects(projectSearch || undefined),
+        api.adminMembers(),
+        api.site(),
+        api.recommendations(),
+      ]);
+      if (generation !== refreshGeneration.current || sessionGeneration !== getSessionGeneration()) return;
+      if (searchGen === projectSearchGeneration.current) {
+        setProjects(projectList.items);
+        setProjectError(null);
+      }
+      resetMemberLoads();
+      setMembers(memberList.items);
+      setMemberCursor(memberList.nextCursor);
+      setMemberError(null);
+      siteState.hydrateSite(siteValue);
+      setRecommendations(recommendationList.items);
+    } catch (value) {
+      if (generation !== refreshGeneration.current || sessionGeneration !== getSessionGeneration()) return;
+      const msg = formatUserError(value);
+      setLoadError(`管理数据加载失败：${msg}`);
+      onError(msg);
+    } finally {
+      if (generation === refreshGeneration.current && sessionGeneration === getSessionGeneration()) {
+        setBusy(false);
+      }
+    }
+  }
+
+  async function searchProjects(): Promise<void> {
+    const generation = ++projectSearchGeneration.current;
+    const sessionGeneration = getSessionGeneration();
+    setProjectBusy(true);
+    setProjectError(null);
+    try {
+      const result = await api.adminProjects(projectSearch.trim() || undefined);
+      if (generation !== projectSearchGeneration.current || sessionGeneration !== getSessionGeneration()) return;
+      setProjects(result.items);
+    } catch (value) {
+      if (generation !== projectSearchGeneration.current || sessionGeneration !== getSessionGeneration()) return;
+      setProjectError(`项目搜索失败：${formatUserError(value)}`);
+    } finally {
+      if (generation === projectSearchGeneration.current && sessionGeneration === getSessionGeneration()) {
+        setProjectBusy(false);
+      }
+    }
+  }
+
+  async function toggleProjectVisibility(project: AdminProject): Promise<void> {
+    const next = project.visibility === "public" ? "private" : "public";
+    try {
+      const result = await api.setVisibility(project.id, project.rowVersion, next);
+      setProjects((prev) =>
+        prev.map((item) =>
+          item.id === project.id ? { ...item, visibility: next, rowVersion: result.rowVersion } : item,
+        ),
+      );
+      onNotice(next === "private" ? `已将《${project.title}》设为私有（下架）。` : `已恢复公开《${project.title}》。`);
+    } catch (value) {
+      onError(`更新项目可见性失败：${formatUserError(value)}`);
+    }
+  }
+
+  async function removeAdminProject(project: AdminProject): Promise<void> {
+    try {
+      await api.deleteProject(project.id, project.rowVersion);
+      setProjects((prev) => prev.filter((item) => item.id !== project.id));
+      onNotice(`已删除项目《${project.title}》。`);
+    } catch (value) {
+      onError(`删除项目失败：${formatUserError(value)}`);
     }
   }
 
@@ -170,17 +236,7 @@ export function useAdminData({
     toggleProjectVisibility,
     removeAdminProject,
     refresh,
-    site,
-    uploadBanner,
-    banner,
-    setBanner,
-    communityInviteInput,
-    setCommunityInviteInput,
-    announcementInput,
-    setAnnouncementInput,
-    siteText,
-    setSiteText,
-    saveSite,
+    ...siteState,
     projects,
     projectSearch,
     setProjectSearch,

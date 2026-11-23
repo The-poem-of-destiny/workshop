@@ -38,7 +38,16 @@ beforeEach(async () => {
   await bindings.DB.prepare(
     "INSERT INTO users (id, username, global_name, avatar, role, policy_accepted_version, policy_accepted_at, created_at, updated_at) VALUES (?, ?, ?, ?, 'member', ?, ?, ?, ?)",
   )
-    .bind("u1", "tester", "测试用户", "avatar-hash", CURRENT_POLICY_VERSION, now, now, now)
+    .bind(
+      "u1",
+      "tester",
+      "测试用户",
+      "https://cdn.discordapp.com/avatars/100000000000000001/avatar-hash.png",
+      CURRENT_POLICY_VERSION,
+      now,
+      now,
+      now,
+    )
     .run();
   await bindings.DB.prepare(`
     INSERT INTO projects (id, author_id, visibility, updated_at)
@@ -101,7 +110,7 @@ describe("identity and interactions", () => {
         id: "u1",
         username: "tester",
         globalName: "测试用户",
-        avatarUrl: "https://cdn.discordapp.com/avatars/u1/avatar-hash.png",
+        avatarUrl: "https://cdn.discordapp.com/avatars/100000000000000001/avatar-hash.png",
         role: "member",
       },
       policy: {

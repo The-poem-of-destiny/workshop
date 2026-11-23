@@ -1,9 +1,21 @@
 import { Megaphone, ShieldAlert, X } from "lucide-react";
 import type { CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import type { MeResponse, SiteSettings } from "../api";
 import { parseSiteContent } from "../lib/siteContent";
 import type { useWorkshopNavigation } from "./useWorkshopNavigation";
 import type { useWorkshopSession } from "./useWorkshopSession";
+
+function safeBannerImageUrl(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw, location.origin);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
+    return parsed.href.replace(/["\\()\r\n]/g, (ch) => `%${ch.charCodeAt(0).toString(16).padStart(2, "0")}`);
+  } catch {
+    return null;
+  }
+}
 
 export function WorkshopMessages({
   site: home,
@@ -37,14 +49,18 @@ export function WorkshopMessages({
   setNotice: (message: string | null) => void;
 }) {
   const { communityInviteUrl, announcement } = parseSiteContent(home);
+  const bannerUrl = safeBannerImageUrl(home?.banner?.imageUrl);
+  const hasFloatingTop = Boolean(error || sessionError || loginFallback);
+  const portalTarget = typeof document !== "undefined" ? document.body : null;
+
   return (
     <div className="workshop-messages">
-      {home?.banner?.imageUrl && view === "browse" ? (
+      {bannerUrl && home?.banner && view === "browse" ? (
         <div
           className="banner"
           style={
             {
-              backgroundImage: `url(${home.banner.imageUrl})`,
+              backgroundImage: `url("${bannerUrl}")`,
               "--banner-x": `${home.banner.positionX}%`,
               "--banner-y": `${home.banner.positionY}%`,
               "--banner-mobile-x": `${home.banner.mobilePositionX ?? home.banner.positionX}%`,
@@ -80,57 +96,73 @@ export function WorkshopMessages({
           ) : null}
         </div>
       ) : null}
-      {error ? (
-        <div className="error" role="alert">
-          <div className="error-main">
-            <span>{error}</span>
-            {errorDetail ? (
-              <details>
-                <summary>错误详情</summary>
-                <code>{errorDetail}</code>
-              </details>
-            ) : null}
-            {authInviteHint ? (
-              <a className="error-invite-link" href={communityInviteUrl} target="_blank" rel="noopener noreferrer">
-                尚未加入社区服务器？前往 Discord 社区服务器 →
-              </a>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setError(null);
-              clearAuthInviteHint?.();
-            }}
-            aria-label="关闭提示"
-          >
-            ×
-          </button>
-        </div>
-      ) : null}
-      {sessionError ? (
-        <p className="error" role="alert">
-          无法恢复登录状态，请检查网络后重试。
-          <button type="button" onClick={retrySession}>
-            重试
-          </button>
-        </p>
-      ) : null}
-      {loginFallback ? (
-        <p className="notice">
-          <a href={loginFallback} target="_blank" rel="noopener opener">
-            打开 Discord 登录页
-          </a>
-        </p>
-      ) : null}
-      {notice ? (
-        <div className="toast" role="status">
-          <span>{notice}</span>
-          <button type="button" aria-label="关闭通知" onClick={() => setNotice(null)}>
-            <X aria-hidden="true" />
-          </button>
-        </div>
-      ) : null}
+      {portalTarget && hasFloatingTop
+        ? createPortal(
+            <div className="workshop-alert-layer" aria-live="polite" data-workshop-floating-layer="">
+              {error ? (
+                <div className="error" role="alert">
+                  <div className="error-main">
+                    <span>{error}</span>
+                    {errorDetail ? (
+                      <details>
+                        <summary>错误详情</summary>
+                        <code>{errorDetail}</code>
+                      </details>
+                    ) : null}
+                    {authInviteHint ? (
+                      <a
+                        className="error-invite-link"
+                        href={communityInviteUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        尚未加入社区服务器？前往 Discord 社区服务器 →
+                      </a>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setError(null);
+                      clearAuthInviteHint?.();
+                    }}
+                    aria-label="关闭提示"
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : null}
+              {sessionError ? (
+                <p className="error" role="alert">
+                  无法恢复登录状态，请检查网络后重试。
+                  <button type="button" onClick={retrySession}>
+                    重试
+                  </button>
+                </p>
+              ) : null}
+              {loginFallback ? (
+                <p className="notice">
+                  {/* biome-ignore lint/security/noBlankTarget: same-origin OAuth launch page requires window.opener handshake */}
+                  <a href={loginFallback} target="_blank" rel="opener">
+                    打开 Discord 登录页
+                  </a>
+                </p>
+              ) : null}
+            </div>,
+            portalTarget,
+          )
+        : null}
+      {portalTarget && notice
+        ? createPortal(
+            <div className="toast" role="status" aria-live="polite" data-workshop-floating-layer="">
+              <span>{notice}</span>
+              <button type="button" aria-label="关闭通知" onClick={() => setNotice(null)}>
+                <X aria-hidden="true" />
+              </button>
+            </div>,
+            portalTarget,
+          )
+        : null}
     </div>
   );
 }

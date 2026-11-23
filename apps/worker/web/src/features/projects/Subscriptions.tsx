@@ -1,6 +1,6 @@
 import { Image as ImageIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { api, type ProjectSummary } from "../../api";
+import { api, formatUserError, type ProjectSummary } from "../../api";
 import "../../styles/workspaces.css";
 
 export function Subscriptions({
@@ -29,7 +29,7 @@ export function Subscriptions({
       })
       .catch((reason) => {
         if (active) {
-          setError(String(reason));
+          setError(formatUserError(reason));
         }
       })
       .finally(() => {
@@ -72,7 +72,7 @@ export function Subscriptions({
         next.delete(project.id);
         return next;
       });
-      onError(String(reason));
+      onError(formatUserError(reason));
     }
   }
 

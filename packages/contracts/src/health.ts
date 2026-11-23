@@ -10,5 +10,3 @@ export const healthResponseSchema = z.object({
     assets: z.boolean(),
   }),
 });
-
-export type HealthResponse = z.infer<typeof healthResponseSchema>;

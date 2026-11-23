@@ -144,10 +144,11 @@ async function request(account, bucket, credentials, method, key, object, file) 
   ];
   for (const name of names) if (name !== "host") options.push(["header", `${name}: ${headers[name]}`]);
   if (method === "PUT") options.push(["upload-file", file]);
+  else if (method === "DELETE") options.push(["request", "DELETE"]);
   return curl(options, method === "GET" ? Math.max(object.bytes, 1024 * 1024) : 1024 * 1024, readHeaders);
 }
 
-export async function loadPlan(backupDir, planPath) {
+async function loadPlan(backupDir, planPath) {
   return loadObjects(backupDir, JSON.parse(await readFile(planPath, "utf8")), false);
 }
 
@@ -276,7 +277,7 @@ async function uploadObject(account, bucket, creds, object) {
   }
 }
 
-export async function run(mode, backup, plan, targetBucket = BUCKET) {
+async function run(mode, backup, plan, targetBucket = BUCKET) {
   if (!["check", "upload", "verify"].includes(mode)) fail("mode must be check, upload or verify");
   if (!ALLOWED_PRIVATE_BUCKETS.has(targetBucket)) fail("invalid private destination bucket");
   const objects = await loadPlan(backup, plan);
@@ -285,18 +286,60 @@ export async function run(mode, backup, plan, targetBucket = BUCKET) {
   return transfer(mode, objects, process.env.CLOUDFLARE_ACCOUNT_ID, targetBucket, false);
 }
 
-async function runPublic(mode, backup, plan) {
-  const { account, publicBucket, privateBucket } = plan;
+function checkPublicBucket(publicBucket, privateBucket) {
   if (
     !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(publicBucket ?? "") ||
     publicBucket === privateBucket ||
     publicBucket.startsWith("workshop-client-")
-  )
+  ) {
     fail("invalid or non-isolated public destination bucket");
+  }
+}
+
+async function runPublic(mode, backup, plan) {
+  const { account, publicBucket, privateBucket } = plan;
+  checkPublicBucket(publicBucket, privateBucket);
   const objects = await loadObjects(backup, plan, true);
   for (const object of objects) await verifyLocal(object);
   if (mode === "check") return { objects: objects.length, bytes: objects.reduce((sum, o) => sum + o.bytes, 0) };
   return transfer(mode, objects, account, publicBucket, true);
+}
+
+async function runPublicWithdraw(plan) {
+  const { account, publicBucket, privateBucket } = plan ?? {};
+  if (!/^[a-f0-9]{32}$/i.test(account ?? "")) fail("valid target account is required");
+  checkPublicBucket(publicBucket, privateBucket);
+  const rawKeys = Array.isArray(plan?.objects)
+    ? plan.objects
+    : Array.isArray(plan?.withdrawn_public_objects)
+      ? plan.withdrawn_public_objects
+      : null;
+  if (!rawKeys) fail("invalid public withdrawal manifest");
+  const seen = new Set();
+  for (const [index, key] of rawKeys.entries()) {
+    if (!safeKey(key) || !PUBLIC_KEY.test(key)) fail(`invalid public withdrawal key at objects[${index}]`);
+    if (seen.has(key)) fail(`duplicate public withdrawal key: ${key}`);
+    seen.add(key);
+  }
+  const keys = [...seen];
+  const creds = await resolveCredentials(account, "PUBLIC_IMAGE_IMPORT_R2");
+  const concurrency = Math.max(1, Math.min(16, Number.parseInt(process.env.R2_TRANSFER_CONCURRENCY ?? "1", 10) || 1));
+  let deleted = 0;
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < keys.length) {
+      const key = keys[nextIndex++];
+      const del = await request(account, publicBucket, creds, "DELETE", key, { bytes: 0 });
+      if (![200, 204, 404].includes(del.status)) fail(`DELETE ${key} failed (HTTP ${del.status})`);
+      const verify = await request(account, publicBucket, creds, "GET", key, { bytes: 0 });
+      if (verify.status !== 404) fail(`GET ${key} after DELETE failed (HTTP ${verify.status})`);
+      if (del.status === 200 || del.status === 204) deleted++;
+    }
+  }
+  if (keys.length > 0) {
+    await Promise.all(Array.from({ length: Math.min(concurrency, keys.length) }, () => worker()));
+  }
+  return { objects: keys.length, deleted };
 }
 
 async function resolveCredentials(account, prefix) {
@@ -359,39 +402,60 @@ async function transfer(mode, objects, account, bucket, publicTarget) {
   };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const args = process.argv.slice(2);
-  let targetBucket = BUCKET;
-  const bucketFlag = args.indexOf("--bucket");
-  if (bucketFlag >= 0) {
-    targetBucket = args[bucketFlag + 1] ?? "";
-    args.splice(bucketFlag, 2);
+function takeFlag(args, flag) {
+  const index = args.indexOf(flag);
+  if (index < 0) return undefined;
+  const val = args[index + 1] ?? "";
+  args.splice(index, 2);
+  return val;
+}
+
+function readStdin() {
+  return new Promise((done, reject) => {
+    const chunks = [];
+    process.stdin.on("data", (chunk) => chunks.push(chunk));
+    process.stdin.on("end", () => done(Buffer.concat(chunks)));
+    process.stdin.on("error", reject);
+  });
+}
+
+async function runCli(argv) {
+  const args = [...argv];
+  const targetBucket = takeFlag(args, "--bucket") ?? BUCKET;
+  const publicBucketFlag = takeFlag(args, "--public-bucket");
+  const accountFlag = takeFlag(args, "--account");
+  const [mode, first, second, ...rest] = args;
+  if (mode === "public-withdraw" && !second && !rest.length) {
+    const raw = first ? await readFile(first, "utf8") : (await readStdin()).toString("utf8");
+    const parsed = JSON.parse(raw);
+    return runPublicWithdraw({
+      ...parsed,
+      account: accountFlag ?? parsed.account ?? process.env.CLOUDFLARE_ACCOUNT_ID,
+      publicBucket: publicBucketFlag ?? parsed.publicBucket,
+    });
   }
-  const [mode, backup, plan, ...rest] = args;
-  if (["public-check", "public-upload", "public-verify"].includes(mode) && backup && !plan) {
-    new Promise((done, reject) => {
-      const chunks = [];
-      process.stdin.on("data", (chunk) => chunks.push(chunk));
-      process.stdin.on("end", () => done(Buffer.concat(chunks)));
-      process.stdin.on("error", reject);
-    })
-      .then((raw) => runPublic(mode.slice(7), backup, JSON.parse(raw)))
-      .then((result) => console.log(JSON.stringify(result)))
-      .catch((error) => {
-        console.error(error instanceof Error && !error.code ? error.message : "transfer failed");
-        process.exitCode = 1;
-      });
-  } else if (!mode || !backup || !plan || rest.length) {
-    console.error(
-      "Usage: node tools/migrate/full-r2.mjs <check|upload|verify> <snapshot-dir> <plan.json> [--bucket <name>]",
+  if (["public-check", "public-upload", "public-verify"].includes(mode) && first && !second && !rest.length) {
+    const raw = await readStdin();
+    return runPublic(mode.slice(7), first, JSON.parse(raw.toString("utf8")));
+  }
+  if (!mode || !first || !second || rest.length) {
+    throw Object.assign(
+      new Error(
+        "Usage: node tools/migrate/full-r2.mjs <check|upload|verify> <snapshot-dir> <plan.json> [--bucket <name>]",
+      ),
+      { usage: true },
     );
-    process.exitCode = 1;
-  } else {
-    run(mode, backup, plan, targetBucket)
-      .then((result) => console.log(JSON.stringify(result)))
-      .catch((error) => {
-        console.error(error instanceof Error ? error.message : "transfer failed");
-        process.exitCode = 1;
-      });
   }
+  return run(mode, first, second, targetBucket);
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  runCli(process.argv.slice(2))
+    .then((result) => console.log(JSON.stringify(result)))
+    .catch((error) => {
+      const publicMode = process.argv[2]?.startsWith("public-");
+      const message = error instanceof Error && (!publicMode || !error.code) ? error.message : "transfer failed";
+      console.error(message);
+      process.exitCode = 1;
+    });
 }

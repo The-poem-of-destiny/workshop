@@ -81,11 +81,13 @@ beforeEach(async () => {
     DELETE FROM audit_events;
     DELETE FROM manual_reviews;
     DELETE FROM automated_reviews;
+    DELETE FROM project_change_signals;
     DELETE FROM project_likes;
     DELETE FROM project_subscriptions;
     DELETE FROM project_experience_notes;
     DELETE FROM project_unversioned_notes;
     DELETE FROM submissions;
+    UPDATE projects SET working_version_id = NULL, published_version_id = NULL, published_cover_asset_id = NULL;
     DELETE FROM assets;
     DELETE FROM project_versions;
     DELETE FROM projects;
@@ -223,18 +225,8 @@ describe("authoring write paths", () => {
     });
   });
 
-  it("normalizes Unicode tags on writes and preserves code points through submission", async () => {
-    const tags = [
-      "🧪".repeat(51),
-      "🧪".repeat(100),
-      "trimmed",
-      "\u0085tag\u0085",
-      "\u0000x",
-      "\u0000".repeat(100),
-      "\u0001x",
-      "\\u0000",
-      "\\u0001",
-    ];
+  it("normalizes Unicode tags on writes, rejects control characters, and preserves code points through submission", async () => {
+    const tags = ["🧪".repeat(51), "🧪".repeat(100), "trimmed", "\u0085tag\u0085", "\\u0000", "\\u0001"];
     const created = await request("/", {
       method: "POST",
       body: JSON.stringify({
@@ -247,10 +239,17 @@ describe("authoring write paths", () => {
     const draft = authoringProjectResponseSchema.parse(await created.json());
     expect(draft.project.tags).toEqual(tags);
 
-    for (const tag of ["🧪".repeat(101), `a\u0000${"🧪".repeat(100)}`]) {
+    for (const tag of [
+      "🧪".repeat(101),
+      "\u0000x",
+      "\u0000".repeat(100),
+      "\u0001x",
+      "\u007Fx",
+      `a\u0000${"🧪".repeat(100)}`,
+    ]) {
       const invalidCreate = await request("/", {
         method: "POST",
-        body: JSON.stringify({ title: "Too long", projectType: "角色", tags: [tag] }),
+        body: JSON.stringify({ title: "Invalid tag", projectType: "角色", tags: [tag] }),
       });
       expect(invalidCreate.status).toBe(400);
       const invalidPatch = await request(`/${draft.project.id}`, {
@@ -657,6 +656,245 @@ describe("authoring write paths", () => {
     });
     expect(submittedRegex.status).toBe(201);
     await expect(submittedRegex.json()).resolves.toMatchObject({ status: "pending", checkStatus: "needs_human" });
+  });
+
+  it("deletes 1 of 2 entries from standard object-map worldbooks on worldbook-only and hybrid projects", async () => {
+    const objectMapWorldbook = JSON.stringify({
+      entries: {
+        "0": { uid: 0, comment: "Alpha", content: "first" },
+        "1": { uid: 1, comment: "Beta", content: "second" },
+      },
+    });
+    const wbBytes = new TextEncoder().encode(objectMapWorldbook).byteLength;
+
+    // 1. Worldbook-only project
+    const wbOnlyRes = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Object map WB only", projectType: "角色" }),
+    });
+    const wbOnly = (await wbOnlyRes.json()) as { project: { id: string }; workingVersionId: string };
+    const wbUpload = await request(`/${wbOnly.project.id}/versions/${wbOnly.workingVersionId}/files/worldbook`, {
+      method: "PUT",
+      body: objectMapWorldbook,
+      headers: { "content-type": "application/json", "content-length": String(wbBytes), "if-match": "1" },
+    });
+    expect(wbUpload.status).toBe(200);
+    const wbUploaded = (await wbUpload.json()) as { rowVersion: number };
+
+    const deleteFirst = await request(
+      `/${wbOnly.project.id}/versions/${wbOnly.workingVersionId}/entries/worldbook/${encodeURIComponent("object:0")}`,
+      { method: "DELETE", headers: { "if-match": String(wbUploaded.rowVersion) } },
+    );
+    expect(deleteFirst.status).toBe(200);
+    const afterFirst = (await deleteFirst.json()) as { rowVersion: number; versionId: string; entryCount: number };
+    expect(afterFirst.entryCount).toBe(1);
+    const remainingWb = (await (
+      await request(`/${wbOnly.project.id}/versions/${afterFirst.versionId}/files/worldbook`)
+    ).json()) as { entries: Record<string, { name: string; content: string }> };
+    expect(Object.keys(remainingWb.entries)).toEqual(["1"]);
+    expect(remainingWb.entries["1"]?.content).toBe("second");
+
+    // Deleting the sole remaining entry on a worldbook-only project fails with 409
+    const deleteLast = await request(
+      `/${wbOnly.project.id}/versions/${afterFirst.versionId}/entries/worldbook/${encodeURIComponent("object:1")}`,
+      { method: "DELETE", headers: { "if-match": String(afterFirst.rowVersion) } },
+    );
+    expect(deleteLast.status).toBe(409);
+
+    // 2. Hybrid (worldbook + regex) project
+    const hybridRes = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Object map hybrid", projectType: "角色" }),
+    });
+    const hybrid = (await hybridRes.json()) as { project: { id: string }; workingVersionId: string };
+    const hybridWbUpload = await request(`/${hybrid.project.id}/versions/${hybrid.workingVersionId}/files/worldbook`, {
+      method: "PUT",
+      body: objectMapWorldbook,
+      headers: { "content-type": "application/json", "content-length": String(wbBytes), "if-match": "1" },
+    });
+    const hybridWb = (await hybridWbUpload.json()) as { rowVersion: number };
+    const regexText = JSON.stringify([{ id: "r1", scriptName: "KeepRegex", findRegex: "/a/g", replaceString: "b" }]);
+    const hybridRxUpload = await request(`/${hybrid.project.id}/versions/${hybrid.workingVersionId}/files/regex`, {
+      method: "PUT",
+      body: regexText,
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(new TextEncoder().encode(regexText).byteLength),
+        "if-match": String(hybridWb.rowVersion),
+      },
+    });
+    const hybridRx = (await hybridRxUpload.json()) as { rowVersion: number };
+
+    const hybridDel1 = await request(
+      `/${hybrid.project.id}/versions/${hybrid.workingVersionId}/entries/worldbook/${encodeURIComponent("object:0")}`,
+      { method: "DELETE", headers: { "if-match": String(hybridRx.rowVersion) } },
+    );
+    expect(hybridDel1.status).toBe(200);
+    const hybridAfter1 = (await hybridDel1.json()) as { rowVersion: number; versionId: string; entryCount: number };
+    expect(hybridAfter1.entryCount).toBe(1);
+    expect(
+      await bindings.DB.prepare("SELECT worldbook_count, regex_count FROM project_versions WHERE id = ?")
+        .bind(hybridAfter1.versionId)
+        .first(),
+    ).toEqual({ worldbook_count: 1, regex_count: 1 });
+    const hybridRemainingWb = (await (
+      await request(`/${hybrid.project.id}/versions/${hybridAfter1.versionId}/files/worldbook`)
+    ).json()) as { entries: Record<string, { content: string }> };
+    expect(Object.keys(hybridRemainingWb.entries)).toEqual(["1"]);
+
+    const hybridDel2 = await request(
+      `/${hybrid.project.id}/versions/${hybridAfter1.versionId}/entries/worldbook/${encodeURIComponent("object:1")}`,
+      { method: "DELETE", headers: { "if-match": String(hybridAfter1.rowVersion) } },
+    );
+    expect(hybridDel2.status).toBe(200);
+    const hybridAfter2 = (await hybridDel2.json()) as { rowVersion: number; versionId: string; entryCount: number };
+    expect(hybridAfter2.entryCount).toBe(0);
+    expect(
+      await bindings.DB.prepare("SELECT worldbook_count, regex_count FROM project_versions WHERE id = ?")
+        .bind(hybridAfter2.versionId)
+        .first(),
+    ).toEqual({ worldbook_count: 0, regex_count: 1 });
+  });
+
+  it("records content change signals against submission baseline even after auto-publish and rejects throwaway baselines", async () => {
+    const created = await request("/", {
+      method: "POST",
+      body: JSON.stringify({ title: "Change signal", projectType: "角色" }),
+    });
+    const first = (await created.json()) as { project: { id: string }; workingVersionId: string };
+    const v1Wb = JSON.stringify({ entries: [{ uid: 1, name: "Entry", content: "v1" }] });
+    const up1 = await request(`/${first.project.id}/versions/${first.workingVersionId}/files/worldbook`, {
+      method: "PUT",
+      body: v1Wb,
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(new TextEncoder().encode(v1Wb).byteLength),
+        "if-match": "1",
+      },
+    });
+    const up1Body = (await up1.json()) as { rowVersion: number };
+    const sub1 = await request(`/${first.project.id}/versions/${first.workingVersionId}/submit`, {
+      method: "POST",
+      headers: { "if-match": String(up1Body.rowVersion) },
+      body: JSON.stringify({ gate: "block" }),
+    });
+    expect(sub1.status).toBe(201);
+    const sub1Body = (await sub1.json()) as { submissionId: string; rowVersion: number };
+    await bindings.DB.prepare(
+      "UPDATE projects SET published_version_id = ?, visibility = 'public', published_at = ? WHERE id = ?",
+    )
+      .bind(first.workingVersionId, now, first.project.id)
+      .run();
+    await bindings.DB.prepare("UPDATE submissions SET status = 'approved', resolved_at = ? WHERE id = ?")
+      .bind(now, sub1Body.submissionId)
+      .run();
+
+    // Create throwaway unapproved revision v2, then supersede it with v3
+    const rev2 = await request(`/${first.project.id}/versions`, {
+      method: "POST",
+      headers: { "if-match": String(sub1Body.rowVersion) },
+      body: JSON.stringify({ title: "Throwaway v2" }),
+    });
+    const v2 = (await rev2.json()) as { versionId: string; rowVersion: number };
+    const v2Wb = JSON.stringify({
+      entries: [
+        { uid: 1, name: "Entry", content: "throwaway" },
+        { uid: 2, name: "Extra", content: "throwaway2" },
+      ],
+    });
+    const up2 = await request(`/${first.project.id}/versions/${v2.versionId}/files/worldbook`, {
+      method: "PUT",
+      body: v2Wb,
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(new TextEncoder().encode(v2Wb).byteLength),
+        "if-match": String(v2.rowVersion),
+      },
+    });
+    const up2Body = (await up2.json()) as { rowVersion: number };
+    const sub2 = await request(`/${first.project.id}/versions/${v2.versionId}/submit`, {
+      method: "POST",
+      headers: { "if-match": String(up2Body.rowVersion) },
+      body: JSON.stringify({ gate: "block" }),
+    });
+    const sub2Body = (await sub2.json()) as { rowVersion: number };
+
+    const rev3 = await request(`/${first.project.id}/versions`, {
+      method: "POST",
+      headers: { "if-match": String(sub2Body.rowVersion) },
+      body: JSON.stringify({ title: "Published v3" }),
+    });
+    const v3 = (await rev3.json()) as { versionId: string; rowVersion: number };
+    const v3Wb = JSON.stringify({ entries: [{ uid: 1, name: "Entry", content: "v3 updated" }] });
+    const up3 = await request(`/${first.project.id}/versions/${v3.versionId}/files/worldbook`, {
+      method: "PUT",
+      body: v3Wb,
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(new TextEncoder().encode(v3Wb).byteLength),
+        "if-match": String(v3.rowVersion),
+      },
+    });
+    const up3Body = (await up3.json()) as { rowVersion: number };
+    const sub3 = await request(`/${first.project.id}/versions/${v3.versionId}/submit`, {
+      method: "POST",
+      headers: { "if-match": String(up3Body.rowVersion) },
+      body: JSON.stringify({ gate: "block" }),
+    });
+    expect(sub3.status).toBe(201);
+    const sub3Body = (await sub3.json()) as { submissionId: string };
+
+    // Simulate auto-publish completing BEFORE client fetches change-evidence!
+    await bindings.DB.prepare("UPDATE projects SET published_version_id = ?, published_updated_at = ? WHERE id = ?")
+      .bind(v3.versionId, now, first.project.id)
+      .run();
+    await bindings.DB.prepare("UPDATE submissions SET status = 'approved', resolved_at = ? WHERE id = ?")
+      .bind(now, sub3Body.submissionId)
+      .run();
+
+    const evidenceRes = await request(`/${first.project.id}/versions/${v3.versionId}/change-evidence`);
+    expect(evidenceRes.status).toBe(200);
+    const evidence = (await evidenceRes.json()) as {
+      current: { versionId: string; manifestHash: string };
+      previous: { versionId: string; manifestHash: string };
+    };
+    expect(evidence.current.versionId).toBe(v3.versionId);
+    expect(evidence.previous.versionId).toBe(first.workingVersionId);
+
+    // Forged comparison against unapproved throwaway v2 must be rejected
+    const v2Meta = await bindings.DB.prepare("SELECT manifest_hash FROM project_versions WHERE id = ?")
+      .bind(v2.versionId)
+      .first<{ manifest_hash: string }>();
+    const forgedChange = await SELF.fetch("https://workshop.test/api/v1/recommendations/changes", {
+      method: "POST",
+      headers: { authorization: "Bearer author-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: first.project.id,
+        projectVersionId: v3.versionId,
+        previousVersionId: v2.versionId,
+        previousManifestHash: v2Meta!.manifest_hash,
+        currentManifestHash: evidence.current.manifestHash,
+        changedEntries: 2,
+        totalEntries: 2,
+      }),
+    });
+    expect(forgedChange.status).toBe(404);
+
+    // Authoritative baseline (v1 -> v3) succeeds even after auto-publish
+    const validChange = await SELF.fetch("https://workshop.test/api/v1/recommendations/changes", {
+      method: "POST",
+      headers: { authorization: "Bearer author-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        projectId: first.project.id,
+        projectVersionId: v3.versionId,
+        previousVersionId: evidence.previous.versionId,
+        previousManifestHash: evidence.previous.manifestHash,
+        currentManifestHash: evidence.current.manifestHash,
+        changedEntries: 1,
+        totalEntries: 1,
+      }),
+    });
+    expect(validChange.status).toBe(200);
   });
   it("keeps published bytes unchanged and rejects deleting the required final draft entry", async () => {
     const created = await request("/", {

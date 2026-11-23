@@ -7,16 +7,21 @@ export const adminSubmissionStatusSchema = z.enum(["pending", "checking", "appro
 export type AdminSubmissionStatus = z.infer<typeof adminSubmissionStatusSchema>;
 
 export const adminSubmissionListQuerySchema = z.object({
-  status: z.preprocess(
-    (value) =>
-      typeof value === "string"
-        ? value
+  status: z
+    .union([
+      z
+        .string()
+        .max(128)
+        .transform((value) =>
+          value
             .split(",")
             .map((item) => item.trim())
-            .filter(Boolean)
-        : value,
-    z.array(adminSubmissionStatusSchema).min(1).max(5).default(["pending"]),
-  ),
+            .filter(Boolean),
+        ),
+      z.array(adminSubmissionStatusSchema).max(5),
+    ])
+    .pipe(z.array(adminSubmissionStatusSchema).min(1).max(5))
+    .default(["pending"]),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   cursor: z.string().max(512).optional(),
 });
@@ -42,7 +47,6 @@ export const adminReviewRequestSchema = z
 export type AdminReviewRequest = z.infer<typeof adminReviewRequestSchema>;
 
 export const adminRoleRequestSchema = z.object({ role: roleSchema });
-export type AdminRoleRequest = z.infer<typeof adminRoleRequestSchema>;
 
 export const adminListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
@@ -50,27 +54,6 @@ export const adminListQuerySchema = z.object({
   search: z.string().trim().min(1).max(80).optional(),
   projectType: projectTypeSchema.optional(),
   includeDeleted: z.boolean().optional(),
-});
-export type AdminListQuery = z.infer<typeof adminListQuerySchema>;
-
-export const adminAssetSchema = z.object({
-  id: z.string(),
-  kind: z.string(),
-  sha256: z.string(),
-  bytes: z.number().int().nonnegative(),
-  mime: z.string(),
-  r2Key: z.string(),
-});
-
-export const adminReviewSchema = z.object({
-  id: z.string(),
-  submissionId: z.string(),
-  reviewerId: z.string(),
-  decision: z.enum(["approve", "reject"]),
-  reason: z.string().nullable(),
-  manifestHash: z.string().nullable(),
-  checkerVersion: z.string().nullable(),
-  createdAt: z.string(),
 });
 
 export const adminSubmissionCountsSchema = z.object({
@@ -99,18 +82,15 @@ export const adminSubmissionListResponseSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 
-export type AdminAsset = z.infer<typeof adminAssetSchema>;
-export type AdminReview = z.infer<typeof adminReviewSchema>;
 export type AdminSubmissionListResponse = z.infer<typeof adminSubmissionListResponseSchema>;
 export const adminAuditEventListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   cursor: z.string().max(512).optional(),
   action: auditActionSchema.optional(),
 });
-export type AdminAuditEventListQuery = z.infer<typeof adminAuditEventListQuerySchema>;
 
 const adminBannerWriteSchema = z.object({
-  imageUrl: z.string().nullable(),
+  imageUrl: z.string().max(2048).nullable(),
   positionX: z.number().min(0).max(100),
   positionY: z.number().min(0).max(100),
   zoom: z.number().min(1).max(3),
@@ -123,10 +103,8 @@ export const adminSiteUpdateSchema = z.object({
   banner: adminBannerWriteSchema.optional(),
   siteContent: z.unknown().optional(),
 });
-export type AdminSiteUpdate = z.infer<typeof adminSiteUpdateSchema>;
 
 export const adminRecommendationUpdateSchema = z.object({
   comment: z.string().max(2000).optional(),
   projectVersionId: z.string().min(1),
 });
-export type AdminRecommendationUpdate = z.infer<typeof adminRecommendationUpdateSchema>;

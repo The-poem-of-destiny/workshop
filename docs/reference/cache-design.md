@@ -1,6 +1,6 @@
 # API 缓存设计与路由清单
 
-本文以仓库实现和 [Worker API 参考](worker-api.md)为基线。`P60` 和 `P300` 分别表示默认 60 秒和 300 秒的公开成功响应；`N` 表示 `private, no-store`。TTL 可配置，设为 0 或非法值禁缓存并对外 no-store，详见[运行配置](runtime-configuration.md)。私有资格、票据和计数始终实时检查。
+本文以仓库实现和 [Worker API 参考](worker-api.md)为基线。`P60` 和 `P300` 分别表示默认 60 秒和 300 秒的公开成功响应；`N` 表示 `private, no-store`。TTL 可配置，设为 0 或非法值禁缓存并对外 no-store，详见[运行配置](runtime-configuration.md)。私有资格、会话和计数始终实时检查。
 
 ## 请求路径和边界
 
@@ -19,7 +19,7 @@ flowchart LR
 
 Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立，`VERSION_METADATA` 用于部署版本隔离，缺失时绕过 Cache API。静态资源可能由 Static Assets 单独交付。具名入口共享 Worker bindings，静态检查是代码约束而非平台权限隔离。
 
-公开 GET／HEAD 由[网关解析器](../../apps/worker/src/http/public-cache.ts)一次识别路由、校验查询并生成规范化读取描述。`CachedReads` 用规范化路径和查询沿用原有公开缓存身份；投影按解析后的操作分发，不重新解析 URL。私有或未知路径仍交给 Hono。
+公开 GET／HEAD 由[网关解析器](../../apps/worker/src/cache/public-cache.ts)一次识别路由、校验查询并生成规范化读取描述。`CachedReads` 用规范化路径和查询沿用原有公开缓存身份；投影按解析后的操作分发，不重新解析 URL。私有或未知路径仍交给 Hono。
 
 `CachedReads` 仅在有效 TTL 大于 0 且 `VERSION_METADATA.id` 为非空字符串时读写 Cache API；缓存键包含部署版本、TTL、规范化路径／查询和内部可信读取描述符。成功响应的缓存写入通过 `waitUntil` 完成，不阻塞源端响应；验证命中必须等待这些写入结束，不能把 `Cache-Control` 或返回 200 当成已存储、已命中的证据。
 
@@ -39,10 +39,10 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 | GET `/collections/:id`、`/authors/:id` | 公开合集摘要与作者公开主页摘要 | P60 | 公开投影 60 秒 |
 | GET `/projects/:id`、`/projects/:id/entries` | 公开详情及索引 | P60 | 公开投影 60 秒 |
 | GET `/projects/:id/preview/:kind` | 登录用户预览 | N | 实时会话和当前公开 revision 门禁后，固定 revision/kind/hash 投影 86400 秒 |
-| POST `/projects/:id/downloads`、`/acquisitions` | 票据与版本准入 | N | 不缓存；实时版本与权限 |
-| GET `/downloads/:token` | 一次性消费并下载 | N | 固定 hash 字节可复用；每次实时取对象、竞争消费及计数 |
+| POST `/projects/:id/downloads`、`/acquisitions` | 下载登记与版本准入 | N | 不缓存；实时版本与权限 |
+| GET `/downloads/:projectId/:versionId/:kind` | 已发布版本文件下载 | N | 固定 hash 字节可复用；每次实时验证登录、可见性、当前发布版与文件关联 |
 | GET `/recommendations` | 公开推荐 | P60 | 公开投影 60 秒 |
-| GET `/reference-sets`、`/reference-sets/:id`、`/site` | 参考集与站点 | P300 | 公开投影 300 秒 |
+| GET `/site` | 站点信息与横幅 | P300 | 公开投影 300 秒 |
 
 ### 目录筛选的规范化缓存身份
 
@@ -114,9 +114,6 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 | PUT `/admin/members/:id/role` | owner 修改角色 |
 | GET `/admin/audit-events` | 审计事件 |
 | PUT、DELETE `/admin/recommendations/:projectId` | owner 设置或删除推荐 |
-| POST `/admin/reference-sets` | owner 创建参考集 |
-| POST `/admin/reference-sets/:id/versions` | owner 创建参考集版本 |
-| PUT `/admin/reference-sets/:id` | owner 更新参考集 |
 | POST `/site/banner` | owner 上传 banner |
 | PUT `/site` | owner 更新站点 |
 | GET `/companion-scripts/:scriptId` | 获取伴随脚本当前版本 |

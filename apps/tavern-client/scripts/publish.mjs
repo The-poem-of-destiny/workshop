@@ -36,6 +36,9 @@ if (env === "production" && !args.includes("--allow-production"))
 
 const body = readFileSync(dist);
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+if (typeof manifest.version !== "string" || !/^[0-9A-Za-z._+-]+$/.test(manifest.version)) {
+  throw new Error("manifest.version is invalid");
+}
 const sha = createHash("sha256").update(body).digest("hex");
 if (sha !== manifest.revision) throw new Error("built manifest hash does not match dist/index.js");
 const bucket = env === "staging" ? "workshop-client-staging" : "workshop-client-prod";
@@ -131,30 +134,15 @@ async function upload(targetBucket, key, cacheControl) {
 const credentials = await s3Credentials();
 await upload(bucket, versionedKey);
 await upload(publicBucket, versionedKey, VERSIONED_CACHE_CONTROL);
-
-const query = `SELECT value FROM site_settings WHERE key = 'client_channels'`;
-const output = wrangler(
-  ["d1", "execute", database, "--remote", "--config", "wrangler.jsonc", "--env", env, "--json", "--command", query],
-  true,
-);
-let channels = {};
-try {
-  const parsed = JSON.parse(output);
-  const raw = parsed?.[0]?.results?.[0]?.value;
-  if (typeof raw === "string") channels = JSON.parse(raw);
-} catch {
-  channels = {};
-}
-channels[channel] = { revision: sha, version: manifest.version, publishedAt: new Date().toISOString() };
-const escaped = JSON.stringify(channels).replaceAll("'", "''");
-const sql = `INSERT INTO site_settings (key, value, updated_at) VALUES ('client_channels', '${escaped}', CURRENT_TIMESTAMP)
-  ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`;
-wrangler(["d1", "execute", database, "--remote", "--config", "wrangler.jsonc", "--env", env, "--command", sql]);
-
-// The channel pointer is written only after the version object and its D1
-// record exist, so a failed publish cannot point at a missing artifact.
+// Upload the channel bundle before advancing D1 compatibility so clients are
+// never required to run a version that is not yet served at /client/<channel>/index.js.
 await upload(bucket, channelKey);
 await upload(publicBucket, channelKey, CHANNEL_CACHE_CONTROL);
+
+const entry = { revision: sha, version: manifest.version, publishedAt: new Date().toISOString() };
+const escapedEntry = JSON.stringify(entry).replaceAll("'", "''");
+const sql = `INSERT INTO site_settings (key, value, updated_at) VALUES ('client_channels', json_object('${channel}', json('${escapedEntry}')), CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = json_set(CASE WHEN json_valid(site_settings.value) AND json_type(site_settings.value) = 'object' THEN site_settings.value ELSE '{}' END, '$.${channel}', json('${escapedEntry}')), updated_at = CURRENT_TIMESTAMP`;
+wrangler(["d1", "execute", database, "--remote", "--config", "wrangler.jsonc", "--env", env, "--command", sql]);
 
 console.log(
   JSON.stringify({

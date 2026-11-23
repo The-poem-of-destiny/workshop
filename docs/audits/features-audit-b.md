@@ -1,5 +1,7 @@
 # 功能与决策完成度审计（B）
 
+> 历史审计提示（2026-11-22 补充）：本文仅针对 2026-10-21 的 `refactor/2026-10`（`e103ee4`）早期骨架做静态时点审计，不是当前 `main` 的缺口清单。文中引用的早期 `features.md`、`p0-baseline.md` 已归档至 [`../archived/refactor-2026-10/`](../archived/refactor-2026-10/README.md)；现行实现与待验收门槛见 [worker-api.md](../reference/worker-api.md) 和 [state.md](../plans/refactor-2026-10/state.md)。
+
 - 仓库：`/home/zz/world-builder/projects/命定之诗/workshop`
 - 分支 / HEAD：`refactor/2026-10` / `e103ee4`
 - 审计范围：`features.md` §7–§12（互动、分发与版本、UI 与通知、运维、测试与文档），以及 `decisions.md` 全部 D-01..D-34、`main.md` §3 运行时、§4 数据模型、§5 API 契约、§6 缓存、§9 构建与发布。

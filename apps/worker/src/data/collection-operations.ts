@@ -1,8 +1,6 @@
 import type { CreateCollection, PatchCollection } from "@workshop/contracts";
 import {
   createAuthorCollection,
-  getPublicAuthorProfile,
-  getPublicCollection,
   listAuthorCollections,
   patchAuthorCollection,
   setProjectCollections,
@@ -18,14 +16,6 @@ async function requirePolicySession(env: DataEnv, tokenOrAuth: string | undefine
   if (!session) return { kind: "unauthorized" as const };
   if (!session.policyAccepted) return { kind: "forbidden" as const };
   return { kind: "ok" as const, session };
-}
-
-export function collectionPublicGet(env: DataEnv, collectionId: string) {
-  return getPublicCollection(env.DB, collectionId);
-}
-
-export function authorPublicProfile(env: DataEnv, authorId: string) {
-  return getPublicAuthorProfile(env.DB, authorId);
 }
 
 export async function authorListCollections(env: DataEnv, tokenOrAuth: string | undefined) {

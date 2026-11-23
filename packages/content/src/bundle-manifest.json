@@ -1,8 +1,9 @@
 {
-  "revision": "08cc30a471da7be42d66f2d11efa3475fca35e7faf43471b82799bf5d0bb14e7",
+  "revision": "7dc436cbe4ea5284cbe8e787674f209c5f7e450f1a583c8296824bfe973f179b",
   "files": {
-    "upload-checker.mjs": "4ab9b78826e0a490ea31d7fec3b3d5db0cbd6fd8f7e488ff1a9017ab435b42ec",
-    "review-checker.mjs": "745edbd6b44ca74d1dcbe9b9ca39949ebb4a0fe5d26c7b3c4c18823d3a1e6f5a",
-    "browser-checker.js": "a7957b30270236c703aceb38122e7615c320da6e2029b046a09801fbd84c4145"
+    "upload-checker.mjs": "1ae0f69192d572ecf68295c4d3432762189a94d491dc10530c8a0b5db208a37c",
+    "review-checker.mjs": "b3e1c8da204fab0d5974f11d55e16fa07236eb33e3107a32a661f82720e98af2",
+    "browser-checker.js": "17cb85421eac6ae2ee4733dd1e588d55a9769622af149f5a0e1f67844cef1ff4",
+    "NOTICES.txt": "159b09596f246d2251555c3730cf6e0c4232d4d616e273b641448aeee3880260"
   }
 }

@@ -1,5 +1,5 @@
 import type { AdminSubmissionListItem } from "../../api";
-import { api, getSessionGeneration } from "../../api";
+import { api, formatUserError, getSessionGeneration } from "../../api";
 import type { useReviewQueue } from "./useReviewQueue";
 
 type QueueCheckStatus = AdminSubmissionListItem["checkStatus"];
@@ -53,7 +53,7 @@ export function useReviewRecheck({
       onNotice("已重新排队检查，完成后会自动刷新当前提交。");
     } catch (value) {
       if (sessionGeneration !== getSessionGeneration()) return;
-      onError(String(value));
+      onError(formatUserError(value));
     } finally {
       setBusy(false);
     }

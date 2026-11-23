@@ -1,7 +1,7 @@
 import type { InteractionStateItem } from "@workshop/contracts";
 import { Bookmark, ExternalLink, Heart, MessageSquarePlus, RefreshCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { ApiError, api, type ProjectSummary } from "../../api";
+import { ApiError, api, formatUserError, type ProjectSummary } from "../../api";
 import type { DiscordPromptTarget } from "../policy/DiscordLinkPrompt";
 
 type Interaction = InteractionStateItem;
@@ -96,7 +96,7 @@ export function ProjectCommunity({
         const message =
           reason instanceof ApiError && reason.status === 403
             ? "订阅作品后即可撰写或更新本版推荐。"
-            : `保存失败：${String(reason)}`;
+            : `保存失败：${formatUserError(reason)}`;
         setRecommendationError(message);
       })
       .finally(() => {
@@ -139,7 +139,7 @@ export function ProjectCommunity({
             void api
               .setLike(project.id, next)
               .then(() => setInteraction((value) => (value ? { ...value, liked: next } : value)))
-              .catch((reason) => onError(String(reason)))
+              .catch((reason) => onError(formatUserError(reason)))
               .finally(() => {
                 likePending.current = false;
                 setLikeSaving(false);
@@ -170,7 +170,7 @@ export function ProjectCommunity({
                 );
                 onSubscriptionChange(project.id, next);
               })
-              .catch((reason) => onError(String(reason)))
+              .catch((reason) => onError(formatUserError(reason)))
               .finally(() => {
                 subscriptionPending.current = false;
                 setSubscriptionSaving(false);

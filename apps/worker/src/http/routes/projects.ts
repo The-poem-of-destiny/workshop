@@ -1,39 +1,14 @@
-import { projectListQuerySchema, projectPreviewKindSchema, projectPreviewSchema } from "@workshop/contracts";
+import { projectPreviewKindSchema, projectPreviewSchema } from "@workshop/contracts";
 import { Hono } from "hono";
-import { fetchProjectPreview } from "../../data-client.js";
+import { dataClient, fetchProjectPreview } from "../../data-client.js";
 import type { Env } from "../../env";
 import { jsonError } from "../errors.js";
 import { sessionToken } from "../session.js";
 
 export const projectsRoutes = new Hono<{ Bindings: Env }>();
 
-projectsRoutes.get("/", async (c) => {
-  const parsed = projectListQuerySchema.safeParse({
-    limit: c.req.query("limit"),
-    cursor: c.req.query("cursor"),
-    sort: c.req.query("sort"),
-    period: c.req.query("period"),
-    projectType: c.req.queries("projectType"),
-    includeContained: c.req.query("includeContained"),
-    authorId: c.req.query("authorId"),
-    collectionId: c.req.query("collectionId"),
-    tag: c.req.queries("tag"),
-    search: c.req.query("search"),
-  });
-  if (!parsed.success) return jsonError(c, "bad_request", "Invalid query", parsed.error.flatten());
-  const result = await c.executionCtx.exports.DataService.projectList(parsed.data);
-  if (!result.ok) return jsonError(c, "bad_request", "Invalid cursor");
-  return c.json(result.data);
-});
-
-projectsRoutes.get("/:id", async (c) => {
-  const project = await c.executionCtx.exports.DataService.projectDetail(c.req.param("id"));
-  if (!project) return jsonError(c, "not_found", "Project not found");
-  return c.json(project);
-});
-
 projectsRoutes.post("/:id/downloads", async (c) => {
-  const result = await c.executionCtx.exports.DataService.projectDownloads(
+  const result = await dataClient(c.executionCtx).projectDownloads(
     sessionToken(c),
     c.req.param("id"),
     c.req.header("Idempotency-Key") ?? "",
@@ -50,17 +25,11 @@ projectsRoutes.post("/:id/downloads", async (c) => {
   return c.json(result.data, 201);
 });
 
-projectsRoutes.get("/:id/entries", async (c) => {
-  const index = await c.executionCtx.exports.DataService.projectEntries(c.req.param("id"));
-  if (!index) return jsonError(c, "not_found", "Project not found");
-  return c.json(index);
-});
-
 projectsRoutes.get("/:id/preview/:kind", async (c) => {
   c.header("Cache-Control", "private, no-store");
   const kind = projectPreviewKindSchema.safeParse(c.req.param("kind"));
   // Authentication takes precedence over kind validation, as in the original route.
-  const result = await c.executionCtx.exports.DataService.projectPreviewTarget(
+  const result = await dataClient(c.executionCtx).projectPreviewTarget(
     sessionToken(c),
     c.req.param("id"),
     kind.success ? kind.data : null,
@@ -81,7 +50,7 @@ projectsRoutes.get("/:id/preview/:kind", async (c) => {
 });
 
 projectsRoutes.post("/:id/acquisitions", async (c) => {
-  const result = await c.executionCtx.exports.DataService.projectAcquisition(
+  const result = await dataClient(c.executionCtx).projectAcquisition(
     sessionToken(c),
     c.req.param("id"),
     c.req.header("x-client-version")?.trim(),

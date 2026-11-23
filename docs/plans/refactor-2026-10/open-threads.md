@@ -7,7 +7,7 @@
 ## API 与业务行为
 
 - [x] **API-01 · 按消费者收口接口。** 发现栏和迁移验收统一读 `/home` 的 `discovery`，移除独立 `/projects/discovery`；列表与批查保留。`/api/v1/client/version` 用于 staging 发版核对 D1 频道记录和构建清单，ST 启动仍读 `/client/compatibility`。旧 `/test-dist/CreativeWorkshop/index.js` 保留给仓外已有导入，不恢复旧 API。Worker 30 项、类型检查及本地 release smoke 判定通过；应用和工作流未部署。见 [API 参考](../../reference/worker-api.md)、[发版验收](../../operations/deployment-safety.md#smoke-assertions)。
-- [x] **API-02 · 公开读取只解析一次。** [网关](../../../apps/worker/src/http/public-cache.ts)生成公开读取描述，经 [data client](../../../apps/worker/src/data-client.ts)交给[投影](../../../apps/worker/src/data/public-projections.ts)。保留既有缓存键、TTL、HEAD 及条件响应。数据边界、Worker 类型、读路径 24 项和完整本地浏览器 E2E 25 项通过；未部署。
+- [x] **API-02 · 公开读取只解析一次。** [网关](../../../apps/worker/src/cache/public-cache.ts)生成公开读取描述，经 [data client](../../../apps/worker/src/data-client.ts)交给[投影](../../../apps/worker/src/data/public-projections.ts)。保留既有缓存键、TTL、HEAD 及条件响应。数据边界、Worker 类型、读路径 24 项和完整本地浏览器 E2E 25 项通过；未部署。
 - [x] **API-03 · 下载与安装重试绑定原发布版。** 原版仍可取时重试不重复计数；原版不可取时返回 409，不自动切换新版。见[合同](../../reference/worker-api.md#发现项目和下载)与[本地 HTTP 回归](../../../apps/worker/test/read-path.test.ts)。未部署。
 - [x] **API-04 · 整单替换合集。** 资格、容量检查与关系替换在同一个 D1 batch。Workerd 本地 6 项通过，其中 4 项覆盖目标删除、404 优先、并发替换和容量抢占。见[实现](../../../apps/worker/src/storage/collections.ts)与[回归](../../../apps/worker/test/policy-and-collections.test.ts)。未部署。
 - [x] **API-05 · 浏览与安装门禁分离。** 版本不符、频道未发布或探测失败仍可浏览；未确认兼容时拒绝宿主写入。旧桥接缺少状态时不开放写入。Worker 30 项通过，Tavern 客户端类型与构建、Web 构建及两侧本地 Chromium 验证通过。见[宿主协议](../../reference/host-protocol.md)；未部署，真实 SillyTavern 验收仍归 REL-04。

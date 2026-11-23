@@ -245,3 +245,24 @@ export async function listVersionsChangeEvidenceRows(db: D1Database, projectId: 
     .all<{ id: string; manifest_hash: string | null; entry_index: string | null }>();
   return rows.results;
 }
+
+export async function getSubmissionBaselineForVersion(
+  db: D1Database,
+  projectId: string,
+  versionId: string,
+): Promise<string | null> {
+  const row = await db
+    .prepare(`
+      SELECT status, base_published_version_id
+      FROM submissions
+      WHERE project_id = ? AND version_id = ?
+      ORDER BY submitted_at DESC, id DESC
+      LIMIT 1
+    `)
+    .bind(projectId, versionId)
+    .first<{ status: string; base_published_version_id: string | null }>();
+  if (!row || (row.status !== "pending" && row.status !== "checking" && row.status !== "approved")) {
+    return null;
+  }
+  return row.base_published_version_id;
+}

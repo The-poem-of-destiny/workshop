@@ -374,6 +374,10 @@ CREATE INDEX idx_assets_r2_key ON assets(r2_key);
 
 CREATE INDEX idx_audit_events_actor ON audit_events(actor_id, created_at DESC);
 
+CREATE INDEX idx_audit_events_created ON audit_events(created_at DESC, id DESC);
+
+CREATE INDEX idx_audit_events_action_created ON audit_events(action, created_at DESC, id DESC);
+
 CREATE INDEX idx_audit_events_target ON audit_events(target_type, target_id, created_at DESC);
 
 CREATE INDEX idx_automated_review_queue ON automated_reviews(status,lease_until);
@@ -415,13 +419,20 @@ CREATE INDEX idx_submissions_status ON submissions(status, submitted_at);
 
 CREATE INDEX idx_submissions_status_cursor ON submissions(status, submitted_at, id);
 
+CREATE INDEX idx_submissions_project_submitted ON submissions(project_id, submitted_at DESC, id DESC);
+
+CREATE INDEX idx_submissions_version ON submissions(version_id);
+
 CREATE VIEW project_search_short_source AS
 SELECT p.rowid AS project_rowid,
  (WITH RECURSIVE chars(text,n) AS (
-   SELECT COALESCE(r.title,'') || char(31) || COALESCE(r.project_type,'') || char(31)
-     || COALESCE((SELECT group_concat(value,char(31)) FROM json_each(r.included_types)),'') || char(31) || COALESCE(u.global_name,'') || char(31)
-     || COALESCE(u.username,'') || char(31)
-     || COALESCE((SELECT group_concat(tag,char(31)) FROM project_search_tags t WHERE t.project_id=p.id),'') ,1
+   SELECT replace(
+     COALESCE(r.title,'') || char(31) || COALESCE(r.project_type,'') || char(31)
+       || COALESCE((SELECT group_concat(value,char(31)) FROM json_each(r.included_types)),'') || char(31) || COALESCE(u.global_name,'') || char(31)
+       || COALESCE(u.username,'') || char(31)
+       || COALESCE((SELECT group_concat(tag,char(31)) FROM project_search_tags t WHERE t.project_id=p.id),''),
+     char(0), ' '
+   ), 1
    UNION ALL SELECT text,n+1 FROM chars WHERE n<length(text)
  ) SELECT group_concat(substr(text,n,1),' ') FROM chars) AS spaced_text
 FROM projects p JOIN "project_versions" r ON r.id=p.published_version_id
@@ -486,7 +497,7 @@ END;
 CREATE TRIGGER project_search_author_update AFTER UPDATE OF global_name,username ON users
 WHEN OLD.global_name IS NOT NEW.global_name OR OLD.username IS NOT NEW.username
 BEGIN
- UPDATE project_search SET author_name=COALESCE(NEW.global_name,NEW.username)
+ UPDATE project_search SET author_name=replace(COALESCE(NEW.global_name,NEW.username),char(0),' ')
  WHERE rowid IN(SELECT rowid FROM projects WHERE author_id=NEW.id);
  DELETE FROM project_search_short WHERE rowid IN(SELECT rowid FROM projects WHERE author_id=NEW.id);
  INSERT INTO project_search_short(rowid,spaced_text)
@@ -510,10 +521,10 @@ BEGIN
  WHERE r.id=NEW.published_version_id AND j.type='text' AND j.value<>'';
  DELETE FROM project_search WHERE rowid=NEW.rowid;
  INSERT INTO project_search(rowid,title,project_type,included_types,tag_text,author_name)
- SELECT NEW.rowid,r.title,r.project_type,
- COALESCE((SELECT group_concat(value,' ') FROM json_each(r.included_types)),''),
- COALESCE((SELECT group_concat(tag,' ') FROM project_search_tags t WHERE t.project_id=NEW.id),''),
- (SELECT COALESCE(global_name,username) FROM users WHERE id=NEW.author_id)
+ SELECT NEW.rowid,replace(r.title,char(0),' '),replace(r.project_type,char(0),' '),
+ replace(COALESCE((SELECT group_concat(value,' ') FROM json_each(r.included_types)),''),char(0),' '),
+ replace(COALESCE((SELECT group_concat(tag,' ') FROM project_search_tags t WHERE t.project_id=NEW.id),''),char(0),' '),
+ replace((SELECT COALESCE(global_name,username) FROM users WHERE id=NEW.author_id),char(0),' ')
  FROM "project_versions" r WHERE r.id=NEW.published_version_id;
  DELETE FROM project_search_short WHERE rowid=NEW.rowid;
  INSERT INTO project_search_short(rowid,spaced_text)

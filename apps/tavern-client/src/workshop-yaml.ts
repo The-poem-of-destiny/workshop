@@ -3,7 +3,7 @@ import { type Document, isMap, isNode, isScalar, parseDocument, visit } from "ya
 import { projectWorldbook } from "./host-projection.js";
 import type { Identity, Row } from "./install-model.js";
 
-export const INDEX_NAME = "[工坊]创意工坊项目注册表";
+const INDEX_NAME = "[工坊]创意工坊项目注册表";
 const LEGACY_INDEX_NAME = "[WS]创意工坊项目注册表";
 const BLOCK = /<%#([\s\S]*?)%>/g;
 const LEGACY = /<%# poem-workshop-meta:v1-start\n[\s\S]*?\npoem-workshop-meta:v1-end %>/g;
@@ -19,7 +19,11 @@ type IndexProject = {
 function documentFor(content: string, namespace: string) {
   let found: { start: number; end: number; doc: Document } | null = null;
   for (const match of content.matchAll(BLOCK)) {
-    const doc = parseDocument(match[1]!, { uniqueKeys: true });
+    const raw = match[1]!;
+    const doc = parseDocument(raw, { uniqueKeys: true });
+    if (doc.errors.length > 0 && raw.includes(namespace)) {
+      throw new Error(`${namespace} YAML 损坏或重复`);
+    }
     if (!isMap(doc.contents) || !doc.contents.items.some((pair) => isScalar(pair.key) && pair.key.value === namespace))
       continue;
     if (doc.errors.length || found) throw new Error(`${namespace} YAML 损坏或重复`);
@@ -42,9 +46,19 @@ function setNamespace(content: string, namespace: string, value: unknown) {
   const doc = existing?.doc ?? parseDocument("{}");
   doc.set(namespace, doc.createNode(value));
   const block = encode(doc);
-  return existing
-    ? content.slice(0, existing.start) + block + content.slice(existing.end)
-    : `${content}${content ? "\n" : ""}${block}`;
+  const prefix = existing ? content.slice(0, existing.start) : content ? `${content}\n` : "";
+  const suffix = existing ? content.slice(existing.end) : "";
+  const nextContent = `${prefix}${block}${suffix}`;
+  let verified: ReturnType<typeof documentFor> = null;
+  try {
+    verified = documentFor(nextContent, namespace);
+  } catch {
+    verified = null;
+  }
+  if (!verified || verified.start !== prefix.length) {
+    throw new Error("条目包含未闭合的 EJS 注释，无法安全写入元数据");
+  }
+  return nextContent;
 }
 export function entryIdentity(content: string): Identity | null {
   const block = documentFor(content, "workshop_entry");
@@ -112,7 +126,12 @@ export function updateIndex(rows: Row[], remove: string | null, project: IndexPr
   if (project) projects.push(project);
   const old = rows.find(isIndex);
   if (!old && !project) return rows;
-  const uid = Math.max(0, ...rows.map((row) => (typeof row.uid === "number" ? row.uid : 0))) + 1;
+  const maxUid = Math.max(
+    0,
+    ...rows.map((row) => (typeof row.uid === "number" && Number.isSafeInteger(row.uid) && row.uid >= 0 ? row.uid : 0)),
+  );
+  if (!old && !Number.isSafeInteger(maxUid + 1)) throw new Error("目标世界书条目编号已耗尽");
+  const uid = maxUid + 1;
   const row: Row = old
     ? structuredClone(old)
     : projectWorldbook({ uid, name: INDEX_NAME, enabled: false, content: "" });

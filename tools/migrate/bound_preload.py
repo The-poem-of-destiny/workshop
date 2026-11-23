@@ -53,23 +53,11 @@ def realistic_batch_for_charge(batch, inventory_tables):
 def capture_bookmark(cloud, database, out_path):
     if out_path.exists():
         saved = json.loads(out_path.read_text(encoding="utf-8"))
-        if saved.get("database_id") == database and saved.get("bookmark"):
+        if saved.get("database_id") == database and isinstance(saved.get("bookmark"), str) and saved["bookmark"]:
             return saved
-    bookmark = None
-    try:
-        result = cloud.request(f"/{database}/time_travel/bookmark")
-        bookmark = result.get("bookmark") if isinstance(result, dict) else None
-    except Exception:
-        bookmark = None
-    if not isinstance(bookmark, str) or not bookmark:
-        import subprocess
-        worker_dir = HERE.parents[1] / "apps/worker"
-        raw = subprocess.check_output(
-            ["./node_modules/.bin/wrangler", "d1", "time-travel", "info", database, "--json"],
-            cwd=worker_dir,
-            text=True,
-        )
-        bookmark = json.loads(raw).get("bookmark")
+        raise ValueError("existing recovery bookmark does not match bound preload database")
+    result = cloud.request(f"/{database}/time_travel/bookmark")
+    bookmark = result.get("bookmark") if isinstance(result, dict) else None
     if not isinstance(bookmark, str) or not bookmark:
         raise ValueError("could not capture D1 Time Travel recovery bookmark")
     record = {"database_id": database, "bookmark": bookmark}
@@ -78,6 +66,97 @@ def capture_bookmark(cloud, database, out_path):
         json.dump(record, f, indent=2)
         f.write("\n")
     return record
+
+
+def finish_replicas(staging, journal, pending, result):
+    actual = result.get("statistics", {}).get("rows_written")
+    if (
+        result.get("outcome") != "complete"
+        or result.get("ok") is not True
+        or isinstance(actual, bool)
+        or not isinstance(actual, int)
+        or actual < 0
+    ):
+        journal.record("replicas-failed", result, phase="failed", pending_replicas=None, failure="replicas_import_failed")
+        raise staging.imp.ImportFailure("replicas import failed; inspect journal")
+    ledger = {day: dict(value) for day, value in journal.state["ledger"].items()}
+    staging.budget.settle(ledger, pending["day"], pending["reserved"], actual)
+    exceeded = actual > pending["reserved"]
+    journal.record(
+        "replicas-reservation-exceeded" if exceeded else "replicas-loaded",
+        result,
+        phase="failed" if exceeded else "replicas_loaded",
+        ledger=ledger,
+        pending_replicas=None,
+        replicas_sha256=None if exceeded else pending["sha256"],
+        failure="actual_writes_exceeded_reservation" if exceeded else None,
+    )
+    if exceeded:
+        raise staging.imp.ImportFailure("actual writes exceeded reservation; no further writes authorized")
+
+
+def resume_pending_replicas(staging, journal, replicas_sql):
+    pending = journal.state.get("pending_replicas")
+    if not pending:
+        return
+    if replicas_sql is not None:
+        if not replicas_sql.is_file() or staging.digest(replicas_sql) != pending.get("sha256"):
+            raise staging.imp.ImportFailure("supplied --replicas-sql differs from pending replicas operation")
+    receipts = Path(pending["receipts"])
+    unstarted = not receipts.exists() or not list(receipts.glob("[0-9]*-*.json"))
+    has_bookmark = False
+    if unstarted:
+        if receipts.exists():
+            staging.imp.check_private(receipts, directory=True)
+            for path in receipts.iterdir():
+                staging.imp.check_private(path)
+                if path.name not in (".lock", "input.sql") and not path.name.startswith(".receipt-"):
+                    raise staging.imp.ImportFailure("missing numbered replicas receipts with unexplained local evidence")
+    else:
+        saved = staging.imp.Journal(receipts, journal.token)
+        try:
+            if (
+                saved.state.get("file", {}).get("sha256") != pending["sha256"]
+                or saved.state.get("database_id") != journal.state["candidate_database_id"]
+                or saved.state.get("candidate_name") != journal.state["candidate_name"]
+            ):
+                raise staging.imp.ImportFailure("saved replicas import differs from frozen SQL or target database")
+            has_bookmark = bool(saved.state.get("at_bookmark")) or saved.state.get("outcome") in ("complete", "error")
+            unstarted = (
+                saved.state.get("phase")
+                in {"prepared", "target_requested", "target_received", "target_unknown", "target_validated"}
+                and not saved.state.get("at_bookmark")
+                and not saved.state.get("outcome")
+            )
+        finally:
+            saved.close()
+    if unstarted:
+        ledger = {day: dict(value) for day, value in journal.state["ledger"].items()}
+        ledger[pending["day"]]["charged"] -= pending["reserved"]
+        if ledger[pending["day"]]["charged"] < 0:
+            raise staging.imp.ImportFailure("unstarted replicas reservation does not match durable ledger")
+        attempts = dict(journal.state.get("attempts", {}))
+        attempts["replicas"] = attempts.get("replicas", 0) + 1
+        journal.record(
+            "replicas-proven-unstarted",
+            phase="verified",
+            pending_replicas=None,
+            ledger=ledger,
+            attempts=attempts,
+            failure=None,
+        )
+        return
+    if not has_bookmark:
+        journal.record(
+            "replicas-failed",
+            {"receipts": str(receipts)},
+            phase="failed",
+            pending_replicas=None,
+            failure="replicas_import_unrecoverable_missing_bookmark",
+        )
+        raise staging.imp.ImportFailure("no saved actual at_bookmark for replicas import; never resubmit ingest")
+    result = staging.imp.saved_status(receipts, resume=True)
+    finish_replicas(staging, journal, pending, result)
 
 
 def verify_empty_bound_schema(staging_mod, cloud, database, name, plan, inventory):
@@ -159,6 +238,8 @@ def run(args):
         if args.preload_mode == "status":
             print(json.dumps(staging.public_status(journal.state), ensure_ascii=True))
             return 0
+        if journal.state.get("phase") == "failed" and not journal.state.get("pending") and not journal.state.get("pending_replicas"):
+            raise staging.imp.ImportFailure("preload execution is failed; preserve evidence and investigate")
         if journal.state["next_batch"] == 0:
             verify_empty_bound_schema(staging, cloud, args.database_id, args.database_name, plan, inventory)
             bookmark_path = journal.directory / "recovery-bookmark.json"
@@ -170,18 +251,22 @@ def run(args):
                 phase="loading",
                 recovery_sha256=hashlib.sha256(bookmark_path.read_bytes()).hexdigest(),
             )
-        if args.preload_mode == "verify":
-            ready = staging.verify(journal, cloud, plan_path, plan)
-            print(json.dumps(staging.public_status(journal.state), ensure_ascii=True))
-            return 0 if ready else 75
         if args.preload_mode == "replicas":
-            if journal.state.get("phase") not in ("verified", "replicas_loaded"):
+            if journal.state.get("phase") not in ("verified", "replicas_unknown", "replicas_loaded"):
                 raise ValueError("base D1 snapshot must be verified before loading public image replicas")
-            if not args.replicas_sql or not args.replicas_sql.is_file():
-                raise ValueError("--replicas-sql file is required for replicas mode")
+            if journal.state.get("pending_replicas") is not None or journal.state.get("phase") == "replicas_unknown":
+                if not journal.state.get("pending_replicas"):
+                    journal.record("replicas-failed", phase="failed", failure="replicas_unknown_without_pending_record")
+                    raise staging.imp.ImportFailure("replicas_unknown state has no pending_replicas record")
+                resume_pending_replicas(staging, journal, args.replicas_sql)
             if journal.state.get("phase") == "replicas_loaded":
+                if args.replicas_sql and args.replicas_sql.is_file():
+                    if journal.state.get("replicas_sha256") not in (None, staging.digest(args.replicas_sql)):
+                        raise ValueError("loaded replicas_sha256 differs from supplied --replicas-sql")
                 print(json.dumps(staging.public_status(journal.state), ensure_ascii=True))
                 return 0
+            if not args.replicas_sql or not args.replicas_sql.is_file():
+                raise ValueError("--replicas-sql file is required for replicas mode")
             sql_sha = staging.digest(args.replicas_sql)
             stmt_rows = sum(1 for line in args.replicas_sql.read_text("utf-8").splitlines() if line.startswith("INSERT "))
             charge = max(128, stmt_rows * 3)
@@ -190,19 +275,21 @@ def run(args):
                 return 75
             ledger = dict(journal.state["ledger"])
             day = staging.budget.reserve(ledger, charge)
-            receipts_dir = str(journal.directory / "replicas-import")
+            attempt = journal.state.get("attempts", {}).get("replicas", 0)
+            suffix = "" if attempt == 0 else f"-attempt-{attempt:03d}"
+            receipts_dir = str(journal.directory / f"replicas-import{suffix}")
             pending = {"id": "replicas", "sha256": sql_sha, "day": day, "reserved": charge, "receipts": receipts_dir}
             journal.record("replicas-requested", phase="replicas_unknown", ledger=ledger, pending_replicas=pending)
             result = staging.imp.execute(args.database_id, args.replicas_sql, receipts_dir, candidate_name=args.database_name)
-            actual = result.get("statistics", {}).get("rows_written")
-            if result.get("outcome") != "complete" or result.get("ok") is not True or not isinstance(actual, int):
-                journal.record("replicas-failed", result, phase="failed", failure="replicas_import_failed")
-                raise staging.imp.ImportFailure("replicas import failed; inspect journal")
-            staging.budget.settle(ledger, day, charge, actual)
-            journal.record("replicas-loaded", result, phase="replicas_loaded", ledger=ledger, pending_replicas=None,
-                           replicas_sha256=sql_sha)
+            finish_replicas(staging, journal, pending, result)
             print(json.dumps(staging.public_status(journal.state), ensure_ascii=True))
             return 0
+        if journal.state.get("pending_replicas") is not None or journal.state.get("phase") == "replicas_unknown":
+            raise ValueError("pending public image replicas import must be resolved via preload replicas first")
+        if args.preload_mode == "verify":
+            ready = staging.verify(journal, cloud, plan_path, plan)
+            print(json.dumps(staging.public_status(journal.state), ensure_ascii=True))
+            return 0 if ready else 75
 
         # Advance mode with realistic initial write reservation
         staging.resume_pending(journal, plan)

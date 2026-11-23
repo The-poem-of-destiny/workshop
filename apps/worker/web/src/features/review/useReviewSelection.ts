@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type { AdminSubmissionDetail, AdminSubmissionListItem, SubmissionDiff } from "../../api";
-import { getSessionGeneration, subscribeSessionChange } from "../../api";
+import { formatUserError, getSessionGeneration, subscribeSessionChange } from "../../api";
 import { useReviewDetailCache } from "./useReviewDetailCache";
 
 type ReviewSelectionOptions = {
@@ -80,7 +80,7 @@ export function useReviewSelection({ items, visibleItems, setPolling, onError }:
       prefetch(nextId(id));
     } catch (value) {
       if (selectedRef.current !== id || sessionGeneration !== getSessionGeneration()) return;
-      const message = String(value);
+      const message = formatUserError(value);
       setDetailError(message);
       onError(message);
     } finally {
@@ -99,7 +99,7 @@ export function useReviewSelection({ items, visibleItems, setPolling, onError }:
       return value.detail;
     } catch (value) {
       if (sessionGeneration !== getSessionGeneration()) return null;
-      onError(String(value));
+      onError(formatUserError(value));
       return null;
     }
   }

@@ -3,8 +3,9 @@ export const CHECK_POLICY_VERSION = "PW-CODE-POLICY-2026-10-10.1";
 import { isTrustedStaticMediaUrl } from "../external-links/policy.mjs";
 
 export { TRUSTED_MEDIA_HOSTS as trustedAssetHosts } from "../external-links/policy.mjs";
-export const CHARINFO_MANAGED_BLOCK_START = "<%# char-info-ejs-builder:start:v2 %>";
-export const CHARINFO_MANAGED_BLOCK_END = "<%# char-info-ejs-builder:end:v2 %>";
+
+const CHARINFO_MANAGED_BLOCK_START = "<%# char-info-ejs-builder:start:v2 %>";
+const CHARINFO_MANAGED_BLOCK_END = "<%# char-info-ejs-builder:end:v2 %>";
 
 export function trustedStaticMediaUrl(value, usage) {
   return usage === "media" && isTrustedStaticMediaUrl(value);
@@ -116,11 +117,4 @@ export function inspectCharInfoManagedV2Block(source, index = -1) {
     cursor = end;
   }
   return null;
-}
-
-export function trustedCharInfoManagedMediaBlock(source, index) {
-  const block = inspectCharInfoManagedV2Block(source, index);
-  return Boolean(
-    block && block.mediaUrls.length > 0 && block.mediaUrls.every((url) => trustedStaticMediaUrl(url, "media")),
-  );
 }

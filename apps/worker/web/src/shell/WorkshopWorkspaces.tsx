@@ -1,6 +1,6 @@
 import type { ReactNode, RefObject } from "react";
 import { Component, lazy, Suspense } from "react";
-import { api, type ProjectSummary } from "../api";
+import { api, formatUserError, type ProjectSummary } from "../api";
 import { Button } from "../components/ui/button";
 import type { InstalledItem } from "../features/installed/Installed";
 import { Installed } from "../features/installed/Installed";
@@ -24,13 +24,13 @@ const AdminTools = lazy(() =>
 );
 
 class DeferredView extends Component<{ title: string; children: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
+  override state = { failed: false };
 
   static getDerivedStateFromError() {
     return { failed: true };
   }
 
-  render() {
+  override render() {
     if (this.state.failed) {
       return (
         <section className="panel" role="alert">
@@ -180,7 +180,7 @@ export function WorkshopWorkspaces({
               detailOpener.current = null;
               setSelected(detail);
             })
-            .catch((reason) => setError(String(reason)));
+            .catch((reason) => setError(formatUserError(reason)));
         }}
         onError={(message) => {
           setError(message);
@@ -197,6 +197,13 @@ export function WorkshopWorkspaces({
       items={installedItems}
       scan={context?.installationScan ?? null}
       installBlock={installBlock}
+      error={
+        context?.error
+          ? /[\u4e00-\u9fff]/.test(context.error)
+            ? context.error
+            : "无法连接 SillyTavern，请确认酒馆内的工坊脚本正在运行并重新打开工坊。"
+          : null
+      }
       loading={installedLoading || installedPending || (embedded && context === null)}
       scanning={scanning}
       converting={converting}

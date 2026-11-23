@@ -27,6 +27,10 @@ function parseUnit(unit, budget) {
       throw new CheckerLimitError("单段脚本超过 20 万个字符，无法完成检查。请把这段脚本拆成较小的部分。");
     if (++budget.units > CHECKER_LIMITS.codeUnits)
       throw new CheckerLimitError("一次检查最多处理 500 段脚本。请减少本次提交的脚本数量。");
+    if (unit.syntaxError) {
+      unit.mappedError = unit.syntaxError;
+      return unit.mappedError;
+    }
     let nodes = 0;
     const countNode = () => {
       if (++nodes > CHECKER_LIMITS.astNodesPerUnit || ++budget.nodes > CHECKER_LIMITS.astNodes) {
@@ -118,25 +122,39 @@ export function parseRegex(rawContent, budget) {
 
 export function parseWorldbookHtml(entry, parsed, budget) {
   const ranges = parsed.units.find((unit) => unit.kind === "ejs")?.templateRanges;
-  if (!ranges) return { units: [], errors: [], internalErrors: [] };
+  if (!ranges) return { units: [], errors: [], internalErrors: [], dynamicHtmlUnits: [] };
   const chars = entry.content.split("");
   for (const range of ranges) {
     for (let i = range.start; i < range.end; i++) if (chars[i] !== "\n" && chars[i] !== "\r") chars[i] = " ";
     if (range.mode === "=" || range.mode === "-") chars[range.start] = "0";
   }
   const html = parseRegex(chars.join(""), budget);
-  // Dynamic EJS output cannot prove the final JavaScript in an HTML unit.
-  const staticUnits = html.units.filter(
-    (unit) =>
-      !unit.codeRanges.some((codeRange) =>
-        ranges.some(
-          (range) => range.mode !== "#" && range.start < codeRange.originalEnd && range.end > codeRange.originalStart,
-        ),
-      ),
-  );
+  const units = [];
+  const errors = [];
+  const dynamicHtmlUnits = [];
+  for (const unit of html.units) {
+    const overlapping = ranges.filter(
+      (range) =>
+        range.mode !== "#" &&
+        unit.codeRanges.some((codeRange) => range.start < codeRange.originalEnd && range.end > codeRange.originalStart),
+    );
+    if (overlapping.length > 0 && unit.mappedError) {
+      unit.mappedError = null;
+      dynamicHtmlUnits.push({ index: overlapping[0].start, kind: unit.kind });
+      units.push(unit);
+      continue;
+    }
+    const outputOverlap = overlapping.find((range) => range.mode === "=" || range.mode === "-");
+    if (outputOverlap) {
+      dynamicHtmlUnits.push({ index: outputOverlap.start, kind: unit.kind });
+    }
+    units.push(unit);
+    if (unit.mappedError) errors.push(unit.mappedError);
+  }
   return {
-    units: staticUnits,
-    errors: staticUnits.flatMap((unit) => (unit.mappedError ? [unit.mappedError] : [])),
+    units,
+    errors,
     internalErrors: html.internalErrors,
+    dynamicHtmlUnits,
   };
 }

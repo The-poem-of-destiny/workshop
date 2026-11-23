@@ -1,5 +1,6 @@
-import type { InstallDiff, InstallIntent, InstallPreview, InstallScan } from "@workshop/contracts";
+import type { InstallDiff, InstallIntent, InstallLocation, InstallPreview, InstallScan } from "@workshop/contracts";
 import { useEffect, useRef, useState } from "react";
+import { formatUserError } from "../../api";
 import { Button } from "../../components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
@@ -22,6 +23,25 @@ const actionLabels: Record<InstallIntent["action"], string> = {
   uninstall: "卸载",
   migrate: "迁移",
 };
+
+function formatLocationLabel(location: InstallLocation | null | undefined): string {
+  if (!location) return "以预览结果为准";
+  const parts: string[] = [];
+  if (location.worldbook) parts.push(`世界书「${location.worldbook}」`);
+  if (location.character) parts.push(`角色「${location.character}」`);
+  return parts.length > 0 ? parts.join(" / ") : "未指定位置";
+}
+
+function formatTargetVersionLabel(project: InstallIntent["project"]): string {
+  if (!project) return "当前版本";
+  return project.versionLabel ? `v${project.versionLabel.replace(/^v/i, "")}` : "当前最新发布版";
+}
+
+function formatInstalledVersionStatus(installedVersion: string | undefined, project: InstallIntent["project"]): string {
+  if (!installedVersion) return "请以预览为准";
+  if (project && installedVersion === project.version) return formatTargetVersionLabel(project);
+  return project ? "待更新的旧版本" : "本地已装版本";
+}
 
 export function InstallDialog(props: InstallDialogProps) {
   return props.open ? (
@@ -99,7 +119,7 @@ function InstallSession({
       setStale(false);
       setAcknowledged(false);
     } catch (reason) {
-      if (active.current) setError(reason instanceof Error ? reason.message : String(reason));
+      if (active.current) setError(formatUserError(reason));
     } finally {
       lock.current = false;
       if (active.current) setBusy(false);
@@ -115,8 +135,7 @@ function InstallSession({
       previewId.current = null;
       onClose();
     } catch (reason) {
-      if (active.current)
-        setError(`取消预览失败，尚未确认写入：${reason instanceof Error ? reason.message : String(reason)}`);
+      if (active.current) setError(`取消预览失败，尚未确认写入：${formatUserError(reason)}`);
     } finally {
       lock.current = false;
       if (active.current) setBusy(false);
@@ -137,9 +156,7 @@ function InstallSession({
       if (active.current) {
         setStale(true);
         setAcknowledged(false);
-        setError(
-          `${reason instanceof Error ? reason.message : String(reason)}。此预览不可再次确认；请重新预览并核对当前状态。`,
-        );
+        setError(`${formatUserError(reason)}。此预览不可再次确认；请重新预览并核对当前状态。`);
       }
     } finally {
       lock.current = false;
@@ -160,7 +177,7 @@ function InstallSession({
       setPreview(null);
       setError(null);
     } catch (reason) {
-      if (active.current) setError(reason instanceof Error ? reason.message : String(reason));
+      if (active.current) setError(formatUserError(reason));
     } finally {
       lock.current = false;
       if (active.current) setBusy(false);
@@ -190,7 +207,8 @@ function InstallSession({
         </DialogHeader>
         {intent.instanceId ? (
           <p className="installed-meta">
-            实例：<code>{intent.instanceId}</code> · 版本：<code>{instance?.version ?? "请以预览为准"}</code>
+            当前位置：{formatLocationLabel(instance?.location)} · 已装版本：
+            {formatInstalledVersionStatus(instance?.version, intent.project)}
           </p>
         ) : null}
         {!preview ? (
@@ -252,7 +270,8 @@ function InstallSession({
             {preview.instance ? (
               <p>
                 原位置：世界书「{preview.instance.location.worldbook ?? "无"}」 / 角色「
-                {preview.instance.location.character ?? "无"}」 · 原版本：<code>{preview.instance.version}</code>
+                {preview.instance.location.character ?? "无"}」 · 原版本：
+                {formatInstalledVersionStatus(preview.instance.version, intent.project)}
               </p>
             ) : null}
             <p>
@@ -263,11 +282,7 @@ function InstallSession({
                 {create ? "新建目标世界书" : "写入现有世界书"} · {bind ? "绑定到当前角色" : "不新增角色绑定"}
               </p>
             ) : null}
-            {intent.project ? (
-              <p>
-                目标版本：<code>{intent.project.version}</code>
-              </p>
-            ) : null}
+            {intent.project ? <p>目标版本：{formatTargetVersionLabel(intent.project)}</p> : null}
             <h4>本地差异项（{preview.playerChanges.length} 项）</h4>
             <DiffList changes={preview.playerChanges} empty="未发现本地修改。" />
             <h4>本次将写入变更（{preview.changes.length} 项）</h4>

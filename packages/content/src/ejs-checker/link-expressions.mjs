@@ -1,10 +1,12 @@
 import { resolveBinding } from "./scope.mjs";
 
-const GLOBALS = new Set(["window", "globalThis", "self"]);
+const GLOBALS = new Set(["window", "globalThis", "self", "top", "parent", "frames"]);
 const NETWORK_NAMES = new Set(["fetch", "XMLHttpRequest", "WebSocket", "EventSource"]);
 const MEDIA_KEYS =
   /^(?:avatar(?:_?url)?|image(?:_?url)?|img(?:_?url)?|video(?:_?url)?|poster|portrait|thumbnail|cover(?:_?url)?|background(?:_?url)?|gallery)$/i;
 const MEDIA_GROUPS = /^(?:gallery|images|videos|avatars|sources)$/i;
+const MAX_EVIDENCE_DEPTH = 48;
+const MAX_STATIC_DEPTH = 128;
 
 export function propertyName(node) {
   if (node?.type !== "MemberExpression" && node?.type !== "Property") return null;
@@ -13,14 +15,23 @@ export function propertyName(node) {
   return property.type === "Literal" && typeof property.value === "string" ? property.value : null;
 }
 
+function boundedClone(value, depth) {
+  if (typeof value === "bigint") return String(value);
+  if (!value || typeof value !== "object") return value;
+  if (depth <= 0) {
+    return typeof value.type === "string" ? { type: value.type, truncated: true } : null;
+  }
+  if (Array.isArray(value)) return value.map((item) => boundedClone(item, depth - 1));
+  const result = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "start" || key === "end" || key === "loc" || key === "range" || key === "raw") continue;
+    result[key] = boundedClone(child, depth - 1);
+  }
+  return result;
+}
+
 export function expressionEvidence(node) {
-  return JSON.stringify(node, (key, value) =>
-    ["start", "end", "loc", "range", "raw"].includes(key)
-      ? undefined
-      : typeof value === "bigint"
-        ? String(value)
-        : value,
-  );
+  return JSON.stringify(boundedClone(node, MAX_EVIDENCE_DEPTH));
 }
 
 function product(left, right, join) {
@@ -28,31 +39,67 @@ function product(left, right, join) {
   return [...new Set(left.flatMap((a) => right.map((b) => join(a, b))))];
 }
 
-export function staticStringValues(node, analysis, scope, visited = new Set(), evidence = new Set()) {
-  if (!node || visited.has(node)) return null;
+function staticPlusValues(node, analysis, scope, visited, evidence, depth) {
+  const operands = [];
+  const stack = [node.right, node.left];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) return null;
+    if (current.type === "BinaryExpression" && current.operator === "+") {
+      if (visited.has(current)) return null;
+      evidence.add(current);
+      stack.push(current.right, current.left);
+    } else {
+      operands.push(current);
+    }
+  }
+  let values = [""];
+  for (const operand of operands) {
+    values = product(
+      values,
+      staticStringValues(operand, analysis, scope, visited, evidence, depth + 1),
+      (a, b) => a + b,
+    );
+    if (!values) return null;
+  }
+  return values;
+}
+
+function staticUrlConstructorValues(node, analysis, scope, visited, evidence, depth) {
+  const paths = staticStringValues(node.arguments[0], analysis, scope, visited, evidence, depth + 1);
+  const bases = node.arguments[1]
+    ? staticStringValues(node.arguments[1], analysis, scope, visited, evidence, depth + 1)
+    : [""];
+  if (!paths || !bases) return null;
+  try {
+    return product(paths, bases, (path, base) => (base ? new URL(path, base).href : new URL(path).href));
+  } catch {
+    return null;
+  }
+}
+
+export function staticStringValues(node, analysis, scope, visited = new Set(), evidence = new Set(), depth = 0) {
+  if (!node || visited.has(node) || depth > MAX_STATIC_DEPTH) return null;
   evidence.add(node);
   visited = new Set(visited).add(node);
-  if (node.type === "ChainExpression") return staticStringValues(node.expression, analysis, scope, visited, evidence);
+  if (node.type === "ChainExpression")
+    return staticStringValues(node.expression, analysis, scope, visited, evidence, depth + 1);
   if (node.type === "Literal") return typeof node.value === "string" ? [node.value] : null;
   if (node.type === "TemplateLiteral") {
     let values = [node.quasis[0].value.cooked];
     for (let i = 0; i < node.expressions.length; i++)
       values = product(
         values,
-        staticStringValues(node.expressions[i], analysis, scope, visited, evidence),
+        staticStringValues(node.expressions[i], analysis, scope, visited, evidence, depth + 1),
         (a, b) => a + b + node.quasis[i + 1].value.cooked,
       );
     return values;
   }
   if (node.type === "BinaryExpression" && node.operator === "+")
-    return product(
-      staticStringValues(node.left, analysis, scope, visited, evidence),
-      staticStringValues(node.right, analysis, scope, visited, evidence),
-      (a, b) => a + b,
-    );
+    return staticPlusValues(node, analysis, scope, visited, evidence, depth);
   if (node.type === "ConditionalExpression") {
-    const left = staticStringValues(node.consequent, analysis, scope, visited, evidence),
-      right = staticStringValues(node.alternate, analysis, scope, visited, evidence);
+    const left = staticStringValues(node.consequent, analysis, scope, visited, evidence, depth + 1),
+      right = staticStringValues(node.alternate, analysis, scope, visited, evidence, depth + 1);
     return left && right ? [...new Set([...left, ...right])] : null;
   }
   if (node.type === "Identifier") {
@@ -62,7 +109,7 @@ export function staticStringValues(node, analysis, scope, visited = new Set(), e
       (item) => item.node.type === "VariableDeclarator" && item.node.id === binding.node,
     );
     return declaration
-      ? staticStringValues(declaration.node.init, analysis, declaration.scope, visited, evidence)
+      ? staticStringValues(declaration.node.init, analysis, declaration.scope, visited, evidence, depth + 1)
       : null;
   }
   if (
@@ -70,31 +117,20 @@ export function staticStringValues(node, analysis, scope, visited = new Set(), e
     node.callee.type === "Identifier" &&
     node.callee.name === "URL" &&
     !resolveBinding(scope, "URL")
-  ) {
-    const paths = staticStringValues(node.arguments[0], analysis, scope, visited, evidence),
-      bases = node.arguments[1] ? staticStringValues(node.arguments[1], analysis, scope, visited, evidence) : [""];
-    if (!paths || !bases) return null;
-    try {
-      return product(paths, bases, (path, base) => (base ? new URL(path, base).href : new URL(path).href));
-    } catch {
-      return null;
-    }
-  }
+  )
+    return staticUrlConstructorValues(node, analysis, scope, visited, evidence, depth);
   if (node.type === "MemberExpression" && node.object.type === "Identifier")
-    return staticCollectionValues(node, analysis, scope, visited, evidence);
+    return staticCollectionValues(node, analysis, scope, visited, evidence, depth + 1);
   return null;
 }
 
 function globalObject(node, scope) {
+  while (node?.type === "ChainExpression") node = node.expression;
   if (node?.type === "Identifier") return GLOBALS.has(node.name) && !resolveBinding(scope, node.name);
-  return (
-    node?.type === "MemberExpression" &&
-    ["window", "self", "globalThis", "top", "parent"].includes(propertyName(node)) &&
-    globalObject(node.object, scope)
-  );
+  return node?.type === "MemberExpression" && GLOBALS.has(propertyName(node)) && globalObject(node.object, scope);
 }
 export function networkCapability(node, analysis, scope, visited = new Set()) {
-  if (node?.type === "ChainExpression") node = node.expression;
+  while (node?.type === "ChainExpression") node = node.expression;
   if (node?.type === "Identifier" && NETWORK_NAMES.has(node.name) && !resolveBinding(scope, node.name))
     return node.name;
   if (node?.type === "MemberExpression" && NETWORK_NAMES.has(propertyName(node)) && globalObject(node.object, scope))
@@ -108,6 +144,7 @@ export function networkCapability(node, analysis, scope, visited = new Set()) {
   return declaration ? networkCapability(declaration.node.init, analysis, declaration.scope, visited) : null;
 }
 function locationObject(node, scope) {
+  while (node?.type === "ChainExpression") node = node.expression;
   return node?.type === "Identifier"
     ? node.name === "location" && !resolveBinding(scope, "location")
     : node?.type === "MemberExpression" && propertyName(node) === "location" && globalObject(node.object, scope);
@@ -247,7 +284,7 @@ export function isGeneratedCharInfoMediaNode(node, parentByNode) {
   return false;
 }
 
-function staticCollectionValues(node, analysis, scope, visited, evidence) {
+function staticCollectionValues(node, analysis, scope, visited, evidence, depth = 0) {
   const binding = resolveBinding(scope, node.object.name)?.[0];
   if (binding?.kind !== "const") return null;
   const declaration = analysis.nodes.find(
@@ -298,6 +335,8 @@ function staticCollectionValues(node, analysis, scope, visited, evidence) {
         ? init.elements
         : null;
   if (!values?.length) return null;
-  const possible = values.map((value) => staticStringValues(value, analysis, declaration.scope, visited, evidence));
+  const possible = values.map((value) =>
+    staticStringValues(value, analysis, declaration.scope, visited, evidence, depth + 1),
+  );
   return possible.every(Boolean) ? [...new Set(possible.flat())] : null;
 }

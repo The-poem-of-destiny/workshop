@@ -40,17 +40,25 @@ describe("project metadata", () => {
   it.each([
     ["51 astral code points", "🧪".repeat(51)],
     ["100 astral code points", "🧪".repeat(100)],
-    ["leading NUL", "\u0000x"],
-    ["100 NUL code points", "\u0000".repeat(100)],
     ["U+0085 boundaries", "\u0085tag\u0085"],
   ])("accepts a canonical tag with %s", (_, tag) => {
     expect(inspectProjectMetadata({ title: "项目", tags: [tag] })).toEqual({ gate: "pass", findings: [] });
   });
 
   it.each([
+    ["leading NUL", "\u0000x"],
+    ["embedded US control char", "tag\u001fname"],
+    ["DEL control char", "tag\u007f"],
+  ])("blocks control characters in tags (%s)", (_, tag) => {
+    const result = inspectProjectMetadata({ title: "项目", tags: [tag] });
+    expect(result.gate).toBe("block");
+    expect(result.findings).toEqual([{ field: "tags", severity: "block", message: "包含控制字符" }]);
+  });
+
+  it.each([
     ["101 astral code points", "🧪".repeat(101)],
-    ["102 code points across NUL", `a\u0000${"🧪".repeat(100)}`],
-    ["101 NUL code points", "\u0000".repeat(101)],
+    ["102 mixed code points", `a中${"🧪".repeat(100)}`],
+    ["101 BMP code points", "中".repeat(101)],
   ])("blocks a tag with %s", (_, tag) => {
     const result = inspectProjectMetadata({ title: "项目", tags: [tag] });
     expect(result.gate).toBe("block");

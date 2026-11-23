@@ -3,16 +3,16 @@ import { includedTypesSchema, projectTagsSchema, projectTypeSchema } from "./pro
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
-export const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
-  z.union([
-    z.null(),
-    z.boolean(),
-    z.number(),
-    z.string(),
-    z.array(jsonValueSchema),
-    z.record(z.string(), jsonValueSchema),
-  ]),
-);
+const MAX_JSON_DEPTH = 16;
+
+function createJsonValueSchema(depth: number): z.ZodType<JsonValue> {
+  const primitive = z.union([z.null(), z.boolean(), z.number().finite(), z.string()]);
+  if (depth <= 0) return primitive;
+  const child = createJsonValueSchema(depth - 1);
+  return z.union([primitive, z.array(child), z.record(z.string(), child)]);
+}
+
+export const jsonValueSchema: z.ZodType<JsonValue> = createJsonValueSchema(MAX_JSON_DEPTH);
 
 const entryChangeSchema = z.object({
   entryKey: z.string(),
@@ -68,9 +68,6 @@ export const submissionDiffSchema = z.object({
   findings: findingDiffSchema.nullable(),
 });
 
-export type DiffKind = z.infer<typeof diffKindSchema>;
-export type FindingRef = z.infer<typeof findingRefSchema>;
-export type FindingDiff = z.infer<typeof findingDiffSchema>;
 export type SubmissionDiff = z.infer<typeof submissionDiffSchema>;
 
 export const adminSubmissionDetailSchema = z.object({

@@ -1,11 +1,11 @@
 # 六分类与显式审阅的离线切换
 
-- Status: in-progress
+- Status: implemented
 - 确认日期：2026-11-13
 - 决策负责人：项目所有者；契约维护者：Domain/Contracts 与 Worker；界面维护者：Web；迁移维护者：离线工具；交付与安全边界：Integration。
 - 本记录保存已接受设计及其取舍，不是部署许可、操作运行簿或验收日志。当前行为分别由 [API 参考](../../../docs/reference/worker-api.md)、[使用指南](../../../docs/guides/using-workshop.md)、[迁移说明](../../../docs/operations/legacy-data-migration.md)和[部署安全规则](../../../docs/operations/deployment-safety.md)维护。
-- 局部取代（2026-11-18）：主分类枚举已由 [社区低调入口、政策问答准入、合集体系与界面体验精修](community-access-collections-and-ux-refinement.md) 收敛为五分类（`系统核心`、`角色`、`内容扩展`、`规则扩展`、`体验优化`；原`事件`并入`内容扩展`，原`玩法`更名为`规则扩展`，12 组预设标签完整保留）；本记录其余结构化包含关系、普通标签上限、筛选分组语义与离线审阅/对账机制保持有效。
-- 生命周期核对（2026-11-17）：源码、空库 schema、API/Web 和完整离线候选工具已由 [PR #90](https://github.com/The-poem-of-destiny/workshop/pull/90) 合并；四普通标签上限 [PR #89](https://github.com/The-poem-of-destiny/workshop/pull/89) 也已合并。现有本地验收及精确 main CI 见[当前状态](../../../docs/plans/refactor-2026-10/state.md)。本记录保持 in-progress 的原因是当前 schema／taxonomy 的真实数据切换未执行，并非源码仍未交付；历史 staging 210/210 验收不关闭此门槛。
+- 局部取代（2026-11-18 / PR #107）：主分类枚举已由 [社区低调入口、政策问答准入、合集体系与界面体验精修](community-access-collections-and-ux-refinement.md) 收敛为**五分类**（`系统核心`、`角色`、`内容扩展`、`规则扩展`、`体验优化`；原`事件`并入`内容扩展`，原`玩法`更名为`规则扩展`，12 组预设标签完整保留），前端侧栏在勾选 `includeContained` 时开启多选并在 `projectType ∪ includedTypes` 上执行 AND 匹配；下文保留 2026-11-13 初次落地时的六分类历史表述，其余结构化包含关系、普通标签上限、预设分组语义与离线审阅/对账机制保持有效。
+- 生命周期核对（2026-11-22）：结构化分类、空库 schema、API/Web 和完整离线候选工具已由 [PR #90](https://github.com/The-poem-of-destiny/workshop/pull/90) 合并，四普通标签上限由 [PR #89](https://github.com/The-poem-of-destiny/workshop/pull/89) 合并，五分类收敛与 `[工坊]` 世界书标记分别由 [PR #107](https://github.com/The-poem-of-destiny/workshop/pull/107)、[PR #108](https://github.com/The-poem-of-destiny/workshop/pull/108) 合并，故源码状态归入 `implemented`。尚未执行的真实生产数据库切换作为运维门禁在 [state.md](../../../docs/plans/refactor-2026-10/state.md) 与 [user-actions.md](../../../docs/plans/refactor-2026-10/user-actions.md) 跟踪。
 
 ## 背景与取代范围
 
@@ -83,4 +83,4 @@
 
 本地服务端真实创建、上传、提交、人工批准及匿名回读已覆盖六类与三种有效内容组合；元数据/内容拒绝边界、分组查询、canonical 游标/本地 Cache API、Unicode HTTP 与 SQL/Python 合同已取得行为证据。当前 helper 固定的 v2 SQLite/SQL 完整候选已取得独立 typed 对账证据；三种审阅输入的初始标记、明确标签修复理由、公开重复键与私有无效内容省略的精确源例外、多导入及缺失/伪造/过期 provenance 拒绝边界亦已验证。完整非 taxonomy 版本/资产字段的当前单独篡改与当前加 preparation 协同篡改，均在刷新输入与工具 pins 后由 build 和独立 verify 拒绝；实际 canonical schema 新列缺失映射同样拒绝。显式/回退 MIME、对象别名、根版本优先序号、可空缺省及存储类型等合法变体仍可通过，当前计数、rowVersion、历史和新增行保持不变。桌面/移动作者、筛选、真实客户端 checker、审核者与 owner 表面，以及未弱化门禁的完整本地检查和 E2E 亦已取得行为证据；这些证明不能相互替代，也不代表线上边缘缓存或真实数据切换。精确命令、结果、私有探针错误及其处置保存在任务记录，不在本决策存放 fixture、运行日志或凭据。
 
-PR #90 的源码与工具交付、独立审查及本地验收已经结束，不再要求为该已合并 PR 重复旧“两轮清零”流程。当前剩余工作是另行授权后的完整当前快照审阅、候选独立对账、停写／真实切换与目标环境验收；本轮明确暂不执行真实迁移或发布，保持本记录 in-progress。2026-11-17 最新授权允许文档 #92 与纠正后的推荐资格 #93 在必要验证和 exact-head required checks 通过后正常合并，版本备忘 #94 已正常合并；不启用 auto-merge、不绕过分支保护。不以此处历史验收代替各 PR 检查，也不改本记录的 schema pause／production 停止门禁。
+PR #90 及后续五分类收敛 PR #107 的源码与离线工具交付、独立审查及本地验收已经完成。尚未执行的真实生产快照审阅、候选独立对账、停写／切换与生产环境验收归属运维发布门禁（见 [user-actions.md](../../../docs/plans/refactor-2026-10/user-actions.md)），本记录不构成远程数据库迁移或生产发布授权。

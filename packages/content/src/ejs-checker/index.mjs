@@ -74,31 +74,20 @@ function analyze(inputs, server) {
     limitFinding(entries[0], "一次检查最多处理 2000 条内容。请减少本次提交的条目。");
   const admitted = !findings.some((item) => item.ruleId === "CHECKER-LIMIT");
   for (const entry of admitted ? entries : []) {
-    inspectDecorators(entry, findings);
-    const ejs =
-      entry.sourceType === "worldbook" && entry.hasEjs
-        ? parseEjs(entry.content, { privateScope: entry.isPrivate, budget })
-        : { units: [], errors: [], internalErrors: [] };
-    const html = ejs.internalErrors.length
-      ? { units: [], errors: [], internalErrors: [] }
-      : entry.sourceType === "regex" || !entry.hasEjs
-        ? parseRegex(entry.content, budget)
-        : parseWorldbookHtml(entry, ejs, budget);
-    for (const record of syntaxFindings(entry, ejs)) add(entry, record);
-    for (const record of syntaxFindings({ ...entry, sourceType: "regex" }, html)) add(entry, record);
-    if ([...ejs.internalErrors, ...html.internalErrors].some((error) => error.kind === "limit")) break;
-    const parsed = {
-      units: [...ejs.units, ...html.units],
-      errors: [...ejs.errors, ...html.errors],
-      internalErrors: [...ejs.internalErrors, ...html.internalErrors],
-    };
-    const policy = inspectAstPolicy(entry, parsed);
-    entry.symbols = policy.symbols;
-    for (const record of policy.findings) add(entry, record);
-    if (server) {
-      for (const record of inspectCapabilities(entry, parsed)) add(entry, record);
-      for (const record of inspectApiUsage(entry, parsed)) add(entry, record);
-      inspectLinks(entry, findings, parsed);
+    try {
+      if (analyzeEntry(entry, server, budget, findings, add)) break;
+    } catch {
+      findings.push(
+        finding(
+          "CHECKER-INTERNAL",
+          "high",
+          "代码检查暂时无法完成",
+          entry,
+          0,
+          "检查服务未能完成本次检查，这不代表您的代码有语法错误。",
+          "请联系管理员，并附上当前页面截图。",
+        ),
+      );
     }
   }
   for (const record of inspectSymbolCollisions(entries)) add(record.entry, record);
@@ -124,6 +113,36 @@ function analyze(inputs, server) {
     })),
     findings,
   };
+}
+
+function analyzeEntry(entry, server, budget, findings, add) {
+  inspectDecorators(entry, findings);
+  const ejs =
+    entry.sourceType === "worldbook" && entry.hasEjs
+      ? parseEjs(entry.content, { privateScope: entry.isPrivate, budget })
+      : { units: [], errors: [], internalErrors: [] };
+  const html = ejs.internalErrors.length
+    ? { units: [], errors: [], internalErrors: [], dynamicHtmlUnits: [] }
+    : entry.sourceType === "regex" || !entry.hasEjs
+      ? parseRegex(entry.content, budget)
+      : parseWorldbookHtml(entry, ejs, budget);
+  for (const record of syntaxFindings(entry, ejs)) add(entry, record);
+  for (const record of syntaxFindings({ ...entry, sourceType: "regex" }, html)) add(entry, record);
+  const parsed = {
+    units: [...ejs.units, ...html.units],
+    errors: [...ejs.errors, ...html.errors],
+    internalErrors: [...ejs.internalErrors, ...html.internalErrors],
+    dynamicHtmlUnits: html.dynamicHtmlUnits ?? [],
+  };
+  const policy = inspectAstPolicy(entry, parsed);
+  entry.symbols = policy.symbols;
+  for (const record of policy.findings) add(entry, record);
+  if (server) {
+    for (const record of inspectCapabilities(entry, parsed)) add(entry, record);
+    for (const record of inspectApiUsage(entry, parsed)) add(entry, record);
+    inspectLinks(entry, findings, parsed);
+  }
+  return parsed.internalErrors.some((error) => error.kind === "limit");
 }
 
 export function analyzeProjectCodeV2(inputs) {

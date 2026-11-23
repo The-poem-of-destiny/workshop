@@ -1,5 +1,5 @@
-export const DISCORD_HOSTS = ["discord.com", "www.discord.com"] as const;
-export const DISCORD_SNOWFLAKE_PATTERN = /^\d{17,20}$/;
+const DISCORD_HOSTS = ["discord.com", "www.discord.com"] as const;
+const DISCORD_SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 
 export type DiscordThreadParse =
   | { ok: true; value: string | null; guildId: string | null; threadId: string | null }
@@ -59,7 +59,27 @@ export function normalizeDiscordThreadUrl(
   return { ok: true, value: parsed.value };
 }
 
+const DISCORD_AVATAR_HOSTS = new Set(["cdn.discordapp.com", "media.discordapp.net"]);
+const DISCORD_AVATAR_USER_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const DISCORD_AVATAR_HASH_PATTERN = /^(?:a_)?[A-Za-z0-9_-]{2,128}$/;
+
 export function discordAvatarUrl(userId: string, avatar: string | null | undefined): string | null {
   if (!avatar) return null;
-  return avatar.startsWith("https://") ? avatar : `https://cdn.discordapp.com/avatars/${userId}/${avatar}.png`;
+  if (avatar.startsWith("https://")) {
+    if (avatar.length > 2048 || /[\u0000-\u001F\u007F\s]/.test(avatar)) return null;
+    let url: URL;
+    try {
+      url = new URL(avatar);
+    } catch {
+      return null;
+    }
+    if (url.protocol !== "https:" || url.username || url.password || !DISCORD_AVATAR_HOSTS.has(url.hostname)) {
+      return null;
+    }
+    return avatar;
+  }
+  if (!DISCORD_AVATAR_USER_ID_PATTERN.test(userId) || !DISCORD_AVATAR_HASH_PATTERN.test(avatar)) {
+    return null;
+  }
+  return `https://cdn.discordapp.com/avatars/${userId}/${avatar}.png`;
 }

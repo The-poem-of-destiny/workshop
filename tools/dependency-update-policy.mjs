@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
-export const manifestPath = "apps/worker/package.json";
-export const requiredChecks = ["check", "e2e", "secrets"];
+const manifestPath = "apps/worker/package.json";
+const requiredChecks = ["check", "e2e", "secrets"];
 const botId = 49699333;
 const sha = /^[a-f0-9]{40}$/;
 

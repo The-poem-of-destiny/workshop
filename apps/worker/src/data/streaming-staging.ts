@@ -1,8 +1,17 @@
+import { runGuardedStagedUpload } from "./storage-guard.js";
+
 export interface StagedStream {
   bytes: number;
   open(): Promise<ReadableStream<Uint8Array>>;
   copyTo(key: string, options?: R2PutOptions): Promise<void>;
   dispose(): Promise<void>;
+}
+
+export class UploadStreamReadError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : "Upload stream read failed");
+    this.name = "UploadStreamReadError";
+  }
 }
 
 /** Stage an unknown-length stream without buffering it, then copy its exact range. */
@@ -19,44 +28,62 @@ export async function stageStream(
       : maxBytes;
   const key = `tmp/uploads/${crypto.randomUUID()}`;
   const reader = source.getReader();
-  const fixed = new FixedLengthStream(stagingBytes);
-  const abort = new AbortController();
   let bytes = 0;
   let padding = -1;
-  const padded = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      if (padding < 0) {
-        const next = await reader.read();
-        if (!next.done) {
-          bytes += next.value.byteLength;
-          if (bytes > stagingBytes) throw new RangeError("Upload exceeds staging size");
-          controller.enqueue(next.value);
-          return;
-        }
-        padding = stagingBytes - bytes;
-      }
-      if (padding === 0) {
-        controller.close();
-        return;
-      }
-      const size = Math.min(padding, 65536);
-      padding -= size;
-      controller.enqueue(new Uint8Array(size));
-    },
-    async cancel(reason) {
-      await reader.cancel(reason);
-    },
-  });
-  const pipe = padded.pipeTo(fixed.writable, { signal: abort.signal });
-  const upload = bucket.put(key, fixed.readable);
+  let sourceReadError: unknown = null;
+  let hasSourceReadError = false;
   try {
-    const [, stored] = await Promise.all([pipe, upload]);
-    if (!stored) throw new Error("Staging upload was not stored");
+    await runGuardedStagedUpload(bucket, key, (raw) => {
+      const fixed = new FixedLengthStream(stagingBytes);
+      const abort = new AbortController();
+      const padded = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          if (padding < 0) {
+            let next: ReadableStreamReadResult<Uint8Array>;
+            try {
+              next = await reader.read();
+            } catch (readError) {
+              hasSourceReadError = true;
+              sourceReadError = readError;
+              throw readError;
+            }
+            if (!next.done) {
+              bytes += next.value.byteLength;
+              if (bytes > stagingBytes) throw new RangeError("Upload exceeds staging size");
+              controller.enqueue(next.value);
+              return;
+            }
+            padding = stagingBytes - bytes;
+          }
+          if (padding === 0) {
+            controller.close();
+            return;
+          }
+          const size = Math.min(padding, 65536);
+          padding -= size;
+          controller.enqueue(new Uint8Array(size));
+        },
+        async cancel(reason) {
+          await reader.cancel(reason);
+        },
+      });
+      return {
+        pipe: padded.pipeTo(fixed.writable, { signal: abort.signal }),
+        upload: raw.put(key, fixed.readable),
+        abort: (reason) => abort.abort(reason),
+        result: () => undefined,
+      };
+    });
   } catch (error) {
-    abort.abort(error);
-    await Promise.allSettled([pipe, upload]);
-    await bucket.delete(key);
+    await reader.cancel(error).catch(() => {});
+    if (hasSourceReadError && error === sourceReadError) {
+      if (error instanceof Error && error.name === "UploadLimitError") throw error;
+      if (error instanceof RangeError) throw error;
+      throw new UploadStreamReadError(error);
+    }
     throw error;
+  } finally {
+    reader.releaseLock();
   }
   return {
     bytes,

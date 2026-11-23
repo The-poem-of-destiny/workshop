@@ -1,6 +1,6 @@
 import type { InstallIntent } from "@workshop/contracts";
 import { useEffect, useRef, useState } from "react";
-import { api, type MeResponse, type ProjectSummary } from "../../api";
+import { api, formatUserError, type MeResponse, type ProjectSummary } from "../../api";
 import type { InstallBridge, InstallCompletion } from "../../lib/install-bridge";
 import type { InstalledItem } from "./Installed";
 
@@ -86,7 +86,7 @@ export function useHostMutations({
         },
       });
     } catch (reason) {
-      setError(String(reason));
+      setError(formatUserError(reason));
     } finally {
       hostMutationPending.current = false;
       setInstalling(false);
@@ -107,7 +107,7 @@ export function useHostMutations({
     if (!operationUser()) return;
     setInstanceChoice(null);
     setInstallTarget({
-      title: item.project?.title ?? item.instance.projectId,
+      title: item.project?.title ?? "本地已装项目",
       intent: { action, instanceId: item.instance.instanceId },
     });
   }

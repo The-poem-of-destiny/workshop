@@ -1,26 +1,31 @@
 import { parseFragment } from "parse5";
 import { CHECKER_VERSION } from "./index.mjs";
+import { CHECKER_LIMITS, createParseBudget } from "./limits.mjs";
 import { CHECK_POLICY_VERSION, trustedAssetHosts } from "./policy-config.mjs";
 import { certificationStatus, gateStatus, parseCodeCheckInput } from "./report.mjs";
 import { parseEjs, parseRegex } from "./syntax.mjs";
 
 const OMIT_AST = new Set(["start", "end", "loc", "range", "raw"]);
-function canonical(value, ast = false) {
+const MAX_AUDIT_DEPTH = 64;
+function canonical(value, ast = false, depth = 0) {
   if (typeof value === "bigint") return { bigint: String(value) };
   if (value instanceof RegExp) return { regex: value.source, flags: value.flags };
-  if (Array.isArray(value)) return value.map((item) => canonical(item, ast));
   if (!value || typeof value !== "object") return value;
+  if (depth >= MAX_AUDIT_DEPTH) {
+    return typeof value.type === "string" ? { type: value.type, truncated: true } : "[truncated]";
+  }
+  if (Array.isArray(value)) return value.map((item) => canonical(item, ast, depth + 1));
   return Object.fromEntries(
     Object.keys(value)
       .sort()
       .filter((key) => !ast || !OMIT_AST.has(key))
-      .map((key) => [key, canonical(value[key], ast)]),
+      .map((key) => [key, canonical(value[key], ast, depth + 1)]),
   );
 }
 const stable = (value) => JSON.stringify(canonical(value));
 /** Full reviewer-facing rule identity. Shared with the server so both sides can
  * recompute it cheaply and compare it byte for byte without executing rules. */
-export function buildReviewPolicyVersion(checkerVersion) {
+function buildReviewPolicyVersion(checkerVersion) {
   return stable({
     policy: CHECK_POLICY_VERSION,
     engine: checkerVersion.engine,
@@ -38,9 +43,12 @@ async function digest(value) {
 }
 function unitMeaning(unit) {
   if (!unit.ast) return { kind: unit.kind, unparsed: unit.code };
-  function normalize(node) {
-    if (Array.isArray(node)) return node.map(normalize).filter((value) => value !== null);
-    if (!node || typeof node !== "object") return canonical(node);
+  function normalize(node, depth = 0) {
+    if (Array.isArray(node)) return node.map((item) => normalize(item, depth + 1)).filter((value) => value !== null);
+    if (!node || typeof node !== "object") return canonical(node, false, depth);
+    if (depth >= MAX_AUDIT_DEPTH) {
+      return { unparsed: unit.code };
+    }
     const isAst = typeof node.type === "string" && Number.isInteger(node.start);
     if (isAst && !unit.sourceMap.isOriginal(node.start)) {
       if (node.type === "EmptyStatement") return null;
@@ -57,18 +65,22 @@ function unitMeaning(unit) {
       Object.keys(node)
         .sort()
         .filter((key) => !OMIT_AST.has(key))
-        .map((key) => [key, normalize(node[key])]),
+        .map((key) => [key, normalize(node[key], depth + 1)]),
     );
   }
   return { kind: unit.kind, ast: normalize(unit.wrapperFunction ? unit.wrapperFunction.body.body : unit.ast) };
 }
 
-function htmlMeaning(source) {
-  const parsed = parseRegex(source);
+function htmlMeaning(source, budget) {
+  if (budget.nodes >= CHECKER_LIMITS.astNodes || budget.units >= CHECKER_LIMITS.codeUnits) {
+    return { unparsed: source };
+  }
+  const parsed = parseRegex(source, budget);
   if (parsed.internalErrors.length) return { unparsed: source };
   const tree = parseFragment(source, { scriptingEnabled: true, sourceCodeLocationInfo: true });
   const executable = parsed.units;
-  function nodeMeaning(node) {
+  function nodeMeaning(node, depth = 0) {
+    if (depth >= MAX_AUDIT_DEPTH) return { unparsed: source };
     if (node.nodeName === "#text") {
       if (/^\s*$/.test(node.value)) return null;
       // Synthetic template markers carry no literal output value. Ignore only
@@ -111,17 +123,20 @@ function htmlMeaning(source) {
       attrs,
       children: scriptUnits.length
         ? scriptUnits.map(unitMeaning)
-        : (node.childNodes ?? []).map(nodeMeaning).filter(Boolean),
-      ...(node.content ? { template: nodeMeaning(node.content) } : {}),
+        : (node.childNodes ?? []).map((child) => nodeMeaning(child, depth + 1)).filter(Boolean),
+      ...(node.content ? { template: nodeMeaning(node.content, depth + 1) } : {}),
     };
   }
   return nodeMeaning(tree);
 }
 
-function entryMeaning(entry) {
+function entryMeaning(entry, budget) {
   const source = String(entry.rawContent ?? entry.content ?? "");
-  if (entry.sourceType !== "worldbook" || !entry.hasEjs) return htmlMeaning(source);
-  const parsed = parseEjs(source, { privateScope: entry.isPrivate });
+  if (budget.nodes >= CHECKER_LIMITS.astNodes || budget.units >= CHECKER_LIMITS.codeUnits) {
+    return { unparsed: source };
+  }
+  if (entry.sourceType !== "worldbook" || !entry.hasEjs) return htmlMeaning(source, budget);
+  const parsed = parseEjs(source, { privateScope: entry.isPrivate, budget });
   if (parsed.errors.length || parsed.internalErrors.length) return { unparsed: source };
   const unit = parsed.units[0];
   let cursor = 0,
@@ -133,7 +148,7 @@ function entryMeaning(entry) {
     cursor = range.end;
   }
   scaffold += source.slice(cursor);
-  return { private: entry.isPrivate, javascript: unitMeaning(unit), template: htmlMeaning(scaffold) };
+  return { private: entry.isPrivate, javascript: unitMeaning(unit), template: htmlMeaning(scaffold, budget) };
 }
 
 function reviewerRisk(finding) {
@@ -144,11 +159,15 @@ function reviewerRisk(finding) {
       /^(?:M[34]|U[2-5]|AH[1-4])$/.test(finding.ruleId))
   );
 }
-function normalizedEvidence(evidence) {
+function normalizedEvidence(evidence, budget) {
   if (!evidence) return null;
   const result = { ...evidence };
-  if (typeof result.expression === "string") {
-    const parsed = parseEjs("<% " + result.expression + " %>");
+  if (
+    typeof result.expression === "string" &&
+    budget.nodes < CHECKER_LIMITS.astNodes &&
+    budget.units < CHECKER_LIMITS.codeUnits
+  ) {
+    const parsed = parseEjs("<% " + result.expression + " %>", { budget });
     if (!parsed.errors.length && !parsed.internalErrors.length) result.expression = parsed.units.map(unitMeaning);
   }
   return canonical(result);
@@ -156,6 +175,7 @@ function normalizedEvidence(evidence) {
 
 /** Only hashes and short finding summaries are persisted, never the uploaded source. */
 export async function buildAuditSnapshot(inputs, report) {
+  const budget = createParseBudget();
   const checkerVersion = {
     engine: report.engine ?? CHECKER_VERSION.engine,
     parserCompatibility: report.parserCompatibility ?? CHECKER_VERSION.parserCompatibility,
@@ -175,7 +195,13 @@ export async function buildAuditSnapshot(inputs, report) {
   );
   const books = inputs.map((input, index) => parseCodeCheckInput(input, index));
   const entries = books.flatMap((book) => book.entries);
-  const entryMeanings = new Map(entries.map((entry) => [entry.id, entryMeaning(entry)]));
+  const withinEntryLimit = entries.length <= CHECKER_LIMITS.entries;
+  const entryMeanings = new Map(
+    entries.map((entry) => [
+      entry.id,
+      withinEntryLimit ? entryMeaning(entry, budget) : { unparsed: String(entry.rawContent ?? entry.content ?? "") },
+    ]),
+  );
   const entryHashes = new Map(
     await Promise.all(entries.map(async (entry) => [entry.id, await digest(entryMeanings.get(entry.id))])),
   );
@@ -228,7 +254,7 @@ export async function buildAuditSnapshot(inputs, report) {
       entryHash: entry ? entryHashes.get(entry.id) : null,
       rule: item.ruleId,
       occurrence,
-      evidence: normalizedEvidence(item.riskEvidence),
+      evidence: normalizedEvidence(item.riskEvidence, budget),
     });
     findings.push({
       key,
@@ -244,10 +270,6 @@ export async function buildAuditSnapshot(inputs, report) {
     });
   }
   return { policyVersion, ...checkerVersion, filesHash, findings };
-}
-
-export async function buildReviewToken(snapshot, revision) {
-  return digest([snapshot.filesHash, snapshot.policyVersion, snapshot.engine, snapshot.parserCompatibility, revision]);
 }
 
 export function applyAuditBaseline(report, snapshot, acceptedEnvelope) {

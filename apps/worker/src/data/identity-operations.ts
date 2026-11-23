@@ -39,6 +39,37 @@ export async function identityFlowByState(env: DataEnv, state: string) {
   return oauth.getFlowByState(env.DB, state);
 }
 
+export async function identityFlowForLaunch(env: DataEnv, id: string, binding: string) {
+  const flow = await oauth.getFlowById(env.DB, id);
+  if (!flow) return { ok: false as const, error: "not_found" as const };
+  if (!flow.browser_binding_hash || (await sha256Hex(binding)) !== flow.browser_binding_hash) {
+    return { ok: false as const, error: "binding" as const };
+  }
+  if (
+    flow.status !== "pending" ||
+    flow.error !== null ||
+    flow.consumed_at !== null ||
+    !flow.code_verifier ||
+    Date.parse(flow.expires_at) <= Date.now()
+  ) {
+    return { ok: false as const, error: "not_pending" as const };
+  }
+  const state = await oauth.deriveOAuthState(flow.id, flow.code_verifier, binding);
+  if ((await sha256Hex(state)) !== flow.state_hash) {
+    return { ok: false as const, error: "not_pending" as const };
+  }
+  return {
+    ok: true as const,
+    flow: {
+      id: flow.id,
+      state,
+      codeVerifier: flow.code_verifier,
+      origin: flow.origin,
+      mode: flow.mode,
+    },
+  };
+}
+
 export async function identityFlowError(env: DataEnv, id: string, error: string) {
   await oauth.markFlowError(env.DB, id, error);
 }

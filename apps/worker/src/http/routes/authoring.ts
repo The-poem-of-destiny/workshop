@@ -9,8 +9,10 @@ import { inspectProjectMetadata, normalizeDiscordThreadUrl } from "@workshop/dom
 import type { Context } from "hono";
 import { Hono } from "hono";
 import type { PrevalidatedContent } from "../../data/contracts.js";
+import { dataClient } from "../../data-client.js";
 import type { Env } from "../../env";
 import { enqueueSubmission } from "../../scheduler.js";
+import { isMaintenanceUnavailableError } from "../../write-barrier.js";
 import { jsonError, versionConflict } from "../errors.js";
 import { ifMatchVersion } from "../if-match.js";
 import { registerAuthoringGalleryRoutes } from "./authoring-gallery.js";
@@ -21,7 +23,7 @@ const POLICY_REQUIRED_MESSAGE = "请先阅读并同意工坊使用政策并完�
 export const authoringRoutes = new Hono<{ Bindings: Env }>();
 
 authoringRoutes.get("/:id/versions/:versionId/change-evidence", async (c) => {
-  const result = await c.executionCtx.exports.DataService.authorAdminChangeEvidence(
+  const result = await dataClient(c.executionCtx).authorAdminChangeEvidence(
     c.req.header("authorization"),
     c.req.param("id"),
     c.req.param("versionId"),
@@ -41,7 +43,7 @@ async function bodyJson(c: Context<{ Bindings: Env }>): Promise<unknown> {
 }
 
 async function validateVersionViaDo(env: Env, projectId: string, versionId: string): Promise<PrevalidatedContent> {
-  const id = env.CONTENT_SERVICE.idFromName("content-validator");
+  const id = env.CONTENT_SERVICE.idFromName(`content-validator:${projectId}`);
   const response = await env.CONTENT_SERVICE.get(id).fetch("https://content-service/validate", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -78,14 +80,15 @@ authoringRoutes.post("/", async (c) => {
     return jsonError(c, "bad_request", "Project metadata failed validation", metadata.findings);
   }
   try {
-    const result = await c.executionCtx.exports.DataService.authorAdminCreateProject(
+    const result = await dataClient(c.executionCtx).authorAdminCreateProject(
       c.req.header("authorization"),
       parsed.data,
     );
     if (result.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
     if (result.kind === "forbidden") return jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE);
     return c.json(result.data, 201);
-  } catch {
+  } catch (error) {
+    if (isMaintenanceUnavailableError(error)) throw error;
     return jsonError(c, "internal", "Unable to create project");
   }
 });
@@ -93,10 +96,7 @@ authoringRoutes.post("/", async (c) => {
 authoringRoutes.get("/:id/draft", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
-  const result = await c.executionCtx.exports.DataService.authorAdminGetDraft(
-    c.req.header("authorization"),
-    c.req.param("id"),
-  );
+  const result = await dataClient(c.executionCtx).authorAdminGetDraft(c.req.header("authorization"), c.req.param("id"));
   if (result.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
   if (result.kind === "forbidden") return jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE);
   if (result.kind === "not_found") return jsonError(c, "not_found", "Project not found");
@@ -108,7 +108,7 @@ authoringRoutes.put("/:id/collections", async (c) => {
   if (!auth.session) return auth.response;
   const parsed = projectCollectionsUpdateSchema.safeParse(await bodyJson(c));
   if (!parsed.success) return jsonError(c, "bad_request", "合集列表格式无效", parsed.error.flatten());
-  const result = await c.executionCtx.exports.DataService.authorSetProjectCollections(
+  const result = await dataClient(c.executionCtx).authorSetProjectCollections(
     c.req.header("authorization"),
     c.req.param("id"),
     parsed.data.collectionIds,
@@ -132,7 +132,7 @@ authoringRoutes.patch("/:id", async (c) => {
     if (!discord.ok) return jsonError(c, "bad_request", `Discord 线程地址无效：${discord.reason}`);
     parsed.data.discordThreadUrl = discord.value;
   }
-  const result = await c.executionCtx.exports.DataService.authorAdminPatchProject(
+  const result = await dataClient(c.executionCtx).authorAdminPatchProject(
     c.req.header("authorization"),
     c.req.param("id"),
     expectedVersion,
@@ -166,7 +166,7 @@ authoringRoutes.delete("/:id/versions/:versionId/entries/:kind/:entryKey", async
   } catch {
     return jsonError(c, "bad_request", "Invalid entry key");
   }
-  const response = await c.executionCtx.exports.DataService.authorAdminDeleteEntry(
+  const response = await dataClient(c.executionCtx).authorAdminDeleteEntry(
     c.req.header("authorization"),
     c.req.param("id"),
     c.req.param("versionId"),
@@ -185,7 +185,7 @@ authoringRoutes.delete("/:id", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
   const expectedVersion = ifMatchVersion(c.req.header("if-match"));
-  const result = await c.executionCtx.exports.DataService.authorAdminDeleteProject(
+  const result = await dataClient(c.executionCtx).authorAdminDeleteProject(
     c.req.header("authorization"),
     c.req.param("id"),
     expectedVersion,
@@ -204,7 +204,7 @@ authoringRoutes.patch("/:id/visibility", async (c) => {
   const expectedVersion = ifMatchVersion(c.req.header("if-match"));
   const parsed = visibilityUpdateSchema.safeParse(await bodyJson(c));
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid visibility", parsed.error.flatten());
-  const result = await c.executionCtx.exports.DataService.authorAdminUpdateVisibility(
+  const result = await dataClient(c.executionCtx).authorAdminUpdateVisibility(
     c.req.header("authorization"),
     c.req.param("id"),
     expectedVersion,
@@ -229,7 +229,7 @@ authoringRoutes.post("/:id/versions", async (c) => {
     if (!discord.ok) return jsonError(c, "bad_request", `Discord 线程地址无效：${discord.reason}`);
     parsed.data.discordThreadUrl = discord.value;
   }
-  const result = await c.executionCtx.exports.DataService.authorAdminCreateVersion(
+  const result = await dataClient(c.executionCtx).authorAdminCreateVersion(
     c.req.header("authorization"),
     c.req.param("id"),
     expectedVersion,
@@ -249,16 +249,16 @@ authoringRoutes.post("/:id/versions", async (c) => {
   return c.json(result.data, 201);
 });
 
-authoringRoutes.get("/:id/versions/:versionId/files/:kind", (c) => c.executionCtx.exports.DataService.fetch(c.req.raw));
+authoringRoutes.get("/:id/versions/:versionId/files/:kind", (c) => dataClient(c.executionCtx).fetch(c.req.raw));
 
-authoringRoutes.put("/:id/versions/:versionId/files/:kind", (c) => c.executionCtx.exports.DataService.fetch(c.req.raw));
+authoringRoutes.put("/:id/versions/:versionId/files/:kind", (c) => dataClient(c.executionCtx).fetch(c.req.raw));
 
 authoringRoutes.post("/:id/versions/:versionId/submit", async (c) => {
   const auth = await sessionOrError(c);
   if (!auth.session) return auth.response;
   const expectedVersion = ifMatchVersion(c.req.header("if-match"));
   if (expectedVersion === null) return jsonError(c, "precondition_failed", "If-Match is required");
-  const prepared = await c.executionCtx.exports.DataService.authorAdminPrepareSubmission(
+  const prepared = await dataClient(c.executionCtx).authorAdminPrepareSubmission(
     c.req.header("authorization"),
     c.req.param("id"),
     c.req.param("versionId"),
@@ -277,7 +277,7 @@ authoringRoutes.post("/:id/versions/:versionId/submit", async (c) => {
   } catch {
     return jsonError(c, "internal", "Content validation service unavailable");
   }
-  const response = await c.executionCtx.exports.DataService.authorAdminSubmit(
+  const response = await dataClient(c.executionCtx).authorAdminSubmit(
     c.req.header("authorization"),
     c.req.param("id"),
     c.req.param("versionId"),
@@ -324,7 +324,7 @@ authoringRoutes.post("/:id/submissions/:submissionId/withdraw", async (c) => {
   if (!auth.session) return auth.response;
   const expectedVersion = ifMatchVersion(c.req.header("if-match"));
   if (expectedVersion === null) return jsonError(c, "precondition_failed", "If-Match is required");
-  const response = await c.executionCtx.exports.DataService.authorAdminWithdraw(
+  const response = await dataClient(c.executionCtx).authorAdminWithdraw(
     c.req.header("authorization"),
     c.req.param("id"),
     c.req.param("submissionId"),

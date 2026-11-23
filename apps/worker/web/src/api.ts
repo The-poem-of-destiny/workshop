@@ -19,11 +19,8 @@ import type {
   AuthorSubmissionListResponse,
   Banner,
   CollectionSummary,
-  DiffKind,
   DiscoveryResponse,
   ExperienceNotesResponse,
-  FindingDiff,
-  FindingRef,
   HomeResponse,
   JsonValue,
   MeResponse,
@@ -31,7 +28,6 @@ import type {
   PolicyAcceptanceInput,
   PolicyAcceptanceResponse,
   ProjectBatchResponse,
-  ProjectCollectionBadge,
   ProjectDetail,
   ProjectGalleryResponse,
   ProjectListResponse,
@@ -49,11 +45,14 @@ import type {
 import { MAX_SELECTED_TAGS, normalizeProjectBatchIds, PROJECT_TYPES, type ProjectType } from "@workshop/domain";
 import {
   ApiError,
+  formatApiErrorMessage,
+  formatUserError,
   getSessionGeneration,
   hasSessionToken,
   jsonRequest,
   requestBlob,
   requestJson,
+  requestJsonWithHeaders,
   requestText,
   setSessionToken,
   subscribeSessionChange,
@@ -77,17 +76,13 @@ export type {
   AuthorProjectListResponse,
   AuthorSubmission,
   CollectionSummary,
-  DiffKind,
   DiscoveryResponse,
-  FindingDiff,
-  FindingRef,
   HomeResponse,
   JsonValue,
   MeResponse,
   PolicyAcceptanceInput,
   PolicyAcceptanceResponse,
   ProjectBatchResponse,
-  ProjectCollectionBadge,
   ProjectDetail,
   ProjectGalleryResponse,
   ProjectListResponse,
@@ -100,7 +95,14 @@ export type {
   UserPolicyState,
   Visibility,
 };
-export { ApiError, getSessionGeneration, setSessionToken, subscribeSessionChange };
+export {
+  ApiError,
+  formatApiErrorMessage,
+  formatUserError,
+  getSessionGeneration,
+  setSessionToken,
+  subscribeSessionChange,
+};
 
 export type AcquisitionPayload = AcquisitionResponse;
 export type SiteBanner = Banner;
@@ -323,8 +325,16 @@ export const api = {
       reportHash?: string;
     },
   ) => jsonRequest<{ id: string; status: string }>(`/api/v1/admin/submissions/${encode(id)}/review`, "POST", body),
-  createFlow: (mode: "browser" | "device" = "browser") =>
-    jsonRequest<AuthFlowResponse>("/api/v1/auth/flows", "POST", { mode }),
+  createAuthFlow: async (
+    mode: "browser" | "device" = "browser",
+  ): Promise<{ flow: AuthFlowResponse; binding: string | null }> => {
+    const { data, headers } = await requestJsonWithHeaders<AuthFlowResponse>("/api/v1/auth/flows", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode }),
+    });
+    return { flow: data, binding: headers.get("x-oauth-binding") };
+  },
   authFlowStatus: (id: string, deviceCode?: string) =>
     requestJson<{
       status: "pending" | "authorized" | "redeemed" | "expired";
@@ -348,12 +358,6 @@ export const api = {
     });
   },
   downloadText: requestText,
-  downloads: (projectId: string) =>
-    requestJson<{ versionId: string; files: { kind: string; url: string }[] }>(
-      `/api/v1/projects/${encode(projectId)}/downloads`,
-      { method: "POST", headers: { "Idempotency-Key": newId() } },
-    ),
-  downloadFile: requestBlob,
   adminProjects: (search?: string) =>
     requestJson<AdminProjectList>(`/api/v1/admin/projects?limit=50${search ? `&search=${encode(search)}` : ""}`),
   adminMembers: (cursor?: string) =>
@@ -383,8 +387,10 @@ export const api = {
       "PUT",
       body,
     ),
-  deleteRecommendation: (projectId: string) =>
-    requestJson<void>(`/api/v1/admin/recommendations/${encode(projectId)}`, { method: "DELETE" }),
+  deleteRecommendation: (projectId: string, id?: string) =>
+    requestJson<void>(`/api/v1/admin/recommendations/${encode(projectId)}${id ? `?id=${encode(id)}` : ""}`, {
+      method: "DELETE",
+    }),
   logout: async () => {
     const generation = getSessionGeneration();
     await requestJson<void>("/api/v1/sessions/current", { method: "DELETE" });

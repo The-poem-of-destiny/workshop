@@ -1,5 +1,7 @@
 # Creative Workshop 重构完成度合并审计
 
+> 历史审计提示（2026-11-22 补充）：本文仅汇总 2026-10-21 时点（`e103ee4`）的早期静态审计发现，不是当前 `main` 的缺口清单。后续 Checker、OAuth、酒馆客户端、五分类与合集等核心能力均已合入，早期 `p5-cutover.md` 等阶段文件已归档至 [`../archived/refactor-2026-10/`](../archived/refactor-2026-10/README.md)；现行行为与发布门槛见 [worker-api.md](../reference/worker-api.md) 和 [state.md](../plans/refactor-2026-10/state.md)。
+
 - 日期：2026-10-21
 - 分支：`refactor/2026-10`，HEAD `e103ee4` 时的代码
 - 输入：`features-audit-a.md`（features §1–6、§13、checker 规则）、`features-audit-b.md`（features §7–12、decisions、API/schema/cache/ops）

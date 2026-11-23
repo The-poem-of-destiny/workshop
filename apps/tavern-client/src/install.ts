@@ -1,9 +1,41 @@
 import type { InstallIntent, InstallPreview } from "@workshop/contracts/install";
 import { capture, discover } from "./install-discovery.js";
-import { copy, type InstallHost, identity, type Plan, stable } from "./install-model.js";
+import { copy, type Group, type InstallHost, identity, type Plan, type Row, stable } from "./install-model.js";
 import { preparePlan } from "./install-preview.js";
 import { applyPlan } from "./installation.js";
 import { entryIdentity, indexProject, readIndex, updateIndex, writeEntry } from "./workshop-yaml.js";
+
+function convertBookGroups(rows: Row[], groups: Group[]) {
+  let next = rows;
+  let converted = 0;
+  let skipped = 0;
+  for (const group of groups) {
+    if (group.invalid) {
+      skipped++;
+      continue;
+    }
+    try {
+      const legacy = group.book.some((row) => !entryIdentity(String(row.content ?? "")));
+      if (!legacy) continue;
+      const prior = readIndex(next).find((item) => item.project_id === group.instance.projectId);
+      if (prior && prior.version_id !== group.instance.version) {
+        skipped++;
+        continue;
+      }
+      const originals = new Set(group.book.map(stable));
+      const convertedRows = next.map((row) => (originals.has(stable(row)) ? writeEntry(row, identity(row)!) : row));
+      next = updateIndex(
+        convertedRows,
+        group.instance.projectId,
+        prior ?? indexProject(group.instance.projectId, group.instance.version),
+      );
+      converted++;
+    } catch {
+      skipped++;
+    }
+  }
+  return { next, converted, skipped };
+}
 
 function confirmedScope(worldbooks: unknown): string[] {
   if (!Array.isArray(worldbooks) || !worldbooks.length || worldbooks.some((name) => typeof name !== "string" || !name))
@@ -57,30 +89,11 @@ export function createInstallManager(host: InstallHost) {
           skipped += groups.length || 1;
           continue;
         }
-        let next = rows;
-        let count = 0;
-        for (const group of groups) {
-          if (group.invalid) {
-            skipped++;
-            continue;
-          }
-          const legacy = group.book.some((row) => !entryIdentity(String(row.content ?? "")));
-          if (!legacy) continue;
-          const prior = readIndex(next).find((item) => item.project_id === group.instance.projectId);
-          if (prior && prior.version_id !== group.instance.version) {
-            skipped++;
-            continue;
-          }
-          const originals = new Set(group.book.map(stable));
-          next = next.map((row) => (originals.has(stable(row)) ? writeEntry(row, identity(row)!) : row));
-          next = updateIndex(
-            next,
-            group.instance.projectId,
-            prior ?? indexProject(group.instance.projectId, group.instance.version),
-          );
-          count++;
-        }
-        if (!count) continue;
+        const batch = convertBookGroups(rows, groups);
+        skipped += batch.skipped;
+        if (!batch.converted) continue;
+        const next = batch.next;
+        const count = batch.converted;
         checkScope(host, confirmed);
         if (host.character() !== snapshot.character) throw new Error("角色已改变");
         await host.updateBook(name, (current) => {

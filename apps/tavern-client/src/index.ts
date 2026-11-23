@@ -20,8 +20,10 @@ const SCRIPT_CHANNEL = SCRIPT_RUNTIME.channel;
 
 const installations = createInstallManager({
   character() {
-    const context = SillyTavern.getContext();
-    return context.characters?.[context.characterId]?.avatar ?? null;
+    const context = SillyTavern.getContext?.();
+    return context && context.characterId !== undefined
+      ? (context.characters?.[Number(context.characterId)]?.avatar ?? null)
+      : null;
   },
   names: () => getWorldbookNames(),
   bindings: () => getCharWorldbookNames("current"),
@@ -78,11 +80,22 @@ async function checkInstallCompatibility(): Promise<{
   return { state: "unverified" };
 }
 
+function resolveCharacterName(): string | null {
+  const fromHelper = typeof getCurrentCharacterName === "function" ? getCurrentCharacterName() : null;
+  if (fromHelper) return fromHelper;
+  const fromHost = SillyTavern.getCurrentCharacterName?.();
+  if (fromHost) return fromHost;
+  const ctx = SillyTavern.getContext?.();
+  return ctx && ctx.characterId !== undefined
+    ? (ctx.characters?.[Number(ctx.characterId)]?.name ?? ctx.name2 ?? null)
+    : null;
+}
+
 async function contextPayload() {
   const bindings = getCharWorldbookNames("current");
   return {
     connected: true,
-    characterName: SillyTavern.getCurrentCharacterName?.() ?? null,
+    characterName: resolveCharacterName(),
     worldbooks: { primary: bindings.primary, additional: bindings.additional || [], available: getWorldbookNames() },
     installationScan: await installations.scan(),
     clientVersion: CLIENT_VERSION,
@@ -174,6 +187,10 @@ function showOverlay() {
   target.searchParams.set("embed", "1");
   target.searchParams.set("clientVersion", CLIENT_VERSION);
   target.searchParams.set("clientChannel", SCRIPT_CHANNEL);
+  if (host.location.protocol === "https:" || host.location.protocol === "http:") {
+    target.searchParams.set("hostOrigin", host.location.origin);
+  }
+  $frame.attr("referrerpolicy", "origin");
   $frame.attr("src", target.toString());
 
   host.addEventListener("message", onMessage);
@@ -250,68 +267,74 @@ async function openWithAgreement(): Promise<void> {
 }
 
 function installButton() {
-  $(() => {
-    const bind = () => {
-      if ($(`#${BUTTON_ID}`).length) return;
-      const $button = $(`<button id="${BUTTON_ID}" type="button">命定创意工坊</button>`).css({
-        position: "fixed",
-        right: "18px",
-        bottom: "18px",
-        zIndex: 2147483500,
-        border: "1px solid rgba(184,157,118,.5)",
-        borderRadius: "999px",
-        background: "#18191c",
-        color: "#e8dfcf",
-        padding: "10px 16px",
-        font: "600 13px system-ui",
-        cursor: "pointer",
-        boxShadow: "0 8px 30px rgba(0,0,0,.35)",
-      });
-      $button.on("click", () => {
-        try {
-          void openWithAgreement();
-        } catch (error) {
-          console.error("[CreativeWorkshop] open failed", error);
-        }
-      });
-      const $settings = $(`<button id="cw-settings-button" type="button" aria-label="工坊设置">⚙</button>`).css({
-        position: "fixed",
-        right: "18px",
-        bottom: "68px",
-        zIndex: 2147483500,
-        width: "36px",
-        height: "36px",
-        border: "1px solid rgba(184,157,118,.5)",
-        borderRadius: "50%",
-        background: "#18191c",
-        color: "#e8dfcf",
-        cursor: "pointer",
-      });
-      $settings.on("click", () => {
-        void showOriginSettings(DEFAULT_ORIGIN).catch((error) =>
-          console.error("[CreativeWorkshop] settings failed", error),
-        );
-      });
-      $("body").append($button, $settings);
-    };
-    bind();
-    const observer = new MutationObserver(bind);
-    observer.observe(document.body, { childList: true });
-    try {
-      if (typeof replaceScriptButtons === "function") {
-        const existing = typeof getScriptButtons === "function" ? getScriptButtons() : [];
-        if (!Array.isArray(existing) || !existing.some((item) => item?.name === "命定创意工坊")) {
-          replaceScriptButtons([{ name: "命定创意工坊", visible: true }]);
-        }
-      }
-      if (typeof eventOn === "function" && typeof getButtonEvent === "function") {
-        eventOn(getButtonEvent("命定创意工坊"), () => {
-          void openWithAgreement().catch((error) => console.error("[CreativeWorkshop] open failed", error));
+  const ready = typeof $ === "function" ? $ : hostJQuery();
+  ready(() => {
+    const host = hostWindow();
+    const host$ = hostJQuery();
+    host$(() => {
+      const bind = () => {
+        if (host$(`#${BUTTON_ID}`).length) return;
+        host$("#cw-settings-button").remove();
+        const $button = host$(`<button id="${BUTTON_ID}" type="button">命定创意工坊</button>`).css({
+          position: "fixed",
+          right: "18px",
+          bottom: "18px",
+          zIndex: 2147483500,
+          border: "1px solid rgba(184,157,118,.5)",
+          borderRadius: "999px",
+          background: "#18191c",
+          color: "#e8dfcf",
+          padding: "10px 16px",
+          font: "600 13px system-ui",
+          cursor: "pointer",
+          boxShadow: "0 8px 30px rgba(0,0,0,.35)",
         });
+        $button.on("click", () => {
+          try {
+            void openWithAgreement();
+          } catch (error) {
+            console.error("[CreativeWorkshop] open failed", error);
+          }
+        });
+        const $settings = host$(`<button id="cw-settings-button" type="button" aria-label="工坊设置">⚙</button>`).css({
+          position: "fixed",
+          right: "18px",
+          bottom: "68px",
+          zIndex: 2147483500,
+          width: "36px",
+          height: "36px",
+          border: "1px solid rgba(184,157,118,.5)",
+          borderRadius: "50%",
+          background: "#18191c",
+          color: "#e8dfcf",
+          cursor: "pointer",
+        });
+        $settings.on("click", () => {
+          void showOriginSettings(DEFAULT_ORIGIN).catch((error) =>
+            console.error("[CreativeWorkshop] settings failed", error),
+          );
+        });
+        host$("body").append($button, $settings);
+      };
+      bind();
+      const observer = new MutationObserver(bind);
+      observer.observe(host.document.body, { childList: true });
+      try {
+        if (typeof replaceScriptButtons === "function") {
+          const existing = typeof getScriptButtons === "function" ? getScriptButtons() : [];
+          if (!Array.isArray(existing) || !existing.some((item) => item?.name === "命定创意工坊")) {
+            replaceScriptButtons([{ name: "命定创意工坊", visible: true }]);
+          }
+        }
+        if (typeof eventOn === "function" && typeof getButtonEvent === "function") {
+          eventOn(getButtonEvent("命定创意工坊"), () => {
+            void openWithAgreement().catch((error) => console.error("[CreativeWorkshop] open failed", error));
+          });
+        }
+      } catch (error) {
+        console.error("[CreativeWorkshop] script button bind failed", error);
       }
-    } catch (error) {
-      console.error("[CreativeWorkshop] script button bind failed", error);
-    }
+    });
   });
 }
 

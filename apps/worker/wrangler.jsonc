@@ -108,6 +108,8 @@
     },
     "production": {
       "name": "workshop",
+      "workers_dev": false,
+      "preview_urls": false,
       "vars": {
         "ALLOWED_ORIGINS": "https://workshop.poem-of-destiny.3378469.xyz",
         "PUBLIC_ORIGIN": "https://workshop.poem-of-destiny.3378469.xyz",

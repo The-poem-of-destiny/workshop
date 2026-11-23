@@ -24,14 +24,10 @@ jobs:
     environment: production
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-      BACKUP_BUCKET: ${{ vars.BACKUP_BUCKET }}
-      OBJECT_KEY: ${{ inputs.object_key }}
-      EXPECTED_SHA256: ${{ inputs.sha256 }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v6
         with:
           version: 11.24.0
@@ -41,9 +37,15 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Download backup
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          BACKUP_BUCKET: ${{ vars.BACKUP_BUCKET }}
+          OBJECT_KEY: ${{ inputs.object_key }}
         run: |
           set -euo pipefail
           test -n "$BACKUP_BUCKET"
+          test -n "$OBJECT_KEY"
           mkdir -p "$GITHUB_WORKSPACE/backup"
           pnpm --filter @workshop/worker exec wrangler r2 object get \
             "${BACKUP_BUCKET}/${OBJECT_KEY}" \
@@ -51,26 +53,69 @@ jobs:
           test -s "$GITHUB_WORKSPACE/backup/workshop-prod.sql"
       - name: Verify hash
         if: inputs.sha256 != ''
+        env:
+          EXPECTED_SHA256: ${{ inputs.sha256 }}
         run: |
           set -euo pipefail
-          printf '%s  %s\n' "$EXPECTED_SHA256" "$GITHUB_WORKSPACE/backup/workshop-prod.sql" | sha256sum -c -
+          [[ "$EXPECTED_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "::error::EXPECTED_SHA256 must be a 64-character hex SHA-256 digest."; exit 1; }
+          printf '%s  %s\n' "${EXPECTED_SHA256,,}" "$GITHUB_WORKSPACE/backup/workshop-prod.sql" | sha256sum -c -
       - name: Verify SQL integrity
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y sqlite3
-          db="$GITHUB_WORKSPACE/backup/workshop-prod.sqlite"
-          rm -f "$db"
-          sqlite3 "$db" < "$GITHUB_WORKSPACE/backup/workshop-prod.sql"
-          integrity="$(sqlite3 "$db" "PRAGMA integrity_check;")"
-          echo "integrity=$integrity"
-          test "$integrity" = "ok"
-          tables="$(sqlite3 "$db" "SELECT count(*) FROM sqlite_master WHERE type='table';")"
-          echo "tables=$tables"
-          if [ "$tables" -eq 0 ]; then
-            echo "::warning::backup contains no tables (empty database)"
-          fi
+          python3 - "$GITHUB_WORKSPACE/backup/workshop-prod.sql" "$GITHUB_WORKSPACE/backup/workshop-prod.sqlite" <<'PY'
+          from pathlib import Path
+          import sqlite3
+          import sys
+
+          sql_path = Path(sys.argv[1])
+          db_path = Path(sys.argv[2])
+          db_path.unlink(missing_ok=True)
+
+          REQUIRED_CORE_TABLES = {"users", "projects", "project_versions", "assets"}
+
+          conn = sqlite3.connect(db_path)
+          try:
+              def deny_attach(action, *_):
+                  if action in (sqlite3.SQLITE_ATTACH, sqlite3.SQLITE_DETACH):
+                      return sqlite3.SQLITE_DENY
+                  return sqlite3.SQLITE_OK
+
+              conn.set_authorizer(deny_attach)
+              conn.executescript(sql_path.read_text(encoding="utf-8"))
+              conn.set_authorizer(None)
+              conn.execute("PRAGMA writable_schema=OFF")
+
+              integrity = [row[0] for row in conn.execute("PRAGMA integrity_check")]
+              print(f"integrity={','.join(integrity)}")
+              if integrity != ["ok"]:
+                  print("::error::Backup SQLite PRAGMA integrity_check failed.", file=sys.stderr)
+                  sys.exit(1)
+
+              fk_violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+              if fk_violations:
+                  print(f"::error::Backup SQLite PRAGMA foreign_key_check returned {len(fk_violations)} violation(s).", file=sys.stderr)
+                  sys.exit(1)
+
+              tables = {
+                  row[0]
+                  for row in conn.execute(
+                      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'"
+                  )
+              }
+              print(f"tables={len(tables)}")
+              if not tables:
+                  print("::error::Backup contains zero tables.", file=sys.stderr)
+                  sys.exit(1)
+              missing = sorted(REQUIRED_CORE_TABLES - tables)
+              if missing:
+                  print(f"::error::Backup is missing required core tables: {', '.join(missing)}", file=sys.stderr)
+                  sys.exit(1)
+          finally:
+              conn.close()
+          PY
       - name: Record verification
+        env:
+          OBJECT_KEY: ${{ inputs.object_key }}
         run: |
           set -euo pipefail
           {

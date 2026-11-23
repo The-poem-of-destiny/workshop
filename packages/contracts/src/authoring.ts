@@ -43,13 +43,10 @@ const projectMetadataFields = z
   })
   .strict();
 
-export const projectMetadataSchema = projectMetadataFields.superRefine((value, ctx) => {
+export const createProjectSchema = projectMetadataFields.superRefine((value, ctx) => {
   const taxonomy = projectTaxonomySchema.safeParse(value);
   if (!taxonomy.success) for (const issue of taxonomy.error.issues) ctx.addIssue({ ...issue });
 });
-export type ProjectMetadata = z.infer<typeof projectMetadataSchema>;
-
-export const createProjectSchema = projectMetadataSchema;
 export type CreateProject = z.infer<typeof createProjectSchema>;
 
 export const patchProjectSchema = projectMetadataFields
@@ -69,7 +66,6 @@ export const visibilityUpdateSchema = z.object({ visibility: visibilitySchema })
 export type VisibilityUpdate = z.infer<typeof visibilityUpdateSchema>;
 
 export const uploadKindSchema = z.enum(["worldbook", "regex", "cover"]);
-export type UploadKind = z.infer<typeof uploadKindSchema>;
 
 export const submitProjectSchema = z.object({
   gate: z.enum(["pass", "warn", "block", "missing"]).optional(),
@@ -84,13 +80,11 @@ export const authoringProjectResponseSchema = z.object({
   rowVersion: z.number().int().positive(),
   workingVersionId: z.string(),
 });
-export type AuthoringProjectResponse = z.infer<typeof authoringProjectResponseSchema>;
 
 export const authoringVersionResponseSchema = z.object({
   rowVersion: z.number().int().positive(),
   versionId: z.string(),
 });
-export type AuthoringVersionResponse = z.infer<typeof authoringVersionResponseSchema>;
 
 export const uploadResponseSchema = z.object({
   kind: uploadKindSchema,

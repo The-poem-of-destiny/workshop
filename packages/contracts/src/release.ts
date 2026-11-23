@@ -8,15 +8,11 @@ export const releaseFileSchema = z.object({
   mime: z.string(),
 });
 
-export type ReleaseFile = z.infer<typeof releaseFileSchema>;
-
 export const releaseManifestSchema = z.object({
   versionId: z.string(),
   manifestHash: z.string().nullable(),
   files: z.array(releaseFileSchema),
 });
-
-export type ReleaseManifest = z.infer<typeof releaseManifestSchema>;
 
 export const downloadFileSchema = z.object({
   kind: z.enum(["worldbook", "regex"]),
@@ -27,8 +23,6 @@ export const downloadResponseSchema = z.object({
   versionId: z.string(),
   files: z.array(downloadFileSchema),
 });
-
-export type DownloadResponse = z.infer<typeof downloadResponseSchema>;
 
 export const acquisitionProjectSchema = z.object({
   id: z.string(),

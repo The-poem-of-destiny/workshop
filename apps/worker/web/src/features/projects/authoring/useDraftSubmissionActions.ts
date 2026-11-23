@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import { type AuthorProject, type AuthorSubmission, api } from "../../../api";
+import { type AuthorProject, type AuthorSubmission, api, formatUserError } from "../../../api";
 import { metadataPayload, type ProjectForm } from "../projectMetadata";
 import type { runLocalCheck } from "./checker";
 import { mergedRegexUpload } from "./preview";
@@ -56,7 +56,7 @@ function useDraftUploadActions(options: DraftSubmissionOptions) {
     try {
       await work();
     } catch (reason) {
-      onError(String(reason));
+      onError(formatUserError(reason));
     } finally {
       setBusy(false);
     }
@@ -69,17 +69,9 @@ function useDraftUploadActions(options: DraftSubmissionOptions) {
       const result = await api.deleteProjectEntry(entry.project.id, workingVersionId, rowVersion, kind, key);
       setRowVersion(result.rowVersion);
       setWorkingVersionId(result.versionId);
-      assets.setWorldbook(null);
-      assets.regexAssetsRef.current = [];
-      assets.setRegexAssets([]);
-      assets.setWorldbookUploaded(false);
-      assets.setRegexUploaded(false);
-      assets.setSubmitNotice(null);
-      assets.selectionVersion.current += 1;
-      assets.assetGeneration.current += 1;
-      assets.setParsingAssets(0);
+      assets.reset();
       onNotice("条目已从当前草稿移除；提交审核通过后生效。");
-      await onRefresh().catch((reason: unknown) => onError(`条目已移除，刷新失败：${String(reason)}`));
+      await onRefresh().catch((reason: unknown) => onError(`条目已移除，刷新失败：${formatUserError(reason)}`));
     } finally {
       setBusy(false);
     }
@@ -165,12 +157,11 @@ export function useDraftSubmissionActions(options: DraftSubmissionOptions) {
       const result = await api.createVersion(entry.project.id, rowVersion, metadataPayload(form));
       setWorkingVersionId(result.versionId);
       setRowVersion(result.rowVersion);
-      assets.setWorldbook(null);
-      assets.setRegexAssets([]);
+      assets.reset();
       await onRefresh();
       onNotice("已创建新版本，现在可以上传文件。");
     } catch (reason) {
-      onError(String(reason));
+      onError(formatUserError(reason));
     } finally {
       setBusy(false);
     }
@@ -195,7 +186,7 @@ export function useDraftSubmissionActions(options: DraftSubmissionOptions) {
       setHistoryNonce((value) => value + 1);
       await onRefresh();
     } catch (reason) {
-      onError(String(reason));
+      onError(formatUserError(reason));
     } finally {
       setBusy(false);
     }
@@ -213,7 +204,7 @@ export function useDraftSubmissionActions(options: DraftSubmissionOptions) {
       await onRefresh();
       onNotice("提交已撤回，线上公开版本不受影响；如需继续修改请点击「新建版本」。");
     } catch (reason) {
-      onError(String(reason));
+      onError(formatUserError(reason));
     } finally {
       setBusy(false);
     }

@@ -1,6 +1,7 @@
 import { adminRecommendationUpdateSchema } from "@workshop/contracts";
 import { Hono } from "hono";
 import { z } from "zod";
+import { dataClient } from "../../data-client.js";
 import type { Env } from "../../env";
 import { jsonError } from "../errors.js";
 import { sessionToken } from "../session.js";
@@ -22,7 +23,7 @@ const changeSchema = z
 recommendationRoutes.post("/changes", async (c) => {
   const input = changeSchema.safeParse(await c.req.json().catch(() => null));
   if (!input.success) return jsonError(c, "bad_request", "Invalid content change signal");
-  const result = await c.executionCtx.exports.DataService.projectChangeSignal(sessionToken(c), input.data);
+  const result = await dataClient(c.executionCtx).projectChangeSignal(sessionToken(c), input.data);
   if (result.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
   if (result.kind === "policy_required") return jsonError(c, "forbidden", "请先阅读并同意工坊使用政策并完成准入问答");
   if (result.kind === "not_found") return jsonError(c, "not_found", "Content change evidence unavailable");
@@ -33,7 +34,7 @@ for (const method of ["put", "delete"] as const) {
   recommendationRoutes[method]("/:projectId", async (c) => {
     const body = adminRecommendationUpdateSchema.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return jsonError(c, "bad_request", "Invalid version recommendation");
-    const result = await c.executionCtx.exports.DataService.projectRecommendation(
+    const result = await dataClient(c.executionCtx).projectRecommendation(
       sessionToken(c),
       c.req.param("projectId"),
       body.data,

@@ -14,7 +14,7 @@
     "web:build": "vite build --config web/vite.config.ts",
     "web:dev": "vite --config web/vite.config.ts",
     "check:wrangler": "pnpm web:build && wrangler deploy --dry-run --config wrangler.jsonc --env staging",
-    "cf-typegen": "wrangler types --config wrangler.jsonc"
+    "cf-typegen": "wrangler types --config wrangler.jsonc --include-runtime=false --env-interface=WorkerBindings"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.3.1",

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { type AdminProject, api, type Recommendation } from "../../api";
+import { type AdminProject, api, formatUserError, type Recommendation } from "../../api";
 
 type AdminRecommendationsOptions = { onError: (message: string) => void; onNotice: (message: string) => void };
 export function useAdminRecommendations({ onError, onNotice }: AdminRecommendationsOptions) {
@@ -28,8 +28,9 @@ export function useAdminRecommendations({ onError, onNotice }: AdminRecommendati
       setRecResults(result.items.slice(0, 12));
     } catch (value) {
       if (generation !== recSearchGeneration.current) return;
-      onError(`项目搜索失败：${String(value)}`);
-      setRecSearchError(`项目搜索失败：${String(value)}`);
+      const msg = `项目搜索失败：${formatUserError(value)}`;
+      onError(msg);
+      setRecSearchError(msg);
     } finally {
       if (generation === recSearchGeneration.current) setRecSearching(false);
     }
@@ -77,7 +78,7 @@ export function useAdminRecommendations({ onError, onNotice }: AdminRecommendati
       setRecSearched(false);
       onNotice("编辑精选已保存。");
     } catch (value) {
-      onError(`精选保存失败：${String(value)}`);
+      onError(`精选保存失败：${formatUserError(value)}`);
     } finally {
       recBusyRef.current = false;
       setRecBusy(false);
@@ -89,13 +90,13 @@ export function useAdminRecommendations({ onError, onNotice }: AdminRecommendati
     recBusyRef.current = true;
     setRecBusy(true);
     try {
-      await api.deleteRecommendation(removeTarget.project.id);
+      await api.deleteRecommendation(removeTarget.project.id, removeTarget.id);
       const list = await api.recommendations();
       setRecommendations(list.items);
       setRemoveTarget(null);
       onNotice("编辑精选已移除。");
     } catch (value) {
-      onError(`精选移除失败：${String(value)}`);
+      onError(`精选移除失败：${formatUserError(value)}`);
     } finally {
       recBusyRef.current = false;
       setRecBusy(false);

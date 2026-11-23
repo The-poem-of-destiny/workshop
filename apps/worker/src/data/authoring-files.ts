@@ -6,10 +6,10 @@ import { getVersionForProject } from "../storage/authoring-versions.js";
 import { uploadGalleryImage } from "../storage/project-gallery.js";
 import { type AuthenticatedSession, getSessionByToken } from "../storage/sessions.js";
 import type { DataEnv } from "./env.js";
+import { hashContentStream } from "./hash-stream.js";
 import { replicatePublicGallery, withdrawPublicGallery } from "./public-gallery.js";
-import { hashContentStream } from "./streaming-content.js";
 import { streamImage, UploadLimitError } from "./streaming-image.js";
-import { type StagedStream, stageStream } from "./streaming-staging.js";
+import { type StagedStream, stageStream, UploadStreamReadError } from "./streaming-staging.js";
 
 const ALLOWED_MIME: Record<string, readonly string[]> = {
   worldbook: ["application/json", "text/plain"],
@@ -137,10 +137,11 @@ async function stageValidatedContentUpload(
   } catch (error) {
     if (error instanceof RangeError && error.message === "Upload exceeds staging size")
       return errorResponse("payload_too_large", sizeError);
+    if (error instanceof UploadStreamReadError) return errorResponse("bad_request", "上传内容读取中断，请重试");
     throw error;
   }
   try {
-    const id = env.CONTENT_SERVICE.idFromName("content-validator");
+    const id = env.CONTENT_SERVICE.idFromName(`content-validator:${projectId}`);
     const endpoint = kind === "worldbook" ? "normalize-worldbook" : "validate-stream";
     const response = await env.CONTENT_SERVICE.get(id).fetch(`https://content-service/${endpoint}?kind=${kind}`, {
       method: "POST",
@@ -191,6 +192,7 @@ async function stageCoverUpload(
       (error instanceof RangeError && error.message === "Upload exceeds staging size")
     )
       return errorResponse("payload_too_large", sizeError);
+    if (error instanceof UploadStreamReadError) return errorResponse("bad_request", "封面上传读取中断，请重试");
     throw error;
   }
   try {
@@ -311,6 +313,7 @@ async function handlePutGalleryImage(
       (error instanceof RangeError && error.message === "Upload exceeds staging size")
     )
       return errorResponse("payload_too_large", "Gallery image exceeds 1MiB limit");
+    if (error instanceof UploadStreamReadError) return errorResponse("bad_request", "预览图上传读取中断，请重试");
     throw error;
   }
   const slot = Number(rawSlot);

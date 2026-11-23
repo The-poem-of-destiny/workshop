@@ -18,9 +18,10 @@ await build({
   outfile,
   logLevel: "silent",
 });
-const { entryIdentity, writeEntry, readIndex, INDEX_NAME } = await import(pathToFileURL(outfile).href);
+const { entryIdentity, writeEntry, readIndex, updateIndex, indexProject } = await import(pathToFileURL(outfile).href);
 after(() => rm(dir, { recursive: true, force: true }));
 
+const INDEX_NAME = "[工坊]创意工坊项目注册表";
 const id = { projectId: "project", key: "entry", version: "v1" };
 const block = (body) => `<%#\n${body}\n%>`;
 
@@ -38,7 +39,7 @@ test("quoted and flow-style root namespaces are recognized", () => {
   const content = block('{"workshop_entry": {version: 1, project_id: project, entry_key: entry, version_id: v1}}');
   assert.deepEqual(entryIdentity(content), id);
   const index = block('{"workshop_index": {version: 1, projects: []}}');
-  assert.equal(INDEX_NAME, "[工坊]创意工坊项目注册表");
+  assert.equal(updateIndex([], null, indexProject("p", "1"))[0].name, INDEX_NAME);
   assert.deepEqual(readIndex([{ name: INDEX_NAME, content: index }]), []);
   assert.deepEqual(readIndex([{ name: "[WS]创意工坊项目注册表", content: index }]), []);
 });
@@ -46,6 +47,21 @@ test("quoted and flow-style root namespaces are recognized", () => {
 test("damaged or duplicate root namespaces are rejected", () => {
   const valid = block("workshop_entry: {version: 1, project_id: project, entry_key: entry, version_id: v1}");
   assert.throws(() => entryIdentity(block("workshop_entry: [broken")), /损坏或重复/);
+  assert.throws(() => entryIdentity(block("[broken\nworkshop_entry: {version: 1}")), /损坏或重复/);
+  assert.throws(() => entryIdentity(`<%# unclosed\n${valid}`), /损坏或重复/);
   assert.throws(() => entryIdentity(block("workshop_entry: {}\nworkshop_entry: {}")), /损坏或重复/);
   assert.throws(() => entryIdentity(`${valid}\n${valid}`), /损坏或重复/);
+  assert.throws(
+    () =>
+      readIndex([
+        { name: INDEX_NAME, content: `<%# unclosed\n${block("workshop_index: {version: 1, projects: []}")}` },
+      ]),
+    /损坏或重复/,
+  );
+});
+
+test("unclosed EJS comments cannot swallow appended workshop metadata", () => {
+  for (const content of ["prose <%# unclosed", "<%#\nother:\n  text: |", "before <%# comment"]) {
+    assert.throws(() => writeEntry({ content }, id), /未闭合的 EJS 注释/);
+  }
 });

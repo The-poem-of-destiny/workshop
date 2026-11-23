@@ -2,7 +2,7 @@ import { expressionEvidence, networkCapability, propertyName, staticStringValues
 import { CHECK_POLICY_VERSION } from "./policy-config.mjs";
 import { buildScopes, resolveBinding } from "./scope.mjs";
 
-const GLOBALS = new Set(["window", "globalThis", "self"]);
+const GLOBALS = new Set(["window", "globalThis", "self", "top", "parent", "frames"]);
 const SENSITIVE_WORDS = new Set([
   "token",
   "auth",
@@ -25,7 +25,8 @@ function literalString(node) {
   return null;
 }
 function unwrap(node) {
-  return node?.type === "ChainExpression" ? node.expression : node;
+  while (node?.type === "ChainExpression") node = node.expression;
+  return node;
 }
 function globalObject(node, scope) {
   node = unwrap(node);
@@ -164,7 +165,6 @@ function isInfiniteLoopHeader(label, header) {
 export function inspectCapabilities(entry, parsed) {
   const findings = [],
     seen = new Set();
-  if (parsed.internalErrors?.length) return findings;
   const raw = String(entry.rawContent ?? entry.content ?? "");
   const add = (unit, node, ruleId, severity, title, suggestion, detail, evidence = {}) => {
     const index = unit.sourceMap.map(node.start);
@@ -188,6 +188,26 @@ export function inspectCapabilities(entry, parsed) {
       },
     });
   };
+  for (const item of parsed.dynamicHtmlUnits ?? []) {
+    const key = "AH2:" + item.index;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    findings.push({
+      ruleId: "AH2",
+      severity: "hint",
+      title: "发现动态 EJS 拼接 HTML 脚本或事件代码",
+      index: item.index,
+      detail: raw.slice(item.index, Math.min(raw.length, item.index + 220)),
+      suggestion: "请人工确认 EJS 动态输出或拼接到 HTML 脚本/事件属性中的内容不会构造危险代码。",
+      extra: {
+        riskEvidence: {
+          action: "AH2",
+          expression: JSON.stringify("dynamic-ejs-html:" + item.kind),
+          policyVersion: CHECK_POLICY_VERSION,
+        },
+      },
+    });
+  }
   const reportInfinite = (unit, node) =>
     add(
       unit,
@@ -206,8 +226,9 @@ export function inspectCapabilities(entry, parsed) {
       { nodes } = analysis;
     for (const { node, scope, parent } of nodes) {
       if (!unit.sourceMap.isOriginal(node.start)) continue;
-      inspectDynamicExecution(node, scope, parent, unit, add);
+      inspectDynamicExecution(node, scope, parent, unit, analysis, add);
       inspectSensitiveAccess(node, scope, unit, add);
+      inspectModuleImport(node, scope, unit, analysis, add);
 
       if (
         node.type === "WhileStatement" &&
@@ -234,40 +255,79 @@ export function inspectCapabilities(entry, parsed) {
   return findings;
 }
 
-function inspectDynamicExecution(node, scope, parent, unit, add) {
-  if (node.type === "ObjectPattern") {
-    const source =
-      parent?.type === "VariableDeclarator" && parent.id === node
-        ? parent.init
-        : parent?.type === "AssignmentExpression" && parent.left === node
-          ? parent.right
-          : null;
-    if (globalObject(source, scope))
-      for (const property of node.properties) {
-        if (property.type !== "Property") continue;
-        const key = property.computed
-          ? literalString(property.key)
-          : (property.key.name ?? literalString(property.key));
-        if (key === "eval")
-          add(
-            unit,
-            property,
-            "M1",
-            "high",
-            "使用 eval 动态执行代码（公约阻断）",
-            "Workshop 项目禁止调用、转存或间接使用 eval；请改成固定逻辑。",
-          );
-        if (key === "Function")
-          add(
-            unit,
-            property,
-            "M2",
-            "high",
-            "使用 Function 构造器动态创建代码（公约阻断）",
-            "Workshop 项目禁止调用或转存 Function 构造器；请改用固定函数或明确分支。",
-          );
-      }
+function isFunctionObject(node, analysis, scope, visited = new Set()) {
+  node = unwrap(node);
+  if (!node || visited.has(node)) return false;
+  if (node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") return true;
+  if (
+    node.type === "MemberExpression" &&
+    memberName(node) === "prototype" &&
+    builtin(node.object, FUNCTION, scope) === "Function"
+  ) {
+    return true;
   }
+  if (node.type === "Identifier") {
+    visited = new Set(visited).add(node);
+    const binding = resolveBinding(scope, node.name)?.[0];
+    if (!binding) return false;
+    if (binding.kind === "function" || binding.kind === "function-name") return true;
+    const declaration = analysis.nodes.find(
+      (item) => item.node.type === "VariableDeclarator" && item.node.id === binding.node,
+    );
+    return declaration ? isFunctionObject(declaration.node.init, analysis, declaration.scope, visited) : false;
+  }
+  return false;
+}
+
+function inspectObjectPatternExecution(node, scope, parent, unit, analysis, add) {
+  const source =
+    parent?.type === "VariableDeclarator" && parent.id === node
+      ? parent.init
+      : parent?.type === "AssignmentExpression" && parent.left === node
+        ? parent.right
+        : null;
+  const fromGlobal = globalObject(source, scope);
+  const fromFunction = !fromGlobal && isFunctionObject(source, analysis, scope);
+  if (!fromGlobal && !fromFunction) return;
+  for (const property of node.properties) {
+    if (property.type !== "Property") continue;
+    const key = property.computed ? literalString(property.key) : (property.key.name ?? literalString(property.key));
+    if (fromGlobal && key === "eval")
+      add(
+        unit,
+        property,
+        "M1",
+        "high",
+        "使用 eval 动态执行代码（公约阻断）",
+        "Workshop 项目禁止调用、转存或间接使用 eval；请改成固定逻辑。",
+      );
+    if ((fromGlobal && key === "Function") || (fromFunction && key === "constructor"))
+      add(
+        unit,
+        property,
+        "M2",
+        "high",
+        "使用 Function 构造器动态创建代码（公约阻断）",
+        "Workshop 项目禁止调用或转存 Function 构造器；请改用固定函数或明确分支。",
+      );
+  }
+}
+
+function inspectDynamicExecution(node, scope, parent, unit, analysis, add) {
+  if (node.type === "ObjectPattern") inspectObjectPatternExecution(node, scope, parent, unit, analysis, add);
+  if (
+    node.type === "MemberExpression" &&
+    memberName(node) === "constructor" &&
+    isFunctionObject(node.object, analysis, scope)
+  )
+    add(
+      unit,
+      node,
+      "M2",
+      "high",
+      "使用 Function 构造器动态创建代码（公约阻断）",
+      "Workshop 项目禁止通过函数 .constructor 或 Function 构造器动态生成可执行代码；改用固定函数或明确分支。",
+    );
   if (reference(node, parent) && builtin(node, EVAL, scope))
     add(
       unit,
@@ -286,6 +346,60 @@ function inspectDynamicExecution(node, scope, parent, unit, add) {
       "使用 Function 构造器动态创建代码（公约阻断）",
       "Workshop 项目禁止调用或转存 Function 构造器来生成可执行代码；改用固定函数或明确分支。",
     );
+}
+
+function inspectModuleImport(node, scope, unit, analysis, add) {
+  if (node.type === "ImportExpression") {
+    const target = staticStringValues(node.source, analysis, scope);
+    add(
+      unit,
+      node,
+      "M4",
+      "warn",
+      "检测到主动网络通信或模块加载，需要审核",
+      "这不会自动拒绝上传；请由审核员确认动态 import() 的目标来源与功能需要。",
+      undefined,
+      {
+        action: "import",
+        target: target ?? "dynamic",
+        method: "GET",
+        usage: "network",
+      },
+    );
+    if (!target)
+      add(
+        unit,
+        node,
+        "U5",
+        "warn",
+        "网络目标由运行时变量决定",
+        "如果这是固定资源，请改成有限、明确的 URL 映射；如果确实必须动态加载模块，需要人工确认实际目标范围。",
+        undefined,
+        { action: "import", target: "dynamic", usage: "network" },
+      );
+    return;
+  }
+  if (
+    node.type === "ImportDeclaration" ||
+    ((node.type === "ExportNamedDeclaration" || node.type === "ExportAllDeclaration") && node.source)
+  ) {
+    const target = literalString(node.source);
+    add(
+      unit,
+      node,
+      "M4",
+      "warn",
+      "检测到外部模块导入，需要审核",
+      "这不会自动拒绝上传；请由审核员确认导入模块来源与功能需要。",
+      undefined,
+      {
+        action: "import",
+        target: target ? [target] : "dynamic",
+        method: "GET",
+        usage: "network",
+      },
+    );
+  }
 }
 
 function inspectSensitiveAccess(node, scope, unit, add) {
@@ -392,6 +506,7 @@ function inspectCallHints(node, scope, unit, add, callee, method, indirect) {
     );
   if (
     indirect ||
+    (method === "constructor" && node.arguments.length > 0) ||
     (callee.type === "MemberExpression" &&
       callee.computed &&
       memberName(callee) === null &&

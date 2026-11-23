@@ -113,6 +113,24 @@ function validateIntent(intent: InstallIntent, snapshot: Snapshot, old: Group | 
   return project;
 }
 
+function resolveTarget(
+  intent: InstallIntent,
+  snapshot: Snapshot,
+  old: Group | null | undefined,
+): InstallPreview["target"] {
+  if (intent.action === "uninstall") return copy(old!.instance.location);
+  if (intent.action === "migrate") {
+    return {
+      worldbook: intent.targetWorldbook ?? null,
+      character: old?.instance.location.character ?? null,
+    };
+  }
+  return {
+    worldbook: intent.files?.worldbook ? (intent.targetWorldbook ?? old?.instance.location.worldbook ?? null) : null,
+    character: intent.files?.regex ? (old?.instance.location.character ?? snapshot.character) : null,
+  };
+}
+
 function validateTarget(
   intent: InstallIntent,
   snapshot: Snapshot,
@@ -126,11 +144,13 @@ function validateTarget(
     throw new Error("目标世界书不存在");
   if (target.worldbook && snapshot.failures.some((f) => f.location === target.worldbook))
     throw new Error("目标世界书读取失败");
-  if (old?.instance.location.worldbook && !snapshot.books.has(old.instance.location.worldbook))
+  const sourceBook = old?.instance.location.worldbook;
+  if (sourceBook && !snapshot.names.includes(sourceBook)) throw new Error("来源世界书不存在");
+  if (sourceBook && (snapshot.failures.some((f) => f.location === sourceBook) || !snapshot.books.has(sourceBook)))
     throw new Error("来源世界书读取失败");
   if (
     (target.worldbook && found.ambiguousBooks.has(target.worldbook)) ||
-    (old?.instance.location.worldbook && found.ambiguousBooks.has(old.instance.location.worldbook)) ||
+    (sourceBook && found.ambiguousBooks.has(sourceBook)) ||
     ((old?.instance.location.character || intent.files?.regex) && found.ambiguousCharacter)
   )
     throw new Error("操作位置含身份存疑内容，请先手动卸载并重新下载");
@@ -153,9 +173,13 @@ export function plannedBookRows(
   ];
   const projectId = intent.project?.id ?? old?.instance.projectId;
   if (projectId) {
+    const sourcePrior = source
+      ? readIndex(snapshot.books.get(source) ?? []).find((item) => item.project_id === projectId)
+      : undefined;
     const prior =
-      readIndex(rows).find((item) => item.project_id === projectId) ??
-      (source ? readIndex(snapshot.books.get(source) ?? []).find((item) => item.project_id === projectId) : undefined);
+      sourcePrior && sourcePrior.version_id === old?.instance.version
+        ? sourcePrior
+        : readIndex(rows).find((item) => item.project_id === projectId && item.version_id === old?.instance.version);
     const adding = name === target && book.length > 0;
     const details = intent.project
       ? indexProject(projectId, intent.project.version, intent.project)
@@ -171,22 +195,16 @@ export async function preparePlan(host: InstallHost, intent: InstallIntent): Pro
   const old = intent.instanceId ? found.groups.get(intent.instanceId) : null;
   const project = validateIntent(intent, snapshot, old);
   const instanceId = old?.instance.instanceId ?? host.uuid();
-  const target = {
-    worldbook: intent.targetWorldbook ?? old?.instance.location.worldbook ?? null,
-    character: old?.instance.location.character ?? (intent.files?.regex ? snapshot.character : null),
-  };
+  const target = resolveTarget(intent, snapshot, old);
   validateTarget(intent, snapshot, found, old, target);
-  if (
-    target.worldbook &&
-    target.worldbook !== old?.instance.location.worldbook &&
-    readIndex(snapshot.books.get(target.worldbook) ?? []).some(
-      (item) => item.project_id === (project?.id ?? old?.instance.projectId),
-    )
-  )
-    throw new Error("目标世界书注册表已包含此项目");
   let { book, regex } = incoming(host, intent, old, instanceId);
-  if (new Set(book.map((row) => identity(row)?.key)).size !== book.length) throw new Error("世界书条目身份重复");
-  if (intent.action === "migrate" && (!target.worldbook || target.worldbook === old!.instance.location.worldbook))
+  const bookKeys = book.map((row) => identity(row)?.key);
+  if (bookKeys.some((key) => !key)) throw new Error("世界书条目缺少有效身份");
+  if (new Set(bookKeys).size !== book.length) throw new Error("世界书条目身份重复");
+  if (
+    intent.action === "migrate" &&
+    (!old!.book.length || !target.worldbook || target.worldbook === old!.instance.location.worldbook)
+  )
     throw new Error("请选择不同的迁移目标");
   if (
     target.worldbook &&

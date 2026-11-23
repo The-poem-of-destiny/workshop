@@ -1,4 +1,14 @@
-import type { AuditAction, ProjectType } from "@workshop/contracts";
+import {
+  type AdminAuditEvent,
+  type AdminProjectList,
+  type AdminSubmissionDetail,
+  type AuditAction,
+  adminProjectListSchema,
+  adminSubmissionDetailSchema,
+  type ProjectType,
+  type SubmissionDiff,
+  submissionDiffSchema,
+} from "@workshop/contracts";
 import {
   getAdminSubmission,
   getSubmissionAsset,
@@ -32,16 +42,52 @@ async function reviewer(env: DataEnv, authorization: string | undefined, owner =
   return { kind: "ok" as const, session };
 }
 
+type RpcJson = string | number | boolean | object | null;
+
+type RpcAuditEvent =
+  | Exclude<AdminAuditEvent, { action: "site.update" }>
+  | (Omit<Extract<AdminAuditEvent, { action: "site.update" }>, "detail"> & {
+      detail: { before: Record<string, RpcJson>; after: Record<string, RpcJson> };
+    });
+
+type RpcEntryChange = {
+  entryKey: string;
+  name: string;
+  before: Record<string, RpcJson> | null;
+  after: Record<string, RpcJson> | null;
+};
+
+type RpcDiffKind = {
+  added: RpcEntryChange[];
+  modified: Array<RpcEntryChange & { changedFields?: string[] }>;
+  deleted: RpcEntryChange[];
+  unchanged: number;
+  entries: Array<{ entryKey: string; name: string; value: Record<string, RpcJson> }>;
+};
+
+type RpcSubmissionDiff = Omit<SubmissionDiff, "metadata" | "worldbook" | "regex"> & {
+  metadata: { before: Record<string, RpcJson> | null; after: Record<string, RpcJson> };
+  worldbook: RpcDiffKind;
+  regex: RpcDiffKind;
+};
+
+type RpcAdminSubmissionDetail = Omit<AdminSubmissionDetail, "submission"> & {
+  submission: Omit<AdminSubmissionDetail["submission"], "checkReport"> & { checkReport: RpcJson };
+};
+
 export async function adminListProjects(
   env: DataEnv,
   authorization: string | undefined,
   limit: number,
   cursor: string | undefined,
   filters: { search?: string; projectType?: ProjectType; includeDeleted?: boolean },
-) {
+): Promise<{ kind: "unauthorized" } | { kind: "forbidden" } | { kind: "ok"; data: AdminProjectList }> {
   const auth = await reviewer(env, authorization);
   if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await listAdminProjects(env.DB, limit, cursor, filters) };
+  return {
+    kind: "ok" as const,
+    data: adminProjectListSchema.parse(await listAdminProjects(env.DB, limit, cursor, filters)),
+  };
 }
 
 export async function adminListMembers(
@@ -61,7 +107,11 @@ export async function adminListAuditEvents(
   limit: number,
   cursor: string | undefined,
   action: AuditAction | undefined,
-) {
+): Promise<
+  | { kind: "unauthorized" }
+  | { kind: "forbidden" }
+  | { kind: "ok"; data: { items: RpcAuditEvent[]; nextCursor: string | null } }
+> {
   const auth = await reviewer(env, authorization);
   if (auth.kind !== "ok") return auth;
   return { kind: "ok" as const, data: await listAdminAuditEvents(env.DB, limit, cursor, action) };
@@ -88,16 +138,26 @@ export async function adminListSubmissions(
   return { kind: "ok" as const, data: await listAdminSubmissions(env.DB, query) };
 }
 
-export async function adminGetSubmission(env: DataEnv, authorization: string | undefined, id: string) {
+export async function adminGetSubmission(
+  env: DataEnv,
+  authorization: string | undefined,
+  id: string,
+): Promise<{ kind: "unauthorized" } | { kind: "forbidden" } | { kind: "ok"; data: RpcAdminSubmissionDetail | null }> {
   const auth = await reviewer(env, authorization);
   if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await getAdminSubmission(env.DB, env.R2, id) };
+  const raw = await getAdminSubmission(env.DB, env.R2, id);
+  return { kind: "ok" as const, data: raw ? adminSubmissionDetailSchema.parse(raw) : null };
 }
 
-export async function adminGetDiff(env: DataEnv, authorization: string | undefined, id: string) {
+export async function adminGetDiff(
+  env: DataEnv,
+  authorization: string | undefined,
+  id: string,
+): Promise<{ kind: "unauthorized" } | { kind: "forbidden" } | { kind: "ok"; data: RpcSubmissionDiff | null }> {
   const auth = await reviewer(env, authorization);
   if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await getSubmissionDiff(env.DB, env.R2, id) };
+  const raw = await getSubmissionDiff(env.DB, env.R2, id);
+  return { kind: "ok" as const, data: raw ? submissionDiffSchema.parse(raw) : null };
 }
 
 export async function adminReview(
@@ -108,16 +168,16 @@ export async function adminReview(
 ) {
   const auth = await reviewer(env, authorization);
   if (auth.kind !== "ok") return auth;
-  const target =
-    env.PUBLIC_COVERS && request.decision === "approve"
-      ? await env.DB.prepare("SELECT project_id FROM submissions WHERE id = ? AND status = 'pending'")
-          .bind(id)
-          .first<{ project_id: string }>()
-      : null;
-  if (target && !(await withdrawPublicCover(env, target.project_id)))
-    throw new Error("Public cover withdrawal pending");
-  const data = await reviewAdminSubmission(env.DB, id, auth.session.userId, request);
-  if (target) await refreshPublicProjectImages(env, target.project_id);
+  const data = await reviewAdminSubmission(
+    env.DB,
+    id,
+    auth.session.userId,
+    request,
+    env.PUBLIC_COVERS ? (projectId) => withdrawPublicCover(env, projectId) : undefined,
+  );
+  if (data.kind === "ok" && request.decision === "approve") {
+    await refreshPublicProjectImages(env, data.projectId);
+  }
   return { kind: "ok" as const, data };
 }
 
@@ -132,10 +192,18 @@ export async function adminUpdateRecommendation(
   return { kind: "ok" as const, data: await updateAdminRecommendation(env.DB, id, auth.session.userId, update, false) };
 }
 
-export async function adminDeleteRecommendation(env: DataEnv, authorization: string | undefined, id: string) {
+export async function adminDeleteRecommendation(
+  env: DataEnv,
+  authorization: string | undefined,
+  id: string,
+  recommendationId?: string,
+) {
   const auth = await reviewer(env, authorization, true);
   if (auth.kind !== "ok") return auth;
-  return { kind: "ok" as const, data: await deleteAdminRecommendation(env.DB, id, auth.session.userId) };
+  return {
+    kind: "ok" as const,
+    data: await deleteAdminRecommendation(env.DB, id, auth.session.userId, undefined, recommendationId),
+  };
 }
 
 export async function adminRecheck(env: DataEnv, authorization: string | undefined, id: string) {

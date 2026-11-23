@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { dataClient } from "../data-client";
 import type { Env } from "../env";
 
 export function sessionToken(c: Context<{ Bindings: Env }>): string {
@@ -9,5 +10,5 @@ export function sessionToken(c: Context<{ Bindings: Env }>): string {
 export async function requireSession(c: Context<{ Bindings: Env }>) {
   const token = sessionToken(c);
   if (!token) return null;
-  return c.executionCtx.exports.DataService.identitySession(token);
+  return dataClient(c.executionCtx).identitySession(token);
 }

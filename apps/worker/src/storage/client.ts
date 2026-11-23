@@ -6,9 +6,9 @@ export interface ClientChannel {
   publishedAt?: string;
 }
 
-export type ClientChannels = Record<string, ClientChannel>;
+type ClientChannels = Record<string, ClientChannel>;
 
-export async function getClientChannels(db: D1Database): Promise<ClientChannels> {
+async function getClientChannels(db: D1Database): Promise<ClientChannels> {
   const row = await db
     .prepare("SELECT value FROM site_settings WHERE key = 'client_channels'")
     .first<{ value: string }>();

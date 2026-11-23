@@ -6,7 +6,7 @@
  * entryId/book/entry/uid/line/column and an optional riskEvidence block.
  */
 
-export interface RiskEvidence {
+interface RiskEvidence {
   action: string;
   usage: string;
   target: string;
@@ -30,7 +30,7 @@ export interface CheckFinding {
   riskEvidence: RiskEvidence | null;
 }
 
-export interface CheckReportFile {
+interface CheckReportFile {
   fileName: string;
   type: string;
   size: number | null;
@@ -38,7 +38,7 @@ export interface CheckReportFile {
   ejsEntries: number | null;
 }
 
-export interface MetadataReport {
+interface MetadataReport {
   gate: string | null;
   findings: { field: string; severity: "warn" | "block"; message: string }[];
 }

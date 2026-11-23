@@ -1,29 +1,31 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
-  // Continuous gates check dependencies and reachable static runtime cycles.
-  // Files/exports remain an opt-in audit; dynamic imports do not form initialization cycles.
-  // Do not turn every source file into an entry or ignore a workspace to silence findings.
+  "includeEntryExports": true,
+  "ignoreExportsUsedInFile": true,
   "rules": { "cycles": "error" },
+  "ignoreIssues": {
+    // Cloudflare Worker / Durable Object / WorkerEntrypoint runtime exports.
+    "apps/worker/src/index.ts": ["exports"],
+    // Standalone esbuild IIFE bundle entry (`window.PoemEjsChecker`).
+    "packages/content/src/ejs-checker/browser.mjs": ["exports"],
+    // Handwritten ambient declarations mirroring packages/content/src/index.mjs.
+    "packages/content/src/index.d.ts": ["exports"]
+  },
   "workspaces": {
     ".": {
       "entry": [
         "tools/migrate/full-r2.mjs",
         "tools/migrate/full-transform-content.mjs",
-        "tools/analyze-recommendations.mjs",
-        "tools/backup/verify.mjs"
+        "tools/dev/load-legacy-fixture.mts"
       ],
-      "project": ["tools/**/*.mjs"],
+      "project": ["tools/**/*.{mjs,mts}"],
       // Recursive `pnpm -r --if-present typecheck` is a workspace script, not
-      // an npm executable. E2E invokes Wrangler through --filter @workshop/worker,
-      // where Wrangler is declared; it is intentionally not a root dependency.
-      "ignoreBinaries": ["typecheck", "wrangler"]
+      // an npm executable; `ffmpeg` is an optional host tool for preview fixtures.
+      "ignoreBinaries": ["typecheck", "ffmpeg"]
     },
     "apps/worker": {
       "project": ["src/**/*.ts", "test/**/*.ts", "web/src/**/*.{ts,tsx,css}", "*.config.ts"],
       "wrangler": { "config": ["wrangler.jsonc"] },
-      // Knip normalizes the host-provided cloudflare:workers and cloudflare:test
-      // IDs to the package name cloudflare. Neither is an npm dependency.
-      "ignoreDependencies": ["cloudflare"],
       // Vite is nested, not at the workspace root. Its HTML entry and CSS imports
       // (including tailwindcss) must stay in the dependency graph.
       "vite": { "config": ["web/vite.config.ts"] },
@@ -45,7 +47,7 @@
         "scripts/*.mjs",
         "test/*.test.mjs"
       ],
-      "project": ["src/**/*.{mjs,ts}", "scripts/*.mjs", "test/*.mjs"]
+      "project": ["src/**/*.mjs", "scripts/*.mjs", "test/*.mjs"]
     },
     "packages/contracts": {
       // Public entry is package.json exports/types, not every contract module.

@@ -7,30 +7,32 @@
 | 配置 | 顶层默认 | staging | production |
 |---|---|---|---|
 | Worker 名称 | `workshop` | `workshop-staging` | `workshop` |
-| `DB` D1 | `workshop-staging` | `workshop-staging` | `workshop-prod` |
+| `DB` D1 | `workshop-staging-migrate-977ebb415bf6` | `workshop-staging-migrate-977ebb415bf6` | `workshop-prod` |
 | `R2` | `workshop-client-staging` | `workshop-client-staging` | `workshop-client-prod` |
-| `ALLOWED_ORIGINS` | `http://localhost:8787,http://127.0.0.1:8787` | `https://workshop-staging.poem-of-destiny.3378469.xyz` | `https://workshop.poem-of-destiny.3378469.xyz`（待部署） |
-| `PUBLIC_ORIGIN` | `http://localhost:8787` | `https://workshop-staging.poem-of-destiny.3378469.xyz` | `https://workshop.poem-of-destiny.3378469.xyz`（待部署） |
-| `DISCORD_CLIENT_ID` | `1562466173268926575` | `1562466173268926575` | 空字符串 |
-| `DISCORD_ALLOWED_GUILD_IDS` | `1417861565679669272,1134557553011998840` | 同顶层 | 空字符串 |
-| `DISCORD_GUILD_ROLE_IDS` | `1134557553011998840:1335363403870502912` | 同顶层 | 空字符串 |
+| `PUBLIC_COVERS` R2 | 未声明 | `workshop-img-staging` | `workshop-img-prod` |
+| `ALLOWED_ORIGINS` | `http://localhost:8787,http://127.0.0.1:8787` | `https://workshop-staging.poem-of-destiny.3378469.xyz` | `https://workshop.poem-of-destiny.3378469.xyz` |
+| `PUBLIC_ORIGIN` | `http://localhost:8787` | `https://workshop-staging.poem-of-destiny.3378469.xyz` | `https://workshop.poem-of-destiny.3378469.xyz` |
+| `PUBLIC_ASSETS_BASE_URL` | 未设置 | `https://assets-staging.poem-of-destiny.3378469.xyz` | `https://assets.poem-of-destiny.3378469.xyz` |
+| `DISCORD_CLIENT_ID` | `1562466173268926575` | `1562466173268926575` | `1562466173268926575` |
+| `DISCORD_ALLOWED_GUILD_IDS` | `1417861565679669272,1134557553011998840` | 同顶层 | 同顶层 |
+| `DISCORD_GUILD_ROLE_IDS` | `1134557553011998840:1335363403870502912` | 同顶层 | 同顶层 |
 
 staging 配置 `workers_dev: false`、`preview_urls: false`，只通过自定义域访问；迁移控制 CLI 也使用此域。两个应用自定义域的目录限流、production 替代入口的覆盖限制及线上证据见[边缘上线记录](../plans/refactor-2026-10/edge-cache-rollout.md#2-waf-与速率限制)。
 
 Tavern 客户端构建默认打开 `https://workshop.poem-of-destiny.3378469.xyz`。构建时可用 `CW_DEFAULT_ORIGIN` 覆盖默认值；用户已保存的 `cw_worker_origin` 设置继续优先，不会随新构建改写。
 
-顶层配置还声明 `ASSETS` 静态资源绑定，目录为 `./web/dist`，`/api/*`、`/client/*`、`/assets/*` 先运行 Worker；`CONTENT_SERVICE` 是 `ContentService` Durable Object，使用 SQLite 类迁移 `v1`；`WRITE_BARRIER` 是 `WriteBarrier` Durable Object，使用 SQLite 类迁移 `v2`，各环境均声明绑定。D1 迁移目录为 `./migrations`，定时触发为每分钟。具体环境的资源、部署配置和最终绑定应在授权部署时核实，不能仅凭表中仓库值推断线上状态。
+顶层配置声明 `ASSETS` 静态资源绑定，目录为 `./web/dist`，`run_worker_first` 仅包含 `["/", "/index.html"]`（用于在配置有效 HTTPS `PUBLIC_ASSETS_BASE_URL` 时将对应公开资源源追加进 HTML 的 `Content-Security-Policy` `img-src`；`/assets/*` 带一年 `immutable` 与 `nosniff` 响应头，`/api/*` 与 `/client/*` 无静态文件命中故直接进入 Worker）；`CONTENT_SERVICE` 是 `ContentService` Durable Object，使用 SQLite 类迁移 `v1`；`WRITE_BARRIER` 是 `WriteBarrier` Durable Object，使用 SQLite 类迁移 `v2`，各环境均声明绑定。`PUBLIC_COVERS` 与 `PUBLIC_ASSETS_BASE_URL` 同时配置时启用公开封面、画廊与横幅的独立 R2 副本分发，未配置时回退至 Worker 受控资源路径。D1 迁移目录为 `./migrations`，定时触发为每分钟。具体环境的资源、部署配置和最终绑定应在授权部署时核实，不能仅凭表中仓库值推断线上状态。
 
 ## 变量、secret 与认证
 
 - `ALLOWED_ORIGINS` 是逗号分隔、去除空白后的精确 origin 列表。API CORS 的预检对不允许的 origin 返回 403；创建 OAuth flow 也要求请求有匹配的 `Origin`。它不是通配符列表。
 - `PUBLIC_ORIGIN` 用于生成 OAuth 回调地址 `<PUBLIC_ORIGIN>/api/v1/auth/callback`，末尾斜杠会移除；变量未定义时回退到请求 origin。应与 Discord 应用登记的回调地址一致，并使用该环境实际公开地址。
-- Production 自定义域已绑定现有 `workshop` Worker；新域 `/api/v1/health` 已通过 HTTPS 返回 200。生产 Discord 回调已由应用维护者确认登记，GitHub `production` environment 的 `PRODUCTION_URL` 已切到新域并回读确认；未验证完整 OAuth 往返。本表中的生产 origin 是下次获准部署时使用的源码配置，未修改线上 Worker 环境变量，也未部署。
+- Production 自定义域已绑定现有 `workshop` Worker；新域 `/api/v1/health` 已通过 HTTPS 返回 200。生产 Discord 回调已由应用维护者确认登记，GitHub `production` environment 的 `PRODUCTION_URL` 已切到新域并回读确认。本表中的生产变量以当前仓库 `wrangler.jsonc` 为准，完整 OAuth 登录仍需远端 `DISCORD_CLIENT_SECRET` 与已发布 Worker 配置匹配。
 - `STAGING_AUTHOR_TOKEN`：仅在 staging 的 Worker secret 中配置，与维护令牌及 Discord 凭据分开。通过 staging 自定义域向 `POST /api/v1/staging/author-session` 提交该 Bearer，签发固定 `staging-cover-test-author` 普通成员的 15 分钟会话；不接受用户 ID 参数。该账户须预先在 staging D1 创建，再经正常政策确认接口完成准入。测试结束调用 `DELETE /api/v1/sessions/current` 撤销会话；不在 production 配置该 secret。
-- `DISCORD_CLIENT_ID` 是 OAuth 应用 ID；`DISCORD_CLIENT_SECRET` 是服务端 secret，不写入 `vars` 或仓库。缺少 ID 时 flow 创建会返回本地 pending 地址而不是 Discord 授权地址；兑换授权码要求 ID 和 secret，缺失会失败。生产仓库中的 ID 和公会列表为空，不能据此宣称生产登录已就绪。
-- `DISCORD_ALLOWED_GUILD_IDS` 是逗号分隔的公会 ID；登录时必须至少属于其中一个，空列表会拒绝。`DISCORD_GUILD_ROLE_IDS` 格式为 `公会ID:角色ID,角色ID;公会ID:角色ID`，公会及角色 ID 必须为 17 至 20 位数字；同公会条目合并，满足任一指定角色即可。未列角色要求的允许公会只检查成员资格。空角色配置表示不要求角色；非空配置格式无效会在创建 flow 和兑换时失败。默认及 staging 中 `1417861565679669272` 只检查公会，`1134557553011998840` 要求角色 `1335363403870502912`。OAuth 固定请求 `identify`、`guilds`，配置角色要求时另请求 `guilds.members.read`。
+- `DISCORD_CLIENT_ID` 是 OAuth 应用 ID；`DISCORD_CLIENT_SECRET` 是服务端 secret，不写入 `vars` 或仓库。缺少 ID 时 flow 创建会返回本地 pending 地址而不是 Discord 授权地址；兑换授权码要求 ID 和 secret，缺失会失败。
+- `DISCORD_ALLOWED_GUILD_IDS` 是逗号分隔的公会 ID；登录时必须至少属于其中一个，空列表会拒绝。`DISCORD_GUILD_ROLE_IDS` 格式为 `公会ID:角色ID,角色ID;公会ID:角色ID`，公会及角色 ID 必须为 17 至 20 位数字；同公会条目合并，满足任一指定角色即可。未列角色要求的允许公会只检查成员资格。空角色配置表示不要求角色；非空配置格式无效会在创建 flow 和兑换时失败。顶层、staging 与 production 中 `1417861565679669272` 只检查公会，`1134557553011998840` 要求角色 `1335363403870502912`。OAuth 固定请求 `identify`、`guilds`，配置角色要求时另请求 `guilds.members.read`。
 - `SESSION_HASH_SECRET` 是会话令牌存储哈希的服务端 secret；存在时使用 HMAC-SHA-256，缺失时代码退回普通 SHA-256。配置或轮换 secret 会改变令牌哈希，已有会话可能失效，应事先安排重新登录。不要把缺省行为当作生产安全配置。
-- `MAINTENANCE_TOKEN` 是独立的运维 secret，按环境配置；不是用户会话或 Cloudflare API token。缺失时维护接口拒绝访问。维护关闭或协调器不可用时，普通请求（包括 health、公开缓存入口和静态资源）、定时任务及内容任务不能取得准入；外部工具不受此绑定保护。排空与重新开放流程见[部署安全手册](../operations/deployment-safety.md#maintenance-barrier)。
+- `MAINTENANCE_TOKEN` 是独立的运维 secret，按环境配置；不是用户会话或 Cloudflare API token。缺失时维护接口拒绝访问。维护关闭或协调器不可用时，静态资源、规范公开缓存读取以及经核实的纯读路径（`/api/v1/health`、客户端版本与兼容性查询、客户端脚本分发、伴随脚本版本读取、公开横幅图片）保持可用；所有可能写入的请求（含可能续期会话的鉴权读、可能使 OAuth flow 过期的状态查询、公开图片回填接口与未知路径）、定时任务及内容检查任务均阻断并返回 503 `maintenance`；绕过 Worker 的外部工具不受此绑定保护。排空与重新开放流程见[部署安全手册](../operations/deployment-safety.md#maintenance-barrier)。
 - `APP_VERSION` 缺省为 `dev`，用于 health 响应。`LOG_SAMPLE_RATE` 缺省 `0.1`，非有限数或不大于 0 时不采样非 5xx，大于 1 按 1 处理；5xx 始终记录。`CLEANUP_DRY_RUN=1` 使每日清理只试运行，其他值不启用试运行。
 
 OAuth flow 的有效期为 10 分钟，使用 state、PKCE，并设置浏览器绑定 cookie；HTTPS 下 cookie 使用 Secure。device 和 embed 的状态查询、回调及兑换检查绑定；browser 模式的状态查询和回调不检查绑定 cookie，不应将该绑定保证推广到 browser。服务端保管 secret、授权码、会话令牌和 cookie，不应将其写入日志、文档或工单。Cloudflare 部署凭据与运行时 OAuth/session secret 是不同凭据；CI 使用专用凭据，不得复制个人 token。上述名称不证明远端 secret 存在或值正确。
@@ -67,7 +69,7 @@ TTL 以秒为单位集中配置，必须是十进制非负整数且不超过 315
 
 ## 失效与撤回
 
-不使用全球主动 purge，也不恢复 epoch。写入或撤回后，不同 PoP 的旧公开条目可能保留至各自到期；在途请求可能在变更后填入旧数据，浏览器缓存或已保存字节也无法由服务端收回。因此分类 TTL 不是全球撤回时限。固定版本 immutable 资源还有更长的客户端留存风险。客户端发布脚本另有可选的 zone tag purge，其操作限制见[部署安全手册](../operations/deployment-safety.md#client-artifact-publishing)，不应当作本方案的全球失效保证。
+不使用全球主动 purge，也不恢复 epoch。写入或撤回后，不同 PoP 的旧公开条目可能保留至各自到期；在途请求可能在变更后填入旧数据，浏览器缓存或已保存字节也无法由服务端收回。因此分类 TTL 不是全球撤回时限。固定版本 immutable 资源还有更长的客户端留存风险。客户端发布脚本按“私有与公开 R2 版本化对象 → D1 `client_channels` 元数据 → 私有与公开 R2 频道入口对象”顺序写入，不执行全球缓存主动清除，其非原子边界见[部署安全手册](../operations/deployment-safety.md#client-artifact-publishing)。
 
 本参考描述仓库变更，不证明远端已部署、绑定、缓存命中率或撤回时限；上线仍需用户明确授权，hosted 行为尚未验证。需要获授权后验证目标环境的请求、响应头和实际写入/撤回场景；不要使用未经授权的生产操作或个人 Cloudflare token。
 

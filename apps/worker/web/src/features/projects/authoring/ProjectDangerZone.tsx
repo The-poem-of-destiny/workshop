@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { type AuthorProject, api } from "../../../api";
+import { type AuthorProject, api, formatUserError } from "../../../api";
 import { ConfirmDialog } from "../../../components/ui/confirm-dialog";
 
 export function ProjectDangerZone({
@@ -39,7 +39,7 @@ export function ProjectDangerZone({
       onNotice(nextVisibility === "private" ? "已设为仅自己可见（已从公开列表隐藏）。" : "已恢复公开展示。");
       await onRefresh();
     } catch (reason) {
-      onError(String(reason));
+      onError(formatUserError(reason));
     } finally {
       setBusy(false);
     }
@@ -55,7 +55,7 @@ export function ProjectDangerZone({
       onNotice("项目已删除。");
       await onRefresh();
     } catch (reason) {
-      onError(String(reason));
+      onError(formatUserError(reason));
     } finally {
       setBusy(false);
     }

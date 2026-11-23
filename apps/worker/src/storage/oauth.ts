@@ -34,7 +34,7 @@ export interface NewOAuthFlow {
   browserBindingHash: string;
 }
 
-export const oauthAuthorizationDetailSchema = z
+const oauthAuthorizationDetailSchema = z
   .object({
     schemaVersion: z.literal(1),
     guildId: z.string().min(1),
@@ -42,7 +42,6 @@ export const oauthAuthorizationDetailSchema = z
     verifiedAt: z.string().datetime(),
   })
   .strict();
-export type OAuthAuthorizationDetail = z.infer<typeof oauthAuthorizationDetailSchema>;
 
 export async function insertOAuthFlow(db: D1Database, flow: NewOAuthFlow): Promise<void> {
   await db
@@ -70,6 +69,16 @@ export async function getFlowByState(db: D1Database, state: string): Promise<Aut
     .prepare("SELECT * FROM oauth_flows WHERE state_hash = ?")
     .bind(await sha256Hex(state))
     .first<AuthFlowRow>();
+}
+
+export async function deriveOAuthState(id: string, verifier: string, binding: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`cw-oauth-state-v1:${id}:${verifier}:${binding}`),
+  );
+  let binary = "";
+  for (const byte of new Uint8Array(digest)) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 }
 
 export async function getFlowById(db: D1Database, id: string): Promise<AuthFlowRow | null> {

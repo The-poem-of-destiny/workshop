@@ -6,7 +6,7 @@ import { getSessionByToken } from "../storage/sessions.js";
 import type { DataEnv } from "./env.js";
 import { replicatePublicBanner, withdrawPublicBanner } from "./public-banner.js";
 import { streamImage, UploadLimitError } from "./streaming-image.js";
-import { type StagedStream, stageStream } from "./streaming-staging.js";
+import { type StagedStream, stageStream, UploadStreamReadError } from "./streaming-staging.js";
 
 export async function distributionBannerUpload(request: Request, env: DataEnv): Promise<Response> {
   const error = (status: number, code: string, message: string) =>
@@ -37,6 +37,7 @@ export async function distributionBannerUpload(request: Request, env: DataEnv): 
       (cause instanceof RangeError && cause.message === "Upload exceeds staging size")
     )
       return error(413, "payload_too_large", "Banner is too large");
+    if (cause instanceof UploadStreamReadError) return error(400, "bad_request", "Banner 上传读取中断，请重试");
     throw cause;
   }
   try {

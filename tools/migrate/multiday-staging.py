@@ -176,7 +176,8 @@ def adopt(journal, path):
 def public_status(state):
     return {key: state.get(key) for key in (
         'plan_id', 'candidate_name', 'candidate_database_id', 'phase', 'next_batch',
-        'batch_count', 'next_attempt_at', 'budget', 'pending', 'verified_at', 'failure',
+        'batch_count', 'next_attempt_at', 'budget', 'pending', 'pending_replicas',
+        'replicas_sha256', 'verified_at', 'failure',
     )}
 
 

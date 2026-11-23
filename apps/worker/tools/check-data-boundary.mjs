@@ -8,6 +8,7 @@ const data = path.join(src, "data");
 const storage = path.join(src, "storage");
 const index = path.join(src, "index.ts");
 const client = path.join(src, "data-client.ts");
+const contentService = path.join(src, "content-service.ts");
 const contracts = path.join(data, "contracts.ts");
 const configPath = path.join(worker, "tsconfig.json");
 const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
@@ -31,6 +32,8 @@ const diagnostics = [];
 const inside = (file, directory) => file === directory || file.startsWith(`${directory}${path.sep}`);
 const normalize = (file) => path.normalize(path.resolve(file));
 const sdkName = (name) => /^(?:D1|R2)[A-Z]/.test(name);
+const STORAGE_BINDINGS = new Set(["DB", "R2", "PUBLIC_COVERS"]);
+const EXPORTS_ALLOWED = new Set([client, index, contentService]);
 
 function report(node, message) {
   const source = node.getSourceFile();
@@ -140,7 +143,7 @@ function forbiddenType(type, seen = new Set()) {
   )
     return false;
   for (const property of checker.getPropertiesOfType(type)) {
-    if (property.getName() === "DB" || property.getName() === "R2") return true;
+    if (STORAGE_BINDINGS.has(property.getName())) return true;
     const declaration = property.valueDeclaration || property.declarations?.[0];
     if (declaration && forbiddenType(checker.getTypeOfSymbolAtLocation(property, declaration), seen)) return true;
   }
@@ -194,23 +197,38 @@ function scan(source) {
       }
     }
     if (outer) {
-      if (ts.isPropertyAccessExpression(node) && (node.name.text === "DB" || node.name.text === "R2")) {
+      if (!EXPORTS_ALLOWED.has(filename)) {
+        if (ts.isPropertyAccessExpression(node) && node.name.text === "exports") {
+          report(node, "loopback 'exports' access is restricted to data-client, index, and content-service");
+        }
+        if (
+          ts.isElementAccessExpression(node) &&
+          node.argumentExpression &&
+          staticName(node.argumentExpression) === "exports"
+        ) {
+          report(node, "loopback 'exports' access is restricted to data-client, index, and content-service");
+        }
+        if (ts.isBindingElement(node) && staticName(node.propertyName || node.name) === "exports") {
+          report(node, "loopback 'exports' destructuring is restricted to data-client, index, and content-service");
+        }
+      }
+      if (ts.isPropertyAccessExpression(node) && STORAGE_BINDINGS.has(node.name.text)) {
         report(node, `binding access '${node.name.text}' is restricted to the data region`);
       }
       if (
         ts.isElementAccessExpression(node) &&
         node.argumentExpression &&
-        ["DB", "R2"].includes(staticName(node.argumentExpression))
+        STORAGE_BINDINGS.has(staticName(node.argumentExpression))
       ) {
         report(node, "binding access is restricted to the data region");
       }
-      if (ts.isBindingElement(node) && ["DB", "R2"].includes(staticName(node.propertyName || node.name))) {
+      if (ts.isBindingElement(node) && STORAGE_BINDINGS.has(staticName(node.propertyName || node.name))) {
         report(node, "binding destructuring is restricted to the data region");
       }
       if (
         (ts.isPropertySignature(node) || ts.isPropertyDeclaration(node)) &&
         node.name &&
-        ["DB", "R2"].includes(staticName(node.name))
+        STORAGE_BINDINGS.has(staticName(node.name))
       ) {
         report(node, "storage binding declarations are restricted to the data region");
       }

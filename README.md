@@ -21,10 +21,11 @@ workshop/
 ├─ packages/domain/          # 分类、内容策略、限额、版本等纯函数
 ├─ packages/content/         # EJS checker、内容审计与 bundle 产物
 ├─ tools/                    # workspace/schema 校验、迁移、备份校验与本地 E2E
-├─ docs/                     # 当前知识、refactor 计划与审计
+├─ docs/                     # 当前知识、refactor 计划、审计与历史归档
 │  ├─ AGENTS.md              # 文档权威归属与写作规则
 │  ├─ plans/refactor-2026-10/
-│  └─ audits/
+│  ├─ audits/
+│  └─ archived/
 └─ .agents/                  # 项目级 Agent 规则、notes、skills 与共享规范
 ```
 
@@ -34,11 +35,11 @@ workshop/
 
 唯一 Worker 位于 [`apps/worker/src/index.ts`](apps/worker/src/index.ts)，技术栈为 Cloudflare Workers + Hono，数据存储为 D1，文件存储为 R2，静态站点通过 Static Assets 提供。
 
-- 公开读取：首页、项目列表/详情、推荐、参考集、站点信息；
+- 公开读取：首页、项目列表/详情、合集与作者主页、推荐、站点信息；
 - 登录后读取：发布清单、文件下载；
 - 作者：创建、编辑、上传；资料、封面和正文统一冻结送审，撤回保留历史，不直接改动公开版本；
 - 审核：独立任务层、云检查与人工审核、发布指针切换、成员角色、审计；
-- 互动：点赞、订阅、评分、按用户/项目/日幂等的下载计数；评分与留言仅本人可通过个人状态接口读取。重新打开详情回填留言；评分接口省略 `comment` 保留已有留言，空字符串清空；
+- 互动：点赞、订阅、当前订阅用户的版本公开推荐、按用户/项目/日幂等的下载计数，以及仅本人可见的个人版本体验备忘；`/api/v1/me/state` 仅返回本人的点赞、当前订阅及推荐状态（不返回评分或体验文字），版本体验评分与备忘独立通过 `/api/v1/me/experience-notes/:id` 读取与管理（`PUT`/`DELETE .../versions/:versionId` 维护具体版本备忘，省略 `comment` 保留原文字、空字符串清空；`DELETE .../unversioned` 删除未标版本的历史旧备忘）；
 - 客户端：版本化分发、按安装位置扫描多实例，安装／更新／卸载先预览差异再确认；登记配套脚本的精确版本与下载地址，不代管脚本数据；
 - 缓存：匿名公开投影按分类 TTL 使用 Cache API；私有资格与计数始终实时，获准后的不可变文件字节可在内部复用。环境配置、陈旧与撤回限制见[运行配置与缓存](docs/reference/runtime-configuration.md)。
 
@@ -71,14 +72,14 @@ pnpm check                 # 零警告 lint、检查覆盖、类型、测试、s
 pnpm e2e:local             # 真实 workerd + 本地 D1/R2 + Chromium E2E
 ```
 
-本地角色预览使用 `pnpm preview:debug`；预览前端必须显式提供 Worker 来源 `PREVIEW_API_ORIGIN`，缺失时启动会报错并退出，不会静默连接默认后端。预览账号缺失、请求失败或响应格式无效时，页面会显示账号未就绪提示，仍可匿名浏览；依赖不可用账号的角色选项保持禁用。
+本地角色预览使用 `pnpm preview:debug`；预览脚本必须显式读取机器本地地址 `PREVIEW_HOST`（可在未跟踪的根目录 `.env` 或环境变量中设置，参见 `.env.example`），缺失时启动会报错并退出，不会静默绑定默认地址。预览账号缺失、请求失败或响应格式无效时，页面会显示账号未就绪提示，仍可匿名浏览；依赖不可用账号的角色选项保持禁用。
 
 ### 程序性质量门禁
 
 - `pnpm check:workspace` 从 workspace 声明发现包，要求每包有 typecheck/test 或在单一策略表中有明确豁免。新增包未分类、缺脚本及过期豁免均失败；`--if-present` 不再意味着可静默漏检。content 是 JavaScript；contracts 的 schema 由消费者测试覆盖，不保留空测试命令。
 - `pnpm check:architecture` 检查 workspace 清单的全部依赖类别及生产源码中的包依赖方向、Web 到 Worker 实现的反向依赖、storage 到 data 的运行时反向依赖；包含相对路径、TypeScript 路径别名、类型、重导出和动态导入。规则仅覆盖已分类 workspace 的源码，不覆盖工具脚本和测试；动态模块名在覆盖范围内不允许。
 - `pnpm --filter @workshop/worker check:data-boundary` 检查运行时网关和 Durable Object 不直接导入或访问 D1/R2 数据实现；`pnpm check` 已包含该门禁。同 Worker bindings 不是平台级隔离。
-- `pnpm check:unused` 使用固定 Knip 6.43.0 检查全部 workspace 的依赖；入口覆盖 package exports、Worker、嵌套 Vite/CSS、自定义 esbuild、tools 与测试。`knip.jsonc` 仅为宿主 Cloudflare 模块和跨 workspace 命令保留有据例外；未用、未声明依赖均阻断。文件／导出维度只作人工审计，未作为持续门禁。
+- `pnpm check:unused` 使用固定 Knip 6.45.1 检查全部 workspace 的依赖；入口覆盖 package exports、Worker、嵌套 Vite/CSS、自定义 esbuild、tools 与测试。`knip.jsonc` 仅为跨 workspace 脚本保留有据例外；未用、未声明依赖均阻断。文件／导出维度只作人工审计，未作为持续门禁。
 - `pnpm check:cycles` 复用同一个 Knip，静态运行时循环以 error 阻断；实际入口可达的 TS／TSX、workspace runtime exports 在范围内。纯类型边和动态导入不参与，未达入口的孤立循环不在保障范围；不使用会漏掉当前 Worker 入口的 `--production`，不新增依赖图工具或第二套 TypeScript。
 - pnpm 显式设置 `minimumReleaseAge: 1440`，保留安装脚本白名单 `esbuild`／`workerd`；不保留已过期的 Cloudflare 冷静期例外。CI 冻结 lockfile；安全更新若确需例外，应限定具体版本并重新审查，不全局关闭策略。
 - `pnpm check` 使用 Biome `--error-on-warnings`；警告也阻断。Web 不得导入 Worker 实现，domain 不得反向依赖应用／contracts／content；规则在 `biome.json`，这是导入路径限制而非完整依赖图／循环分析。客户端生产 TS 与 Vite 配置纳入类型检查。
@@ -104,15 +105,15 @@ pnpm exec wrangler d1 migrations apply DB --local --config wrangler.jsonc
 
 部署由 GitHub Actions 执行；本地使用检查与 dry-run 验证，不把 `wrangler deploy` 当作无副作用的验证命令。以下描述仓库中的流程与门禁，不代表远端已经执行。
 
-- **CI**：`.github/workflows/ci.yml` 在相关路径 push/PR 时运行 `pnpm check` 和 `pnpm e2e:local`。
-- **Staging**：`ci` 在 `main` 成功后，`.github/workflows/deploy-staging.yml` 仅在来源新鲜且存在应用变更时构建、部署；纯文档等变更跳过。自动 staging **从不执行 D1 migration**；相对最近成功部署与已接受 schema checkpoint 中较新者存在 schema 变更时暂停构建和部署。当前 checkpoint 为 `f2491599cfb97a6405b5f73ead73227387786478`，不得只为让流水线变绿而推进。
-- **Production**：`v*` tag 触发 `.github/workflows/deploy-production.yml`，production environment 要求审批。流程查找该 commit 的成功 staging 记录并校验同一 artifact，但当前在 **Require separately verified production schema** 无条件停止，尚不会到达后续备份或部署步骤；恢复须另行明确授权并独立核验 schema、数据和绑定。
-- 获授权恢复 production 后，仍须使用 staging 已验证的同一 commit 和 artifact，不接受本地或其他分支重建产物；artifact 包含 Web 静态资源、Worker bundle 与 Tavern client，后续 stable client 发布也受该门禁约束。
+- **CI**：`.github/workflows/ci.yml` 在相关路径 push/PR 时运行 `pnpm check`、`pnpm e2e:local` 与 `secrets`。
+- **Staging**：`ci` 在 `main` 成功后，`.github/workflows/deploy-staging.yml` 仅在该修订仍为当前 `main` 且相对最近成功验收的 staging 部署存在应用变更（或通过手动 `workflow_dispatch` 触发 `ci`）时构建、部署；纯文档等变更跳过。自动 staging **从不执行 D1 migration**；部署前运行 `.github/scripts/verify-release-schema.py staging` 比对远端目标 D1 的表、索引、视图与触发器是否与当前代码迁移链完全一致，不一致则失败退出。
+- **Production**：`v*` tag 触发 `.github/workflows/deploy-production.yml`，production environment 要求审批。流程先验证该 tag 属于 `main`、下载并校验已在 staging 通过验收的同一份构建与客户端 artifact、核对生产配置与必需的运行时 secret 名称，再运行 `verify-release-schema.py production` 只读校验线上 D1 schema。
+- 校验通过后，工作流在变更前记录当前生产 D1 Time Travel `bookmark`、Worker 流量版本与 `client_channels` 到保留 90 天的 `production-recovery` artifact，随后直接部署该已验收 Worker 产物、发布 `stable` 客户端、执行冒烟测试并校验新版本 100% 承接流量，不接受本地或其他分支重建产物。
 - Release artifact 包含构建目录中的隐藏文件（包括 Vite manifest），确保上传内容与 SHA-256 清单一致。
 - Git 仓库与 Cloudflare 运行时是两套独立状态：推送不等于部署，部署后必须单独核对 Worker version。
 - 密钥通过 GitHub Actions secrets 或 `wrangler secret put` 写入，不进入仓库。
 - 不手工随意修改生产 D1；上线前空库基线、既有库切换及上线后有序增量迁移分别遵循上述安全规则，并核验兼容性、备份和实际数据。
-- production 中保留的 D1 导出、Time Travel bookmark 和私有 R2 备份步骤目前在停止门禁之后，不是已运行的自动备份或已验证恢复能力；恢复要求见 [`docs/operations/deployment-safety.md`](docs/operations/deployment-safety.md)。
-- 备份完整性用 `.github/workflows/verify-production-backup.yml` 手动验证；它不修改生产数据库。
+- `production-recovery` 记录的是 D1 Time Travel 恢复书签与版本状态（受 D1 自身保留窗口限制），不等同于长期 R2 SQL 导出备份；恢复边界与操作要求见 [`docs/operations/deployment-safety.md`](docs/operations/deployment-safety.md)。
+- 长期 SQL 备份的哈希、外键与核心表完整性用 `.github/workflows/verify-production-backup.yml` 手动验证；它不修改生产数据库。
 
-本地验证仍按上面的 `pnpm check` 和 `pnpm e2e:local` 执行。需要排查真实数据库或 schema 切换时先遵循[部署安全规则](docs/operations/deployment-safety.md)，获得对应环境和具体操作的授权；本 README 不提供可绕过当前暂停门禁的远程 DDL 命令。
+本地验证仍按上面的 `pnpm check` 和 `pnpm e2e:local` 执行。需要执行真实数据库迁移或绑定切换时先遵循[部署安全规则](docs/operations/deployment-safety.md)，获得对应环境和具体操作的明确授权。

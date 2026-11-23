@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../../../api";
+import { api, formatUserError } from "../../../api";
 import { ConfirmDialog } from "../../../components/ui/confirm-dialog";
 import { ImagePicker } from "./ImagePicker";
 import { usePendingImage } from "./usePendingImage";
@@ -99,7 +99,7 @@ export function GallerySection({
       onNotice(`展示图 ${slot + 1} 已上传。`);
       await onRefresh();
     } catch (reason) {
-      onError(String(reason));
+      onError(formatUserError(reason));
     } finally {
       setBusy(false);
     }
@@ -117,7 +117,7 @@ export function GallerySection({
       onNotice(`展示图 ${slot + 1} 已移除。`);
       await onRefresh();
     } catch (reason) {
-      onError(String(reason));
+      onError(formatUserError(reason));
     } finally {
       setBusy(false);
     }

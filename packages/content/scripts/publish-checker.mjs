@@ -29,11 +29,20 @@ const types = {
   "review-checker.mjs": "text/javascript",
   "NOTICES.txt": "text/plain",
 };
+const committedManifest = JSON.parse(
+  readFileSync(resolve(import.meta.dirname, "..", "src", "bundle-manifest.json"), "utf8"),
+);
+if (manifest.revision !== committedManifest.revision) {
+  throw new Error("dist/manifest.json does not match committed src/bundle-manifest.json; rebuild first");
+}
 for (const file of files) {
   const body = readFileSync(resolve(dist, file));
-  if (manifest.files[file] !== createHash("sha256").update(body).digest("hex")) {
+  const digest = createHash("sha256").update(body).digest("hex");
+  if (manifest.files[file] !== digest || committedManifest.files?.[file] !== digest) {
     throw new Error(`${file} does not match the committed manifest; rebuild first`);
   }
+}
+for (const file of files) {
   const result = spawnSync(
     "pnpm",
     [

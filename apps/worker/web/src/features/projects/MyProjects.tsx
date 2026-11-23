@@ -1,6 +1,6 @@
 import { ArrowLeft, Bookmark, BookOpen, Download, Plus, RefreshCcw, ThumbsUp } from "lucide-react";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
-import { type AuthorCollection, type AuthorProject, api } from "../../api";
+import { type AuthorCollection, type AuthorProject, api, formatUserError, getSessionGeneration } from "../../api";
 import { ConfirmDialog } from "../../components/ui/confirm-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../../components/ui/dialog";
 import "../../styles/workspaces.css";
@@ -56,27 +56,34 @@ export function MyProjects({
     continueEdit: boolean;
   } | null>(null);
   const editorOpener = useRef<HTMLButtonElement | null>(null);
+  const refreshGeneration = useRef(0);
   const reportError = useRef(onError);
   useEffect(() => {
     reportError.current = onError;
   }, [onError]);
 
   const refresh = useCallback(async (): Promise<void> => {
+    const generation = ++refreshGeneration.current;
+    const sessionGeneration = getSessionGeneration();
     setLoading(true);
     try {
       const [projectResult, collectionResult] = await Promise.all([
         api.myProjects(),
         api.myCollections().catch(() => ({ items: [] as AuthorCollection[] })),
       ]);
+      if (generation !== refreshGeneration.current || sessionGeneration !== getSessionGeneration()) return;
       setItems(projectResult.items);
       setCollections(collectionResult.items);
       setSelectedId((current) =>
         current && !projectResult.items.some((item) => item.project.id === current) ? null : current,
       );
     } catch (reason) {
-      reportError.current(String(reason));
+      if (generation !== refreshGeneration.current || sessionGeneration !== getSessionGeneration()) return;
+      reportError.current(formatUserError(reason));
     } finally {
-      setLoading(false);
+      if (generation === refreshGeneration.current && sessionGeneration === getSessionGeneration()) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -84,6 +91,9 @@ export function MyProjects({
   useEffect(() => {
     void refresh();
     consumeInitialSelection();
+    return () => {
+      refreshGeneration.current += 1;
+    };
   }, [refresh]);
 
   useEffect(() => {
@@ -105,7 +115,7 @@ export function MyProjects({
       onNotice("已创建新版本，现在可以修改资料与上传文件。");
       await refresh();
     } catch (reason) {
-      onError(String(reason));
+      onError(formatUserError(reason));
     } finally {
       setBusy(false);
     }
@@ -132,14 +142,14 @@ export function MyProjects({
           );
           onNotice("已撤回审核并创建新版本，可直接继续修改。");
         } catch (versionError) {
-          onError(`审核已撤回，请点击「新建版本」继续修改：${String(versionError)}`);
+          onError(`审核已撤回，请点击「新建版本」继续修改：${formatUserError(versionError)}`);
         }
       } else {
         onNotice("本次提交已撤回，线上公开版本不受影响。");
       }
       await refresh();
     } catch (reason) {
-      onError(String(reason));
+      onError(formatUserError(reason));
     } finally {
       setBusy(false);
     }

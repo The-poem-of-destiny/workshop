@@ -76,6 +76,26 @@ function collectAstActionTargets(context) {
 }
 
 function collectNetworkCallTarget(node, scope, { unit, analysis, networkCalls, addTarget, covered }) {
+  if (node.type === "ImportExpression") {
+    networkCalls.add(node);
+    const values = staticStringValues(node.source, analysis, scope);
+    if (values)
+      for (const value of values)
+        addTarget(value, unit.sourceMap.map(node.start), "network", "import", expressionEvidence(node));
+    covered.push({ start: unit.sourceMap.map(node.start), end: unit.sourceMap.map(node.end) });
+    return;
+  }
+  if (
+    node.type === "ImportDeclaration" ||
+    ((node.type === "ExportNamedDeclaration" || node.type === "ExportAllDeclaration") && node.source)
+  ) {
+    networkCalls.add(node);
+    if (typeof node.source?.value === "string") {
+      addTarget(node.source.value, unit.sourceMap.map(node.start), "network", "import", expressionEvidence(node));
+    }
+    covered.push({ start: unit.sourceMap.map(node.start), end: unit.sourceMap.map(node.end) });
+    return;
+  }
   if (!["CallExpression", "NewExpression"].includes(node.type)) return;
   const callee = node.callee.type === "ChainExpression" ? node.callee.expression : node.callee;
   const method = propertyName(callee);
@@ -160,6 +180,8 @@ function isResourceExpression(node, unit, parents) {
     !["Literal", "TemplateLiteral", "BinaryExpression", "Identifier", "MemberExpression"].includes(node.type)
   )
     return false;
+  if (node.type === "Literal" && typeof node.value !== "string") return false;
+  if (node.type === "BinaryExpression" && node.operator !== "+") return false;
   const parent = parents.get(node);
   if (
     ["Identifier", "MemberExpression"].includes(node.type) &&

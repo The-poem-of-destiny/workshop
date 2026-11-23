@@ -315,25 +315,52 @@ export async function softDeleteProject(
   expectedVersion?: number,
 ): Promise<boolean> {
   const now = new Date().toISOString();
-  const result = await db
-    .prepare(`
-    UPDATE projects
-    SET deleted_at = ?, row_version = row_version + 1, updated_at = ?
-    WHERE id = ? AND deleted_at IS NULL
-      AND (author_id = ? OR ? = 'owner')
-      AND (? IS NULL OR row_version = ?)
-  `)
-    .bind(now, now, projectId, session.userId, session.role, expectedVersion ?? null, expectedVersion ?? null)
-    .run();
-  if (result.meta.changes === 0) return false;
-  await db
-    .prepare(`
-    INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
-    VALUES (?, 'project.delete', 'project', ?, ?, ?, ?)
-  `)
-    .bind(crypto.randomUUID(), projectId, session.userId, JSON.stringify({ soft: true }), now)
-    .run();
-  return true;
+  const auditId = crypto.randomUUID();
+  const results = await db.batch([
+    db
+      .prepare(`
+      UPDATE projects
+      SET deleted_at = ?, row_version = row_version + 1, updated_at = ?
+      WHERE id = ? AND deleted_at IS NULL
+        AND (author_id = ? OR ? = 'owner')
+        AND (? IS NULL OR row_version = ?)
+    `)
+      .bind(now, now, projectId, session.userId, session.role, expectedVersion ?? null, expectedVersion ?? null),
+    db
+      .prepare(`
+      INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
+      SELECT ?, 'project.delete', 'project', ?, ?, ?, ?
+      WHERE changes() = 1
+    `)
+      .bind(auditId, projectId, session.userId, serializeAuditDetail("project.delete", { soft: true }), now),
+    db
+      .prepare(`
+      DELETE FROM collection_projects
+      WHERE project_id = ? AND EXISTS (SELECT 1 FROM audit_events WHERE id = ?)
+    `)
+      .bind(projectId, auditId),
+    db
+      .prepare(`
+      UPDATE automated_reviews
+      SET status = CASE WHEN status IN ('queued', 'running') THEN 'failed' ELSE status END,
+          lease_until = NULL,
+          lease_token = NULL,
+          error = CASE WHEN status IN ('queued', 'running') THEN COALESCE(error, '项目已删除') ELSE error END
+      WHERE submission_id IN (
+        SELECT id FROM submissions WHERE project_id = ? AND status IN ('pending', 'checking')
+      ) AND EXISTS (SELECT 1 FROM audit_events WHERE id = ?)
+    `)
+      .bind(projectId, auditId),
+    db
+      .prepare(`
+      UPDATE submissions
+      SET status = 'superseded', resolved_at = ?
+      WHERE project_id = ? AND status IN ('pending', 'checking')
+        AND EXISTS (SELECT 1 FROM audit_events WHERE id = ?)
+    `)
+      .bind(now, projectId, auditId),
+  ]);
+  return (results[0]?.meta.changes ?? 0) > 0;
 }
 
 export async function updateVisibility(
@@ -347,25 +374,26 @@ export async function updateVisibility(
   if (!current || current.row_version !== expectedVersion) return null;
   const now = new Date().toISOString();
   const nextVersion = expectedVersion + 1;
-  const result = await db
-    .prepare(`UPDATE projects SET visibility = ?, row_version = row_version + 1, updated_at = ?
-    WHERE id = ? AND row_version = ?`)
-    .bind(input.visibility, now, projectId, expectedVersion)
-    .run();
-  if (result.meta.changes === 0) return null;
-  await db
-    .prepare(`
-      INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
-      VALUES (?, 'project.patch', 'project', ?, ?, ?, ?)
-    `)
-    .bind(
-      crypto.randomUUID(),
-      projectId,
-      session.userId,
-      serializeAuditDetail("project.patch", { fields: ["visibility"], rowVersion: nextVersion }),
-      now,
-    )
-    .run();
+  const results = await db.batch([
+    db
+      .prepare(`UPDATE projects SET visibility = ?, row_version = row_version + 1, updated_at = ?
+      WHERE id = ? AND deleted_at IS NULL AND (author_id = ? OR ? = 'owner') AND row_version = ?`)
+      .bind(input.visibility, now, projectId, session.userId, session.role, expectedVersion),
+    db
+      .prepare(`
+        INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
+        SELECT ?, 'project.patch', 'project', ?, ?, ?, ?
+        WHERE changes() = 1
+      `)
+      .bind(
+        crypto.randomUUID(),
+        projectId,
+        session.userId,
+        serializeAuditDetail("project.patch", { fields: ["visibility"], rowVersion: nextVersion }),
+        now,
+      ),
+  ]);
+  if ((results[0]?.meta.changes ?? 0) === 0) return null;
   return nextVersion;
 }
 

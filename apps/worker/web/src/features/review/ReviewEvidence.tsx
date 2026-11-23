@@ -94,12 +94,12 @@ export function ReviewEvidence({
 
           <section className="review-evidence-intro">
             <div>
-              <p className="review-eyebrow">SUBMISSION #{detail.version.versionNo}</p>
+              <p className="review-eyebrow">第 {detail.version.versionNo} 版审核提交</p>
               <h2>{detail.version.title}</h2>
               <p className="review-description">{detail.version.description || "未提供项目描述。"}</p>
             </div>
             <div className="review-submission-id">
-              <span>提交 ID</span>
+              <span>提交编号</span>
               <code>{detail.submission.id}</code>
             </div>
           </section>
@@ -142,8 +142,8 @@ export function ReviewEvidence({
               <dd>{formatDate(detail.submission.submittedAt)}</dd>
             </div>
             <div>
-              <dt>version</dt>
-              <dd>#{detail.version.versionNo}</dd>
+              <dt>提交版本</dt>
+              <dd>第 {detail.version.versionNo} 版</dd>
             </div>
             <div>
               <dt>主要分类</dt>
@@ -158,8 +158,10 @@ export function ReviewEvidence({
               <dd>{detail.version.searchTags.join("、") || "无"}</dd>
             </div>
             <div>
-              <dt>客户端 gate</dt>
-              <dd>{detail.submission.clientGate ?? "missing"}</dd>
+              <dt>本地预检</dt>
+              <dd>
+                {gateLabels[detail.submission.clientGate ?? "missing"] ?? detail.submission.clientGate ?? "未预检"}
+              </dd>
             </div>
             <div>
               <dt>检查状态</dt>
@@ -168,7 +170,7 @@ export function ReviewEvidence({
             <div>
               <dt>服务端门禁</dt>
               <dd className={`review-gate review-gate-${routeGate ?? "missing"}`}>
-                {gateLabels[routeGate ?? "missing"] ?? routeGate ?? "missing"}
+                {gateLabels[routeGate ?? "missing"] ?? routeGate ?? "未预检"}
               </dd>
             </div>
             <div>
@@ -176,13 +178,13 @@ export function ReviewEvidence({
               <dd>{detail.submission.checkAttempts}</dd>
             </div>
             <div>
-              <dt>manifest hash</dt>
+              <dt>内容清单校验值</dt>
               <dd>
                 <code>{detail.version.manifestHash ?? "未记录"}</code>
               </dd>
             </div>
             <div>
-              <dt>报告 hash</dt>
+              <dt>检查报告校验值</dt>
               <dd>
                 <code>{detail.submission.checkReportHash ?? "未记录"}</code>
               </dd>
@@ -221,7 +223,7 @@ export function ReviewEvidence({
                       <strong>{kindLabels[kind]}</strong>
                       <span>
                         {asset
-                          ? `${asset.mime} · ${asset.bytes.toLocaleString()} bytes · sha256 ${asset.sha256}`
+                          ? `${asset.mime} · ${asset.bytes.toLocaleString("zh-CN")} 字节 · 校验值 ${asset.sha256}`
                           : "未提交"}
                       </span>
                     </div>

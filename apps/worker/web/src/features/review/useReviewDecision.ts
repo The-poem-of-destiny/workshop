@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { ApiError, api, getSessionGeneration } from "../../api";
+import { ApiError, api, formatUserError, getSessionGeneration } from "../../api";
 import { isBlockingFinding, parseCheckReport } from "./check-report";
 import { clearSubmissionSource } from "./source-files";
 import type { useReviewQueue } from "./useReviewQueue";
@@ -119,7 +119,7 @@ export function useReviewDecision({
       if (value instanceof ApiError && value.status === 409) {
         setDecision(null);
         setReason("");
-        onError("提交状态或版本已变化（409），已重新加载这条提交，请核对后再次决定。");
+        onError("提交状态或版本已变化，已重新加载这条提交，请核对后再次决定。");
         const next = await reloadSelection(currentId);
         if (next && next.submission.status !== "pending") {
           setItems((previous) => previous.filter((item) => item.id !== currentId));
@@ -127,7 +127,7 @@ export function useReviewDecision({
           void refresh();
         }
       } else {
-        onError(String(value));
+        onError(formatUserError(value));
       }
     } finally {
       setBusy(false);

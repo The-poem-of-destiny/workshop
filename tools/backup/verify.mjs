@@ -3,14 +3,16 @@
  * Verify a backup export without touching the live database.
  * Usage: node tools/backup/verify.mjs --tables <dir> --r2 <dir>
  *
- * The export layout is the same per-table JSON produced by
- * tools/migrate/from_d1_sql.py: assets.json, projects.json,
- * project_revisions.json. Every asset row must have matching bytes and sha256
- * in the R2 mirror; project pointers must stay within the same project.
+ * Required table files: projects.json, project_versions.json, assets.json.
+ * Every asset row must have matching bytes and sha256 at its exact r2_key under
+ * the R2 mirror; project version and cover pointers must stay within the same project.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
+
+const REQUIRED_TABLES = ["projects", "project_versions", "assets"];
 
 function arg(name) {
   const index = process.argv.indexOf(`--${name}`);
@@ -21,71 +23,111 @@ function rows(value) {
   if (Array.isArray(value)) return value;
   if (Array.isArray(value?.rows)) return value.rows;
   if (Array.isArray(value?.items)) return value.items;
-  return [];
+  return null;
 }
 
-function readTable(dir, name) {
+function readTable(dir, name, failures) {
   const file = join(dir, `${name}.json`);
-  if (!existsSync(file)) return [];
-  return rows(JSON.parse(readFileSync(file, "utf8")));
+  if (!existsSync(file) || !statSync(file).isFile()) {
+    failures.push({ kind: "missing_table", table: name });
+    return [];
+  }
+  const parsed = rows(JSON.parse(readFileSync(file, "utf8")));
+  if (!parsed) {
+    failures.push({ kind: "invalid_table", table: name });
+    return [];
+  }
+  return parsed;
+}
+
+function withinRoot(root, candidate) {
+  const rel = relative(root, candidate);
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
+function verifyProjectPointers(projects, versionsByKey, assetsByKey, failures) {
+  for (const project of projects) {
+    for (const field of ["published_version_id", "working_version_id"]) {
+      const versionId = project[field];
+      if (!versionId) continue;
+      if (!versionsByKey.has(`${project.id}:${versionId}`)) {
+        failures.push({ kind: "pointer", project: project.id, field, versionId });
+      }
+    }
+    const coverAssetId = project.published_cover_asset_id;
+    if (coverAssetId) {
+      const cover = assetsByKey.get(`${project.id}:${coverAssetId}`);
+      if (!cover || cover.kind !== "cover" || cover.version_id !== null) {
+        failures.push({
+          kind: "pointer",
+          project: project.id,
+          field: "published_cover_asset_id",
+          assetId: coverAssetId,
+        });
+      }
+    }
+  }
+}
+
+function verifyAssetRow(r2, asset, failures) {
+  const key = asset.r2_key;
+  if (typeof key !== "string" || !key || key.startsWith("/") || key.includes("\\")) {
+    failures.push({ kind: "asset_key", asset: asset.id ?? null });
+    return false;
+  }
+  const candidate = resolve(r2, key);
+  if (!withinRoot(r2, candidate)) {
+    failures.push({ kind: "asset_key", asset: asset.id ?? null, key });
+    return false;
+  }
+  if (!existsSync(candidate) || !statSync(candidate).isFile()) {
+    failures.push({ kind: "missing_asset", key });
+    return true;
+  }
+  const body = readFileSync(candidate);
+  const actualSha = createHash("sha256").update(body).digest("hex");
+  if (asset.sha256 && actualSha !== String(asset.sha256).toLowerCase()) {
+    failures.push({ kind: "sha256", key, expected: asset.sha256, actual: actualSha });
+  }
+  if (asset.bytes != null && body.length !== Number(asset.bytes)) {
+    failures.push({ kind: "bytes", key, expected: Number(asset.bytes), actual: body.length });
+  }
+  return true;
 }
 
 export function verifyBackup(tablesDir, r2Dir) {
   const tables = resolve(tablesDir);
   const r2 = resolve(r2Dir);
-  const assets = readTable(tables, "assets");
-  const projects = readTable(tables, "projects");
-  const revisions = readTable(tables, "project_revisions");
   const failures = [];
-  let checked = 0;
+  const loaded = Object.fromEntries(REQUIRED_TABLES.map((name) => [name, readTable(tables, name, failures)]));
+  const { projects, project_versions: versions, assets } = loaded;
 
-  const revisionsByKey = new Map();
-  for (const revision of revisions) {
-    const key = `${revision.project_id}:${revision.id}`;
-    revisionsByKey.set(key, revision);
+  const versionsByKey = new Map();
+  for (const version of versions) {
+    versionsByKey.set(`${version.project_id}:${version.id}`, version);
   }
-
-  for (const project of projects) {
-    for (const field of ["published_revision_id", "working_revision_id"]) {
-      const revisionId = project[field];
-      if (!revisionId) continue;
-      const ok = revisionsByKey.has(`${project.id}:${revisionId}`);
-      if (!ok) failures.push({ kind: "pointer", project: project.id, field, revisionId });
-    }
-  }
-
+  const assetsByKey = new Map();
   for (const asset of assets) {
-    const key = asset.r2_key ?? asset.targetKey ?? asset.key;
-    if (typeof key !== "string" || !key) {
-      failures.push({ kind: "asset_key", asset: asset.id ?? null });
-      continue;
+    if (asset.project_id && asset.id) {
+      assetsByKey.set(`${asset.project_id}:${asset.id}`, asset);
     }
-    checked += 1;
-    const path = join(r2, key);
-    const fallback = join(r2, basename(key));
-    const chosen = existsSync(path) ? path : existsSync(fallback) ? fallback : null;
-    if (!chosen) {
-      failures.push({ kind: "missing_asset", key });
-      continue;
-    }
-    const body = readFileSync(chosen);
-    const actualSha = createHash("sha256").update(body).digest("hex");
-    if (asset.sha256 && actualSha !== asset.sha256) {
-      failures.push({ kind: "sha256", key, expected: asset.sha256, actual: actualSha });
-    }
-    if (asset.bytes != null && statSync(chosen).size !== Number(asset.bytes)) {
-      failures.push({ kind: "bytes", key, expected: Number(asset.bytes), actual: statSync(chosen).size });
-    }
+  }
+
+  verifyProjectPointers(projects, versionsByKey, assetsByKey, failures);
+
+  let checked = 0;
+  for (const asset of assets) {
+    if (verifyAssetRow(r2, asset, failures)) checked += 1;
   }
 
   return {
     ok: failures.length === 0,
-    checked: { assets: checked, projects: projects.length, revisions: revisions.length },
+    checked: { assets: checked, projects: projects.length, versions: versions.length },
     failures,
   };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const tables = arg("tables");
   const r2 = arg("r2");
   if (!tables || !r2) {

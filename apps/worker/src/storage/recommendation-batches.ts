@@ -52,6 +52,7 @@ async function endorsementSnapshot(db: D1Database, now: number, projectIds?: str
   if (rows.results.length > 50000) throw new Error("Recommendation endorsement snapshot exceeds 50000 rows");
   const byProject = new Map<string, EndorsementRow[]>();
   for (const row of rows.results) {
+    if (row.comment.trim().length === 0) continue;
     const group = byProject.get(row.project_id) ?? [];
     group.push(row);
     byProject.set(row.project_id, group);
@@ -99,12 +100,14 @@ export async function buildRecommendationBatch(
 ): Promise<void> {
   const policy = recommendationPolicy(configuration);
   const reference = new Date(referenceTime);
+  const referenceIso = reference.toISOString();
   const scheduledAt = new Date(slot.start).toISOString();
   const displayEnd = new Date(slot.end).toISOString();
-  const today = new Date(`${scheduledAt.slice(0, 10)}T00:00:00.000Z`).getTime();
+  const today = new Date(`${referenceIso.slice(0, 10)}T00:00:00.000Z`).getTime();
   const days = 7;
   const start = new Date(today - (days - 1) * DAY_MS).toISOString();
   const end = new Date(today + DAY_MS).toISOString();
+  const changeStart = new Date(today - (30 - 1) * DAY_MS).toISOString();
   const previous = new Date(Date.parse(start) - days * DAY_MS).toISOString();
   const batchId = crypto.randomUUID();
   const admitted = await db
@@ -129,7 +132,7 @@ export async function buildRecommendationBatch(
       .prepare(
         `SELECT project_version_id,changed_entries,total_entries,reported_at FROM project_change_signals WHERE reported_at>=? AND reported_at<?`,
       )
-      .bind(start, end)
+      .bind(changeStart, end)
       .all<{ project_version_id: string; changed_entries: number; total_entries: number; reported_at: string }>();
     const changes = new Map(changeRows.results.map((row) => [row.project_version_id, row]));
     for (const candidate of candidates) {

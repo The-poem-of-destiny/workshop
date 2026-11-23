@@ -13,6 +13,7 @@ import { submitVersion, withdrawSubmission } from "../storage/authoring-submissi
 import {
   countRecentMetadataMutations,
   createVersion,
+  getSubmissionBaselineForVersion,
   listVersionsChangeEvidenceRows,
   patchProject,
 } from "../storage/authoring-versions.js";
@@ -347,19 +348,19 @@ export async function authorChangeEvidence(
   if (
     !project ||
     project.author_id !== session.userId ||
-    project.working_version_id !== versionId ||
-    !project.published_version_id ||
-    project.published_version_id === versionId
+    (project.working_version_id !== versionId && project.published_version_id !== versionId)
   )
     return { kind: "not_found" as const };
-  const rows = await listVersionsChangeEvidenceRows(env.DB, projectId, [versionId, project.published_version_id]);
+  const baselineVersionId = await getSubmissionBaselineForVersion(env.DB, projectId, versionId);
+  if (!baselineVersionId || baselineVersionId === versionId) return { kind: "not_found" as const };
+  const rows = await listVersionsChangeEvidenceRows(env.DB, projectId, [versionId, baselineVersionId]);
   const evidence = rows.map((row) => ({
     versionId: row.id,
     manifestHash: row.manifest_hash,
     index: row.entry_index ? projectEntryIndexDocumentSchema.parse(JSON.parse(row.entry_index)) : null,
   }));
   const current = evidence.find((row) => row.versionId === versionId);
-  const previous = evidence.find((row) => row.versionId === project.published_version_id);
+  const previous = evidence.find((row) => row.versionId === baselineVersionId);
   if (!current?.manifestHash || !previous?.manifestHash || !current.index || !previous.index)
     return { kind: "not_found" as const };
   return { kind: "ok" as const, data: { current, previous } };

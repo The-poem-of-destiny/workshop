@@ -7,6 +7,8 @@ import {
   authSessionResponseSchema,
 } from "@workshop/contracts";
 import { Hono } from "hono";
+import { z } from "zod";
+import { dataClient } from "../../data-client.js";
 import type { Env } from "../../env";
 import { jsonError } from "../errors.js";
 import { sessionToken } from "../session.js";
@@ -24,6 +26,12 @@ interface AuthFlowRow {
   expires_at: string;
   browser_binding_hash: string | null;
 }
+
+const authFlowBindSchema = z.object({
+  binding: z.string().min(1).max(256),
+});
+
+const BINDING_COOKIE_NAMES = ["__Host-cw_oauth_binding", "cw_oauth_binding", "cw_oauth_binding_p"] as const;
 
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
@@ -46,6 +54,35 @@ async function s256(value: string): Promise<string> {
   let binary = "";
   for (const byte of new Uint8Array(digest)) binary += String.fromCharCode(byte);
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
+function deriveFlowState(id: string, verifier: string, binding: string): Promise<string> {
+  return s256(`cw-oauth-state-v1:${id}:${verifier}:${binding}`);
+}
+
+async function buildDiscordAuthorizeUrl(
+  c: { env: Env; req: { url: string } },
+  id: string,
+  state: string,
+  verifier: string,
+  fallbackOrigin: string,
+  requiredRoles: Map<string, Set<string>>,
+): Promise<string> {
+  const scopes = ["identify", "guilds"];
+  if (requiredRoles.size > 0) scopes.push("guilds.members.read");
+  if (!c.env.DISCORD_CLIENT_ID) {
+    return `${fallbackOrigin}/auth/pending?flow=${encodeURIComponent(id)}`;
+  }
+  const query = new URLSearchParams({
+    client_id: c.env.DISCORD_CLIENT_ID,
+    response_type: "code",
+    redirect_uri: `${publicOrigin(c)}${CALLBACK_PATH}`,
+    scope: scopes.join(" "),
+    state,
+    code_challenge: await s256(verifier),
+    code_challenge_method: "S256",
+  });
+  return `https://discord.com/oauth2/authorize?${query.toString()}`;
 }
 
 function allowedOrigins(env: Env): string[] {
@@ -90,13 +127,21 @@ function publicOrigin(c: { env: Env; req: { url: string } }): string {
   return (c.env.PUBLIC_ORIGIN ?? new URL(c.req.url).origin).replace(/\/+$/, "");
 }
 
-function cookieValue(c: { req: { header: (name: string) => string | undefined } }, name: string): string {
+function cookieValues(c: { req: { header: (name: string) => string | undefined } }, name: string): string[] {
   const header = c.req.header("cookie") ?? "";
+  const values: string[] = [];
   for (const part of header.split(";")) {
     const [key, ...rest] = part.trim().split("=");
-    if (key === name) return rest.join("=");
+    if (key === name) {
+      const value = rest.join("=");
+      if (value) values.push(value);
+    }
   }
-  return "";
+  return values;
+}
+
+function allBindingCookieValues(c: { req: { header: (name: string) => string | undefined } }): string[] {
+  return BINDING_COOKIE_NAMES.flatMap((name) => cookieValues(c, name));
 }
 
 async function bindingMatches(
@@ -104,9 +149,8 @@ async function bindingMatches(
   flow: AuthFlowRow,
 ): Promise<boolean> {
   if (!flow.browser_binding_hash) return false;
-  for (const name of ["cw_oauth_binding", "cw_oauth_binding_p"]) {
-    const value = cookieValue(c, name);
-    if (value && (await sha256Hex(value)) === flow.browser_binding_hash) return true;
+  for (const value of allBindingCookieValues(c)) {
+    if ((await sha256Hex(value)) === flow.browser_binding_hash) return true;
   }
   return false;
 }
@@ -116,14 +160,19 @@ function setBindingCookies(
   value: string,
 ): void {
   const secure = new URL(c.req.url).protocol === "https:";
-  const base = `Path=/api/v1/auth; HttpOnly; Max-Age=600; SameSite=Lax${secure ? "; Secure" : ""}`;
-  c.header("set-cookie", `cw_oauth_binding=${value}; ${base}`, { append: true });
   if (secure) {
+    c.header("set-cookie", `__Host-cw_oauth_binding=${value}; Path=/; HttpOnly; Max-Age=600; SameSite=Lax; Secure`, {
+      append: true,
+    });
     c.header(
       "set-cookie",
       `cw_oauth_binding_p=${value}; Path=/api/v1/auth; HttpOnly; Max-Age=600; SameSite=None; Secure; Partitioned`,
       { append: true },
     );
+  } else {
+    c.header("set-cookie", `cw_oauth_binding=${value}; Path=/api/v1/auth; HttpOnly; Max-Age=600; SameSite=Lax`, {
+      append: true,
+    });
   }
 }
 
@@ -141,37 +190,97 @@ function escapeHtml(value: string): string {
   );
 }
 
-function htmlResponse(body: string, status = 200) {
+function safeScriptJson(value: unknown): string {
+  return JSON.stringify(value).replaceAll("<", "\\u003c");
+}
+
+function htmlResponse(body: string, status = 200, allowConnectSelf = false) {
+  const connectSrc = allowConnectSelf ? " connect-src 'self';" : "";
   return new Response(body, {
     status,
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
-      "content-security-policy":
-        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+      "content-security-policy": `default-src 'none';${connectSrc} script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'`,
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
     },
   });
 }
 
-function callbackHtml(payload: string): string {
+function launchHtml(flowId: string): string {
+  return `<!doctype html><meta charset="utf-8"><title>创意工坊登录</title>
+<body style="font:14px system-ui;background:#111;color:#ddd;padding:24px">
+<p id="status">正在连接创意工坊准备登录…</p>
+<script>
+(() => {
+  const flowId = ${safeScriptJson(flowId)};
+  const statusEl = document.getElementById("status");
+  if (!window.opener) {
+    statusEl.textContent = "未检测到原创意工坊页面，请返回创意工坊重新发起登录。";
+    return;
+  }
+  let done = false;
+  const timer = setTimeout(() => {
+    if (done) return;
+    done = true;
+    window.removeEventListener("message", onMessage);
+    statusEl.textContent = "登录连接超时，请关闭此窗口并返回创意工坊重新发起登录。";
+  }, 10000);
+  async function onMessage(event) {
+    if (done || event.origin !== location.origin) return;
+    const data = event.data;
+    if (!data || data.type !== "cw:oauth-launch-bind" || data.flowId !== flowId || typeof data.binding !== "string" || !data.binding) {
+      return;
+    }
+    done = true;
+    clearTimeout(timer);
+    window.removeEventListener("message", onMessage);
+    try {
+      const response = await fetch("/api/v1/auth/flows/" + encodeURIComponent(flowId) + "/bind", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ binding: data.binding }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result || typeof result.url !== "string") {
+        statusEl.textContent = "登录状态无效或已过期，请返回创意工坊重新发起登录。";
+        return;
+      }
+      location.replace(result.url);
+    } catch {
+      statusEl.textContent = "登录跳转失败，请关闭此窗口并返回创意工坊重试。";
+    }
+  }
+  window.addEventListener("message", onMessage);
+  window.opener.postMessage({ type: "cw:oauth-launch-ready", flowId }, location.origin);
+})();
+</script></body>`;
+}
+
+function callbackHtml(payload: Record<string, unknown>, requiresOpener = false): string {
   return `<!doctype html><meta charset="utf-8"><title>创意工坊登录</title>
 <body style="font:14px system-ui;background:#111;color:#ddd;padding:24px">
 <p id="status">正在完成登录…</p>
 <script>
 try {
-  const payload = ${payload};
-  if (window.opener) window.opener.postMessage(payload, payload.targetOrigin || "*");
-  document.getElementById("status").textContent = "登录结果已发送，可以关闭此页面。";
-  setTimeout(() => window.close(), 400);
+  const payload = ${safeScriptJson(payload)};
+  const requiresOpener = ${requiresOpener ? "true" : "false"};
+  if (requiresOpener && !window.opener) {
+    document.getElementById("status").textContent = "未检测到原创意工坊页面，请返回创意工坊重新发起登录。";
+  } else {
+    if (window.opener && payload.targetOrigin) window.opener.postMessage(payload, payload.targetOrigin);
+    document.getElementById("status").textContent = "登录结果已发送，可以关闭此页面。";
+    setTimeout(() => window.close(), 400);
+  }
 } catch (error) {
   document.getElementById("status").textContent = "登录结果发送失败，请回到创意工坊重试。";
 }
 </script></body>`;
 }
 
-function errorHtml(message: string, options?: { inviteUrl?: string; openerPayload?: string }): string {
+function errorHtml(message: string, options?: { inviteUrl?: string; openerPayload?: Record<string, unknown> }): string {
   const inviteBlock = options?.inviteUrl
     ? `<div style="margin-top:16px;padding:12px 14px;border:1px solid #3a3222;border-radius:8px;background:#1a1814;max-width:440px">
 <p style="margin:0 0 8px;color:#b8b0a0;font-size:13px">尚未加入社区服务器，或尚未完成服务器内身份验证？</p>
@@ -181,8 +290,8 @@ function errorHtml(message: string, options?: { inviteUrl?: string; openerPayloa
   const scriptBlock = options?.openerPayload
     ? `<script>
 try {
-  const payload = ${options.openerPayload};
-  if (window.opener) window.opener.postMessage(payload, payload.targetOrigin || "*");
+  const payload = ${safeScriptJson(options.openerPayload)};
+  if (window.opener && payload.targetOrigin) window.opener.postMessage(payload, payload.targetOrigin);
 } catch {}
 </script>`
     : "";
@@ -257,7 +366,7 @@ export const sessionRoutes = new Hono<{ Bindings: Env }>();
 
 sessionRoutes.delete("/current", async (c) => {
   const token = sessionToken(c);
-  if (!token || !(await c.executionCtx.exports.DataService.identityRevoke(token))) {
+  if (!token || !(await dataClient(c.executionCtx).identityRevoke(token))) {
     return jsonError(c, "unauthorized", "Login required");
   }
   return c.body(null, 204);
@@ -283,12 +392,12 @@ authRoutes.post("/flows", async (c) => {
   if (!requiredRoles) return jsonError(c, "internal", "服务器 Discord 身份组配置无效");
 
   const id = crypto.randomUUID();
-  const state = randomToken();
   const verifier = randomToken(48);
   const deviceCode = parsed.data.mode === "device" ? randomToken(32) : null;
   const binding = randomToken(32);
+  const state = await deriveFlowState(id, verifier, binding);
   const expiresAt = new Date(Date.now() + FLOW_TTL_MS).toISOString();
-  await c.executionCtx.exports.DataService.identityCreateFlow({
+  await dataClient(c.executionCtx).identityCreateFlow({
     id,
     state,
     verifier,
@@ -300,22 +409,10 @@ authRoutes.post("/flows", async (c) => {
     browserBindingHash: await sha256Hex(binding),
   });
   setBindingCookies(c, binding);
+  c.header("x-oauth-binding", binding);
+  c.header("cache-control", "no-store");
 
-  const scopes = ["identify", "guilds"];
-  if (requiredRoles.size > 0) scopes.push("guilds.members.read");
-  let url = `${requestOrigin}/auth/pending?flow=${encodeURIComponent(id)}`;
-  if (c.env.DISCORD_CLIENT_ID) {
-    const query = new URLSearchParams({
-      client_id: c.env.DISCORD_CLIENT_ID,
-      response_type: "code",
-      redirect_uri: `${publicOrigin(c)}${CALLBACK_PATH}`,
-      scope: scopes.join(" "),
-      state,
-      code_challenge: await s256(verifier),
-      code_challenge_method: "S256",
-    });
-    url = `https://discord.com/oauth2/authorize?${query.toString()}`;
-  }
+  const url = await buildDiscordAuthorizeUrl(c, id, state, verifier, requestOrigin, requiredRoles);
   return c.json(
     authFlowResponseSchema.parse({
       id,
@@ -329,11 +426,49 @@ authRoutes.post("/flows", async (c) => {
   );
 });
 
+authRoutes.get("/flows/:id/launch", (c) => {
+  return htmlResponse(launchHtml(c.req.param("id")), 200, true);
+});
+
+authRoutes.post("/flows/:id/bind", async (c) => {
+  const requestOrigin = c.req.header("origin");
+  if (!requestOrigin || !allowedOrigins(c.env).includes(requestOrigin)) {
+    return jsonError(c, "forbidden", "Origin is not allowed");
+  }
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, "bad_request", "Invalid JSON body");
+  }
+  const parsed = authFlowBindSchema.safeParse(body);
+  if (!parsed.success) return jsonError(c, "bad_request", "Invalid bind request", parsed.error.flatten());
+  const requiredRoles = roleRequirements(c.env);
+  if (!requiredRoles) return jsonError(c, "internal", "服务器 Discord 身份组配置无效");
+  const result = await dataClient(c.executionCtx).identityFlowForLaunch(c.req.param("id"), parsed.data.binding);
+  if (!result.ok) {
+    if (result.error === "not_found") return jsonError(c, "not_found", "Auth flow not found");
+    if (result.error === "binding") return jsonError(c, "forbidden", "Auth flow does not belong to this browser");
+    return jsonError(c, "conflict", "Auth flow is no longer pending");
+  }
+  setBindingCookies(c, parsed.data.binding);
+  c.header("cache-control", "no-store");
+  const url = await buildDiscordAuthorizeUrl(
+    c,
+    result.flow.id,
+    result.flow.state,
+    result.flow.codeVerifier,
+    requestOrigin,
+    requiredRoles,
+  );
+  return c.json({ url });
+});
+
 authRoutes.get("/flows/:id", async (c) => {
   const deviceSecret = c.req.query("deviceCode") ?? c.req.header("x-device-secret") ?? "";
-  const flow = await c.executionCtx.exports.DataService.identityFlowStatus(
+  const flow = await dataClient(c.executionCtx).identityFlowStatus(
     c.req.param("id"),
-    [cookieValue(c, "cw_oauth_binding"), cookieValue(c, "cw_oauth_binding_p")].filter(Boolean),
+    allBindingCookieValues(c),
     deviceSecret,
   );
   if (!flow) return jsonError(c, "not_found", "Auth flow not found");
@@ -349,9 +484,9 @@ authRoutes.post("/flows/:id/redeem", async (c) => {
   }
   const parsed = authFlowRedeemSchema.safeParse(body);
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid redeem request", parsed.error.flatten());
-  const result = await c.executionCtx.exports.DataService.identityRedeemFlow(
+  const result = await dataClient(c.executionCtx).identityRedeemFlow(
     c.req.param("id"),
-    [cookieValue(c, "cw_oauth_binding"), cookieValue(c, "cw_oauth_binding_p")].filter(Boolean),
+    allBindingCookieValues(c),
     parsed.data,
   );
   if (!result.ok) {
@@ -369,23 +504,23 @@ authRoutes.get("/callback", async (c) => {
   const state = c.req.query("state") ?? "";
   const code = c.req.query("code") ?? "";
   const oauthError = c.req.query("error");
-  const flow = state ? await c.executionCtx.exports.DataService.identityFlowByState(state) : null;
+  const flow = state ? await dataClient(c.executionCtx).identityFlowByState(state) : null;
   if (!flow) return htmlResponse(errorHtml("登录状态无效或已过期。"), 400);
   if (flow.mode !== "browser" && !(await bindingMatches(c, flow))) {
     return htmlResponse(errorHtml("登录状态无效或已过期。"), 400);
   }
   if (oauthError) {
     const message = "Discord 未完成授权。";
-    await c.executionCtx.exports.DataService.identityFlowError(flow.id, message);
+    await dataClient(c.executionCtx).identityFlowError(flow.id, message);
     const openerPayload =
       flow.mode === "browser"
-        ? JSON.stringify({
+        ? {
             type: "oauth-error",
             source: "creative-workshop-auth-callback",
             state,
             error: message,
             targetOrigin: flow.origin,
-          })
+          }
         : undefined;
     return htmlResponse(errorHtml(message, { openerPayload }), 400);
   }
@@ -396,28 +531,30 @@ authRoutes.get("/callback", async (c) => {
 
   const result = await exchangeDiscord(c, flow, code).catch(async (error: unknown) => {
     const message = error instanceof Error ? error.message : "登录失败";
-    await c.executionCtx.exports.DataService.identityFlowError(flow.id, message);
+    await dataClient(c.executionCtx).identityFlowError(flow.id, message);
     const needsGuildInvite =
       message.includes("不在允许的 Discord 服务器中") || message.includes("缺少允许的 Discord 身份组");
     const inviteUrl = needsGuildInvite
-      ? await c.executionCtx.exports.DataService.distributionCommunityInviteUrl().catch(() => undefined)
+      ? await dataClient(c.executionCtx)
+          .distributionCommunityInviteUrl()
+          .catch(() => undefined)
       : undefined;
     const openerPayload =
       flow.mode === "browser"
-        ? JSON.stringify({
+        ? {
             type: "oauth-error",
             source: "creative-workshop-auth-callback",
             state,
             error: message,
             ...(inviteUrl ? { inviteUrl } : {}),
             targetOrigin: flow.origin,
-          })
+          }
         : undefined;
     return htmlResponse(errorHtml(message, { inviteUrl, openerPayload }), 400);
   });
   if (result instanceof Response) return result;
   const redeemCode = flow.mode === "embed" ? randomToken(32) : null;
-  const authorized = await c.executionCtx.exports.DataService.identityAuthorizeFlow(
+  const authorized = await dataClient(c.executionCtx).identityAuthorizeFlow(
     flow.id,
     result.user,
     result.guildId,
@@ -427,37 +564,36 @@ authRoutes.get("/callback", async (c) => {
   if (flow.mode === "browser") {
     return htmlResponse(
       callbackHtml(
-        JSON.stringify({
+        {
           type: "oauth-success",
           source: "creative-workshop-auth-callback",
           state,
           token: authorized.token,
           targetOrigin: flow.origin,
-        }),
+        },
+        true,
       ),
     );
   }
   if (flow.mode === "embed") {
     return htmlResponse(
-      callbackHtml(
-        JSON.stringify({
-          type: "oauth-code",
-          source: "creative-workshop-auth-callback",
-          state,
-          code: redeemCode,
-          flowId: flow.id,
-        }),
-      ),
+      callbackHtml({
+        type: "oauth-code",
+        source: "creative-workshop-auth-callback",
+        state,
+        code: redeemCode,
+        flowId: flow.id,
+        targetOrigin: flow.origin,
+      }),
     );
   }
   return htmlResponse(
-    callbackHtml(
-      JSON.stringify({
-        type: "oauth-authorized",
-        source: "creative-workshop-auth-callback",
-        state,
-        flowId: flow.id,
-      }),
-    ),
+    callbackHtml({
+      type: "oauth-authorized",
+      source: "creative-workshop-auth-callback",
+      state,
+      flowId: flow.id,
+      targetOrigin: flow.origin,
+    }),
   );
 });

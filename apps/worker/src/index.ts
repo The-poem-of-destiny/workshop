@@ -4,9 +4,14 @@ import { fetchPublic } from "./data-client";
 import type { Env } from "./env";
 import { publicResponse } from "./http/public-response";
 import { isReadOnlyRequest } from "./http/read-only-request";
-import { isStorageQuotaError, quotaErrorDetail, quotaExceededMessage } from "./quota-error";
+import { isStorageQuotaError, quotaExceededMessage } from "./quota-error";
 import { runScheduled } from "./scheduler";
-import { barrierControl, maintenanceUnavailable, withWriteBarrier } from "./write-barrier";
+import {
+  barrierControl,
+  isMaintenanceUnavailableError,
+  maintenanceUnavailable,
+  withWriteBarrier,
+} from "./write-barrier";
 
 export { ContentService } from "./content-service";
 export { CachedReads } from "./data/cached-reads";
@@ -79,7 +84,17 @@ export default {
   },
   scheduled(event, env, ctx) {
     ctx.waitUntil(
-      withWriteBarrier(env, "scheduled", () => runScheduled(env, ctx.exports, event.scheduledTime)).then((result) => {
+      withWriteBarrier(env, "scheduled", async () => {
+        try {
+          await runScheduled(env, ctx.exports, event.scheduledTime);
+        } catch (error) {
+          if (isMaintenanceUnavailableError(error)) {
+            console.error("Scheduled work stopped by maintenance barrier");
+            return;
+          }
+          throw error;
+        }
+      }).then((result) => {
         if (!result.admitted) console.error("Scheduled work blocked by maintenance barrier");
       }),
     );
@@ -135,7 +150,6 @@ async function fetchGatewayPublic(
           error: {
             code: quota ? "quota_exceeded" : "internal",
             message: quota ? quotaExceededMessage() : "Internal server error",
-            ...(quota ? { details: quotaErrorDetail(error) } : {}),
           },
         },
         { status: quota ? 503 : 500 },

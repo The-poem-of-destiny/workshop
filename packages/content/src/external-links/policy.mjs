@@ -8,19 +8,17 @@
 //     offline browser checker by esbuild),
 //   - the plain Node tests.
 //
-// The allowed Discord guild ids are passed in by the caller instead of being
-// read from config here, because the browser bundle must not pull in
-// config/workshop.json. `config/workshop.json` stays the single source of truth
-// for that value; only the way it reaches this module differs per consumer.
+// The allowed Discord guild ids are passed in by each caller so this module
+// stays environment-independent and safe to bundle for the browser.
 
 /** Hosts that may serve statically proven media without human review. */
 export const TRUSTED_MEDIA_HOSTS = Object.freeze(["files.catbox.moe", "i.ibb.co"]);
 
 /** Discord hosts accepted for a project community thread. */
-export const DISCORD_HOSTS = Object.freeze(["discord.com", "www.discord.com"]);
+const DISCORD_HOSTS = Object.freeze(["discord.com", "www.discord.com"]);
 
 /** Discord snowflakes are 17-20 digits. */
-export const DISCORD_SNOWFLAKE_PATTERN = /^\d{17,20}$/;
+const DISCORD_SNOWFLAKE_PATTERN = /^\d{17,20}$/;
 
 const MEDIA_EXTENSIONS = /\.(?:png|jpe?g|webp|gif|avif|apng|bmp|ico|mp4|webm|mov|m4v|ogv)$/i;
 
@@ -83,7 +81,7 @@ export function normalizeExternalLinkUrl(value) {
 }
 
 /** True when the host is a bare IP address rather than a domain name. */
-export function isIpHost(hostname) {
+function isIpHost(hostname) {
   const host = String(hostname ?? "").toLowerCase();
   if (!host) return false;
   return host.includes(":") || /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host);
@@ -149,7 +147,7 @@ export function classifyExternalLink(normalized, usage = LINK_USAGE.UNKNOWN) {
 }
 
 /** Convenience wrapper: normalize then classify in one step. */
-export function inspectExternalLink(value, usage = LINK_USAGE.UNKNOWN) {
+function inspectExternalLink(value, usage = LINK_USAGE.UNKNOWN) {
   const url = normalizeExternalLinkUrl(value);
   const decision = classifyExternalLink(url, usage);
   return {
