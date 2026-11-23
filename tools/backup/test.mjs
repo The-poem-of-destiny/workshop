@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -80,9 +80,12 @@ try {
   assert.equal(valid.ok, true, JSON.stringify(valid.failures));
   assert.deepEqual(valid.checked, { assets: 2, projects: 1, versions: 2 });
 
-  // CLI entrypoint must execute (not silently exit 0) on non-ASCII workspace paths (`命定之诗`) and relative paths.
-  assert.ok(verifyScript.includes("命定之诗"), "expected workspace path to exercise non-ASCII URL comparison");
-  const cliOk = spawnSync(process.execPath, [verifyScript, "--tables", tables, "--r2", r2], { encoding: "utf8" });
+  // CLI entrypoint must execute (not silently exit 0) on non-ASCII/space paths and relative paths across any runner.
+  const nonAsciiDir = join(dir, "命定之诗 backup");
+  await mkdir(nonAsciiDir, { recursive: true });
+  const nonAsciiScript = join(nonAsciiDir, "verify.mjs");
+  await copyFile(verifyScript, nonAsciiScript);
+  const cliOk = spawnSync(process.execPath, [nonAsciiScript, "--tables", tables, "--r2", r2], { encoding: "utf8" });
   assert.equal(cliOk.status, 0, cliOk.stderr);
   assert.equal(JSON.parse(cliOk.stdout).ok, true);
 
