@@ -236,11 +236,6 @@ export function externalLinksNeedingReview(records) {
     );
 }
 
-/** Trusted records, for the optional informational section. */
-export function trustedExternalLinks(records) {
-  return (Array.isArray(records) ? records : []).filter((record) => unresolvedObservations(record).length === 0);
-}
-
 /**
  * Group records by hostname for the existing Project Detail panel.
  *

@@ -197,8 +197,12 @@ function compareFindings(a, b) {
     a.ruleId.localeCompare(b.ruleId, "en")
   );
 }
+const GATE_REJECT_RULES = new Set(["FILE", "CHECKER-LIMIT", "CHECKER-INTERNAL"]);
+function isGateRejectFinding(f) {
+  return f.severity === "high" && (/^L[1-7]$/.test(f.ruleId) || GATE_REJECT_RULES.has(f.ruleId));
+}
 function gateStatus(findings) {
-  return findings.some((f) => f.severity === "high" && /^L[1-7]$/.test(f.ruleId)) ? "reject" : "accept";
+  return findings.some(isGateRejectFinding) ? "reject" : "accept";
 }
 function auditStatus(findings) {
   if (gateStatus(findings) === "reject") return "not_applicable";
@@ -282,7 +286,7 @@ export function toUploaderCodeCheck(report) {
 export function formatUploaderCodeCheckError(report) {
   const uploader = toUploaderCodeCheck(report);
   if (uploader.gate !== "reject") return "";
-  const first = uploader.findings.find((f) => f.severity === "high" && /^L[1-7]$/.test(f.ruleId));
+  const first = uploader.findings.find(isGateRejectFinding);
   if (!first) return "文件没有通过自动检查，请修改脚本后重新上传。";
   const where = first.entry ? "「" + first.entry + "」" : first.book ? "「" + first.book + "」" : "文件";
   if (first.ruleId === "SCRIPT-RISK")

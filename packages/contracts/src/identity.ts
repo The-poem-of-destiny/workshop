@@ -29,7 +29,9 @@ export const policyAcceptanceInputSchema = z
   .object({
     version: z.string().trim().min(1).max(64),
     agreed: z.literal(true),
-    answers: z.record(z.string().min(1).max(64), z.string().min(1).max(64)),
+    answers: z
+      .record(z.string().min(1).max(64), z.string().min(1).max(64))
+      .refine((answers) => Object.keys(answers).length <= 20, "答题数量超出上限"),
   })
   .strict();
 
@@ -61,12 +63,21 @@ export const authFlowCreateSchema = z.object({
   codeChallenge: z.string().min(43).max(128).optional(),
 });
 
-export type AuthFlowCreate = z.infer<typeof authFlowCreateSchema>;
-
 export const authFlowResponseSchema = z.object({
   id: z.string().min(1),
   state: z.string().min(1),
-  url: z.string().url(),
+  url: z
+    .string()
+    .max(2048)
+    .url()
+    .refine((value) => {
+      try {
+        const { protocol } = new URL(value);
+        return protocol === "http:" || protocol === "https:";
+      } catch {
+        return false;
+      }
+    }, "认证地址必须使用 HTTP 或 HTTPS 协议"),
   expiresAt: z.string().datetime(),
   mode: authFlowModeSchema,
   deviceCode: z.string().min(1).optional(),
@@ -80,35 +91,14 @@ export const authFlowStatusSchema = z.object({
   error: z.string().nullable().optional(),
 });
 
-export type AuthFlowStatus = z.infer<typeof authFlowStatusSchema>;
-
 export const authFlowRedeemSchema = z.object({
   verifier: z.string().min(43).max(200).optional(),
   deviceCode: z.string().min(16).max(200).optional(),
   code: z.string().min(16).max(200).optional(),
 });
-export type AuthFlowRedeem = z.infer<typeof authFlowRedeemSchema>;
 
 export const authSessionResponseSchema = z.object({
   token: z.string().min(1),
   expiresAt: z.string().datetime(),
   user: meResponseSchema.shape.user,
 });
-export type AuthSessionResponse = z.infer<typeof authSessionResponseSchema>;
-
-export type {
-  ExperienceNote,
-  ExperienceNoteInput,
-  ExperienceNotesResponse,
-  ExperienceNoteVersion,
-  InteractionStateItem,
-  MeStateResponse,
-} from "./interactions.js";
-export {
-  experienceNoteInputSchema,
-  experienceNoteSchema,
-  experienceNotesResponseSchema,
-  experienceNoteVersionSchema,
-  interactionStateItemSchema,
-  meStateResponseSchema,
-} from "./interactions.js";

@@ -1,6 +1,6 @@
 import { buildScopes, isFunctionLocal, patternTargets, resolveBinding } from "./scope.mjs";
 
-export const GENERIC_GLOBAL_NAMES = new Set([
+const GENERIC_GLOBAL_NAMES = new Set([
   "data",
   "value",
   "result",
@@ -15,7 +15,7 @@ export const GENERIC_GLOBAL_NAMES = new Set([
   "item",
   "utils",
 ]);
-const GLOBAL_BASES = new Set(["globalThis", "window", "self"]);
+const GLOBAL_BASES = new Set(["globalThis", "window", "self", "top", "parent", "frames"]);
 
 function hasLeakDocumentation(content, index) {
   const area = content.slice(Math.max(0, index - 700), Math.min(content.length, index + 700)).toLowerCase();
@@ -36,17 +36,26 @@ function propertyName(member) {
   return null;
 }
 
+function unwrapChain(node) {
+  while (node?.type === "ChainExpression") node = node.expression;
+  return node;
+}
+
 function sharedGlobal(target, scope) {
-  if (target.type !== "MemberExpression") return null;
+  target = unwrapChain(target);
+  if (target?.type !== "MemberExpression") return null;
   let first = target;
-  while (first.object.type === "MemberExpression") first = first.object;
+  while (unwrapChain(first.object)?.type === "MemberExpression") {
+    first = unwrapChain(first.object);
+  }
+  const baseObject = unwrapChain(first.object);
   if (
-    first.object.type !== "Identifier" ||
-    !GLOBAL_BASES.has(first.object.name) ||
-    resolveBinding(scope, first.object.name)
+    baseObject?.type !== "Identifier" ||
+    !GLOBAL_BASES.has(baseObject.name) ||
+    resolveBinding(scope, baseObject.name, { stopAtWith: false })
   )
     return null;
-  return { base: first.object.name, name: propertyName(first), node: first };
+  return { base: baseObject.name, name: propertyName(first), node: first };
 }
 
 // Finding records use original input offsets. The report adapter owns visibility/formatting.
@@ -212,7 +221,7 @@ function reportPolicyWrite(target, scope, { original, at, reported, content, sym
           : "Workshop 公约要求跨条目共享必须显式、项目专属，并说明生命周期与清理方式。"),
       "如果确实需要跨条目共享：使用项目专属的唯一命名空间，并写清 Owner、Lifecycle、Cleanup；最终 uploader 应用项目稳定 ID 做自动校验。否则改成本条目的局部状态。",
     );
-  } else if (target.type === "Identifier" && !resolveBinding(scope, target.name)) {
+  } else if (target.type === "Identifier" && !resolveBinding(scope, target.name, { stopAtWith: false })) {
     const name = target.name;
     symbols.push({ name, index, type: "implicit" });
     add(

@@ -48,10 +48,3 @@ export type InstallPreview = {
   playerChanges: InstallDiff[];
   changes: InstallDiff[];
 };
-// Requests carry requestId; responses echo it, with ok/result or ok:false/message.
-export type InstallBridgeRequest =
-  | { type: "cw:scan"; requestId: string }
-  | { type: "cw:convert-legacy"; requestId: string; worldbooks: string[] }
-  | { type: "cw:preview-install"; requestId: string; intent: InstallIntent }
-  | { type: "cw:confirm-install"; requestId: string; previewId: string }
-  | { type: "cw:cancel-install"; requestId: string; previewId: string };

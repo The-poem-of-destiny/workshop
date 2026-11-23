@@ -21,16 +21,24 @@ export const projectTaxonomySchema = z
     }
   });
 
+const TAG_CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+
+const projectTagItemSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(400)
+  .refine((value) => Array.from(value).length <= 100, "单个标签不能超过 100 个字符")
+  .refine((value) => !TAG_CONTROL_CHARACTERS.test(value), "标签包含无效字符");
+
 export const projectTagsSchema = z
-  .array(z.string().trim().min(1).max(100))
+  .array(projectTagItemSchema)
   .max(MAX_CUSTOM_TAGS)
   .refine((values) => new Set(values).size === values.length, "标签不能重复");
 
 export const projectSortSchema = z.enum(["updated", "published", "downloads", "likes"]);
-export type ProjectSort = z.infer<typeof projectSortSchema>;
 
 export const projectPeriodSchema = z.enum(["all", "7d", "30d", "90d"]);
-export type ProjectPeriod = z.infer<typeof projectPeriodSchema>;
 
 export const projectSummarySchema = z.object({
   id: z.string(),
@@ -139,7 +147,7 @@ export const projectListQuerySchema = z.object({
   // Like windows sum transitions (including unlikes of older likes), not active likes.
   period: projectPeriodSchema.optional(),
   projectType: z
-    .union([projectTypeSchema, z.array(projectTypeSchema)])
+    .union([projectTypeSchema, z.array(projectTypeSchema).max(50)])
     .optional()
     .transform((value) => {
       const values = value === undefined ? [] : Array.isArray(value) ? value : [value];
@@ -151,11 +159,17 @@ export const projectListQuerySchema = z.object({
   authorId: z.string().trim().min(1).max(64).optional(),
   collectionId: z.string().trim().min(1).max(80).optional(),
   tag: z
-    .union([z.string().trim().min(1).max(100), z.array(z.string().trim().min(1).max(100))])
+    .union([projectTagItemSchema, z.array(projectTagItemSchema).max(50)])
     .optional()
     .transform((value) => [...new Set(value === undefined ? [] : Array.isArray(value) ? value : [value])].sort())
     .pipe(z.array(z.string()).max(MAX_SELECTED_TAGS)),
-  search: z.string().trim().min(1).max(80).optional(),
+  search: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .refine((value) => !value.includes("\u0000"), "搜索词包含无效字符")
+    .optional(),
 });
 
 export type ProjectListQuery = z.infer<typeof projectListQuerySchema>;
@@ -173,6 +187,7 @@ export const projectBatchQuerySchema = z
   .object({
     ids: z
       .string()
+      .max(4200)
       .transform((value) => value.split(",").map((id) => id.trim()))
       .pipe(
         z

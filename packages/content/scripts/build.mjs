@@ -43,7 +43,7 @@ const notices = await Promise.all(
 );
 await writeFile(path.join(out, "NOTICES.txt"), notices.join("\n\n"));
 
-const bundles = ["upload-checker.mjs", "review-checker.mjs", "browser-checker.js"];
+const bundles = ["upload-checker.mjs", "review-checker.mjs", "browser-checker.js", "NOTICES.txt"];
 const hashes = {};
 for (const file of bundles) {
   hashes[file] = createHash("sha256")

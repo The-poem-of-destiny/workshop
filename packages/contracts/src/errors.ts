@@ -25,8 +25,6 @@ export const errorResponseSchema = z.object({
   }),
 });
 
-export type ErrorResponse = z.infer<typeof errorResponseSchema>;
-
 export const ERROR_STATUS: Record<ErrorCode, number> = {
   bad_request: 400,
   unauthorized: 401,

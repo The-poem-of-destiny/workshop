@@ -1,8 +1,6 @@
 import { MAX_CUSTOM_TAGS } from "./taxonomy.js";
 
-export const METADATA_CHECKER_REVISION = "metadata-v1";
-
-export const METADATA_LIMITS = {
+const METADATA_LIMITS = {
   title: 200,
   description: 100_000,
   requirementsNotes: 2_000,
@@ -69,6 +67,9 @@ export function inspectProjectMetadata(input: MetadataInput): MetadataInspection
   if (tags.length > METADATA_LIMITS.tags) add(findings, "tags", "block", "标签数量过多");
   if (tags.some((tag) => !tag.trim() || tag !== tag.trim()))
     add(findings, "tags", "block", "标签不能为空或包含首尾空白");
+  if (tags.some((tag) => CONTROL_CHARACTERS.test(tag))) {
+    add(findings, "tags", "block", "包含控制字符");
+  }
   if (
     tags.some((tag) => {
       if (tag.length <= METADATA_LIMITS.tagLength) return false;

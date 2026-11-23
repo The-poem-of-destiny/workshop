@@ -82,4 +82,3 @@ export const projectCollectionsUpdateSchema = z
       .transform((ids) => [...new Set(ids)]),
   })
   .strict();
-export type ProjectCollectionsUpdate = z.infer<typeof projectCollectionsUpdateSchema>;

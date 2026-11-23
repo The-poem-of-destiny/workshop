@@ -1,16 +1,8 @@
 import { buildScopes, resolveBinding } from "./scope.mjs";
 
-// Behavioural facts checked against the pinned upstream documentation/source.
+// Behavioural facts checked against ST-Prompt-Template (d6f520d149aba146305b0b781ddd691d449c28d2).
 // This catalogue is advisory: env, define(), SharedDefines and extension events
 // can add/replace context names. Unknown functions are never rejected.
-export const API_SOURCE = Object.freeze({
-  repository: "https://github.com/zonde306/ST-Prompt-Template",
-  commit: "d6f520d149aba146305b0b781ddd691d449c28d2",
-  reference: "docs/reference_cn.md",
-  implementation: "src/function/ejs.ts",
-  features: "docs/features_cn.md",
-});
-
 const api = (asynchronous, minimumArguments, signatures, availability = "template context") =>
   Object.freeze({ asynchronous, minimumArguments, signatures: Object.freeze(signatures), availability });
 const variableRead = api(false, 1, ["key, options?"]);
@@ -18,7 +10,7 @@ const variableWrite = api(false, 2, ["key, value, options?"], "template context;
 const worldRead = api(true, 1, ["title, data?", "lorebook, title, data?"]);
 const worldActivate = api(true, 1, ["title, force?", "lorebook, title, force?"]);
 
-export const API_CATALOGUE = Object.freeze({
+const API_CATALOGUE = Object.freeze({
   getvar: variableRead,
   getLocalVar: variableRead,
   getGlobalVar: variableRead,
@@ -38,20 +30,6 @@ export const API_CATALOGUE = Object.freeze({
   getWorldInfoActivatedData: api(true, 2, ["name, keyword, condition?"]),
   evalTemplate: api(true, 1, ["content, data?, options?"]),
   define: api(false, 2, ["name, value, merge?"]),
-});
-
-// Availability is evidence for future phase-aware checks, not a whitelist.
-// Calling getwi can supply world_info even outside a generate decorator.
-export const API_CONTEXT_FIELDS = Object.freeze({
-  runType: Object.freeze({
-    values: Object.freeze(["generate", "preparation", "render", "render_permanent"]),
-    mayBeUndefined: true,
-  }),
-  world_info: Object.freeze({
-    availability: "generate decorators and nested worldbook reads; additional env may supply it",
-  }),
-  generateBuffer: Object.freeze({ availability: "generate decorators" }),
-  generateData: Object.freeze({ availability: "generate decorators" }),
 });
 
 const PROMISE_MEMBERS = new Set(["then", "catch", "finally"]);
@@ -98,7 +76,7 @@ export function inspectApiUsage(entry, parsed) {
       if (!unit.sourceMap.isOriginal(node.callee.start)) continue;
       const name = node.callee.name;
       const spec = Object.hasOwn(API_CATALOGUE, name) ? API_CATALOGUE[name] : null;
-      if (!spec || resolveBinding(scope, name)) continue;
+      if (!spec || resolveBinding(scope, name, { stopAtWith: false })) continue;
       const index = unit.sourceMap.map(node.callee.start);
       if (spec.asynchronous && consumesUnresolvedValue(node, parents)) {
         records.push({

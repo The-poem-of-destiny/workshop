@@ -71,6 +71,15 @@ class SourceBuilder {
           segment.originalStart + (segment.original && segment.linear ? offset - segment.start : 0),
         );
       },
+      mapEnd(offset) {
+        if (offset <= 0) return segments.length ? segments[0].originalStart : 0;
+        const segment = segmentAt(offset - 1);
+        if (!segment) return segments.length ? segments[segments.length - 1].originalEnd : rawContent.length;
+        return Math.min(
+          rawContent.length,
+          segment.original && segment.linear ? segment.originalStart + (offset - segment.start) : segment.originalEnd,
+        );
+      },
       isOriginal(offset) {
         return Boolean(segmentAt(offset)?.original);
       },
@@ -78,14 +87,28 @@ class SourceBuilder {
         return sourceLocation(rawContent, this.map(offset));
       },
     };
-    return { kind, rawContent, code: this.parts.join(""), codeRanges: this.codeRanges, sourceMap, ...extra };
+    return {
+      kind,
+      rawContent,
+      code: this.parts.join(""),
+      codeRanges: this.codeRanges,
+      segments,
+      sourceMap,
+      ...extra,
+    };
   }
+}
+
+function asciiLower(value) {
+  return String(value).replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32));
 }
 
 function decoratorEnd(source) {
   let cursor = 0;
   while (source.startsWith("@@", cursor) && !source.startsWith("@@@", cursor)) {
     const newline = source.indexOf("\n", cursor);
+    const lineEnd = newline < 0 ? source.length : newline;
+    if (source.slice(cursor, lineEnd).includes("<%")) break;
     cursor = newline < 0 ? source.length : newline + 1;
   }
   return cursor;
@@ -224,7 +247,7 @@ export function firstAttributeLocations(source, tagLocation) {
   const spelling = /([^\t\n\f\r /=>]+)(?:[\t\n\f\r ]*=[\t\n\f\r ]*(?:"[^"]*"|'[^']*'|[^\t\n\f\r >]*))?/g;
   spelling.lastIndex = nameEnd;
   for (let match = spelling.exec(tag); match; match = spelling.exec(tag)) {
-    const name = match[1].toLowerCase();
+    const name = asciiLower(match[1]);
     if (!locations.has(name))
       locations.set(name, {
         startOffset: tagLocation.startOffset + match.index,
@@ -259,6 +282,59 @@ function eventAttribute(node, name) {
   );
 }
 
+const MAX_SRCDOC_DEPTH = 4;
+
+function appendMappedSlice(builder, sourceUnit, sliceStart, sliceEnd, mode) {
+  if (sliceStart >= sliceEnd) return;
+  for (const segment of sourceUnit.segments) {
+    if (segment.end <= sliceStart) continue;
+    if (segment.start >= sliceEnd) break;
+    const subStart = Math.max(sliceStart, segment.start);
+    const subEnd = Math.min(sliceEnd, segment.end);
+    const text = sourceUnit.code.slice(subStart, subEnd);
+    const origStart =
+      segment.original && segment.linear ? segment.originalStart + (subStart - segment.start) : segment.originalStart;
+    const origEnd =
+      segment.original && segment.linear ? segment.originalStart + (subEnd - segment.start) : segment.originalEnd;
+    builder.append(text, origStart, segment.original, mode, segment.linear, origEnd);
+  }
+}
+
+function remapNestedUnit(innerUnit, outerAttrUnit, rawContent) {
+  const codeRanges = innerUnit.codeRanges.map((range) => ({
+    ...range,
+    originalStart: outerAttrUnit.sourceMap.map(range.originalStart),
+    originalEnd: outerAttrUnit.sourceMap.mapEnd(range.originalEnd),
+  }));
+  const sourceMap = {
+    map(offset) {
+      return outerAttrUnit.sourceMap.map(innerUnit.sourceMap.map(offset));
+    },
+    mapEnd(offset) {
+      return outerAttrUnit.sourceMap.mapEnd(innerUnit.sourceMap.mapEnd(offset));
+    },
+    isOriginal(offset) {
+      return innerUnit.sourceMap.isOriginal(offset);
+    },
+    location(offset) {
+      return sourceLocation(rawContent, this.map(offset));
+    },
+  };
+  const syntaxError = innerUnit.syntaxError
+    ? {
+        ...innerUnit.syntaxError,
+        ...sourceLocation(rawContent, outerAttrUnit.sourceMap.map(innerUnit.syntaxError.index)),
+      }
+    : undefined;
+  return {
+    ...innerUnit,
+    rawContent,
+    codeRanges,
+    sourceMap,
+    ...(syntaxError ? { syntaxError } : {}),
+  };
+}
+
 function attributeUnit(rawContent, attribute, kind) {
   const builder = new SourceBuilder(rawContent);
   const wrapped = kind === "event";
@@ -271,10 +347,44 @@ function attributeUnit(rawContent, attribute, kind) {
   if (kind === "javascript-url") {
     const prefix = /^[\u0000-\u0020]*javascript:/i.exec(unit.code.replace(/[\t\r\n]/g, ""));
     if (!prefix) return null;
-    // Find the colon in the decoded source without deleting its mapping.
+    // Find the colon in the decoded source and percent-decode post-scheme JS.
     const colon = unit.code.indexOf(":");
     const prefixLength = colon + 1;
-    unit.code = " ".repeat(prefixLength) + unit.code.slice(prefixLength);
+    const jsBuilder = new SourceBuilder(rawContent);
+    jsBuilder.append(" ".repeat(prefixLength), attribute.start, false);
+    const pct = /(?:%[0-9a-fA-F]{2})+/g;
+    pct.lastIndex = prefixLength;
+    let cursor = prefixLength;
+    for (let match = pct.exec(unit.code); match; match = pct.exec(unit.code)) {
+      appendMappedSlice(jsBuilder, unit, cursor, match.index, "attribute");
+      let decoded;
+      try {
+        decoded = decodeURIComponent(match[0]);
+      } catch {
+        return jsBuilder.finish(kind, {
+          sourceType: "script",
+          wrapped: false,
+          async: false,
+          syntaxError: {
+            kind: "syntax",
+            ...unit.sourceMap.location(match.index),
+            message: "javascript: URL 包含无效的百分号编码",
+            unitKind: kind,
+          },
+        });
+      }
+      jsBuilder.append(
+        decoded,
+        unit.sourceMap.map(match.index),
+        true,
+        "attribute",
+        false,
+        unit.sourceMap.mapEnd(pct.lastIndex),
+      );
+      cursor = pct.lastIndex;
+    }
+    appendMappedSlice(jsBuilder, unit, cursor, unit.code.length, "attribute");
+    return jsBuilder.finish(kind, { sourceType: "script", wrapped: false, async: false });
   }
   if (wrapped) {
     builder.append("\n})", attribute.end);
@@ -283,7 +393,7 @@ function attributeUnit(rawContent, attribute, kind) {
   return unit;
 }
 
-export function buildRegexUnits(rawContent) {
+export function buildRegexUnits(rawContent, depth = 0) {
   const units = [];
   // parse5 parses text into an inert HTML tree; no DOM is created, mounted or
   // executed. Its WHATWG tokenizer handles raw-text and script escape states.
@@ -293,7 +403,7 @@ export function buildRegexUnits(rawContent) {
     const node = pending.pop();
     if (!node.tagName) continue;
     const location = node.sourceCodeLocation;
-    collectAttributeUnits(rawContent, node, location, units);
+    collectAttributeUnits(rawContent, node, location, units, depth);
     if (node.tagName === "script" && location) collectScriptUnit(rawContent, node, location, units);
     // Template descendants are inert HTML content, not executable regions.
     if (node.tagName !== "template") pending.push(...(node.childNodes ?? []).slice().reverse());
@@ -301,7 +411,7 @@ export function buildRegexUnits(rawContent) {
   return units;
 }
 
-function collectAttributeUnits(rawContent, node, location, units) {
+function collectAttributeUnits(rawContent, node, location, units, depth) {
   const attributeLocations = firstAttributeLocations(rawContent, location?.startTag);
   for (const parsedAttribute of node.attrs ?? []) {
     const name = parsedAttribute.prefix ? parsedAttribute.prefix + ":" + parsedAttribute.name : parsedAttribute.name;
@@ -309,7 +419,16 @@ function collectAttributeUnits(rawContent, node, location, units) {
     if (!attributeLocation) continue;
     const attribute = attributeRange(rawContent, attributeLocation, parsedAttribute.value);
     if (eventAttribute(node, name)) units.push(attributeUnit(rawContent, attribute, "event"));
-    else if (["href", "src", "action", "formaction", "xlink:href"].includes(name)) {
+    else if (node.tagName === "iframe" && name === "srcdoc" && depth < MAX_SRCDOC_DEPTH) {
+      const attrBuilder = new SourceBuilder(rawContent);
+      appendHtmlText(attrBuilder, rawContent, attribute.start, attribute.end, { attribute: true });
+      if (attrBuilder.parts.join("") === attribute.value) {
+        const attrUnit = attrBuilder.finish("srcdoc");
+        for (const innerUnit of buildRegexUnits(attribute.value, depth + 1)) {
+          units.push(remapNestedUnit(innerUnit, attrUnit, rawContent));
+        }
+      }
+    } else if (["href", "src", "data", "action", "formaction", "xlink:href"].includes(name)) {
       const unit = attributeUnit(rawContent, attribute, "javascript-url");
       if (unit) units.push(unit);
     }
@@ -320,9 +439,9 @@ function collectScriptUnit(rawContent, node, location, units) {
   const type = node.attrs.find((attribute) => attribute.name === "type");
   const language = node.attrs.find((attribute) => attribute.name === "language");
   const value = type
-    ? type.value.replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/g, "").toLowerCase()
+    ? asciiLower(type.value.replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/g, ""))
     : language?.value
-      ? "text/" + language.value.toLowerCase()
+      ? "text/" + asciiLower(language.value)
       : "";
   const executable =
     !value ||
