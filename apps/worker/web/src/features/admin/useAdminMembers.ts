@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { type AdminMember, ApiError, api } from "../../api";
+import { useCallback, useRef, useState } from "react";
+import { type AdminMember, ApiError, api, formatUserError, getSessionGeneration } from "../../api";
 
 type Role = "member" | "reviewer" | "owner";
 
@@ -11,13 +11,15 @@ const ROLE_LABELS: Record<Role, string> = {
 
 function roleErrorMessage(value: unknown): string {
   if (value instanceof ApiError) {
-    if (value.status === 409 && /last owner/i.test(value.message)) {
-      return "无法降级最后一位站长：站点必须至少保留一名站长（owner）。";
+    if (value.status === 409) {
+      return /站长|last owner/i.test(value.message)
+        ? "无法降级最后一位站长：站点必须至少保留一名站长。"
+        : value.message;
     }
     if (value.status === 403) return "只有站长可以修改成员角色。";
     return value.message;
   }
-  return String(value);
+  return formatUserError(value);
 }
 type AdminMembersOptions = { onError: (message: string) => void; onNotice: (message: string) => void };
 export function useAdminMembers({ onError, onNotice }: AdminMembersOptions) {
@@ -29,21 +31,39 @@ export function useAdminMembers({ onError, onNotice }: AdminMembersOptions) {
   const [pendingRole, setPendingRole] = useState<{ member: AdminMember; role: Role } | null>(null);
   const [roleBusy, setRoleBusy] = useState(false);
   const memberLoadingRef = useRef(false);
+  const memberGeneration = useRef(0);
   const roleBusyRef = useRef(false);
+
+  const resetMemberLoads = useCallback(() => {
+    memberGeneration.current += 1;
+    memberLoadingRef.current = false;
+    setMemberLoadingMore(false);
+  }, []);
+
   async function loadMoreMembers(): Promise<void> {
     if (!memberCursor || memberLoadingRef.current) return;
+    const generation = ++memberGeneration.current;
+    const sessionGeneration = getSessionGeneration();
     memberLoadingRef.current = true;
     setMemberLoadingMore(true);
     try {
       const result = await api.adminMembers(memberCursor);
-      setMembers((previous) => [...previous, ...result.items]);
+      if (generation !== memberGeneration.current || sessionGeneration !== getSessionGeneration()) return;
+      setMembers((previous) => {
+        const seen = new Set(previous.map((item) => item.id));
+        return [...previous, ...result.items.filter((item) => !seen.has(item.id))];
+      });
       setMemberCursor(result.nextCursor);
     } catch (value) {
-      onError(`成员加载失败：${String(value)}`);
-      setMemberError(`成员加载失败：${String(value)}`);
+      if (generation !== memberGeneration.current || sessionGeneration !== getSessionGeneration()) return;
+      const msg = `成员加载失败：${formatUserError(value)}`;
+      onError(msg);
+      setMemberError(msg);
     } finally {
-      memberLoadingRef.current = false;
-      setMemberLoadingMore(false);
+      if (generation === memberGeneration.current) {
+        memberLoadingRef.current = false;
+        setMemberLoadingMore(false);
+      }
     }
   }
   function requestRoleChange(member: AdminMember, role: Role): void {
@@ -89,5 +109,6 @@ export function useAdminMembers({ onError, onNotice }: AdminMembersOptions) {
     setMembers,
     setMemberCursor,
     setMemberError,
+    resetMemberLoads,
   };
 }

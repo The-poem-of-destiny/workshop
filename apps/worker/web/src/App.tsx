@@ -1,6 +1,6 @@
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 
-import { ApiError, type ProjectSummary } from "./api";
+import { ApiError, formatApiErrorMessage, formatUserError, type ProjectSummary } from "./api";
 import { useCatalogue } from "./features/catalogue/useCatalogue";
 import { WorkshopCatalogue } from "./features/catalogue/WorkshopCatalogue";
 import { useHostConnection } from "./features/installed/useHostConnection";
@@ -72,7 +72,12 @@ export function App() {
   const [faqOpen, setFaqOpen] = useState(false);
   const [discordPrompt, setDiscordPrompt] = useState<DiscordPromptTarget | null>(null);
   const detailOpener = useRef<HTMLElement | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [errorState, setErrorState] = useState<{ message: string; detail: string | null } | null>(null);
+  const setError = useCallback((message: string | null, detail: string | null = null) => {
+    setErrorState(message ? { message, detail } : null);
+  }, []);
+  const error = errorState?.message ?? null;
+  const errorDetail = errorState?.detail ?? null;
   const [notice, setNotice] = useState<string | null>(null);
   const embedded = new URLSearchParams(location.search).get("embed") === "1";
   const nav = useWorkshopNavigation();
@@ -153,10 +158,19 @@ export function App() {
   }, [view]);
   const refreshSession = useEffectEvent(() => void refreshMe());
   useEffect(() => {
-    if (home.status === "error")
-      setError(home.error instanceof Error ? home.error.message : "服务暂时繁忙，请稍后刷新页面再试。");
-    else if (home.status === "ready" && !home.data.site.ok) setError(home.data.site.error.message);
-  }, [home]);
+    if (home.status === "error") {
+      const detail =
+        home.error instanceof ApiError && typeof home.error.details === "string" ? home.error.details : null;
+      setError(
+        home.error instanceof Error ? formatUserError(home.error) : "服务暂时繁忙，请稍后刷新页面再试。",
+        detail,
+      );
+    } else if (home.status === "ready" && !home.data.site.ok) {
+      const siteErr = home.data.site.error;
+      const detail = typeof siteErr.details === "string" ? siteErr.details : null;
+      setError(formatApiErrorMessage(500, siteErr.code, siteErr.message, siteErr.details), detail);
+    }
+  }, [home, setError]);
   useEffect(() => {
     refreshSession();
   }, []);
@@ -171,21 +185,13 @@ export function App() {
     setSelected(null);
   };
 
-  const errorDetail =
-    home.status === "error" && home.error instanceof ApiError && typeof home.error.details === "string"
-      ? home.error.details
-      : home.status === "ready" && !home.data.site.ok && typeof home.data.site.error.details === "string"
-        ? home.data.site.error.details
-        : home.status === "ready" && !home.data.projects.ok && typeof home.data.projects.error.details === "string"
-          ? home.data.projects.error.details
-          : null;
-
   if (home.status === "error" && home.error instanceof ApiError && home.error.status === 503) {
     if (home.error.code === "maintenance") {
       return <StatusNotice title="工坊维护中" body="请稍后刷新页面再试。" />;
     }
     if (home.error.code === "quota_exceeded" && !installedAvailable) {
-      return <StatusNotice title="今日云端额度已用完" body={home.error.message} detail={errorDetail} reset />;
+      const quotaDetail = typeof home.error.details === "string" ? home.error.details : null;
+      return <StatusNotice title="今日云端额度已用完" body={home.error.message} detail={quotaDetail} reset />;
     }
   }
 

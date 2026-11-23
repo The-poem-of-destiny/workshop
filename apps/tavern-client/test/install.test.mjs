@@ -734,3 +734,253 @@ test("legacy conversion rejects changed or invalid confirmed scope without write
   assert.deepEqual(h.state.books, { ...before, C: [] });
   assert.equal(h.state.writes, 0);
 });
+
+test("unclosed EJS comments are rejected on preview and skipped per-group during legacy conversion", async () => {
+  const h = harness();
+  await assert.rejects(
+    h.manager.preview({
+      action: "install",
+      project: { id: "p", version: "1" },
+      files: { worldbook: JSON.stringify({ entries: [{ uid: 1, name: "Bad", content: "text <%# unclosed" }] }) },
+      targetWorldbook: "A",
+    }),
+    /未闭合的 EJS 注释/,
+  );
+  assert.equal(h.state.writes, 0);
+
+  h.state.books.A = [
+    {
+      uid: 1,
+      name: "broken-1",
+      content: "safe",
+      extra: { cw_project_id: "bad", cw_project_version: "1", cw_entry_key: "k1" },
+    },
+    {
+      uid: 2,
+      name: "broken-2",
+      content: "has <%# unclosed",
+      extra: { cw_project_id: "bad", cw_project_version: "1", cw_entry_key: "k2" },
+    },
+    {
+      uid: 3,
+      name: "healthy",
+      content: "good body",
+      extra: { cw_project_id: "good", cw_project_version: "2", cw_entry_key: "g1" },
+    },
+  ];
+  const badBefore = clone(h.state.books.A.slice(0, 2).map(persistBook));
+  const result = await h.manager.convertLegacy(["A", "B"]);
+  assert.deepEqual(result, { converted: 1, skipped: 1 });
+  assert.deepEqual(h.state.books.A.slice(0, 2), badBefore);
+  assert.deepEqual(
+    namespace(
+      h.state.books.A.find((row) => row.uid === 3),
+      "workshop_entry",
+    ),
+    {
+      version: 1,
+      project_id: "good",
+      entry_key: "g1",
+      version_id: "2",
+    },
+  );
+  assert.deepEqual(
+    namespace(
+      h.state.books.A.find((row) => row.name === registryName),
+      "workshop_index",
+    ).projects.map((p) => p.project_id),
+    ["good"],
+  );
+});
+
+test("hybrid updates to regex-only and worldbook-only clean up removed locations and decouple ownership", async () => {
+  const h = harness();
+  const hybridToRegex = await install(h, "A", "1");
+  const toRegexPreview = await h.manager.preview({
+    action: "update",
+    instanceId: hybridToRegex,
+    project: { id: "p", version: "2" },
+    files: { regex: files("2").regex },
+  });
+  assert.deepEqual(toRegexPreview.target, { worldbook: null, character: "avatar.png" });
+  await h.manager.confirm(toRegexPreview.previewId);
+  assert.deepEqual(entries(h.state.books.A), []);
+  assert.deepEqual(
+    namespace(
+      h.state.books.A.find((row) => row.name === registryName),
+      "workshop_index",
+    ).projects,
+    [],
+  );
+  delete h.state.books.A;
+  const regexOnlyScan = await h.manager.scan();
+  assert.equal(regexOnlyScan.instances.length, 1);
+  assert.deepEqual(regexOnlyScan.instances[0].location, { worldbook: null, character: "avatar.png" });
+  assert.equal(regexOnlyScan.instances[0].entryCount, 0);
+  assert.equal(regexOnlyScan.instances[0].regexCount, 1);
+
+  h.state.books.A = [];
+  h.state.regex = [];
+  h.state.records = {};
+  const hybridToBook = await install(h, "A", "1");
+  const toBookPreview = await h.manager.preview({
+    action: "update",
+    instanceId: hybridToBook,
+    project: { id: "p", version: "2" },
+    files: { worldbook: files("2").worldbook },
+  });
+  assert.deepEqual(toBookPreview.target, { worldbook: "A", character: null });
+  await h.manager.confirm(toBookPreview.previewId);
+  assert.deepEqual(h.state.regex, []);
+  h.state.character = "other.png";
+  const bookOnlyScan = await h.manager.scan();
+  assert.equal(bookOnlyScan.instances.length, 1);
+  assert.deepEqual(bookOnlyScan.instances[0].location, { worldbook: "A", character: null });
+  assert.equal(bookOnlyScan.instances[0].entryCount, 1);
+  assert.equal(bookOnlyScan.instances[0].regexCount, 0);
+});
+
+test("orphaned workshop_index records allow reinstall and migration without disturbing sibling projects", async () => {
+  const h = harness();
+  const keepPreview = await h.manager.preview({
+    action: "install",
+    project: { id: "sibling", version: "1" },
+    files: { worldbook: files("sibling-v1").worldbook },
+    targetWorldbook: "A",
+  });
+  await h.manager.confirm(keepPreview.previewId);
+
+  // Interrupted install writes entries + workshop_index into shared book A before failing final record save.
+  const interrupted = await h.manager.preview({
+    action: "install",
+    project: { id: "p", version: "1" },
+    files: files("interrupted-v1"),
+    targetWorldbook: "A",
+  });
+  h.state.failFinalSave = true;
+  await assert.rejects(h.manager.confirm(interrupted.previewId), /save interrupted/);
+
+  // User manually removes project "p" entries and regexes, leaving "p" in shared workshop_index.
+  h.state.books.A = h.state.books.A.filter(
+    (row) => row.name === registryName || namespace(row, "workshop_entry")?.project_id !== "p",
+  );
+  h.state.regex = [];
+  h.state.failFinalSave = false;
+
+  const scanAfterManualDelete = await h.manager.scan();
+  assert.deepEqual(
+    scanAfterManualDelete.instances.map((i) => i.projectId),
+    ["sibling"],
+  );
+  assert.deepEqual(scanAfterManualDelete.ambiguous, []);
+
+  const reinstall = await h.manager.preview({
+    action: "install",
+    project: { id: "p", version: "2" },
+    files: { worldbook: files("reinstalled-v2").worldbook },
+    targetWorldbook: "A",
+  });
+  await h.manager.confirm(reinstall.previewId);
+  assert.equal(h.state.records[interrupted.instanceId], undefined);
+  assert.deepEqual(
+    namespace(
+      h.state.books.A.find((row) => row.name === registryName),
+      "workshop_index",
+    ).projects.map((p) => [p.project_id, p.version_id]),
+    [
+      ["sibling", "1"],
+      ["p", "2"],
+    ],
+  );
+
+  // Uninstall p from A, leave an orphaned v1 index entry in A, install v3 in B, and migrate B -> A.
+  const removeP = await h.manager.preview({ action: "uninstall", instanceId: reinstall.instanceId });
+  await h.manager.confirm(removeP.previewId);
+  const interruptedV1 = await h.manager.preview({
+    action: "install",
+    project: { id: "p", version: "1" },
+    files: { worldbook: files("orphan-v1").worldbook },
+    targetWorldbook: "A",
+  });
+  h.state.failFinalSave = true;
+  await assert.rejects(h.manager.confirm(interruptedV1.previewId), /save interrupted/);
+  h.state.books.A = h.state.books.A.filter(
+    (row) => row.name === registryName || namespace(row, "workshop_entry")?.project_id !== "p",
+  );
+  h.state.failFinalSave = false;
+
+  const inB = await h.manager.preview({
+    action: "install",
+    project: { id: "p", version: "3" },
+    files: { worldbook: files("from-B-v3").worldbook },
+    targetWorldbook: "B",
+  });
+  await h.manager.confirm(inB.previewId);
+  const migrateToA = await h.manager.preview({
+    action: "migrate",
+    instanceId: inB.instanceId,
+    targetWorldbook: "A",
+  });
+  await h.manager.confirm(migrateToA.previewId);
+  assert.deepEqual(
+    namespace(
+      h.state.books.A.find((row) => row.name === registryName),
+      "workshop_index",
+    ).projects.map((p) => [p.project_id, p.version_id]),
+    [
+      ["sibling", "1"],
+      ["p", "3"],
+    ],
+  );
+});
+
+test("YAML worldbook entry diffs pair as replacement across UID shifts, and [WS] unowned regexes or broken neighbor books are isolated", async () => {
+  const h = harness();
+  const id = await install(h, "A", "1");
+  // Registry in A has uid 2, so updating entry (currently uid 1) assigns uid 3 while keeping entry_key "index:0".
+  const update = await h.manager.preview({
+    action: "update",
+    instanceId: id,
+    project: { id: "p", version: "2" },
+    files: { worldbook: files("2").worldbook, regex: files("2").regex },
+  });
+  const entryChanges = update.changes.filter((d) => d.kind === "worldbook" && !d.key.includes(" / 注册表 / "));
+  assert.equal(entryChanges.length, 1);
+  assert.equal(entryChanges[0].key, "index:0");
+  assert.notEqual(entryChanges[0].before, null);
+  assert.notEqual(entryChanges[0].after, null);
+
+  // Pending cleanup on current character is not blocked by an unrelated broken/ambiguous worldbook.
+  const h2 = harness();
+  h2.state.books.Broken = [{ uid: 1, name: "[WS] unowned", content: "x" }];
+  const regPreview = await h2.manager.preview({
+    action: "install",
+    project: { id: "reg-only", version: "1" },
+    files: { regex: files("1").regex },
+  });
+  h2.state.failFinalSave = true;
+  await assert.rejects(h2.manager.confirm(regPreview.previewId), /save interrupted/);
+  assert.equal(h2.state.records[regPreview.instanceId].pending, true);
+  h2.state.regex = [];
+  h2.state.failFinalSave = false;
+  const retryReg = await h2.manager.preview({
+    action: "install",
+    project: { id: "reg-only", version: "2" },
+    files: { regex: files("2").regex },
+  });
+  await h2.manager.confirm(retryReg.previewId);
+  assert.equal(h2.state.records[regPreview.instanceId], undefined);
+
+  // [WS]-prefixed unowned regex is flagged ambiguous just like [工坊].
+  h2.state.regex.push(
+    persistRegex({
+      id: "plain-uuid",
+      script_name: " [WS] Unowned",
+      enabled: true,
+      find_regex: "a",
+      replace_string: "b",
+    }),
+  );
+  const wsScan = await h2.manager.scan();
+  assert.ok(wsScan.ambiguous.some((item) => item.location.includes("plain-uuid")));
+});

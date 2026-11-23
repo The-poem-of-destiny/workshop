@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useEffectEvent } from "react";
 import type { AdminSubmissionDetail, AdminSubmissionListItem, AdminSubmissionListResponse } from "../../api";
-import { api, getSessionGeneration } from "../../api";
+import { api, formatUserError, getSessionGeneration } from "../../api";
 import type { useReviewSelection } from "./useReviewSelection";
 
 type QueueCheckStatus = AdminSubmissionListItem["checkStatus"];
@@ -121,7 +121,7 @@ export function useReviewPolling({
         if (!isCurrent()) return;
         stopped = true;
         setPolling(false);
-        reportError(String(value));
+        reportError(formatUserError(value));
       } finally {
         inFlight = false;
         if (resumePending && isCurrent()) {

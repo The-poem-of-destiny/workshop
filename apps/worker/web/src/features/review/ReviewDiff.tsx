@@ -1,6 +1,8 @@
 import type { SubmissionDiff } from "../../api";
 
 import { keyedItems } from "../../lib/keyedItems";
+import { formatDiffFieldLabel } from "./ContentComparison";
+import { severityLabels } from "./check-report";
 
 import type { useReviewQueue } from "./useReviewQueue";
 
@@ -10,6 +12,11 @@ const kindLabels: Record<EvidenceKind, string> = {
   worldbook: "世界书",
   regex: "正则",
   cover: "封面",
+};
+
+const findingSeverityLabels: Record<string, string> = {
+  ...severityLabels,
+  block: "阻断",
 };
 
 function diffEntries(kind: SubmissionDiff["worldbook"]): Array<{
@@ -61,7 +68,7 @@ export function ReviewDiff({ diff }: { diff: ReturnType<typeof useReviewQueue>["
           <p className="review-baseline">
             内容基线：{diff.previousVersionId ?? "无（首次提交）"} → {diff.versionId}
             <br />
-            finding 基线：
+            检查结果基线：
             {diff.findingBaseline.available
               ? `${diff.findingBaseline.versionId} · 审核提交 ${diff.findingBaseline.submissionId}`
               : "无可用基线报告；以下新增仅表示本次报告包含，不表示新引入问题"}
@@ -104,8 +111,10 @@ export function ReviewDiff({ diff }: { diff: ReturnType<typeof useReviewQueue>["
                           <span>
                             {entry.name}{" "}
                             <small>
-                              ({entry.entryKey})
-                              {entry.changedFields?.length ? ` · ${entry.changedFields.join(", ")}` : ""}
+                              （{entry.entryKey}）
+                              {entry.changedFields?.length
+                                ? ` · 变更字段：${entry.changedFields.map(formatDiffFieldLabel).join("、")}`
+                                : ""}
                             </small>
                           </span>
                         </li>
@@ -143,11 +152,11 @@ export function ReviewDiff({ diff }: { diff: ReturnType<typeof useReviewQueue>["
                     <ul>
                       {keyedItems(findings[group]).map(({ item: finding, key }) => (
                         <li key={key}>
-                          <strong>{finding.severity}</strong>
+                          <strong>{findingSeverityLabels[finding.severity] ?? finding.severity}</strong>
                           <span>{finding.message}</span>
                           <small>
                             {finding.file ?? "未标记文件"}
-                            {finding.line === null ? "" : `:${finding.line}`}
+                            {finding.line === null ? "" : ` · 第 ${finding.line} 行`}
                           </small>
                         </li>
                       ))}

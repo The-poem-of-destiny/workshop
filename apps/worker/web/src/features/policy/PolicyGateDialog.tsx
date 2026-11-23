@@ -1,7 +1,7 @@
 import { CURRENT_POLICY_VERSION, WORKSHOP_POLICY_CLAUSES, WORKSHOP_POLICY_QUESTIONS } from "@workshop/domain";
 import { ArrowLeft, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useState } from "react";
-import { ApiError, api, type MeResponse, type UserPolicyState } from "../../api";
+import { ApiError, api, formatUserError, type MeResponse, type UserPolicyState } from "../../api";
 import { Button } from "../../components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 
@@ -53,9 +53,9 @@ export function PolicyGateDialog({
         if (details && Array.isArray(details.incorrectQuestionIds)) {
           setIncorrectIds(details.incorrectQuestionIds.filter((item): item is string => typeof item === "string"));
         }
-        setSubmitError(reason.message.replace(/^\d+\s+[a-z_]+:\s*/i, "") || "提交未通过，请检查答案后重试。");
+        setSubmitError(formatUserError(reason) || "提交未通过，请检查答案后重试。");
       } else {
-        setSubmitError(String(reason));
+        setSubmitError(formatUserError(reason));
       }
     } finally {
       setSubmitting(false);

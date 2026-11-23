@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { type AuthorSubmission, api } from "../../../api";
+import { type AuthorSubmission, api, formatUserError } from "../../../api";
 
 export function useDraftCoverAndHistory(projectId: string, workingVersionId: string | null) {
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
@@ -49,7 +49,7 @@ export function useDraftCoverAndHistory(projectId: string, workingVersionId: str
       .catch((reason: unknown) => {
         if (!active || historyRequest.current !== request) return;
         setSubmissions([]);
-        setSubmissionError(reason instanceof Error ? reason.message : String(reason));
+        setSubmissionError(formatUserError(reason));
       });
     return () => {
       active = false;

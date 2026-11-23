@@ -1,6 +1,6 @@
 import { markWorldbookNames } from "@workshop/domain";
 
-export type WorldbookEntryPreview = {
+type WorldbookEntryPreview = {
   name: string;
   keys: string[];
   secondaryKeys: string[];
@@ -13,7 +13,7 @@ export type WorldbookEntryPreview = {
   content: string;
 };
 
-export type RegexEntryPreview = {
+type RegexEntryPreview = {
   scriptName: string;
   findRegex: string;
   replaceChars: number;
@@ -35,8 +35,6 @@ export type RegexAsset = {
   raw: unknown[];
   entries: RegexEntryPreview[];
 };
-
-export type JsonAsset = WorldbookAsset | RegexAsset;
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -150,7 +148,7 @@ function normalizeRegexEntry(value: unknown, index: number): RegexEntryPreview {
   };
 }
 
-export function parseWorldbookText(text: string): ParseResult<WorldbookEntryPreview[]> {
+function parseWorldbookText(text: string): ParseResult<WorldbookEntryPreview[]> {
   let root: unknown;
   try {
     root = JSON.parse(text);
@@ -163,7 +161,7 @@ export function parseWorldbookText(text: string): ParseResult<WorldbookEntryPrev
   return { ok: true, value: values.map((entry, index) => normalizeWorldbookEntry(entry, index)) };
 }
 
-export function parseRegexText(text: string): ParseResult<{ raw: unknown[]; entries: RegexEntryPreview[] }> {
+function parseRegexText(text: string): ParseResult<{ raw: unknown[]; entries: RegexEntryPreview[] }> {
   let root: unknown;
   try {
     root = JSON.parse(text);

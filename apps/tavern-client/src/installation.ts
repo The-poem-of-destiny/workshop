@@ -15,7 +15,10 @@ async function persistPending(host: InstallHost, plan: Plan, fresh: Snapshot) {
         instanceId: result.instanceId,
         projectId: intent.project?.id ?? old!.instance.projectId,
         version: intent.project?.version ?? old!.instance.version,
-        location: result.target,
+        location: {
+          worldbook: result.target.worldbook ?? old?.instance.location.worldbook ?? null,
+          character: result.target.character ?? old?.instance.location.character ?? null,
+        },
         source: "native",
         state: "baselineUnknown",
         entryCount: book.length,

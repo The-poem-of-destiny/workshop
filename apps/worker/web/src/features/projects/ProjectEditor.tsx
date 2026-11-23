@@ -90,7 +90,15 @@ export function ProjectEditor({
     (regexAssets.length > 0 && !regexUploaded);
   const dirty = metadataDirty || parsingAssets > 0 || hasPendingFiles;
 
-  useEffect(() => setRowVersion(entry.rowVersion), [entry.rowVersion]);
+  const rowVersionProjectId = useRef(entry.project.id);
+  useEffect(() => {
+    if (rowVersionProjectId.current !== entry.project.id) {
+      rowVersionProjectId.current = entry.project.id;
+      setRowVersion(entry.rowVersion);
+      return;
+    }
+    setRowVersion((current) => Math.max(current, entry.rowVersion));
+  }, [entry.project.id, entry.rowVersion]);
   useUnsavedProtection(dirty || busy, onDirtyChange);
 
   useEffect(() => {
@@ -118,6 +126,7 @@ export function ProjectEditor({
   const { save } = useDraftMetadataActions({
     entry,
     form,
+    workingVersionId,
     busy,
     workingVersionFrozen,
     setBusy,
@@ -250,7 +259,7 @@ export function ProjectEditor({
         check={check}
         busy={busy}
         disabled={busy || parsingAssets > 0 || !workingVersionId || workingVersionFrozen}
-        saveDisabled={busy || workingVersionFrozen}
+        saveDisabled={busy || !workingVersionId || workingVersionFrozen}
         metadataDirty={metadataDirty}
         hasPendingFiles={hasPendingFiles}
         frozen={workingVersionFrozen}

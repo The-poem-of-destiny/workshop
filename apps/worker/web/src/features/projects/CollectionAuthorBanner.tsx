@@ -21,14 +21,16 @@ export function CollectionAuthorBanner({
   const [collectionDetail, setCollectionDetail] = useState<CollectionSummary | null>(null);
   const [failedAvatar, setFailedAvatar] = useState<string | null>(null);
 
+  const authorId = author?.id ?? null;
+  const collectionId = collection?.id ?? null;
+
   useEffect(() => {
-    if (!author) {
-      setAuthorProfile(null);
-      return;
-    }
+    setAuthorProfile(null);
+    setFailedAvatar(null);
+    if (!authorId) return;
     let active = true;
     api
-      .authorProfile(author.id)
+      .authorProfile(authorId)
       .then((profile) => {
         if (active) setAuthorProfile(profile);
       })
@@ -38,16 +40,14 @@ export function CollectionAuthorBanner({
     return () => {
       active = false;
     };
-  }, [author]);
+  }, [authorId]);
 
   useEffect(() => {
-    if (!collection) {
-      setCollectionDetail(null);
-      return;
-    }
+    setCollectionDetail(null);
+    if (!collectionId) return;
     let active = true;
     api
-      .collection(collection.id)
+      .collection(collectionId)
       .then((detail) => {
         if (active) setCollectionDetail(detail);
       })
@@ -57,11 +57,12 @@ export function CollectionAuthorBanner({
     return () => {
       active = false;
     };
-  }, [collection]);
+  }, [collectionId]);
 
   if (collection) {
-    const title = collectionDetail?.title ?? collection.title;
-    const owner = collectionDetail?.author ?? null;
+    const activeDetail = collectionDetail?.id === collection.id ? collectionDetail : null;
+    const title = activeDetail?.title ?? collection.title;
+    const owner = activeDetail?.author ?? null;
     return (
       <section className="showcase-banner showcase-collection" aria-label="作品合集展示">
         <div className="showcase-banner-top">
@@ -72,14 +73,14 @@ export function CollectionAuthorBanner({
             <div>
               <p className="showcase-kicker">作品合集</p>
               <h2>{title}</h2>
-              {collectionDetail?.description ? <p className="showcase-desc">{collectionDetail.description}</p> : null}
+              {activeDetail?.description ? <p className="showcase-desc">{activeDetail.description}</p> : null}
               <div className="showcase-meta">
                 {owner ? (
                   <button type="button" className="showcase-author-link" onClick={() => onSelectAuthor(owner)}>
                     作者：{owner.name}（查看作者全部作品）
                   </button>
                 ) : null}
-                <span>合集公开作品 {collectionDetail?.projectCount ?? total} 个 · 可继续使用左侧分类与标签筛选</span>
+                <span>合集公开作品 {activeDetail?.projectCount ?? total} 个 · 可继续使用左侧分类与标签筛选</span>
               </div>
             </div>
           </div>
@@ -93,8 +94,9 @@ export function CollectionAuthorBanner({
   }
 
   if (author) {
-    const displayAuthor = authorProfile?.author ?? { id: author.id, name: author.name, avatarUrl: null };
-    const collections = authorProfile?.collections ?? [];
+    const activeProfile = authorProfile?.author.id === author.id ? authorProfile : null;
+    const displayAuthor = activeProfile?.author ?? { id: author.id, name: author.name, avatarUrl: null };
+    const collections = activeProfile?.collections ?? [];
     return (
       <section className="showcase-banner showcase-author" aria-label="作者作品展示">
         <div className="showcase-banner-top">
@@ -110,7 +112,7 @@ export function CollectionAuthorBanner({
               <p className="showcase-kicker">创作者作品集</p>
               <h2>{displayAuthor.name}</h2>
               <div className="showcase-meta">
-                <span>共 {authorProfile?.projectCount ?? total} 个公开发布作品</span>
+                <span>共 {activeProfile?.projectCount ?? total} 个公开发布作品</span>
                 <span>可叠加使用分类、标签与搜索筛选该作者的作品</span>
               </div>
             </div>

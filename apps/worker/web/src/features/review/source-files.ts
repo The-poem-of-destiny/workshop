@@ -1,4 +1,4 @@
-import { api, getSessionGeneration, subscribeSessionChange } from "../../api";
+import { api, formatUserError, getSessionGeneration, subscribeSessionChange } from "../../api";
 import type { CheckFinding } from "./check-report";
 
 /** A single worldbook entry or regex script read from a frozen submission asset. */
@@ -105,7 +105,7 @@ function regexEntries(json: unknown): SourceEntry[] {
 }
 
 /** Mirrors the checker's extraction so entry keys line up with report entryIds. */
-export function parseSourceFile(kind: "worldbook" | "regex", json: unknown): SourceFile {
+function parseSourceFile(kind: "worldbook" | "regex", json: unknown): SourceFile {
   const entries = kind === "worldbook" ? worldbookEntries(json) : regexEntries(json);
   if (!entries.length) return { kind, entries, error: "文件中没有可读取的条目。" };
   return { kind, entries, error: null };
@@ -133,7 +133,7 @@ export function loadSubmissionSource(submissionId: string, kind: "worldbook" | "
     })
     .catch((value: unknown) => {
       if (sourceCache.get(key) === request) sourceCache.delete(key);
-      return { kind, entries: [], error: String(value) } satisfies SourceFile;
+      return { kind, entries: [], error: formatUserError(value) } satisfies SourceFile;
     });
   sourceCache.set(key, request);
   return request;

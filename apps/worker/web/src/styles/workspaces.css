@@ -315,16 +315,6 @@ button.workspace-primary,
   background: rgba(255, 255, 255, 0.06);
   color: var(--muted);
 }
-.workspace-editors {
-  display: grid;
-  min-width: 0;
-  gap: 18px;
-}
-.workspace-selection-hint {
-  min-height: 180px;
-  padding: 26px 0;
-  border-top: 1px solid var(--border);
-}
 .workspace-create {
   max-width: 920px;
   margin: 0 auto;
@@ -1024,7 +1014,6 @@ button.workspace-primary,
   flex: none;
   white-space: nowrap;
 }
-.workspace-gallery-actions input,
 .workspace-section .file-button input {
   position: absolute;
   width: 1px;
@@ -1289,9 +1278,6 @@ button.workspace-primary,
   .asset-grid {
     grid-template-columns: 1fr;
   }
-  .workspace-selection-hint {
-    min-height: auto;
-  }
   .project-row.workspace-project-row {
     grid-template-columns: 84px minmax(0, 1fr);
     gap: 8px 12px;
@@ -1343,8 +1329,7 @@ button.workspace-primary,
   .subscription-actions button {
     flex: 1 1 auto;
   }
-  .workspace-form-grid,
-  .workspace-gallery-grid {
+  .workspace-form-grid {
     grid-template-columns: 1fr;
   }
   .workspace-search-inline {

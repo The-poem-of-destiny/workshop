@@ -54,7 +54,7 @@ export function SourcePanel({
           <strong>{entry.name}</strong>
           <span>
             {kind === "worldbook" ? "世界书" : "正则"} · 条目 {entry.key}
-            {entry.uid === null ? "" : ` · uid ${entry.uid}`} · 共 {excerpt.total} 行
+            {entry.uid === null ? "" : ` · 编号 ${entry.uid}`} · 共 {excerpt.total} 行
           </span>
         </div>
         {collapsible ? (

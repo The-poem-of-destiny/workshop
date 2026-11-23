@@ -1,7 +1,7 @@
 import { COLLECTION_LIMITS } from "@workshop/domain";
 import { FolderPlus, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { type AuthorCollection, type AuthorProject, api } from "../../api";
+import { type AuthorCollection, type AuthorProject, api, formatUserError } from "../../api";
 import { ConfirmDialog } from "../../components/ui/confirm-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 
@@ -67,7 +67,7 @@ export function CollectionsManager({
       setEditing(null);
       await onReload();
     } catch (reason) {
-      onError(String(reason));
+      onError(formatUserError(reason));
     } finally {
       setSaving(false);
     }
@@ -82,7 +82,7 @@ export function CollectionsManager({
       onNotice("作品合集已删除（合集内的作品本身不受影响）。");
       await onReload();
     } catch (reason) {
-      onError(String(reason));
+      onError(formatUserError(reason));
     } finally {
       setSaving(false);
     }
@@ -257,7 +257,7 @@ export function ProjectCollectionsField({
       onNotice("项目所属合集已更新。");
       await onSaved();
     } catch (reason) {
-      onError(String(reason));
+      onError(formatUserError(reason));
     } finally {
       setBusy(false);
     }

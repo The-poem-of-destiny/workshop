@@ -137,8 +137,11 @@ function discoverRegex(
 function finalizeGroups(
   snapshot: Snapshot,
   groups: Map<string, Group>,
-  ambiguous: InstallScan["ambiguous"],
-  suspect: (location: string, reason: string, scope: { book?: string; character?: boolean }) => void,
+  health: {
+    ambiguousBooks: Set<string>;
+    ambiguousCharacter: boolean;
+    suspect: (location: string, reason: string, scope: { book?: string; character?: boolean }) => void;
+  },
 ) {
   const { records, books, character } = snapshot;
   for (const [id, record] of Object.entries(records)) {
@@ -147,27 +150,30 @@ function finalizeGroups(
       groups.set(id, { instance: copy(record.instance), book: [], regex: [] });
   }
   const clearedPending: string[] = [];
-  if (!snapshot.failures.length && !ambiguous.length) {
-    for (const [id, record] of Object.entries(records)) {
-      if (!record.pending || (record.instance.location.character && record.instance.location.character !== character))
-        continue;
-      const group = groups.get(id);
-      if (!group?.book.length && !group?.regex.length) {
-        clearedPending.push(id);
-        groups.delete(id);
-      }
+  const characterHealthy = !health.ambiguousCharacter && !snapshot.failures.some((f) => f.location.startsWith("角色:"));
+  for (const [id, record] of Object.entries(records)) {
+    if (!record.pending || (record.instance.location.character && record.instance.location.character !== character))
+      continue;
+    const wb = record.instance.location.worldbook;
+    const wbHealthy = !wb || (!health.ambiguousBooks.has(wb) && !snapshot.failures.some((f) => f.location === wb));
+    const needsCharacter = Boolean(record.instance.location.character || record.baseline.regex.length);
+    if (!wbHealthy || (needsCharacter && !characterHealthy)) continue;
+    const group = groups.get(id);
+    if (!group?.book.length && !group?.regex.length) {
+      clearedPending.push(id);
+      groups.delete(id);
     }
   }
   for (const [id, group] of groups) {
     if (records[id]?.pending) {
       group.invalid = true;
-      suspect(
+      health.suspect(
         group.instance.location.worldbook ?? `角色:${character}`,
         "安装操作中断，持久归属记录尚未验收；请手动卸载所属内容后重新下载",
         group.instance.location.worldbook ? { book: group.instance.location.worldbook } : { character: true },
       );
       if (group.instance.location.character)
-        suspect(`角色:${character}`, "存在未完成的正则安装记录", { character: true });
+        health.suspect(`角色:${character}`, "存在未完成的正则安装记录", { character: true });
     }
     group.instance.entryCount = group.book.length;
     group.instance.regexCount = group.regex.length;
@@ -325,7 +331,7 @@ export function discover(snapshot: Snapshot): Discovery {
       suspect(name, "同一世界书中存在重复项目实例", { book: name });
     } else bookProjects.set(key, id);
   }
-  const clearedPending = finalizeGroups(snapshot, groups, ambiguous, suspect);
+  const clearedPending = finalizeGroups(snapshot, groups, { ambiguousBooks, ambiguousCharacter, suspect });
   return {
     clearedPending,
     groups,

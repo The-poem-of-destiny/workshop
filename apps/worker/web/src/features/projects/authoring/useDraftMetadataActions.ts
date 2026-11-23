@@ -1,10 +1,11 @@
 import type { AuthorProject } from "../../../api";
-import { api } from "../../../api";
+import { api, formatUserError } from "../../../api";
 import { metadataPayload, type ProjectForm } from "../projectMetadata";
 
 export function useDraftMetadataActions({
   entry,
   form,
+  workingVersionId,
   busy,
   workingVersionFrozen,
   setBusy,
@@ -17,6 +18,7 @@ export function useDraftMetadataActions({
 }: {
   entry: AuthorProject;
   form: ProjectForm;
+  workingVersionId: string | null;
   busy: boolean;
   workingVersionFrozen: boolean;
   setBusy: (value: boolean) => void;
@@ -28,7 +30,7 @@ export function useDraftMetadataActions({
   onError: (message: string) => void;
 }) {
   async function save(): Promise<void> {
-    if (busy || workingVersionFrozen) return;
+    if (busy || !workingVersionId || workingVersionFrozen) return;
     if (!form.projectType) {
       onError("请选择主要分类后再保存。");
       return;
@@ -41,7 +43,7 @@ export function useDraftMetadataActions({
       onNotice("草稿资料已保存。");
       await onRefresh();
     } catch (reason) {
-      onError(String(reason));
+      onError(formatUserError(reason));
     } finally {
       setBusy(false);
     }

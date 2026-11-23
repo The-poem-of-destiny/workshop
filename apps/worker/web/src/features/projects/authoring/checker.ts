@@ -1,10 +1,10 @@
 import { analyzeLocalProjectCode, type CheckerFile, type CheckerFinding, type CheckerReport } from "@workshop/content";
 import type { RegexAsset, WorldbookAsset } from "./preview";
 
-export type LocalGate = "pass" | "warn" | "block";
+type LocalGate = "pass" | "warn" | "block";
 export type FindingSeverity = CheckerFinding["severity"];
 
-export interface FindingGroup {
+interface FindingGroup {
   key: string;
   book: string;
   entry: string;
@@ -29,24 +29,21 @@ export const SEVERITY_LABELS: Record<FindingSeverity, string> = {
   info: "信息",
 };
 
-export const GATE_LABELS: Record<LocalGate | "missing", string> = {
+const GATE_LABELS: Record<LocalGate | "missing", string> = {
   pass: "通过",
   warn: "有提示",
   block: "被阻断",
   missing: "未在本地检查",
 };
 
-export function collectCheckerFiles(
-  worldbook: WorldbookAsset | null,
-  regexAssets: readonly RegexAsset[],
-): CheckerFile[] {
+function collectCheckerFiles(worldbook: WorldbookAsset | null, regexAssets: readonly RegexAsset[]): CheckerFile[] {
   const files: CheckerFile[] = [];
   if (worldbook) files.push({ fileName: worldbook.file.name, type: "worldbook", text: worldbook.text });
   for (const asset of regexAssets) files.push({ fileName: asset.file.name, type: "regex", text: asset.text });
   return files;
 }
 
-export function groupFindings(findings: readonly CheckerFinding[]): FindingGroup[] {
+function groupFindings(findings: readonly CheckerFinding[]): FindingGroup[] {
   const groups: FindingGroup[] = [];
   const byKey = new Map<string, FindingGroup>();
   for (const finding of findings) {

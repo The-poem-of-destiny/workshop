@@ -9,7 +9,7 @@ export const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp";
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 /** Checks MIME type, byte size and decoded dimensions without keeping the bitmap. */
-export async function readImageInfo(
+async function readImageInfo(
   file: File,
 ): Promise<{ ok: true; width: number; height: number } | { ok: false; error: string }> {
   if (!IMAGE_TYPES.has(file.type)) return { ok: false, error: "图片必须是 JPEG、PNG 或 WebP。" };

@@ -13,7 +13,7 @@ import {
   RefreshCcw,
 } from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
-import { api, type ProjectDetail as ProjectDetailResponse, type ProjectSummary } from "../../api";
+import { api, formatUserError, type ProjectDetail as ProjectDetailResponse, type ProjectSummary } from "../../api";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { Markdown } from "../../lib/markdown";
 import type { DiscordPromptTarget } from "../policy/DiscordLinkPrompt";
@@ -100,7 +100,7 @@ export function ProjectDetail({
       .catch((reason) => {
         if (!active || detailRequest.current !== request) return;
         setDetailLoading(false);
-        setDetailError(String(reason));
+        setDetailError(formatUserError(reason));
       });
     return () => {
       active = false;

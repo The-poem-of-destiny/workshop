@@ -3,6 +3,21 @@ import { Button } from "../../components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import type { InstalledItem } from "./Installed";
 
+function describeInstanceChoice(item: InstalledItem): string {
+  const parts: string[] = [];
+  if (item.instance.location.worldbook) parts.push(`世界书「${item.instance.location.worldbook}」`);
+  if (item.instance.location.character) parts.push(`角色「${item.instance.location.character}」`);
+  const locationText = parts.length > 0 ? parts.join(" · ") : "当前位置";
+  const currentLabel = item.project?.versionLabel ? `v${item.project.versionLabel.replace(/^v/i, "")}` : "当前线上版本";
+  const versionText =
+    item.project?.publishedVersionId === item.instance.version
+      ? currentLabel
+      : item.project?.publishedVersionId
+        ? `待更新（线上最新 ${currentLabel}）`
+        : "本地已装版本";
+  return `${locationText} · ${versionText}`;
+}
+
 export function InstallInstanceChoice({
   instanceChoice,
   setInstanceChoice,
@@ -46,9 +61,7 @@ export function InstallInstanceChoice({
                 else void prepareInstall(instanceChoice.project, "update", item.instance.instanceId);
               }}
             >
-              {instanceChoice?.action === "uninstall" ? "卸载" : "更新"}：
-              {item.instance.location.worldbook ?? "无世界书"} / {item.instance.location.character ?? "无角色"} ·{" "}
-              {item.instance.instanceId}
+              {instanceChoice?.action === "uninstall" ? "卸载" : "更新"}：{describeInstanceChoice(item)}
             </Button>
           ))}
         <Button variant="ghost" disabled={installing} onClick={() => setInstanceChoice(null)}>

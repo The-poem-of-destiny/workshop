@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { api, getSessionGeneration } from "../../api";
+import { api, formatUserError, getSessionGeneration } from "../../api";
 
 import { buildReviewMarkdown, reviewMarkdownFileName, saveReviewMarkdown } from "./export-markdown";
 import { loadSubmissionSource } from "./source-files";
@@ -42,7 +42,7 @@ export function useReviewEvidence({
           : "已下载复核 Markdown；浏览器拒绝剪贴板写入，请使用下载的文件。",
       );
     } catch (value) {
-      onError(String(value));
+      onError(formatUserError(value));
     } finally {
       setExporting(false);
     }
@@ -64,7 +64,7 @@ export function useReviewEvidence({
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (value) {
-      onError(String(value));
+      onError(formatUserError(value));
     } finally {
       setDownloadKind(null);
     }

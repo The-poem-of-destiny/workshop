@@ -143,8 +143,8 @@ export function AssetPicker({
                         {entry.hasEjs ? <span className="asset-badge">含 EJS</span> : null}
                       </div>
                       <small>
-                        关键词：{entry.keys.length > 0 ? entry.keys.join("、") : "无"} · 位置：{entry.position} · order{" "}
-                        {entry.order} · depth {entry.depth} · {entry.contentChars} 字
+                        关键词：{entry.keys.length > 0 ? entry.keys.join("、") : "无"} · 位置：{entry.position} · 顺序{" "}
+                        {entry.order} · 深度 {entry.depth} · {entry.contentChars} 字
                       </small>
                       {entry.secondaryKeys.length > 0 ? (
                         <small>次关键词：{entry.secondaryKeys.join("、")}</small>
@@ -218,7 +218,7 @@ export function AssetPicker({
                           <strong>{entry.scriptName}</strong>
                           {entry.disabled ? <span className="asset-badge is-off">停用</span> : null}
                         </div>
-                        <small>findRegex：{entry.findRegex}</small>
+                        <small>匹配规则：{entry.findRegex}</small>
                         <small>替换内容 {entry.replaceChars} 字</small>
                       </li>
                     ))}

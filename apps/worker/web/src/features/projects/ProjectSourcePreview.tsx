@@ -1,6 +1,6 @@
 import { ArrowLeft, ChevronLeft, ChevronRight, RefreshCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { api, type ProjectPreview, type ProjectPreviewKind, type ProjectSummary } from "../../api";
+import { api, formatUserError, type ProjectPreview, type ProjectPreviewKind, type ProjectSummary } from "../../api";
 import { BehaviorConfiguration } from "./BehaviorConfiguration";
 import "../../styles/task-workspaces.css";
 
@@ -70,7 +70,7 @@ export function ProjectSourcePreview({
       .catch((reason) => {
         if (!active || previewRequest.current !== request) return;
         setPreviewLoading(false);
-        setPreviewError(String(reason));
+        setPreviewError(formatUserError(reason));
       });
     return () => {
       active = false;

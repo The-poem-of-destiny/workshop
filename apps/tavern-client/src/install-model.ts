@@ -83,8 +83,8 @@ export interface InstallHost {
   saveRecords(records: Record<string, RecordSet>): Promise<unknown>;
   uuid(): string;
 }
-export const START = "<%# poem-workshop-meta:v1-start\n";
-export const END = "\npoem-workshop-meta:v1-end %>";
+const START = "<%# poem-workshop-meta:v1-start\n";
+const END = "\npoem-workshop-meta:v1-end %>";
 export const MANIFEST = "poem-workshop-character-regex-meta:v1\n";
 export const REGEX_RECORD = "poem-workshop-regex-meta:v1\n";
 export const guidance = "身份无法可靠确认，请手动卸载疑似内容后重新下载；不要认领或补写标记。";
@@ -99,7 +99,7 @@ export function stable(value: unknown): string {
       .join(",")}}`;
   return JSON.stringify(value) ?? "null";
 }
-export function payload(row: Row): Row {
+function payload(row: Row): Row {
   const result = copy(row);
   delete result.uid;
   if (result.extensions) {
@@ -181,15 +181,25 @@ export function regexIdentity(row: Row): Identity | null {
     const decode = (v: string) => v.replace(/%3A/gi, ":").replace(/%25/gi, "%");
     return { projectId: match[1]!, key: decode(match[2]!), version: decode(match[3]) };
   }
-  if (/^(creative_workshop:|cw-)/.test(String(row.id ?? "")) || String(row.script_name ?? "").startsWith("[工坊]"))
+  if (
+    /^(creative_workshop:|cw-)/.test(String(row.id ?? "")) ||
+    /^\[(?:工坊|WS)\]/.test(String(row.script_name ?? "").trimStart())
+  )
     throw new Error("正则缺少可靠版本或实例归属");
   return null;
 }
 export function differences(kind: InstallDiff["kind"], before: Row[], after: Row[]): InstallDiff[] {
+  const yamlKey = (row: Row) => {
+    try {
+      return entryIdentity(String(row.content ?? ""))?.key ?? null;
+    } catch {
+      return null;
+    }
+  };
   const key = (row: Row, index: number) =>
     kind === "regex"
       ? String(row.id ?? index)
-      : String(row.extensions?.cw_entry_key ?? row.extra?.cw_entry_key ?? row.uid ?? index);
+      : String(yamlKey(row) ?? row.extensions?.cw_entry_key ?? row.extra?.cw_entry_key ?? row.uid ?? index);
   const a = new Map(before.map((row, index) => [key(row, index), stable(payload(row))]));
   const b = new Map(after.map((row, index) => [key(row, index), stable(payload(row))]));
   return [...new Set([...a.keys(), ...b.keys()])]

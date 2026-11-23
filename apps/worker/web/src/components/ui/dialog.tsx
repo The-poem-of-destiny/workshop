@@ -4,8 +4,6 @@ import { type ComponentPropsWithoutRef, type ElementRef, forwardRef, type HTMLAt
 import { cn } from "../../lib/utils";
 
 const Dialog = DialogPrimitive.Root;
-const DialogTrigger = DialogPrimitive.Trigger;
-const DialogClose = DialogPrimitive.Close;
 const DialogPortal = DialogPrimitive.Portal;
 
 const DialogOverlay = forwardRef<
@@ -25,13 +23,18 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 const DialogContent = forwardRef<
   ElementRef<typeof DialogPrimitive.Content>,
   ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(function DialogContent({ className, children, ...props }, ref) {
+>(function DialogContent(
+  { className, children, onPointerDownOutside, onFocusOutside, onInteractOutside, ...props },
+  ref,
+) {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       document.dispatchEvent(new CustomEvent("dismissableLayer.update"));
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
+  const isFloatingMessageTarget = (target: EventTarget | null): boolean =>
+    target instanceof Element && target.closest("[data-workshop-floating-layer]") !== null;
   return (
     <DialogPortal>
       <DialogOverlay />
@@ -43,6 +46,27 @@ const DialogContent = forwardRef<
             "max-md:inset-0 max-md:left-0 max-md:top-0 max-md:h-dvh max-md:max-h-dvh max-md:w-screen max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-none max-md:border-0",
           className,
         )}
+        onPointerDownOutside={(event) => {
+          if (isFloatingMessageTarget(event.target)) {
+            event.preventDefault();
+            return;
+          }
+          onPointerDownOutside?.(event);
+        }}
+        onFocusOutside={(event) => {
+          if (isFloatingMessageTarget(event.target)) {
+            event.preventDefault();
+            return;
+          }
+          onFocusOutside?.(event);
+        }}
+        onInteractOutside={(event) => {
+          if (isFloatingMessageTarget(event.target)) {
+            event.preventDefault();
+            return;
+          }
+          onInteractOutside?.(event);
+        }}
         {...props}
       >
         {children}
@@ -68,14 +92,4 @@ function DialogDescription({ className, ...props }: ComponentPropsWithoutRef<typ
   return <DialogPrimitive.Description className={cn("text-sm text-[#aaa8a3]", className)} {...props} />;
 }
 
-export {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogOverlay,
-  DialogPortal,
-  DialogTitle,
-  DialogTrigger,
-};
+export { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle };

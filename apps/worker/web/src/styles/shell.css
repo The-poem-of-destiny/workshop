@@ -434,6 +434,32 @@ h3 {
   color: inherit;
   font-size: 18px;
 }
+.workshop-alert-layer {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 120;
+  width: min(760px, calc(100vw - 32px));
+  display: grid;
+  gap: 8px;
+  pointer-events: none;
+}
+.workshop-alert-layer > .error,
+.workshop-alert-layer > .notice {
+  margin: 0;
+  pointer-events: auto;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+}
+.workshop-alert-layer > .error {
+  border-color: rgba(229, 138, 131, 0.5);
+  background: rgba(42, 17, 17, 0.96);
+}
+.workshop-alert-layer > .notice {
+  border-color: rgba(200, 174, 130, 0.45);
+  background: rgba(28, 25, 20, 0.96);
+}
 
 .authenticated {
   --header-height: 58px;
@@ -531,7 +557,8 @@ h3 {
 }
 .toast {
   position: fixed;
-  z-index: 100;
+  z-index: 120;
+  pointer-events: auto;
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%);

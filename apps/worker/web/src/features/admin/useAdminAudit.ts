@@ -1,6 +1,6 @@
 import { type AuditAction, isAuditAction } from "@workshop/domain";
 import { useRef, useState } from "react";
-import { type AdminAuditEvent, api } from "../../api";
+import { type AdminAuditEvent, api, formatUserError } from "../../api";
 
 type AdminAuditOptions = { onError: (message: string) => void };
 export function useAdminAudit({ onError }: AdminAuditOptions) {
@@ -30,8 +30,9 @@ export function useAdminAudit({ onError }: AdminAuditOptions) {
       setAuditCursor(result.nextCursor);
     } catch (value) {
       if (generation !== auditGeneration.current) return;
-      onError(`审计日志加载失败：${String(value)}`);
-      setAuditError(`审计日志加载失败：${String(value)}`);
+      const msg = `审计日志加载失败：${formatUserError(value)}`;
+      onError(msg);
+      setAuditError(msg);
     } finally {
       if (generation === auditGeneration.current) {
         setAuditBusy(false);

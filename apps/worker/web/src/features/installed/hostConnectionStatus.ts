@@ -9,7 +9,9 @@ const CONNECTION_LABELS = {
 type ConnectionState = keyof typeof CONNECTION_LABELS;
 export function installBlockReason(context: HostContext | null, embedded: boolean): string | null {
   if (context === null && embedded) return "正在连接 SillyTavern，等待验证安装权限。";
-  if (context?.error) return "无法连接 SillyTavern。请从酒馆内重新打开工坊。";
+  if (context?.error) {
+    return /[\u4e00-\u9fff]/.test(context.error) ? context.error : "无法连接 SillyTavern。请从酒馆内重新打开工坊。";
+  }
   if (!context?.connected) return "安装请从 SillyTavern 内的「命定创意工坊」按钮打开。";
 
   const compatibility = context.installCompatibility;

@@ -1,7 +1,7 @@
 import type { ExperienceNotesResponse, ExperienceNoteVersion } from "@workshop/contracts";
 import { RefreshCcw, Star } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { api } from "../../api";
+import { api, formatUserError } from "../../api";
 
 function versionName(version: ExperienceNoteVersion): string {
   return `${version.versionLabel ? `${version.versionLabel} · ` : ""}第 ${version.versionNo} 版${version.isCurrent ? "（当前发布）" : "（已记备忘）"}`;
@@ -114,7 +114,7 @@ export function ProjectExperienceNotes({
                   void api
                     .deleteUnversionedNote(projectId)
                     .then(() => setReload((value) => value + 1))
-                    .catch((reason) => onError(String(reason)))
+                    .catch((reason) => onError(formatUserError(reason)))
                     .finally(() => {
                       deletePending.current = false;
                       setSaving(false);
@@ -161,7 +161,7 @@ function VersionNoteEditor({
     onSaving(true);
     void request
       .then(onSaved)
-      .catch((reason) => onError(String(reason)))
+      .catch((reason) => onError(formatUserError(reason)))
       .finally(() => {
         pending.current = false;
         setSaving(false);

@@ -27,7 +27,7 @@ export function useCatalogue({
   home,
 }: {
   enabled: boolean;
-  setError: (message: string | null) => void;
+  setError: (message: string | null, detail?: string | null) => void;
   home: HomeLoadState;
 }): CatalogueState {
   const [listRetry, setListRetry] = useState(0);
@@ -141,7 +141,7 @@ function useCatalogueProjects({
   pageSize,
 }: {
   enabled: boolean;
-  setError: (message: string | null) => void;
+  setError: (message: string | null, detail?: string | null) => void;
   initialHome: HomeLoadState | null;
   defaultQuery: boolean;
   listRetry: number;
@@ -196,7 +196,15 @@ function useCatalogueProjects({
             : !initialHome.data.projects.ok &&
               initialHome.data.projects.error.code === "quota_exceeded" &&
               initialHome.data.projects.error.message;
-        setError(msg || "项目加载失败，请重新加载。");
+        const detail =
+          initialHome.status === "error"
+            ? initialHome.error instanceof ApiError && typeof initialHome.error.details === "string"
+              ? initialHome.error.details
+              : null
+            : !initialHome.data.projects.ok && typeof initialHome.data.projects.error.details === "string"
+              ? initialHome.data.projects.error.details
+              : null;
+        setError(msg || "项目加载失败，请重新加载。", detail);
       }
       setListLoading(false);
       return () => {
@@ -228,9 +236,9 @@ function useCatalogueProjects({
         })
         .catch((err: unknown) => {
           if (!cancelled && requestId === listRequest.current) {
-            setError(
-              err instanceof ApiError && err.code === "quota_exceeded" ? err.message : "项目加载失败，请重新加载。",
-            );
+            const isQuota = err instanceof ApiError && err.code === "quota_exceeded";
+            const detail = isQuota && typeof err.details === "string" ? err.details : null;
+            setError(isQuota ? err.message : "项目加载失败，请重新加载。", detail);
             setListLoading(false);
           }
         });

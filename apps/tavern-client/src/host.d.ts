@@ -9,7 +9,7 @@ interface WorkshopJQueryCollection<ElementType extends Element = HTMLElement> {
   appendTo(target: Element): this;
   on(event: "click", handler: (event: Event) => void): this;
   text(value: string): this;
-  attr(name: "src", value: string): this;
+  attr(name: "src" | "referrerpolicy", value: string): this;
   val(): string | number | string[] | undefined;
   val(value: string): this;
 }
@@ -24,11 +24,16 @@ interface Window {
   $?: WorkshopJQuery;
 }
 
-declare const $: WorkshopJQuery;
+declare const $: WorkshopJQuery | undefined;
 declare const SillyTavern: {
-  getCurrentCharacterName?: () => string | null;
-  getContext(): { characterId: number; characters?: { avatar?: string }[] };
+  getCurrentCharacterName?: () => string | null | undefined;
+  getContext?: () => {
+    characterId?: number | string;
+    name2?: string | null;
+    characters?: { name?: string; avatar?: string }[];
+  };
 };
+declare const getCurrentCharacterName: (() => string | null | undefined) | undefined;
 declare function getScriptId(): string;
 declare function getVariables(options: { type: "script"; script_id: string }): Record<string, unknown>;
 declare function updateVariablesWith(

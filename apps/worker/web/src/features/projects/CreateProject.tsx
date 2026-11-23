@@ -1,6 +1,6 @@
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api } from "../../api";
+import { api, formatUserError } from "../../api";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import "../../styles/workspaces.css";
@@ -72,7 +72,7 @@ export function CreateProject({
       onNotice("草稿已创建，接下来可上传世界书、正则与封面。");
       onCreated(created.project.id);
     } catch (reason) {
-      onError(String(reason));
+      onError(formatUserError(reason));
     } finally {
       setBusy(false);
     }

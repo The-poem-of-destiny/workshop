@@ -1,8 +1,27 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AdminSubmissionListItem, AdminSubmissionListResponse } from "../../api";
-import { api, getSessionGeneration, subscribeSessionChange } from "../../api";
+import { api, formatUserError, getSessionGeneration, subscribeSessionChange } from "../../api";
 import { useReviewPolling } from "./useReviewPolling";
 import { useReviewSelection } from "./useReviewSelection";
+
+function filterQueueItems(items: AdminSubmissionListItem[], query: string): AdminSubmissionListItem[] {
+  const normalized = query.trim().toLocaleLowerCase();
+  if (!normalized) return items;
+  return items.filter((item) =>
+    [item.projectTitle, item.author.name, item.id, item.status, item.gate ?? "", item.checkStatus]
+      .join(" ")
+      .toLocaleLowerCase()
+      .includes(normalized),
+  );
+}
+
+function mergeUniqueQueueItems(
+  previous: AdminSubmissionListItem[],
+  incoming: AdminSubmissionListItem[],
+): AdminSubmissionListItem[] {
+  const seen = new Set(previous.map((item) => item.id));
+  return [...previous, ...incoming.filter((item) => !seen.has(item.id))];
+}
 
 type ReviewQueueOptions = { onError: (message: string) => void; onNotice: (message: string) => void };
 export function useReviewQueue({ onError, onNotice }: ReviewQueueOptions) {
@@ -14,23 +33,20 @@ export function useReviewQueue({ onError, onNotice }: ReviewQueueOptions) {
   const [loadingQueue, setLoadingQueue] = useState(true);
   const [queueError, setQueueError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const queueGeneration = useRef(0);
+  const loadMoreGeneration = useRef(0);
+  const loadingMoreRef = useRef(false);
 
-  const visibleItems = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase();
-    if (!normalized) return items;
-    return items.filter((item) =>
-      [item.projectTitle, item.author.name, item.id, item.status, item.gate ?? "", item.checkStatus]
-        .join(" ")
-        .toLocaleLowerCase()
-        .includes(normalized),
-    );
-  }, [items, query]);
+  const visibleItems = useMemo(() => filterQueueItems(items, query), [items, query]);
   const selection = useReviewSelection({ items, visibleItems, setPolling, onError });
   const { selectedRef, clearSelection, select, selectedId, setDetail, setDiff, invalidateDetail } = selection;
   const position = selectedId ? visibleItems.findIndex((item) => item.id === selectedId) + 1 : 0;
   useEffect(
     () =>
       subscribeSessionChange(() => {
+        queueGeneration.current += 1;
+        loadMoreGeneration.current += 1;
+        loadingMoreRef.current = false;
         setItems([]);
         setCounts(null);
         setNextCursor(null);
@@ -42,44 +58,52 @@ export function useReviewQueue({ onError, onNotice }: ReviewQueueOptions) {
   );
 
   async function refresh(): Promise<void> {
+    const generation = ++queueGeneration.current;
+    loadMoreGeneration.current += 1;
+    loadingMoreRef.current = false;
+    setLoadingMore(false);
     const sessionGeneration = getSessionGeneration();
     setLoadingQueue(true);
     setQueueError(null);
     try {
       const result = await api.adminSubmissions("pending");
-      if (sessionGeneration !== getSessionGeneration()) return;
+      if (generation !== queueGeneration.current || sessionGeneration !== getSessionGeneration()) return;
       setItems(result.items);
       setCounts(result.counts);
       setNextCursor(result.nextCursor);
       if (selectedRef.current && !result.items.some((item) => item.id === selectedRef.current)) clearSelection();
     } catch (value) {
-      if (sessionGeneration !== getSessionGeneration()) return;
-      const message = String(value);
+      if (generation !== queueGeneration.current || sessionGeneration !== getSessionGeneration()) return;
+      const message = formatUserError(value);
       setQueueError(message);
       onError(message);
     } finally {
-      if (sessionGeneration === getSessionGeneration()) setLoadingQueue(false);
+      if (generation === queueGeneration.current && sessionGeneration === getSessionGeneration()) {
+        setLoadingQueue(false);
+      }
     }
   }
 
   async function loadMore(): Promise<void> {
-    if (!nextCursor || loadingMore) return;
+    if (!nextCursor || loadingMoreRef.current) return;
+    const generation = ++loadMoreGeneration.current;
     const sessionGeneration = getSessionGeneration();
+    loadingMoreRef.current = true;
     setLoadingMore(true);
     try {
       const result = await api.adminSubmissions("pending", nextCursor);
-      if (sessionGeneration !== getSessionGeneration()) return;
-      setItems((previous) => {
-        const seen = new Set(previous.map((item) => item.id));
-        return [...previous, ...result.items.filter((item) => !seen.has(item.id))];
-      });
+      if (generation !== loadMoreGeneration.current || sessionGeneration !== getSessionGeneration()) return;
+      setItems((previous) => mergeUniqueQueueItems(previous, result.items));
       setCounts(result.counts);
       setNextCursor(result.nextCursor);
     } catch (value) {
-      if (sessionGeneration !== getSessionGeneration()) return;
-      onError(String(value));
+      if (generation !== loadMoreGeneration.current || sessionGeneration !== getSessionGeneration()) return;
+      onError(formatUserError(value));
     } finally {
-      if (sessionGeneration === getSessionGeneration()) setLoadingMore(false);
+      if (generation === loadMoreGeneration.current) {
+        loadingMoreRef.current = false;
+        if (sessionGeneration === getSessionGeneration()) setLoadingMore(false);
+      }
     }
   }
 

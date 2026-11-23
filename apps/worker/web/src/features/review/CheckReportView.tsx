@@ -200,8 +200,8 @@ function ReportMetadata({ report }: { report: CheckReport }) {
     <>
       <dl className="review-report-meta">
         <div>
-          <dt>报告 gate</dt>
-          <dd>{report.gate ?? "未记录"}</dd>
+          <dt>报告门禁</dt>
+          <dd>{(report.gate ? gateLabels[report.gate] : null) ?? report.gate ?? "未记录"}</dd>
         </div>
         <div>
           <dt>审计状态</dt>
@@ -232,7 +232,7 @@ function ReportMetadata({ report }: { report: CheckReport }) {
               <code>{file.fileName}</code>
               <span>
                 {file.type ?? "文件"} · {file.items ?? 0} 条{file.ejsEntries ? ` · ${file.ejsEntries} 条含 EJS` : ""}
-                {file.size === null ? "" : ` · ${file.size.toLocaleString()} bytes`}
+                {file.size === null ? "" : ` · ${file.size.toLocaleString("zh-CN")} 字节`}
               </span>
             </li>
           ))}
@@ -276,7 +276,7 @@ export function CheckReportSection({
         <div>
           <h3>检查报告</h3>
           <p>
-            {checkerVersion ? `checker ${checkerVersion}` : "暂无 checker 运行记录"}
+            {checkerVersion ? `检查器 ${checkerVersion}` : "暂无检查器运行记录"}
             {checkedAt ? ` · ${checkedAt}` : ""}
           </p>
         </div>

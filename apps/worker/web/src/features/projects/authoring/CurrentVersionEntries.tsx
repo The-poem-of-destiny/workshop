@@ -1,6 +1,6 @@
 import { extractProjectEntries } from "@workshop/domain";
 import { useEffect, useMemo, useState } from "react";
-import { ApiError, api } from "../../../api";
+import { ApiError, api, formatUserError } from "../../../api";
 import { ConfirmDialog } from "../../../components/ui/confirm-dialog";
 
 type Entry = { kind: "worldbook" | "regex"; key: string; name: string };
@@ -69,7 +69,7 @@ export function CurrentVersionEntries({
         if (active) setEntries(assets.flat());
       })
       .catch((reason: unknown) => {
-        if (active) setError(String(reason));
+        if (active) setError(formatUserError(reason));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -91,7 +91,7 @@ export function CurrentVersionEntries({
       setError(
         reason instanceof ApiError && (reason.status === 409 || reason.status === 412)
           ? "删除未生效：版本可能已变化、已冻结，或删除后不满足必需内容。请刷新当前内容后重试；必要时先上传替代内容或新建版本。"
-          : `删除未完成：${String(reason)}`,
+          : `删除未完成：${formatUserError(reason)}`,
       );
     } finally {
       setPending(false);

@@ -388,13 +388,6 @@
   font-weight: 550;
   color: #dedcd5;
 }
-.card-compatibility {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--dim);
-  font-size: 11px;
-}
 .tags {
   display: flex;
   flex-wrap: wrap;
