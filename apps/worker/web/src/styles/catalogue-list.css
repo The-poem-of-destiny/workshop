@@ -22,7 +22,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 32px;
+  height: var(--toolbar-control-height);
   padding: 0 10px;
   border: 1px solid var(--border-strong);
   border-radius: 6px;
@@ -46,7 +46,7 @@
 .period-select,
 .pagination select {
   appearance: none;
-  height: 32px;
+  height: var(--toolbar-control-height);
   padding: 0 26px 0 10px;
   border: 1px solid rgba(207, 169, 110, 0.28);
   border-radius: 6px;
@@ -81,8 +81,8 @@
 .layout-switch button,
 .pagination button {
   display: grid;
-  width: 32px;
-  height: 32px;
+  width: var(--toolbar-control-height);
+  height: var(--toolbar-control-height);
   flex: none;
   place-items: center;
   border: 1px solid var(--border);
@@ -290,7 +290,6 @@
     gap: 6px;
   }
   .period-select {
-    height: 30px;
     padding: 0 22px 0 8px;
     font-size: 11.5px;
     margin-left: auto;

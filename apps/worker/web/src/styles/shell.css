@@ -88,7 +88,7 @@ h3 {
   width: 100%;
   max-width: 420px;
   min-width: 160px;
-  height: 38px;
+  height: var(--header-control-height);
   align-items: center;
   gap: 8px;
   padding: 0 12px;
@@ -103,7 +103,7 @@ h3 {
   flex: none;
 }
 .header-search input {
-  height: 36px;
+  height: 100%;
   min-width: 0;
   padding: 0;
   border: 0;
@@ -119,9 +119,10 @@ h3 {
 .header-help-button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-  min-height: 34px;
-  padding: 4px 10px;
+  height: var(--header-control-height);
+  padding: 0 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.03);
@@ -141,8 +142,8 @@ h3 {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 34px;
-  padding: 4px 11px;
+  height: var(--header-control-height);
+  padding: 0 11px;
   border: 1px solid rgba(223, 184, 107, 0.45);
   border-radius: 999px;
   background: rgba(223, 184, 107, 0.14);
@@ -483,27 +484,39 @@ h3 {
   filter: brightness(0) invert(1);
 }
 .header-account .login {
-  min-height: 38px;
-  padding: 6px 14px;
+  height: var(--header-control-height);
+  padding: 0 14px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 8px;
   background: #4752c4;
   color: #fff;
   font-size: 13px;
 }
+.account > button {
+  height: var(--header-control-height);
+}
 .tavern-status {
   display: inline-flex;
+  height: var(--header-control-height);
   align-items: center;
+  justify-content: center;
   gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
   color: var(--muted);
-  font-size: 12px;
+  font-size: 12.5px;
   white-space: nowrap;
 }
 .tavern-status svg {
   width: 15px;
   height: 15px;
+  flex: none;
 }
 .tavern-status.connected {
+  border-color: rgba(165, 221, 196, 0.3);
+  background: rgba(165, 221, 196, 0.08);
   color: #a5ddc4;
 }
 .personal-nav {
@@ -514,10 +527,10 @@ h3 {
 }
 .personal-nav button {
   display: inline-flex;
-  min-height: 34px;
+  height: var(--header-control-height);
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
+  padding: 0 10px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -587,15 +600,20 @@ h3 {
 
 /* SillyTavern connection states. `.connected` sits above; add the remaining three. */
 .tavern-status.connecting {
+  border-color: rgba(226, 186, 104, 0.35);
+  background: rgba(226, 186, 104, 0.1);
   color: var(--warning);
 }
 .tavern-status.error {
+  border-color: rgba(232, 137, 130, 0.4);
+  background: rgba(232, 137, 130, 0.1);
   color: var(--danger);
 }
 .tavern-status.disconnected {
   color: var(--dim);
 }
 .close-workshop {
+  height: var(--header-control-height);
   white-space: nowrap;
 }
 

@@ -19,6 +19,8 @@
   --danger: #e88982;
   --warning: #e2ba68;
   --header-height: 58px;
+  --header-control-height: 36px;
+  --toolbar-control-height: 32px;
   --sidebar-width: 252px;
 }
 
