@@ -161,7 +161,7 @@ const FS_SOURCE = `
     float t = clamp((progress - startP) / max(endP - startP, 0.001), 0.0, 1.0);
     if (t <= 0.001) return 0.0;
     float front = mix(-0.18, 1.42, pow(t, 0.90)) + jitter;
-    return smoothstep(front + 0.06, front - 0.14, yPos);
+    return 1.0 - smoothstep(front - 0.14, front + 0.06, yPos);
   }
 
   void main() {
@@ -199,7 +199,7 @@ const FS_SOURCE = `
 
       float pFront = clamp((u_progress - 0.02) / 0.30, 0.0, 1.0);
       float frontY = mix(-0.28, 1.44, pow(pFront, 0.86)) + fingerWave;
-      float leadTaper = smoothstep(frontY + 0.02, frontY - 0.24, p.y);
+      float leadTaper = 1.0 - smoothstep(frontY - 0.24, frontY + 0.02, p.y);
 
       float tailY = -0.34;
       float tailTaper = 1.0;
