@@ -31,7 +31,12 @@ for (const asset of input) {
     stage = "content";
     if (!Buffer.from(text, "utf8").equals(bytes)) throw new Error("content is not UTF-8");
     const validation = validateProjectContentText(text, asset.kind);
-    if (!validation.valid) throw new Error(validation.error);
+    if (!validation.valid) {
+      if (validation.error === "世界书存在重复的条目标识" || validation.error === "正则存在重复的条目标识") {
+        throw new Error("duplicate entry keys");
+      }
+      throw new Error(validation.error);
+    }
     const entries = extractProjectEntries(JSON.parse(text), asset.kind).map(({ entry, entryKey }) => {
       const content =
         typeof entry.content === "string"
