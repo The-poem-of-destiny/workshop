@@ -6,7 +6,7 @@
 
 - 登录和维护接口以外，受保护请求使用 `Authorization: Bearer <session token>`。角色为 `member`、`reviewer`、`owner`；reviewer 接口也允许 owner。作者操作要求项目作者或 owner，权限不足的项目通常表现为 404，而非披露其存在。
 - 用户会话除有效令牌外，还必须已同意当前版本的工坊使用政策并通过准入问答（`policy_accepted_version = CURRENT_POLICY_VERSION`）。未完成当前政策确认的登录会话仅允许调用 `GET /api/v1/me`、`POST /api/v1/me/policy-acceptance` 与 `DELETE /api/v1/sessions/current`；访问其余所有需登录接口（互动、预览、下载、作者创作、合集写入、管理与审核、私有资源读取）均返回 403 `forbidden`，匿名公开接口仍可正常作为游客浏览。
-- API JSON 错误格式为 `{ "error": { "code": "...", "message": "...", "details": ... } }`，`details` 可省略。状态映射见 [errors.ts](../../packages/contracts/src/errors.ts)：400 `bad_request`、401 `unauthorized`、403 `forbidden`、404 `not_found`、409 `conflict`、412 `precondition_failed`、413 `payload_too_large`、415 `unsupported_media_type`、426 `upgrade_required`、429 `rate_limited`、500 `internal`。校验错误可能带 Zod details；未捕获异常返回 500。callback 返回 HTML 而不是此 JSON 格式。
+- API JSON 错误格式为 `{ "error": { "code": "...", "message": "...", "details": ... } }`，`details` 可省略。状态映射见 [errors.ts](../../packages/contracts/src/errors.ts)：400 `bad_request`、401 `unauthorized`、403 `forbidden`、404 `not_found`、409 `conflict`、412 `precondition_failed`、413 `payload_too_large`、415 `unsupported_media_type`、426 `upgrade_required`、429 `rate_limited`、500 `internal`、503 `quota_exceeded`。校验错误可能带 Zod details；存储配额超限返回 503 `quota_exceeded`；未捕获异常返回 500。callback 与 launch 返回 HTML 而不是此 JSON 格式。
 - 非公开缓存路径默认 `Cache-Control: private, no-store`；入口白名单中的匿名公开响应和静态资源具有不同缓存语义，详见[运行时配置](runtime-configuration.md#公开缓存和私有绕过)。API 的 OPTIONS 仅对 `ALLOWED_ORIGINS` 中精确匹配的 Origin 返回 204，否则 403；允许的方法为 GET、POST、PUT、PATCH、DELETE、OPTIONS，允许的请求头为 `authorization,content-type,if-match,idempotency-key,x-client-version,x-client-channel`。普通 API 响应对允许的 Origin 设置 CORS；不应假设预检支持其他头。
 - 项目列表使用不透明 `cursor` 和 `nextCursor`；下一页保留原有排序与筛选条件，传入返回的 cursor。`total` 为完整筛选集数量，不是本页数量。管理列表也返回 `nextCursor`；其参数和响应分别见 [admin.ts](../../packages/contracts/src/admin.ts) 与 [admin-dto.ts](../../packages/contracts/src/admin-dto.ts)。无更多结果时 cursor 为 null。
 - 公开项目的 `updatedAt` 只随成功发布更新，保存草稿不会改变公开更新时间或更新时间排序；历史数据优先回填当前已发布版本的审批时间。审核重查采用原子状态转换，同一提交的并发重查只有一个成功排队。
@@ -27,10 +27,12 @@
 
 ## 登录和会话
 
-`POST /api/v1/auth/flows` 必须带配置允许的 `Origin` 和 JSON `{"mode":"browser"}`、`{"mode":"device"}` 或 `{"mode":"embed","codeChallenge":"..."}`，成功 201，返回 id、state、url、expiresAt、mode，device 还返回 deviceCode，并设置浏览器绑定 cookie。流程有效期 10 分钟。embed 的 challenge 是客户端 verifier 的 SHA-256 base64url 值；Discord 自身 OAuth 使用独立的服务端 PKCE。无效输入 400，来源不允许 403，Discord 身份组配置错误 500。服务端以 Discord 用户、服务器成员身份及可选身份组要求决定登录资格。
+`POST /api/v1/auth/flows` 必须带配置允许的 `Origin` 和 JSON `{"mode":"browser"}`、`{"mode":"device"}` 或 `{"mode":"embed","codeChallenge":"..."}`，成功 201（`no-store`），返回 id、state、url、expiresAt、mode，device 还返回 deviceCode，同时设置浏览器绑定 cookie（HTTPS 下为 `__Host-cw_oauth_binding` 与分区 cookie `cw_oauth_binding_p`，HTTP 下为 `cw_oauth_binding`）并在响应头 `x-oauth-binding` 返回绑定值供跨站弹窗握手。流程有效期 10 分钟。embed 的 challenge 是客户端 verifier 的 SHA-256 base64url 值；Discord 自身 OAuth 使用独立的服务端 PKCE。无效输入 400，来源不允许 403，Discord 身份组配置错误 500。服务端以 Discord 用户、服务器成员身份及可选身份组要求决定登录资格。
 
 | 方法和路径 | 输入、权限和结果 |
 | --- | --- |
+| GET `/api/v1/auth/flows/:id/launch` | 返回 `no-store` HTML 弹窗启动页；向同源 `window.opener` 发送 `cw:oauth-launch-ready` 并接收 `cw:oauth-launch-bind` 交付的 `binding`，在弹窗上下文调用 `/bind` 后跳转授权地址（用于跨站嵌入 HTTPS 流程）。 |
+| POST `/api/v1/auth/flows/:id/bind` | 需允许的 `Origin` 和 JSON `{"binding":"..."}`（1–256 字符）；核对待处理 flow 与原始 `binding` 匹配后写入浏览器绑定 cookie（含 `SameSite=None; Secure; Partitioned` 的 `cw_oauth_binding_p`），返回 `no-store` `{ url }`。输入无效 400，来源不允许或 binding 不匹配 403，不存在 404，非 pending 状态 409。 |
 | GET `/api/v1/auth/flows/:id` | 查询状态和过期时间。device 需 `?deviceCode=...` 或 `x-device-secret`，device/embed 还需原浏览器绑定 cookie；不匹配 404。browser 状态查询不要求绑定。浏览器跨源预检不允许 `x-device-secret`，可使用查询参数。 |
 | POST `/api/v1/auth/flows/:id/redeem` | JSON 见 `authFlowRedeemSchema`。device 使用 `deviceCode`；embed 使用 callback 交付的 `code` 和原 `verifier`。需原绑定 cookie，成功返回 token、expiresAt、user；错误 secret 403，未授权、过期或已兑换 409。browser 不走此兑换流程。 |
 | GET `/api/v1/auth/callback` | Discord 回调的 `state`、`code` 或 `error`；返回 HTML，向 opener 发送消息。browser 的 `oauth-success` 包含 session token 和 state；embed 的 `oauth-code` 包含 code、flowId、state；device 的 `oauth-authorized` 通知授权完成。验证失败（如缺少 Discord 服务器成员身份或身份组）返回 HTML 400 并向 opener 发送 `oauth-error`；当原因为未加入服务器或缺少身份组时，回调页与错误消息附带站点配置的低调社区邀请说明。重复使用可为 409。 |
@@ -59,7 +61,7 @@
 - 同一预设组内为 OR、不同预设组之间为 AND；每个自定义词各自为 AND。手输词只要命中预设词表，也按其预设组处理，不按输入来源变成自定义词。例如 `tag=人类&tag=精灵/半精灵&tag=温柔&tag=旅程甲` 表示“人类或精灵/半精灵”，且“温柔”，且“旅程甲”。
 - 主类集合按枚举顺序、标签集合按规范化后的去重排序生成统一查询身份；参数重排、重复以及显式 `includeContained=false` 不改变其语义。目录查询、cursor scope 和[公开缓存身份](cache-design.md#目录筛选的规范化缓存身份)使用相同的规范化筛选值。
 - 同一筛选集合的重排或重复可以继续使用原 cursor。改变主类集合、`includeContained`、标签、作者、合集、搜索、排序或有效统计周期后，旧 cursor 返回 400，应从第一页重新查询。
-- `total` 是该次遍历首页的匹配总数，后续页沿用此值；重新从首页查询才重新计数。翻页仍按当前公开资格、筛选和排序读取作品；`total` 不保证期间无上下架或重排。以 `nextCursor` 是否为空判断是否还有下一页，不从 `total` 推断。新版不接受缺少总数的旧 cursor，遇到 400 应从首页刷新。
+- `total` 是该次遍历首页的匹配总数，后续页沿用此值；重新从首页查询才重新计数。翻页仍按当前公开资格、筛选和排序读取作品；`total` 不保证期间无上下架或重排。以 `nextCursor` 是否为空判断是否还有下一页，不从 `total` 推断。缺少总数的无效 cursor 返回 400，应从首页刷新。
 
 ## 发现、项目和下载
 
@@ -70,7 +72,7 @@
 | 方法和路径 | 输入、成功结果及特殊错误 |
 | --- | --- |
 | GET `/health` | 服务版本和 DB、R2、ASSETS 绑定是否存在；不是依赖连通性检查。 |
-| GET `/home` | 返回 `site`、`discovery`、`projects` 三段；发现栏读取 `discovery.data`。每段为 `{ok:true,data}` 或 `{ok:false,error}`。全部成功为公开 200，部分失败为 no-store 200，全部失败为 no-store 500。默认项目列表等价于无筛选的 `/projects`。 |
+| GET `/home` | 返回 `site`、`discovery`、`projects` 三段；发现栏读取 `discovery.data`。每段为 `{ok:true,data}` 或 `{ok:false,error}`（存储配额超限时 `error.code` 为 `quota_exceeded`）。全部成功为公开 200；部分失败为 no-store 200；全部失败时若任一段因 `quota_exceeded` 失败则返回 no-store 503 `quota_exceeded`，否则为 no-store 500。默认项目列表等价于无筛选的 `/projects`。 |
 | GET `/projects` | `limit` 1–50 默认 25；`cursor`、`sort`、`period`、可重复的 `projectType`、`includeContained`、`authorId`、`collectionId`、可重复的 `tag`、`search`；组合语义和 12 词上限见[目录筛选与游标](#目录筛选与游标)。非法查询或 cursor 400。 |
 | GET `/collections/:id` | 公开合集摘要（含作者、公开已发布项目数量与更新时间，见 `collectionSummarySchema`）；无公开已发布项目或不存在时返回 404。 |
 | GET `/authors/:id` | 作者公开主页摘要（作者资料、公开已发布项目数及名下包含至少 1 个公开已发布项目的公开合集列表）；作者不存在或无公开已发布作品时返回 404。 |
@@ -100,7 +102,7 @@
 
 订阅沿用 `project_subscriptions` 的 `(project_id,user_id)` 唯一当前关系：订阅 `INSERT OR IGNORE`，取消订阅 `DELETE`，不保留历史资格行或事件日志。重复操作幂等，重新订阅按新的订阅时间排序；`subscriptions_count`（含公开、作者和管理目录）由同一写入内的插入／删除触发器维护，当前列表使用已有用户／时间索引。推荐写入及审计在同一 D1 batch 内原子校验当前订阅关系与当前公开版本；拒绝时不写推荐或审计，也不重算冻结贡献。取消订阅不修改已有推荐、公共展示条件或冻结贡献。
 
-推荐资格不需要新增 schema 或订阅历史转换。离线工具继续保留源中的当前订阅行、计数及非目标字段，拒绝无法解释的源字段；不以下载、安装、评分或过去订阅的猜测补造关系。本改动未执行已有数据库升级、真实数据迁移或远端切换。
+离线工具保留源中的当前订阅行、计数及非目标字段，拒绝无法解释的源字段；不以下载、安装、评分或过去订阅的猜测补造关系。
 
 `POST /api/v1/recommendations/changes` 接受作者客户端计算的版本／清单哈希及 changedEntries、totalEntries；服务端对照两份不可变条目目录验证，元数据修改不贡献内容变化。此提示不是通用 diff 服务。
 
@@ -141,7 +143,6 @@ URL=$(jq -r '.files[0].url // empty' /tmp/workshop-downloads.json)
 - 项目必须仍为公开、未删除且有已发布版本。新记录只能写当前发布版本；历史版本只能维护本人已经存在的备忘，不枚举其他历史或草稿版本。缺少版本、版本不存在、跨项目版本或未获准版本均不创建记录；不自动采用“最新版”。历史备忘删除后不能凭旧版本 ID 重新创建。
 - `project_experience_notes` 以 `(user_id, project_version_id)` 唯一，以同项目的 `(project_id, project_version_id)` 外键约束版本归属。发布新版本不会复制、覆盖或迁移旧体验；界面默认显示当前版本，使用“查看版本备忘”切回自己的历史记录。
 - 旧 `project_ratings` 没有可靠版本证据，离线转换原样保留评分、文字及时间到 `project_unversioned_notes`，不推断当前或历史版本，也不转成推荐。界面单独显示“未标版本的旧备忘”，仅本人可读、可删除，不能修改或隐式回填为本版评分。
-- 这次只更新预发布空库基线和离线转换契约；不代表现有数据库已迁移，不可把 `0001_initial.sql` 应用于已有数据库。
 
 ## 作者写入和并发
 
@@ -174,9 +175,9 @@ URL=$(jq -r '.files[0].url // empty' /tmp/workshop-downloads.json)
 | --- | --- |
 | POST `/` | `createCollectionSchema`（标题、可选简介、可选本人项目 ID 列表）；每位作者最多 50 个合集、每合集最多 200 个本人未软删项目；包含非本人项目返回 403；201 返回 `AuthorCollection` 并写审计 `collection.create`。 |
 | PATCH `/:id` | `patchCollectionSchema`；合集作者或 owner 可更新标题、简介或有序 `projectIds`（仅限该合集作者拥有的未软删项目，否则 403）；返回更新后的 `AuthorCollection` 并写审计 `collection.update`，不存在或无权 404。 |
-| DELETE `/:id` | 合集作者或 owner 可删除合集（不删除其中的项目）；204 并写审计 `collection.delete`，不存在或无权 404。 |
+| DELETE `/:id` | 合集作者或 owner 软删除合集（设置 `deleted_at` 并清空 `collection_projects` 关联，不删除其中的项目）；204 并写审计 `collection.delete`，不存在或无权 404。 |
 
-文件上传需正数 `Content-Length`。worldbook 和 regex 接受 `application/json` 或 `text/plain`，上限 10 MiB，服务端验证内容；cover 和 gallery 接受 PNG、JPEG、WebP，上限 1 MiB。cover 的内容格式必须匹配 MIME，尺寸上限 4096×4096；gallery 另由存储层校验图片和 slot。超限 413，MIME 不支持 415。请求体直接为文件，不是 multipart。
+文件上传需正数 `Content-Length`。worldbook 和 regex 接受 `application/json` 或 `text/plain`，上限 10 MiB，服务端验证内容；cover 和 gallery 均接受 PNG、JPEG、WebP，上限 1 MiB，且实际图片格式必须匹配声明 MIME、尺寸上限 4096×4096（gallery 的 slot 为 0 或 1；公开画廊副本撤回未完成时上传或删除返回 409 `conflict`）。字节超限（及 cover 尺寸超限）返回 413，gallery 格式／尺寸／slot 校验失败返回 400，MIME 不支持返回 415。请求体直接为文件，不是 multipart。
 
 示例：已登录且有写入权限，使用一个合法 worldbook JSON 文件，依次读取版本、上传并提交；每次变更后使用返回的新版本：
 
@@ -191,7 +192,7 @@ curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "If-Match: $VERSION" -H '
 
 提交还受项目元数据、内容检查和确认要求约束，示例文件不满足实际发布要求时会返回校验错误。示例中的空对象使客户端 gate 为 `missing`，成功提交后为 `pending`、`needs_human`，不会排队自动检查；客户端 gate 为 `pass` 或 `warn` 才排队，服务端检查未阻断时可能自动发布。
 
-客户端检查器版本使用 `checkerVersion` 提交，持久化为 `automated_reviews.client_checker_version`；管理详情分别返回 `clientCheckerVersion` 与服务端 `checkerVersion`，不再接受旧 checker revision 字段。
+客户端检查器版本使用 `checkerVersion` 提交，持久化为 `automated_reviews.client_checker_version`；管理详情分别返回 `clientCheckerVersion` 与服务端 `checkerVersion`。
 
 当前工作版本一旦成为已发布版本，即使历史导入没有重建提交／审核记录，也视为冻结：不能原地修改元数据、替换文件、删除条目或重复提交。先创建后继工作版本；新版本号按该项目全部历史版本的最大编号加一分配，并以项目行版本 CAS 阻止并发创建两个后继。未提交且未发布的草稿仍可原地修改元数据。
 
@@ -224,14 +225,16 @@ curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "If-Match: $VERSION" -H '
 
 ### 资源生命周期与删除责任（方案，非执行授权）
 
-本节替代旧计划中按 90 天自动回收版本的描述。staging 可单独获准重建不授权清理 legacy、production、备份或用户内容；下面的期限、审批及执行器均未确定，不自动执行。责任人是未来维护者／数据所有者；每次操作需明确环境、账号、数据库和 bucket 身份，并由有权负责人批准候选与不可逆范围。
+staging 可单独获准重建不授权清理 legacy、production、备份或用户内容；下面的期限、审批及执行器均未确定，不自动执行。责任人是未来维护者／数据所有者；每次操作需明确环境、账号、数据库和 bucket 身份，并由有权负责人批准候选与不可逆范围。
 
 | 父对象／资源 | 引用与目标删除责任 | 保留及前提 |
 | --- | --- | --- |
-| 用户 | projects.author、audit actor 等证据 RESTRICT；session 等纯附属 CASCADE；site_settings updater SET NULL | 作者归属、审计和人工决定默认保留，不能删除用户时抹掉证据；隐私／法定义务另行决定 |
-| 用户的其他引用 | project_versions.created_by、submissions.submitted_by/withdrawn_by 默认 NO ACTION；manual_reviews.reviewer、recommendations.curator、download_daily_stats.user RESTRICT；oauth_flows.user SET NULL；likes、experience notes、unversioned notes、subscriptions CASCADE | 删除用户必须逐项处理阻断关系并保全证据；OAuth 准入证据及互动删除影响须另审 |
-| 项目纯派生／互动 | project_likes、project_experience_notes、project_unversioned_notes、project_subscriptions、project_metrics_daily、project_search_tags CASCADE；FTS 搜索索引不由外键维护 | 可级联不等于已批准硬删除；清理后复核触发器维护的搜索索引与聚合 |
-| 项目 | project_versions、submissions、assets、下载、推荐、change signals 等业务记录 RESTRICT；纯关系允许 CASCADE | 软删除不等于硬删除；先明确恢复期和证据处理，清查全部依赖并人工批准 |
+| 用户 | `projects.author_id`、`collections.author_id`、`project_versions.created_by`、`audit_events.actor_id` 等证据 `ON DELETE RESTRICT`；`sessions` 等纯附属 `ON DELETE CASCADE`；`site_settings.updated_by` `ON DELETE SET NULL` | 作者归属、合集归属、修订创建者、审计和人工决定默认保留，不能删除用户时抹掉证据；隐私／法定义务另行决定 |
+| 用户的其他引用 | `submissions.submitted_by`／`withdrawn_by` 默认 `NO ACTION`；`manual_reviews.reviewer_id`、`recommendations.curator_id`、`download_daily_stats.user_id` `ON DELETE RESTRICT`；`oauth_flows.user_id` `ON DELETE SET NULL`；likes、experience notes、unversioned notes、subscriptions `ON DELETE CASCADE` | 删除用户必须逐项处理阻断关系并保全证据；OAuth 准入证据及互动删除影响须另审 |
+| 合集与成员关系 | `collections` 软删除设置 `deleted_at` 并清空关联；`collection_projects` 对 `collections` 与 `projects` 均为 `ON DELETE CASCADE` | 硬删除合集或项目会级联清理 `collection_projects`；公开视图只统计未软删合集中仍公开已发布的项目 |
+| 项目纯派生／互动 | `project_likes`、`project_experience_notes`、`project_unversioned_notes`、`project_subscriptions`、`project_metrics_daily`、`project_search_tags`、`collection_projects` `ON DELETE CASCADE`；FTS 搜索索引由触发器维护 | 可级联不等于已批准硬删除；清理后复核触发器维护的搜索索引与聚合 |
+| 项目 | `project_versions`、`submissions`、`assets`、下载、推荐、change signals 等业务记录 `ON DELETE RESTRICT`；纯关系允许 `CASCADE` | 软删除不等于硬删除；先明确恢复期和证据处理，清查全部依赖并人工批准 |
+| 公开图片副本表与撤回门禁 | `public_cover_replicas`、`public_gallery_replicas`、`public_banner_replicas` 记录公开 R2 副本状态；对应触发器（`public_cover_replica_guard`、`public_gallery_replica_*_guard`、`public_banner_replica_*_guard`）在副本未撤回删除前阻断项目可见性／软删除／发布指针变更、画廊资产变更／删除与 `site_settings` `discover_banner` 变更／删除 | 必须先确认公开 R2 副本已删除并移除副本行，才允许变更或回收底层项目、资产或横幅记录；`reserving` 等状态未决时保持阻断 |
 | 版本 | 项目 working/published 指针是同项目、延迟检查的引用；投稿 version/base、assets、project_experience_notes 和其他业务证据 RESTRICT | 当前工作／发布版本、审核中的冻结版本及基线禁止直接回收；历史版本须先决定保留与可恢复策略 |
 | 投稿 | automated_reviews、manual_reviews 是审核证据，RESTRICT | 不能靠父项目删除级联抹除审核结论和人工决定；先完成独立证据政策 |
 | 资产与 R2 key | assets 是关联权威，版本可共享同一对象；站点 banner、报告及客户端分发等各自 key 也须纳入完整引用清单 | 不以某版本或前缀无引用断言对象孤儿；失败上传和替换旧图先只读列候选 |
@@ -249,7 +252,7 @@ D1 与 R2 不跨服务原子：单次 SELECT 无引用不防止删除瞬间重�
 
 | 方法和路径 | 输入及结果 |
 | --- | --- |
-| POST `/api/v1/site/banner` | owner，PNG/JPEG/WebP 原始字节，最多 2 MiB、尺寸最多 4096×4096；201 返回 banner。空或无法识别的图片 400，超限 413，MIME 不支持 415。 |
+| POST `/api/v1/site/banner` | owner，流式读取 PNG/JPEG/WebP 原始字节，最多 2 MiB、尺寸最多 4096×4096；201（`private, no-store`）返回 banner。空或格式与类型不匹配的图片 400，字节或尺寸超限 413，MIME 不支持 415，横幅状态并发变更或公开横幅副本撤回未完成返回 409 `conflict`。 |
 | PUT `/api/v1/site` | owner；`adminSiteUpdateSchema`，至少提供 banner 或 siteContent，返回站点设置；无效 400。 |
 | GET `/api/v1/companion-scripts/:scriptId` | 公开读取当前伴随脚本版本，不存在 404。 |
 | GET `/api/v1/companion-scripts/:scriptId/versions/:version` | 公开读取指定版本，不存在 404。 |
@@ -268,7 +271,7 @@ D1 与 R2 不跨服务原子：单次 SELECT 无引用不防止删除瞬间重�
 | GET `/assets/*` | ASSETS 绑定提供的前端静态文件，成功为一年 immutable；未配置或不存在 404。 |
 | GET `/api/v1/public-assets/*` | 仅当前公开发布的 cover/gallery 或当前注册 banner；成功默认最多 60 秒，`stale-if-error=0`，CORS `*`；TTL 可配置，设为 0 或非法值时 no-store。权限不满足或对象缺失 404。 |
 | GET `/api/v1/assets/*` | 公开图片也可读取；私有 cover 对作者、owner 及符合待审条件的 reviewer/owner 可见，私有 gallery 对作者或 owner 可见；当前 banner 可见。成功 `private, no-store`、`Vary: Authorization`，无权或不存在 404。 |
-| GET `/` | Static Assets 优先返回 Web 首页 HTML。维护时静态首页仍可加载，前端根据首页 API 的 `503 maintenance` 显示维护提示。 |
+| GET `/`、`/index.html` | `wrangler.jsonc` `run_worker_first` 显式包含 `"/"` 与 `"/index.html"`；Worker 从 `ASSETS` 获取 HTML 并在配置有效 HTTPS `PUBLIC_ASSETS_BASE_URL` 时将该源追加进 CSP `img-src`。维护屏障关闭时网关仍作为纯读返回首页 HTML，前端根据首页 API 的 `503 maintenance` 显示维护提示。 |
 
 打开嵌入页面与本地安装门禁分离，见 [SillyTavern 宿主协议](host-protocol.md)。服务端 `/projects/:id/acquisitions` 独立校验当前频道和版本，不兼容时拒绝且不记获取次数。
 

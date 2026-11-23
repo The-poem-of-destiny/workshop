@@ -1,8 +1,10 @@
 # 自定义域名、缓存与资源消耗上线计划
 
-状态：staging 部分配置，尚未完成验收。沿用 [D-49](decisions.md#d-49-分类-ttl-cache-api)；本计划不授权修改 DNS、Cloudflare、Discord 或真实数据，不改变[人工门槛](user-actions.md)和[发布安全流程](../../operations/deployment-safety.md)。按 staging → production 分别验收；最终记录精确 Worker version、Web／client revision、schema、规则版本、UTC 观察窗口和回退责任人。
+状态（2026-11-23）：`staging` 已在 `d7deb9d` 跑通 `deploy-staging` 全链部署与验证（98/98 schema 对象、Worker 部署、客户端与公开图双桶分发及 smoke）；现行公开资源桶为 `workshop-img-staging`（`assets-staging.poem-of-destiny.3378469.xyz`）与 `workshop-img-prod`（`assets.poem-of-destiny.3378469.xyz`），同时承载公开封面／画廊／横幅副本以及 `client/v/<sha>/index.js`（`public, max-age=31536000, immutable`）与 `client/<channel>/index.js`（`public, max-age=300`）。`production` D1/R2 预装载已完成（含 `workshop-img-prod` 531 张公开封面），待首次 `v*` 生产切换与真实流量观察窗口完成最终实耗验收。沿用 [D-49](decisions.md#d-49-分类-ttl-cache-api) 与 [D-53](decisions.md#d-53-上线前架构收敛与条款替代汇总)；本计划不改变[人工门槛](user-actions.md)和[发布安全流程](../../operations/deployment-safety.md)。
 
-## Staging 执行记录（2026-11-19）
+## 历史 Staging 执行记录（2026-11-19，已被 2026-11-23 状态替代）
+
+> 说明：以下为 2026-11-19 建域初期的历史过程记录（当时的 82 对象空库重置、早期跳过部署与权限排障均已被后续演进替代；截至 2026-11-23，`staging` 已绑定五分类 98/98 schema 的 `workshop-staging-migrate-977ebb415bf6` 并在 `d7deb9d` 全绿自动发版，现况以 [`state.md`](state.md) 为准）。
 
 - `workshop-staging.poem-of-destiny.3378469.xyz` 已绑定现有 staging Worker，公开 DNS、HTTPS 和健康检查通过；旧入口及 Discord 回调未切换。
 - PR #99 已合并到 `143ee219458a4ca2b6d34071371a3456b2ca4423`，合并后 CI 通过。[Staging 工作流](https://github.com/The-poem-of-destiny/workshop/actions/runs/44546621108) 因 `0001_initial.sql` 相对已验收基线有变化，跳过构建和部署。未变更门禁、未迁移；不能用旧版响应作为新版缓存或静态分流证据。
@@ -29,7 +31,7 @@ staging 与 production 的应用自定义域共用一条 Free zone 限流：`/ap
 
 已关闭 staging Worker 的 `workers.dev` 与 Version URLs，回读两项均为 `false`，Worker deployment ID 不变；旧入口和抽样版本入口 health 均返回 404。Wrangler staging 配置保留这两项，迁移控制工具改用受保护的自定义域。不适用于其他 Worker 或环境。平台依据：[workers.dev](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/)、[Version URLs](https://developers.cloudflare.com/workers/versions-and-deployments/version-urls/)、[Custom rules](https://developers.cloudflare.com/waf/custom-rules/)。
 
-production Worker 的 `workers.dev` 和 Version URLs 目前仍启用，不受 zone 限流覆盖。production 自定义域当前为占位服务，未部署正式应用。Tavern 客户端已在源码切到自定义域并通过本地构建启动验证，未发布；首次业务上线时确认正式客户端能在新域打开工坊，再关闭生产替代入口并复测。
+`staging` 客户端已在 `d7deb9d` 正式发布至私有桶 `workshop-client-staging` 与公开 CDN 桶 `workshop-img-staging`。`apps/worker/wrangler.jsonc` 已为 `production` 显式配置 `workers_dev: false` 与 `preview_urls: false`；由于 `production` 自定义域当前仍为切流前占位服务、尚未执行首次 `v*` Worker 部署，首次业务上线部署后须回读并实测生产替代入口均已关闭（返回 404）。
 
 如出现误伤，先停用限流规则 `ad0f6692f6ff4778908052e4aa1a5d72`，保留事件证据，不动鉴权。若永久移除限流，同时移除专用范围规则 `e44d465adba94703be7d75737a60f5f8`。后续收紧见 [EDGE-03](open-threads.md#边缘读取公开资源与成本)；不要把边缘计数当作全局配额或鉴权。
 
@@ -50,7 +52,7 @@ production Worker 的 `workers.dev` 和 Version URLs 目前仍启用，不受 zo
 
 用两个不同的合成 PNG 键，从同一 PoP 对每个键记录 cold、HIT、`Age`、`CF-Ray` 和内容摘要。两个键各自在独立用例中删除源副本：一个不 purge，用来观察自然到期后下一次请求是否已不返回图；另一个在命中后立刻做精确 URL purge，用来观察实际撤回路径。另查从未发布的键与被撤回键均不返回图片。记录源端删除时间、purge 接受时间和实际探测结果；单 PoP 样本不外推为全球上限。这个探针不替代业务发布与下架竞争的验收。
 
-已创建独立桶 `workshop-covers-staging`，绑定 `assets-staging.poem-of-destiny.3378469.xyz`，TLS 和所有权均已激活，`r2.dev` 关闭。仅该域 `/covers/` 的 200 边缘 TTL 为 60 秒，400–599 不存储，禁用过期后台更新时返回旧响应；原 `/immutable/` 规则未改。
+2026-11-21 探针阶段曾使用早期试点桶 `workshop-covers-staging` 绑定 `assets-staging.poem-of-destiny.3378469.xyz`（TLS 和所有权激活，`r2.dev` 关闭；该试点桶及对应的 `workshop-covers-prod` 随后已被统一公开桶 `workshop-img-staging`／`workshop-img-prod` 接替并于 2026-11-23 删除）。仅该域 `/covers/` 的 200 边缘 TTL 为 60 秒，400–599 不存储，禁用过期后台更新时返回旧响应；原 `/immutable/` 规则未改。
 
 2026-11-21 staging 合成 PNG 探针（同一 NRT PoP）：两个键均从 `200 MISS` 转为 `200 HIT`，内容摘要一致；浏览器收到 `public, max-age=0, must-revalidate`。自然到期键在源删除后仍返回 `200 HIT`（`Age: 5`），首次填充约 69 秒后返回 `404 BYPASS`。另一键先删源，再对精确 URL purge；Cloudflare 接受后约 0.24 秒的请求返回 `404 BYPASS`。从未上传的键也返回 `404 BYPASS`；两个探针源对象均已删除。未测其他 PoP、源站 5xx 或业务发布/下架并发；采样不证明精确的到期瞬间或全球撤回上限。
 
@@ -64,7 +66,7 @@ production Worker 的 `workers.dev` 和 Version URLs 目前仍启用，不受 zo
 2. 先提交公开状态，再写入已验证的封面字节；只在写入确认后公开 CDN URL。写入未确认前保留现行 Worker 图片路径。复制的在途记录必须先于 R2 PUT 持久化；进程退出、超时或响应丢失时不能把记录当作已失败并允许撤回越过它。单靠 PUT 后重查 D1 仍可能在删除之后重新公开。
 3. 下架或替换先停止旧代际复制，确认旧副本已删除，再提交业务状态和撤回记录；清理精确 URL 不作为 D1 提交条件。删除已完成但业务提交失败时，公开项目继续使用原 Worker 路径，不能继续发已删除的 CDN URL；修复或重试不得复用撤回键。
    若预留 PUT 的结果不明，`reserving` 记录保留，业务下架不会报成功。不能仅凭一次 HEAD 或超时就清记录：迟到的预留还可能落地。
-4. 本地已验证公开封面投影、撤回后不能重建旧键、直接改私有被 D1 拒绝；保留旧 Worker 路由。staging 已执行 `0002_public_cover_replicas.sql` 并部署，见[状态记录](state.md#当前-stagingedge-01)。仍需使用已登录的 staging 作者验收真实封面、并发、实际页面、存量覆盖和成本。精确 purge 是单独的运营操作；待测源删除、D1 提交及 purge 失败的表现。
+4. 本地已验证公开封面／画廊／横幅投影、撤回后不能重建旧键、直接改私有被 D1 拒绝；保留旧 Worker 路由。早期拆分的 `0002_public_cover_replicas.sql`（连同画廊与横幅副本表）已收口并入 98 对象上线基线 `0001_initial.sql`，已在 `staging`（`d7deb9d`）及预装载完成的 `workshop-prod`（531 条 `public_cover_replicas`）核验就绪，见[状态记录](state.md#当前-stagingedge-01)。仍需使用已登录的 `staging` 作者验收真实并发、画廊／横幅替换下架及生产切流后的实际成本。
 
 
 ## 4. Workers、D1、R2 实耗验收

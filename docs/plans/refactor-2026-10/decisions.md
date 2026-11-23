@@ -1,9 +1,9 @@
 # 决策记录（唯一来源）
 
-本文件是重构决策的**唯一事实来源**。其他文档（`main.md`、已归档的 [`features.md`](../../archived/refactor-2026-10/features.md) 与 [`patch-audit.md`](../../archived/refactor-2026-10/patch-audit.md)）只引用 ID，不再维护副本。  
+本文件是重构决策的**唯一事实来源**。其他文档（已归档的 [`main.md`](../../archived/refactor-2026-10/main.md)、[`features.md`](../../archived/refactor-2026-10/features.md) 与 [`patch-audit.md`](../../archived/refactor-2026-10/patch-audit.md)）只引用 ID，不再维护副本。  
 状态：`生效` / `待定` / `被替代`。新增决策追加编号，不重排历史。
 
-2026-10-26 决策复审：**D-40～D-47 为最新确认，冲突时优先于下方旧条款。** 它们是目标与验收约束，不代表已经实现；下一步工作见 [checklist.md 的本轮工作包](checklist.md#本轮工作包2026-10-26)。未被明确改变的条款继续有效。
+2026-11-23 口径说明（基线 `d7deb9d`）：下方 `D-01`～`D-52` 按时间顺序保留历史裁决原文；2026-10-26 复审确认了 `D-40`～`D-47`（对应历史追踪见 [checklist.md 的本轮工作包](checklist.md#本轮工作包2026-10-26)），而上线前 PR #95／#104／#107／#108／#109 对认证、双桶 CDN 分发、政策准入、五分类与合集、checker 威胁边界及 98 对象基线的最新局部替代已统一汇总于 [D-53](#d-53-上线前架构收敛与条款替代汇总) 及 [`.agents/notes/implemented/`](../../../.agents/notes/README.md)。冲突时以最新编号与对应已实现 Agent Note 为准；当前交付与上线门禁见 [checklist.md](checklist.md#当前交付与验收门槛)。
 
 缓存相关的旧条款（D-17、D-22、D-24、D-25、D-27、D-28、D-36 至 D-38、D-48）与 [D-49](#d-49-分类-ttl-cache-api) 冲突之处已被 D-49 取代；下方保留历史决策，不代表当前机制。
 
@@ -455,6 +455,17 @@ Workers Cache 是唯一的边缘缓存层（不使用 zone，不使用 Pages）�
 - 扩展 D-51 的图片范围：当前公开且已发布项目的生效封面与画廊、站点当前启用的横幅。原对象留在私有桶；私有展示、项目文件、审核资料和客户端发布物不改路径。图片替换、删除、下架按 D-51 的代际隔离与撤回规则处理。
 - 所有部署使用同一应用代码和 schema。staging 从现有 D1/R2 补公开副本；正式快照导入直接由下载的 D1/R2 生成公开副本与引用，对账后才切流。此轮不操作 production。
 
+### D-53 上线前架构收敛与条款替代汇总
+
+在不改写上方 `D-01`～`D-52` 历史正文的前提下，PR #93～#95、#104、#107～#109（至 `d7deb9d`）对下列早期条款作出局部演进与替代；当前行为与决策依据以链接文档为准：
+
+- **双桶 R2 CDN 客户端与公开图片分发（局部替代 D-22／S-05、D-51／D-52）**：现行公开资源桶统一为 `workshop-img-staging` 与 `workshop-img-prod`（早期试点桶 `workshop-covers-*` 已删除），除承载公开封面／画廊／横幅副本外，同时镜像客户端产物 `client/v/<sha>/index.js`（`public, max-age=31536000, immutable`）与 `client/<channel>/index.js`（`public, max-age=300`）。发布脚本先通过 S3 SigV4 写齐私有桶 `workshop-client-*`（保留 Worker `/client/*` 回退兼容）与公开桶 `workshop-img-*`，再以 `json_set` 原子更新 D1 `site_settings.client_channels`（保留相邻频道且避免客户端被门禁要求尚不可取的新版本）。见[上线前加固记录](../../../.agents/notes/implemented/pre-launch-hardening-oauth-bridge-and-cdn.md)与[客户端发布规范](../../operations/deployment-safety.md#client-artifact-publishing)。
+- **跨站内嵌 OAuth `launch/bind` 分区绑定与 TavernHelper 桥接（演进 D-10）**：针对现代浏览器 CHIPS 按顶层站点分区存储导致跨站酒馆 iframe 与顶层 Discord 回调弹窗不共享同一 cookie jar 的问题，新增 `GET /api/v1/auth/flows/:id/launch` 与 `POST /api/v1/auth/flows/:id/bind`，配合响应头 `x-oauth-binding` 与分区 cookie `cw_oauth_binding_p`（`SameSite=None; Secure; Partitioned`）完成同源弹窗第一方绑定后再跳转 Discord；同时页面宿主桥 `isTrustedHostSource` 在精确校验 `event.origin === hostOrigin` 与载荷结构的前提下，接受 `window.parent` 及其同源子 frame（`event.source.parent === window.parent`）以兼容 TavernHelper 运行环境。见[上线前加固记录](../../../.agents/notes/implemented/pre-launch-hardening-oauth-bridge-and-cdn.md)、[API 参考](../../reference/worker-api.md#登录和会话)与[宿主协议](../../reference/host-protocol.md#连接与信任边界)。
+- **政策问答准入、个人版本备忘与当前订阅推荐（细化 D-29）**：新增服务端版本化政策同意与 3 道单选题准入（`POST /api/v1/me/policy-acceptance`），未通过前所有需登录写操作及正文预览／取件在后端统一按 `403` 拦截为只读游客；体验评分定位于仅本人可见的版本绑定备忘（旧无版本备忘只读保留），公开玩家推荐仅限当前订阅用户新增／编辑。见[社区准入与合集记录](../../../.agents/notes/implemented/community-access-collections-and-ux-refinement.md)与[版本备忘与推荐记录](../../../.agents/notes/implemented/version-experience-notes-and-recommendations.md)。
+- **五分类收敛、作者／合集展示页与 `[工坊]` 标记（局部替代 D-32／D-47）**：主分类收敛为五类（`系统核心`、`角色`、`内容扩展`、`规则扩展`、`体验优化`；原`事件`并入`内容扩展`，原`玩法`更名为`规则扩展`），`includeContained=true` 对已选分类在 `projectType ∪ includedTypes` 上执行 AND 筛选；复用 `/api/v1/projects` 筛选管线提供合集（`/api/v1/collections/:id`）与作者作品展示页（`/api/v1/authors/:id`）；新保存的世界书条目与项目注册表统一使用 `[工坊]` 前缀（读取兼容 `[WS]`）。见[社区准入与合集记录](../../../.agents/notes/implemented/community-access-collections-and-ux-refinement.md)与[分类离线切换基础记录](../../../.agents/notes/implemented/six-category-taxonomy-and-reviewed-cutover.md)。
+- **Checker 自动发布威胁边界（细化 D-09／D-31／D-43）**：仅数据外带／动态代码执行风险（`M1–M4`）、工坊作用域隔离违规（`L1–L7`）以及检查未完成／超限／内部异常（`FILE`、`CHECKER-LIMIT`、`CHECKER-INTERNAL`）路由为 `block` 转人工审核；卸载即可恢复的语法、潜在死循环、外链及 API 提示（`M5`、`EJS-PARSE`、`JS-PARSE`、`U2–U5`、`API1–API2`、`AH1–AH4`）保持 `warn` 自动发布并展示透明提示。见[上线前加固记录](../../../.agents/notes/implemented/pre-launch-hardening-oauth-bridge-and-cdn.md)。
+- **98 对象单文件启动基线、FTS NUL 净化与两阶段 `preload`/`delta` 切换（替代 D-39 增量链编号假设）**：上线前空库基线统一收口至单文件 `apps/worker/migrations/0001_initial.sql`（共 98 个 schema 对象，含三张公开图片副本表，并在 FTS 触发器中将 `char(0)` 净化为空格以消除 SQLite NUL 截断偏差），发布前由 `.github/scripts/verify-release-schema.py` 动态只读比对远端 D1；存量迁移采用绑定目标库预装载（`bound_preload.py`）与停写后自校验增量同步（`d1_delta.py` + `delta-withdrawals.json`）两阶段工具链。见[部署安全规则](../../operations/deployment-safety.md#schema-evolution-and-production-cutover)与[迁移手册](../../operations/legacy-data-migration.md)。
+
 ---
 
 ## 待定
@@ -477,4 +488,4 @@ Q-05 已定：见 D-35。Q-06 已定：见 D-36。
 | S-02 | 启用 `client.minimum`（早期建议） | D-06 精确匹配 |
 | S-03 | 嵌入模式用 BroadcastChannel/localStorage 交付 token（讨论稿） | D-10 一次性 code + verifier |
 | S-04 | 客户端 block 仍跑 DO 生成报告（讨论稿） | D-09 不跑 DO |
-| S-05 | R2 自定义域 + zone CDN 分发 client（早期托管方案） | D-22 Worker 代理 + Workers Cache |
+| S-05 | R2 自定义域 + zone CDN 分发 client（早期托管方案） | D-22 Worker 代理 + Workers Cache（上线前由 [D-53](#d-53-上线前架构收敛与条款替代汇总) 演进为私有桶 + 公开图片桶 `workshop-img-*` 双桶 CDN 镜像分发） |

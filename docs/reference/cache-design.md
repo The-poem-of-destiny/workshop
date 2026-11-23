@@ -1,6 +1,6 @@
 # API 缓存设计与路由清单
 
-本文以仓库实现和 [Worker API 参考](worker-api.md)为基线。`P60` 和 `P300` 分别表示默认 60 秒和 300 秒的公开成功响应；`N` 表示 `private, no-store`。TTL 可配置，设为 0 或非法值禁缓存并对外 no-store，详见[运行配置](runtime-configuration.md)。私有资格、会话和计数始终实时检查。
+本文以仓库实现和 [Worker API 参考](worker-api.md)为基线。`P60` 和 `P300` 分别表示默认 60 秒和 300 秒的公开成功响应；`N` 表示 `private, no-store`（入口维护接口等显式返回 `no-store` 的路径单独注明）。TTL 可配置，设为 0 或非法值禁缓存并对外 no-store，详见[运行配置](runtime-configuration.md)。私有资格、会话和计数始终实时检查。
 
 ## 请求路径和边界
 
@@ -17,15 +17,15 @@ flowchart LR
     S --> R2[(R2)]
 ```
 
-Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立，`VERSION_METADATA` 用于部署版本隔离，缺失时绕过 Cache API。静态资源可能由 Static Assets 单独交付。具名入口共享 Worker bindings，静态检查是代码约束而非平台权限隔离。
+Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立，`VERSION_METADATA` 用于部署版本隔离，缺失时绕过 Cache API。静态资源由 Static Assets 绑定交付。具名入口共享 Worker bindings，静态检查是代码约束而非平台权限隔离。
 
-公开 GET／HEAD 由[网关解析器](../../apps/worker/src/cache/public-cache.ts)一次识别路由、校验查询并生成规范化读取描述。`CachedReads` 用规范化路径和查询沿用原有公开缓存身份；投影按解析后的操作分发，不重新解析 URL。私有或未知路径仍交给 Hono。
+公开 GET／HEAD 由[网关解析器](../../apps/worker/src/cache/public-cache.ts)一次识别路由、校验查询并生成规范化读取描述。`CachedReads` 用规范化路径和查询沿用公开缓存身份；投影按解析后的操作分发，不重新解析 URL。私有或未知路径交给 Hono。
 
 `CachedReads` 仅在有效 TTL 大于 0 且 `VERSION_METADATA.id` 为非空字符串时读写 Cache API；缓存键包含部署版本、TTL、规范化路径／查询和内部可信读取描述符。成功响应的缓存写入通过 `waitUntil` 完成，不阻塞源端响应；验证命中必须等待这些写入结束，不能把 `Cache-Control` 或返回 200 当成已存储、已命中的证据。
 
 公开投影记录生成时的绝对到期时间，外层只使用剩余期限，缺失、非法或过期则 no-store；内部控制头不返回浏览器。不可变字节按版本或 hash 分区，每次仍需实时门禁。仅公开白名单内的成功结果有资格缓存，错误、部分失败和私有响应不公开缓存。
 
-不使用全球主动 purge 或 epoch；写后各 PoP 的旧数据可能留至到期，在途请求可能在变更后填入旧数据，浏览器缓存及保存的字节也无法收回。TTL 不是全球撤回时限。源端重新执行时检查当前公开资格；本地运行时行为与 hosted 平台证据的边界见[本地缓存行为验证与边界](#本地缓存行为验证与边界)。真实 Cloudflare 边缘命中、部署和费用仍需经授权的 hosted 观测，当前尚未验证，上线仍需用户明确授权。
+不使用全球主动 purge 或 epoch；写后各 PoP 的旧数据可能留至到期，在途请求可能在变更后填入旧数据，浏览器缓存及保存的字节也无法收回。TTL 不是全球撤回时限。源端重新执行时检查当前公开资格；本地运行时行为与线上边缘的验证边界见[本地缓存行为验证与边界](#本地缓存行为验证与边界)。
 
 ## 公开发现和下载
 
@@ -34,7 +34,7 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 | 方法与路径 | 用途 | 对外默认策略 | 内部缓存与实时门禁 |
 | --- | --- | --- | --- |
 | GET `/health` | 版本和绑定存在性 | N | 无 |
-| GET `/home` | 首页三段聚合，含发现栏 | 全成功 P60；部分失败 N | 公开成功投影 60 秒；部分失败不缓存 |
+| GET `/home` | 首页三段聚合，含发现栏 | 全成功 P60；部分或全部失败 N | 公开成功投影 60 秒；部分或全部失败不缓存 |
 | GET `/projects`、`/projects/batch` | 列表与批量摘要 | P60 | 公开投影 60 秒；batch 每次最多 50 个 ID |
 | GET `/collections/:id`、`/authors/:id` | 公开合集摘要与作者公开主页摘要 | P60 | 公开投影 60 秒 |
 | GET `/projects/:id`、`/projects/:id/entries` | 公开详情及索引 | P60 | 公开投影 60 秒 |
@@ -58,7 +58,7 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 
 分类回归先缓存角色／内容扩展与人类／战士筛选的 `Taxonomy original`，将底层发布版改为 `Taxonomy changed` 后，以重排／重复参数和显式 `includeContained=false` 仍读到 original；切换为 `includeContained=true`（按主类与包含类型做多分类 AND 匹配）必须读到 changed。规则扩展仅在“包含类型”开启时为 1 项，仅主类时为 0 项。相同 harness 还覆盖应用 freshness 到期、部署版本隔离、GET／HEAD 共用完整表示、禁用 TTL 和缺失版本时绕过缓存。
 
-普通 `tools/preview-debug.mjs` 预览将 `CACHE_TTL_PUBLIC_SECONDS` 固定为 0，因此其 API／UI 成功不能证明公开列表 Cache API 命中。本地 harness 的命中也不代表真实 Cloudflare 边缘、跨 PoP 行为或费用已验收；线上观测仍需单独授权。
+普通 `tools/preview-debug.mjs` 预览将 `CACHE_TTL_PUBLIC_SECONDS` 固定为 0，因此其 API／UI 成功不能证明公开列表 Cache API 命中。本地 harness 的命中也不代表真实 Cloudflare 边缘、跨 PoP 行为或费用；线上观测需在获授权的目标环境单独进行。
 
 ## 认证、会话与当前用户
 
@@ -66,30 +66,35 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 
 | 方法与路径 | 用途 | 策略 |
 | --- | --- | --- |
-| POST `/auth/flows` | 创建 OAuth 流并设置绑定 cookie | 不缓存 |
+| POST `/auth/flows` | 创建 OAuth 流、设置绑定 cookie 并返回 `x-oauth-binding` | 不缓存 |
+| GET `/auth/flows/:id/launch` | 跨站嵌入登录弹窗启动页（HTML） | 不缓存（`no-store`） |
+| POST `/auth/flows/:id/bind` | 弹窗绑定浏览器 cookie 并获取授权地址 | 不缓存（`no-store`），实时校验待处理流与绑定值 |
 | GET `/auth/flows/:id` | 查询 OAuth 流状态 | 不缓存，状态及绑定需实时检查 |
 | POST `/auth/flows/:id/redeem` | 兑换设备或 embed 授权 | 不缓存，一次性操作 |
-| GET `/auth/callback` | OAuth 回调及 HTML 消息 | 不缓存，保护授权码和令牌 |
+| GET `/auth/callback` | OAuth 回调及 HTML 消息 | 不缓存（`no-store`），保护授权码和令牌 |
 | DELETE `/sessions/current` | 撤销会话 | 不缓存，实时生效 |
 | GET `/me` | 当前用户、角色和政策确认状态 | 保持不缓存，避免角色、政策状态和撤销陈旧 |
 | POST `/me/policy-acceptance` | 提交政策同意与准入问答 | 不缓存，实时更新准入状态 |
 | GET `/me/collections` | 作者合集列表 | 保持不缓存，需会话与政策准入 |
-| GET `/me/projects` | 作者项目列表 | 保持不缓存；可评估受保护投影，但每次先鉴权 |
+| GET `/me/projects` | 作者项目列表 | 保持不缓存，每次实时鉴权 |
 | GET `/me/projects/:id/submissions` | 作者投稿历史 | 保持不缓存，需项目权限 |
 | GET `/me/subscriptions` | 当前用户订阅 | 保持不缓存 |
 | GET `/me/state` | 当前用户对项目的互动状态 | 保持不缓存，避免用户混淆及写后陈旧 |
 | PUT、DELETE `/me/likes/:id` | 点赞、取消点赞 | 不缓存 |
 | PUT、DELETE `/me/subscriptions/:id` | 订阅、取消订阅 | 不缓存 |
+| PUT、DELETE `/recommendations/:projectId` | 玩家新增／编辑或撤回当前公开版本推荐 | 不缓存，实时校验会话、政策准入与当前订阅／版本 |
 | GET `/me/experience-notes/:id` | 本人的当前、已记备忘历史版本及未标版本旧备忘 | 不缓存，禁止共享个人评分与体验文字 |
 | PUT、DELETE `/me/experience-notes/:id/versions/:versionId` | 保存、删除本人指定版本的体验备忘 | 不缓存，权限与版本归属实时检查 |
 | DELETE `/me/experience-notes/:id/unversioned` | 删除本人的未标版本旧备忘 | 不缓存 |
 
-## 作者、审核和管理
+## 作者、审核、管理与维护
 
-以下均为 `N / 无`；草稿、审核和管理读取受身份及项目权限约束，版本竞争控制和写入实时执行。获准后的固定 hash 文件字节可内部复用，不缓存当前关联或权限。
+以下均为 `N / no-store`（无内部共享缓存）；草稿、审核、管理和维护操作受身份、项目权限或运维凭据约束，版本竞争控制和写入实时执行。获准后的固定 hash 文件字节可内部复用，不缓存当前关联或权限。
 
 | 方法与路径 | 用途 |
 | --- | --- |
+| GET、POST `/maintenance` | 入口层维护屏障状态查询与开关（`no-store`） |
+| POST `/maintenance/public-images` | 公开封面、画廊与横幅 R2 副本回填（`no-store`） |
 | POST `/projects` | 创建项目 |
 | GET `/projects/:id/draft` | 获取作者草稿及 rowVersion |
 | PATCH、DELETE `/projects/:id` | 更新元数据、软删除项目 |
@@ -100,9 +105,11 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 | GET、PUT `/projects/:id/versions/:versionId/files/:kind` | 读取或上传修订文件 |
 | DELETE `/projects/:id/versions/:versionId/entries/:kind/:entryKey` | 删除修订条目 |
 | POST `/projects/:id/versions/:versionId/submit` | 提交修订审核 |
+| GET `/projects/:id/versions/:versionId/change-evidence` | 获取当前工作版与上一发布版的不可变条目目录证据（`no-store`） |
+| POST `/recommendations/changes` | 作者提交版本内容变化统计（`no-store`） |
 | POST `/projects/:id/submissions/:submissionId/withdraw` | 撤回投稿 |
 | PUT `/projects/:id/collections` | 更新项目所属合集 |
-| POST `/collections`、PATCH `/collections/:id`、DELETE `/collections/:id` | 创建、编辑或删除作者合集 |
+| POST `/collections`、PATCH `/collections/:id`、DELETE `/collections/:id` | 创建、编辑或软删除作者合集 |
 | GET `/admin/submissions` | 待审投稿列表和计数 |
 | GET `/admin/submissions/:id` | 投稿详情 |
 | GET `/admin/submissions/:id/files/:kind` | 审核文件 |
@@ -120,7 +127,7 @@ Workers Cache 在所有环境停用；使用 Cache API 的缓存按 PoP 独立�
 | GET `/companion-scripts/:scriptId/versions/:version` | 获取指定伴随脚本版本 |
 | PUT `/companion-scripts/:scriptId/versions/:version` | owner 注册不可变版本 |
 
-伴随脚本的两个 GET 虽公开，当前不在公开投影缓存白名单中，继续实时读取。
+伴随脚本的两个 GET 虽公开，当前不在公开投影缓存白名单中，实时读取。
 
 API 的 `OPTIONS` 是 CORS 预检，不属于公开 GET/HEAD 缓存；允许来源返回 204，否则 403。未匹配 `/api/*` 返回 JSON 404，其他未知路径返回文本 404；不将这些兜底响应作为公开投影缓存。
 
@@ -131,12 +138,12 @@ API 的 `OPTIONS` 是 CORS 预检，不属于公开 GET/HEAD 缓存；允许来�
 | GET `/api/v1/client/version`、`/api/v1/client/compatibility` | 发版核对与宿主兼容性 | 成功 5 秒；错误 no-store | 缓存读不作为 acquisition 的授权依据 |
 | GET `/client/stable/index.js`、`/client/staging/index.js` | 可变频道入口脚本 | no-store | 实时版本指针 |
 | GET `/client/v/:revision/index.js`、`/client/checker/v/:revision/:file` | 版本化脚本与 checker | 一年 immutable、ETag | 固定版本字节可内部复用 |
-| GET `/test-dist/CreativeWorkshop/index.js` | 旧导入兼容地址 | max-age=0、must-revalidate | 按现有重验证策略 |
-| GET `/assets/*`、`/` | 静态前端 | 静态交付或 Worker 后备策略 | 不视为 API 投影 |
+| GET `/test-dist/CreativeWorkshop/index.js` | 旧导入兼容地址 | max-age=0、must-revalidate | 按重验证策略返回动态导入脚本 |
+| GET `/assets/*`、`/`、`/index.html` | 静态前端 | `/assets/*` 一年 immutable；`/` 与 `/index.html` 经 Worker 注入公开资源 CSP | 不视为 API 投影 |
 | GET `/api/v1/public-assets/*` | 公开 cover、gallery、banner | P60 | 实时解析资格；固定字节可内部复用 |
 | GET `/api/v1/assets/*` | 公开或私有图片 | N | 实时授权和关联；固定字节可内部复用 |
 
-版本和兼容性接口的成功响应已设置 5 秒缓存；频道发布后短暂显示旧信息与降低读取开销是明确取舍。Tavern 客户端的 compatibility fetch 显式使用 `cache: "no-store"`，不能假定该调用获得浏览器缓存收益；实际命中尚未验证。`acquisitions` 每次仍读取当前权威版本，可能在 5 秒窗口内与显示结果不一致。
+版本和兼容性接口的成功响应设置 5 秒缓存，在频道发布后短暂显示旧信息与降低读取开销之间取舍。Tavern 客户端的 compatibility fetch 显式使用 `cache: "no-store"` 绕过浏览器缓存。`acquisitions` 每次读取当前权威版本，可能在 5 秒窗口内与显示结果不一致。
 
 ## 受保护内容与成本
 
@@ -144,4 +151,4 @@ API 的 `OPTIONS` 是 CORS 预检，不属于公开 GET/HEAD 缓存；允许来�
 
 统计须分别记录外部请求 E、内部 cached fetch I、非缓存 fetch F、RPC R、D1 实际 rows_read/rows_written 和 R2 操作。安装 N 个唯一项目分为 ceil(N/50) 批。没有线上测量不能声称具体 HIT、费用或节省百分比。
 
-Cache API 的机制及限制参见 Cloudflare 官方 [Cache API](https://developers.cloudflare.com/workers/runtime-apis/cache/)；本地回归边界见[上文](#本地缓存行为验证与边界)，真实 Cloudflare 边缘命中与费用仍需在获授权的 hosted 环境验证，源码和响应头不能替代该证据。
+Cache API 的机制及限制参见 Cloudflare 官方 [Cache API](https://developers.cloudflare.com/workers/runtime-apis/cache/)；本地回归与线上边缘实测的边界见[上文](#本地缓存行为验证与边界)。

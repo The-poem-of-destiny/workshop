@@ -1,11 +1,11 @@
-# 六分类与显式审阅的离线切换
+# 分类体系与显式审阅的离线切换（六分类初版，主类已由五分类部分替代）
 
 - Status: implemented
 - 确认日期：2026-11-13
 - 决策负责人：项目所有者；契约维护者：Domain/Contracts 与 Worker；界面维护者：Web；迁移维护者：离线工具；交付与安全边界：Integration。
 - 本记录保存已接受设计及其取舍，不是部署许可、操作运行簿或验收日志。当前行为分别由 [API 参考](../../../docs/reference/worker-api.md)、[使用指南](../../../docs/guides/using-workshop.md)、[迁移说明](../../../docs/operations/legacy-data-migration.md)和[部署安全规则](../../../docs/operations/deployment-safety.md)维护。
-- 局部取代（2026-11-18 / PR #107）：主分类枚举已由 [社区低调入口、政策问答准入、合集体系与界面体验精修](community-access-collections-and-ux-refinement.md) 收敛为**五分类**（`系统核心`、`角色`、`内容扩展`、`规则扩展`、`体验优化`；原`事件`并入`内容扩展`，原`玩法`更名为`规则扩展`，12 组预设标签完整保留），前端侧栏在勾选 `includeContained` 时开启多选并在 `projectType ∪ includedTypes` 上执行 AND 匹配；下文保留 2026-11-13 初次落地时的六分类历史表述，其余结构化包含关系、普通标签上限、预设分组语义与离线审阅/对账机制保持有效。
-- 生命周期核对（2026-11-22）：结构化分类、空库 schema、API/Web 和完整离线候选工具已由 [PR #90](https://github.com/The-poem-of-destiny/workshop/pull/90) 合并，四普通标签上限由 [PR #89](https://github.com/The-poem-of-destiny/workshop/pull/89) 合并，五分类收敛与 `[工坊]` 世界书标记分别由 [PR #107](https://github.com/The-poem-of-destiny/workshop/pull/107)、[PR #108](https://github.com/The-poem-of-destiny/workshop/pull/108) 合并，故源码状态归入 `implemented`。尚未执行的真实生产数据库切换作为运维门禁在 [state.md](../../../docs/plans/refactor-2026-10/state.md) 与 [user-actions.md](../../../docs/plans/refactor-2026-10/user-actions.md) 跟踪。
+- 局部取代（2026-11-18 / PR #107）：主分类枚举已由 [社区低调入口、政策问答准入、合集体系与界面体验精修](community-access-collections-and-ux-refinement.md) 收敛为**五分类**（`系统核心`、`角色`、`内容扩展`、`规则扩展`、`体验优化`；原`事件`并入`内容扩展`，原`玩法`更名为`规则扩展`，12 组预设标签完整保留），目录筛选在 `includeContained=true` 时对所有已选分类在 `projectType ∪ includedTypes` 上执行 **AND** 匹配（`false` 时仅在主类上执行 OR）；下文保留 2026-11-13 初次落地时的六分类历史表述，其余结构化包含关系、普通标签上限、预设分组语义与离线审阅/对账机制保持有效。
+- 生命周期核对（2026-11-23）：结构化分类、空库 schema、API/Web 和完整离线候选工具由 [PR #90](https://github.com/The-poem-of-destiny/workshop/pull/90) 合并，四普通标签上限由 [PR #89](https://github.com/The-poem-of-destiny/workshop/pull/89) 合并，98 对象基线与 `preload`/`delta` 工具、五分类收敛、`[工坊]` 世界书标记及 FTS `char(0)` 净化分别由 [PR #104](https://github.com/The-poem-of-destiny/workshop/pull/104)、[PR #107](https://github.com/The-poem-of-destiny/workshop/pull/107)、[PR #108](https://github.com/The-poem-of-destiny/workshop/pull/108)、[PR #109](https://github.com/The-poem-of-destiny/workshop/pull/109)（`d7deb9d`）合并。远端 `staging`（`workshop-staging-migrate-977ebb415bf6`）与 `production`（`workshop-prod`）D1 均已完成五分类 + 98/98 对象预装载，`deploy-staging` 已在 `d7deb9d` 跑通；剩余生产最终停写 `delta`（如适用）与 `v*` tag 正式切换在 [state.md](../../../docs/plans/refactor-2026-10/state.md) 与 [user-actions.md](../../../docs/plans/refactor-2026-10/user-actions.md) 跟踪。
 
 ## 背景与取代范围
 
@@ -21,7 +21,7 @@
 
 ### 分类、包含关系和普通标签各有一个事实来源
 
-主分类恰好一个，顺序为 `系统核心`、`角色`、`内容扩展`、`玩法`、`事件`、`体验优化`。系统核心指玩家的命定核心伙伴，不表示替换整套游戏。`projectType` 必填；`includedTypes` 是独立结构数组，不是第二主类或普通标签。创建缺省为空，完整响应总是包含数组，PATCH 省略时保留原值并验证合并后的资料；排除自身、系统核心和重复项，不另设两三个的任意上限。
+主分类恰好一个，初版顺序为 `系统核心`、`角色`、`内容扩展`、`玩法`、`事件`、`体验优化`（后经 [五分类收敛决策](community-access-collections-and-ux-refinement.md) 合并为 `系统核心`、`角色`、`内容扩展`、`规则扩展`、`体验优化`，其中`事件`并入`内容扩展`、`玩法`更名为`规则扩展`）。系统核心指玩家的命定核心伙伴，不表示替换整套游戏。`projectType` 必填；`includedTypes` 是独立结构数组，不是第二主类或普通标签。创建缺省为空，完整响应总是包含数组，PATCH 省略时保留原值并验证合并后的资料；排除自身、系统核心和重复项，不另设两三个的任意上限。
 
 预设和自定义词同样存储为普通 `tags`，作者最多 20 个、目录最多选择 12 个、卡片/列表最多展示 4 个。独立主分类徽标不占四个名额，详情、tooltip 与筛选保留完整标签；不为四个标签改造既有窄屏单行裁切。取消运行时旧 `extensionType`/`extension_type`、规则/内容子类和多主类兼容路径；历史值只能通过显式离线审阅转换。
 
@@ -33,9 +33,9 @@
 
 ### 筛选按词义分组，而不是按输入方式分组
 
-重复主分类参数内部 OR；默认只匹配主类，明确 `includeContained=true` 才将包含关系加入匹配。重复标签先规范化、去重，再应用总数 12 的上限：预设同组 OR、跨组 AND，每个自定义词独立 AND；手输预设词仍归入其预设组。规范化后的同一查询语义共同决定 SQL、游标和缓存身份，不能为参数顺序或重复值生成不同作用域。
+默认 `includeContained=false` 时只匹配主类（重复 `projectType` 参数之间为 **OR**）；明确 `includeContained=true` 时在 `projectType ∪ includedTypes` 的并集中对所有已选分类执行 **AND** 匹配（PR #107 演进确认，详见 [API 参考](../../../docs/reference/worker-api.md#目录筛选与游标)）。重复标签先规范化、去重，再应用总数 12 的上限：预设同组 OR、跨组 AND，每个自定义词独立 AND；手输预设词仍归入其预设组。规范化后的同一查询语义共同决定 SQL、游标和缓存身份，不能为参数顺序或重复值生成不同作用域。
 
-标签既有公开合同保持 1–100 Unicode code points，API 输入沿用 JavaScript `trim()`；持久值和审阅目标必须已经 canonical，不在迁移或数据库边界偷偷修剪。Python、Domain、Contracts 和 SQL 对相同字符采用同一边界，不增加 NUL 或其他字符的额外产品禁令。长度检查不能被 SQLite 的 NUL 截断语义绕过，也不能为验证而改变保存的 JSON 或重复身份。
+标签既有公开合同保持 1–100 Unicode code points，API 输入沿用 JavaScript `trim()`；持久值和审阅目标必须已经 canonical，不在迁移或数据库边界偷偷修剪。Python、Domain、Contracts 和 SQL 对相同字符采用同一边界，不增加 NUL 或其他字符的额外产品禁令。长度检查不能被 SQLite 的 NUL 截断语义绕过，也不能为验证而改变保存的 JSON 或重复身份；同时 FTS 派生索引触发器与离线重建在写入 `project_search`／`project_search_short` 时统一将 `char(0)` 净化为空格（PR #109，见 [上线前加固记录](pre-launch-hardening-oauth-bridge-and-cdn.md)），防止内嵌 NUL 截断搜索分词或破坏线上／离线对账一致性。
 
 ### 内容准入不与分类绑定
 
@@ -47,7 +47,7 @@
 
 使用一次性离线工具和可编辑决策文件；每项最终转换必须绑定不可变源快照及其哈希。current、legacy 和 preview 生成的所有决策均以 `reviewed=false`、`tagsAcknowledged=false` 开始，明确映射建议也不能代替操作者确认。旧角色、系统、系统核心和事件可形成明确建议；扩展与未知值必须人工决定，不能按标题猜最终类。历史无效、空、重复或超上限标签必须提供合法 `targetTags` 和明确 `tagChangeReason`，不能只勾选确认、静默去重或截断；不同历史字段之间的合法重叠不冒充原数组重复。
 
-当前库必须从完整当前快照重建，保留新增项目、全部非 taxonomy 字段/行及其类型和重复数、账号历史、工作/发布指针和对象引用。只有已明确批准移除的旧字段适用移除合同，不借分类转换丢失 description 或 requirements。候选构建后由独立步骤对账 canonical schema、21 个业务表和 3 个派生搜索表、FK/完整性及搜索投影；未审阅、过期哈希、未知 schema/字段和损坏候选一律拒绝。
+当前库必须从完整当前快照重建，保留新增项目、全部非 taxonomy 字段/行及其类型和重复数、账号历史、工作/发布指针和对象引用。只有已明确批准移除的旧字段适用移除合同，不借分类转换丢失 description 或 requirements。候选构建后由独立步骤对账 canonical schema（初版 21 个业务表与 3 个派生搜索表；随合集与公开图片副本合入后现行基线共 98 个 schema 对象）、FK/完整性及搜索投影；未审阅、过期哈希、未知 schema/字段和损坏候选一律拒绝。
 
 候选使用 v2 格式固定源、schema、工具与 legacy provenance；相关输入或 helper 改变后，使用原审阅输入生成新的输出并另行核验，不修改旧候选的 pins 来伪装有效。旧候选即使数据库字节相同，也不能沿用过期工具或缺失 provenance 的核验结论。挑选已发布项目到可丢弃本地预览库的 importer 不等于完整当前库迁移。离线对象引用对账不获取或复制远程 R2 字节，也不证明实际对象字节完整。
 
@@ -57,9 +57,9 @@
 
 ### 基线、上线和授权保持分离
 
-当前 `apps/worker/migrations/0001_initial.sql` 是上线前空库基线，绝不能对既有数据库执行。上线时冻结基线，此后按递增 migration 追加，而非反复改写已上线基线。真实切换需另行授权和受核验的当前候选、停写与对账流程；本分类 PR 的合并本身不是部署或迁移。
+当前 `apps/worker/migrations/0001_initial.sql` 是上线前 98 对象空库基线，绝不能对既有数据库执行。上线时冻结基线，此后按递增 migration 追加，而非反复改写已上线基线。真实切换需另行授权和受核验的当前候选、停写与对账流程；本分类 PR 的合并本身不是部署或迁移。
 
-保留 staging schema-change pause、`ACCEPTED_SCHEMA_SHA=f2491599cfb97a6405b5f73ead73227387786478` 及 production 的 `Require separately verified production schema` 停止门禁。本决策不授权读取个人 Cloudflare 凭据、使用个人 token、改变绑定/checkpoint/secrets、执行远程迁移或部署。
+早期基于固定 `ACCEPTED_SCHEMA_SHA` 的暂停门禁已升级为 `.github/scripts/verify-release-schema.py`：在 `staging` 与 `production` 发布前动态将远端目标 D1 的全部表、索引、视图和触发器（98 个对象）与当前代码迁移链执行只读精确比对，不一致则直接阻断发布且绝不自动运行破坏性迁移。截至 2026-11-23，`staging`（`workshop-staging-migrate-977ebb415bf6`）与 `production`（`workshop-prod`）D1 均已预装载至五分类 + 98/98 canonical schema 对象。
 
 ## 考虑过的替代方案
 
@@ -83,4 +83,4 @@
 
 本地服务端真实创建、上传、提交、人工批准及匿名回读已覆盖六类与三种有效内容组合；元数据/内容拒绝边界、分组查询、canonical 游标/本地 Cache API、Unicode HTTP 与 SQL/Python 合同已取得行为证据。当前 helper 固定的 v2 SQLite/SQL 完整候选已取得独立 typed 对账证据；三种审阅输入的初始标记、明确标签修复理由、公开重复键与私有无效内容省略的精确源例外、多导入及缺失/伪造/过期 provenance 拒绝边界亦已验证。完整非 taxonomy 版本/资产字段的当前单独篡改与当前加 preparation 协同篡改，均在刷新输入与工具 pins 后由 build 和独立 verify 拒绝；实际 canonical schema 新列缺失映射同样拒绝。显式/回退 MIME、对象别名、根版本优先序号、可空缺省及存储类型等合法变体仍可通过，当前计数、rowVersion、历史和新增行保持不变。桌面/移动作者、筛选、真实客户端 checker、审核者与 owner 表面，以及未弱化门禁的完整本地检查和 E2E 亦已取得行为证据；这些证明不能相互替代，也不代表线上边缘缓存或真实数据切换。精确命令、结果、私有探针错误及其处置保存在任务记录，不在本决策存放 fixture、运行日志或凭据。
 
-PR #90 及后续五分类收敛 PR #107 的源码与离线工具交付、独立审查及本地验收已经完成。尚未执行的真实生产快照审阅、候选独立对账、停写／切换与生产环境验收归属运维发布门禁（见 [user-actions.md](../../../docs/plans/refactor-2026-10/user-actions.md)），本记录不构成远程数据库迁移或生产发布授权。
+PR #90 及后续五分类收敛 PR #107、基线与增量切换加固 PR #104／#109（`d7deb9d`）的源码、离线工具、`staging` 自动发版验收及 `staging`／`production` D1 五分类 98/98 对象预装载均已完成。剩余旧站停写后的最终 `delta` 补齐（如有新写入）与 `v*` tag 生产 Worker 切流归属上线运维门禁（见 [user-actions.md](../../../docs/plans/refactor-2026-10/user-actions.md)），本记录不构成自动生产切流授权。
