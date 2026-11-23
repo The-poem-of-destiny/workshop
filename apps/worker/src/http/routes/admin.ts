@@ -12,6 +12,7 @@ import {
   submissionDiffSchema,
 } from "@workshop/contracts";
 import { Hono } from "hono";
+import { dataClient } from "../../data-client.js";
 import type { Env } from "../../env.js";
 import { enqueueSubmission } from "../../scheduler.js";
 import { jsonError } from "../errors.js";
@@ -45,7 +46,7 @@ adminRoutes.get("/submissions", async (c) => {
     cursor: c.req.query("cursor"),
   });
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid query", parsed.error.flatten());
-  const response = await c.executionCtx.exports.DataService.authorAdminListSubmissions(
+  const response = await dataClient(c.executionCtx).authorAdminListSubmissions(
     c.req.header("authorization"),
     parsed.data,
   );
@@ -58,7 +59,7 @@ adminRoutes.get("/submissions/:id", async (c) => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false) return jsonError(c, "forbidden", "Reviewer role required");
-  const response = await c.executionCtx.exports.DataService.authorAdminGetSubmission(
+  const response = await dataClient(c.executionCtx).authorAdminGetSubmission(
     c.req.header("authorization"),
     c.req.param("id"),
   );
@@ -76,14 +77,14 @@ adminRoutes.get("/submissions/:id/files/:kind", async (c) => {
   if (kind !== "worldbook" && kind !== "regex" && kind !== "cover") {
     return jsonError(c, "bad_request", "Unsupported file kind");
   }
-  return c.executionCtx.exports.DataService.fetch(c.req.raw);
+  return dataClient(c.executionCtx).fetch(c.req.raw);
 });
 
 adminRoutes.get("/submissions/:id/diff", async (c) => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false) return jsonError(c, "forbidden", "Reviewer role required");
-  const response = await c.executionCtx.exports.DataService.authorAdminGetDiff(
+  const response = await dataClient(c.executionCtx).authorAdminGetDiff(
     c.req.header("authorization"),
     c.req.param("id"),
   );
@@ -98,10 +99,7 @@ adminRoutes.post("/submissions/:id/recheck", async (c) => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false) return jsonError(c, "forbidden", "Reviewer role required");
-  const result = await c.executionCtx.exports.DataService.authorAdminRecheck(
-    c.req.header("authorization"),
-    c.req.param("id"),
-  );
+  const result = await dataClient(c.executionCtx).authorAdminRecheck(c.req.header("authorization"), c.req.param("id"));
   if (result.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
   if (result.kind === "forbidden") return jsonError(c, "forbidden", "Reviewer role required");
   if (result.kind === "not_found") return jsonError(c, "not_found", "Submission not found");
@@ -126,7 +124,7 @@ adminRoutes.post("/submissions/:id/review", async (c) => {
   const parsed = adminReviewRequestSchema.safeParse(await readJson(c));
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid review", parsed.error.flatten());
 
-  const response = await c.executionCtx.exports.DataService.authorAdminReview(
+  const response = await dataClient(c.executionCtx).authorAdminReview(
     c.req.header("authorization"),
     c.req.param("id"),
     parsed.data,
@@ -152,7 +150,7 @@ adminRoutes.get("/projects", async (c) => {
     includeDeleted: c.req.query("includeDeleted") === "true",
   });
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid query", parsed.error.flatten());
-  const result = await c.executionCtx.exports.DataService.authorAdminListProjects(
+  const result = await dataClient(c.executionCtx).authorAdminListProjects(
     c.req.header("authorization"),
     parsed.data.limit,
     parsed.data.cursor,
@@ -176,7 +174,7 @@ adminRoutes.get("/members", async (c) => {
     cursor: c.req.query("cursor"),
   });
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid query", parsed.error.flatten());
-  const result = await c.executionCtx.exports.DataService.authorAdminListMembers(
+  const result = await dataClient(c.executionCtx).authorAdminListMembers(
     c.req.header("authorization"),
     parsed.data.limit,
     parsed.data.cursor,
@@ -194,7 +192,7 @@ adminRoutes.put("/members/:id/role", async (c) => {
   const parsed = adminRoleRequestSchema.safeParse(await readJson(c));
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid role", parsed.error.flatten());
 
-  const response = await c.executionCtx.exports.DataService.authorAdminChangeMemberRole(
+  const response = await dataClient(c.executionCtx).authorAdminChangeMemberRole(
     c.req.header("authorization"),
     c.req.param("id"),
     parsed.data.role,
@@ -217,7 +215,7 @@ adminRoutes.get("/audit-events", async (c) => {
     action: c.req.query("action"),
   });
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid query", parsed.error.flatten());
-  const result = await c.executionCtx.exports.DataService.authorAdminListAuditEvents(
+  const result = await dataClient(c.executionCtx).authorAdminListAuditEvents(
     c.req.header("authorization"),
     parsed.data.limit,
     parsed.data.cursor,
@@ -234,7 +232,7 @@ adminRoutes.put("/recommendations/:projectId", async (c) => {
   if (session === false || session.role !== "owner") return jsonError(c, "forbidden", "Owner role required");
   const parsed = adminRecommendationUpdateSchema.safeParse(await readJson(c));
   if (!parsed.success) return jsonError(c, "bad_request", "Invalid recommendation", parsed.error.flatten());
-  const response = await c.executionCtx.exports.DataService.authorAdminUpdateRecommendation(
+  const response = await dataClient(c.executionCtx).authorAdminUpdateRecommendation(
     c.req.header("authorization"),
     c.req.param("projectId"),
     parsed.data,
@@ -244,16 +242,22 @@ adminRoutes.put("/recommendations/:projectId", async (c) => {
   const result = response.data;
   if (result.kind === "not_found") return jsonError(c, "not_found", "Project not found");
   if (result.kind === "forbidden") return jsonError(c, "forbidden", "Recommendation not allowed");
-  return c.json({ id: result.id, comment: result.comment, reaction: result.reaction });
+  return c.json({ id: result.id, comment: result.comment, projectVersionId: result.projectVersionId });
 });
 
 adminRoutes.delete("/recommendations/:projectId", async (c) => {
   const session = await requireReviewer(c);
   if (session === null) return jsonError(c, "unauthorized", "Login required");
   if (session === false || session.role !== "owner") return jsonError(c, "forbidden", "Owner role required");
-  const response = await c.executionCtx.exports.DataService.authorAdminDeleteRecommendation(
+  const rawId = c.req.query("id");
+  const recommendationId = rawId !== undefined ? rawId.trim() : undefined;
+  if (recommendationId !== undefined && (!recommendationId || recommendationId.length > 200)) {
+    return jsonError(c, "bad_request", "Invalid recommendation id");
+  }
+  const response = await dataClient(c.executionCtx).authorAdminDeleteRecommendation(
     c.req.header("authorization"),
     c.req.param("projectId"),
+    recommendationId,
   );
   if (response.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
   if (response.kind === "forbidden") return jsonError(c, "forbidden", "Owner role required");

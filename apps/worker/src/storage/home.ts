@@ -170,7 +170,7 @@ export async function listRecommendations(db: D1Database, publicAssetsBaseUrl?: 
   });
 }
 
-export async function getDiscovery(db: D1Database, publicAssetsBaseUrl?: string) {
+async function getDiscovery(db: D1Database, publicAssetsBaseUrl?: string) {
   const batch = await readRecommendationBatch(db, undefined, publicAssetsBaseUrl);
   return {
     batchId: batch?.batchId ?? null,
@@ -182,7 +182,7 @@ export async function getDiscovery(db: D1Database, publicAssetsBaseUrl?: string)
 export async function getHome(
   db: D1Database,
   origins?: BannerOrigins,
-  classifyError?: (reason: unknown) => { code: "quota_exceeded"; message: string; details: string } | null,
+  classifyError?: (reason: unknown) => { code: "quota_exceeded"; message: string; details?: string } | null,
 ): Promise<HomeResponse> {
   const [site, discovery, projects] = await Promise.allSettled([
     Promise.all([getBanner(db, origins), getSiteContent(db)]).then(([banner, siteContent]) =>

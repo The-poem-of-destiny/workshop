@@ -2,6 +2,7 @@
 // Match canonical Hono read routes here, not aliases or whole route families:
 // session lookup can renew a session and polling OAuth can expire a flow.
 export function isReadOnlyRequest(method: string, pathname: string): boolean {
+  if (method === "OPTIONS" && pathname.startsWith("/api/")) return true;
   // Hono dispatches HEAD through the corresponding GET handler.
   if (method !== "GET" && method !== "HEAD") return false;
 

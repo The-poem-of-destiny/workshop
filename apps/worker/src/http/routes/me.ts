@@ -10,6 +10,7 @@ import {
   policyAcceptanceResponseSchema,
 } from "@workshop/contracts";
 import { Hono } from "hono";
+import { dataClient } from "../../data-client.js";
 import type { Env } from "../../env";
 import { jsonError } from "../errors.js";
 import { sessionToken } from "../session.js";
@@ -19,7 +20,7 @@ const POLICY_REQUIRED_MESSAGE = "请先阅读并同意工坊使用政策并完�
 export const meRoutes = new Hono<{ Bindings: Env }>();
 
 meRoutes.get("/", async (c) => {
-  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), { kind: "me" });
+  const result = await dataClient(c.executionCtx).identityMe(sessionToken(c), { kind: "me" });
   if (!result.ok) return jsonError(c, "unauthorized", "Login required");
   return c.json(meResponseSchema.parse(result.data));
 });
@@ -33,7 +34,7 @@ meRoutes.post("/policy-acceptance", async (c) => {
   }
   const parsed = policyAcceptanceInputSchema.safeParse(body);
   if (!parsed.success) return jsonError(c, "bad_request", "请先勾选同意政策并完成全部题目", parsed.error.flatten());
-  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), {
+  const result = await dataClient(c.executionCtx).identityMe(sessionToken(c), {
     kind: "accept_policy",
     input: parsed.data,
   });
@@ -52,14 +53,14 @@ meRoutes.post("/policy-acceptance", async (c) => {
 });
 
 meRoutes.get("/collections", async (c) => {
-  const result = await c.executionCtx.exports.DataService.authorListCollections(sessionToken(c));
+  const result = await dataClient(c.executionCtx).authorListCollections(sessionToken(c));
   if (result.kind === "unauthorized") return jsonError(c, "unauthorized", "Login required");
   if (result.kind === "forbidden") return jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE);
   return c.json(authorCollectionListResponseSchema.parse(result.data));
 });
 
 meRoutes.get("/projects", async (c) => {
-  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), { kind: "projects" });
+  const result = await dataClient(c.executionCtx).identityMe(sessionToken(c), { kind: "projects" });
   if (!result.ok)
     return result.error === "policy_required"
       ? jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE)
@@ -68,7 +69,7 @@ meRoutes.get("/projects", async (c) => {
 });
 
 meRoutes.get("/projects/:id/submissions", async (c) => {
-  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), {
+  const result = await dataClient(c.executionCtx).identityMe(sessionToken(c), {
     kind: "submissions",
     projectId: c.req.param("id"),
   });
@@ -81,7 +82,7 @@ meRoutes.get("/projects/:id/submissions", async (c) => {
 });
 
 meRoutes.get("/subscriptions", async (c) => {
-  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), { kind: "subscriptions" });
+  const result = await dataClient(c.executionCtx).identityMe(sessionToken(c), { kind: "subscriptions" });
   if (!result.ok)
     return result.error === "policy_required"
       ? jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE)
@@ -94,7 +95,7 @@ meRoutes.get("/state", async (c) => {
     .split(",")
     .map((id) => id.trim())
     .filter(Boolean);
-  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), { kind: "state", ids });
+  const result = await dataClient(c.executionCtx).identityMe(sessionToken(c), { kind: "state", ids });
   if (!result.ok) {
     if (result.error === "too_many_ids") return jsonError(c, "bad_request", "At most 50 project IDs are allowed");
     if (result.error === "policy_required") return jsonError(c, "forbidden", POLICY_REQUIRED_MESSAGE);
@@ -112,7 +113,7 @@ for (const [path, kind] of [
     ["delete", false],
   ] as const) {
     meRoutes[method](`/${path}/:id`, async (c) => {
-      const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), {
+      const result = await dataClient(c.executionCtx).identityMe(sessionToken(c), {
         kind,
         projectId: c.req.param("id"),
         enabled,
@@ -128,7 +129,7 @@ for (const [path, kind] of [
 }
 
 meRoutes.get("/experience-notes/:id", async (c) => {
-  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), {
+  const result = await dataClient(c.executionCtx).identityMe(sessionToken(c), {
     kind: "experience_notes",
     projectId: c.req.param("id"),
   });
@@ -149,7 +150,7 @@ meRoutes.put("/experience-notes/:id/versions/:versionId", async (c) => {
     invalidJson = true;
   }
   const parsed = experienceNoteInputSchema.safeParse(body);
-  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), {
+  const result = await dataClient(c.executionCtx).identityMe(sessionToken(c), {
     kind: "experience_note",
     projectId: c.req.param("id"),
     projectVersionId: c.req.param("versionId"),
@@ -167,7 +168,7 @@ meRoutes.put("/experience-notes/:id/versions/:versionId", async (c) => {
 });
 
 meRoutes.delete("/experience-notes/:id/versions/:versionId", async (c) => {
-  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), {
+  const result = await dataClient(c.executionCtx).identityMe(sessionToken(c), {
     kind: "experience_note",
     projectId: c.req.param("id"),
     projectVersionId: c.req.param("versionId"),
@@ -182,7 +183,7 @@ meRoutes.delete("/experience-notes/:id/versions/:versionId", async (c) => {
 });
 
 meRoutes.delete("/experience-notes/:id/unversioned", async (c) => {
-  const result = await c.executionCtx.exports.DataService.identityMe(sessionToken(c), {
+  const result = await dataClient(c.executionCtx).identityMe(sessionToken(c), {
     kind: "delete_unversioned_note",
     projectId: c.req.param("id"),
   });

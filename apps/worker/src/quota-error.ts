@@ -15,5 +15,14 @@ export function quotaErrorDetail(error: unknown): string {
 
 export function isStorageQuotaError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? "");
-  return /D1_ERROR.*(?:exceeded|daily row|free tier|quota|limit)|daily row (?:read|write) limit/i.test(message);
+  if (
+    /SQLITE_TOOBIG|near\s+"?LIMIT"?|(?:row|statement|string|blob|expression|variable)\s+(?:too\s+(?:big|long|large)|size\s+limit)/i.test(
+      message,
+    )
+  ) {
+    return false;
+  }
+  return /(?:daily\s+row\s+(?:read|write)\s+limit|free\s+tier\b.*\blimit\b|(?:account|storage|database|d1|r2)\s+quota\b|\bquota\s+exceeded\b)/i.test(
+    message,
+  );
 }

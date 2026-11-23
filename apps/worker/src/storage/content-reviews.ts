@@ -190,6 +190,14 @@ export async function autoPublishContentReview(db: D1Database, target: RunTarget
           )
       `)
       .bind(now, target.id, leaseToken, target.project_id, target.project_id, target.base_published_version_id),
+    db
+      .prepare(`
+        UPDATE automated_reviews
+        SET status = 'done', lease_until = NULL, error = NULL
+        WHERE submission_id = ? AND lease_token = ?
+          AND EXISTS (SELECT 1 FROM submissions s WHERE s.id = submission_id AND s.status = 'superseded')
+      `)
+      .bind(target.id, leaseToken),
   ]);
   return false;
 }

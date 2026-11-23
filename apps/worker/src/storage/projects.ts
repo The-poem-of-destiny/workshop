@@ -95,8 +95,6 @@ const PROJECT_JOINS = `
   JOIN project_versions r ON r.id = p.published_version_id
 `;
 
-const SELECT_PERIOD_PROJECT = SELECT_PROJECT.replace("p.id,", "COALESCE(metric.score, 0) AS catalog_score, p.id,");
-
 const PUBLIC_PROJECT = `
   p.visibility = 'public'
   AND p.published_version_id IS NOT NULL
@@ -250,16 +248,64 @@ function sortValue(row: ProjectRow, sort: ProjectListQuery["sort"], periodic: bo
   return row.updated_at;
 }
 
-function searchSource(search: string): { from: string; match: string } {
-  const trimmed = search.trim();
+const WORD_CHAR = /[\p{L}\p{N}_]/u;
+
+function searchSource(search: string): {
+  from: string;
+  bindings: unknown[];
+  extraWhere?: { sql: string; bindings: unknown[] };
+} {
+  const trimmed = search.replaceAll("\u0000", " ").trim();
+  if (!trimmed) {
+    return {
+      from: "(SELECT rowid FROM project_search_short WHERE 0) hits CROSS JOIN projects p ON p.rowid = hits.rowid",
+      bindings: [],
+    };
+  }
   const chars = Array.from(trimmed);
   const quote = (text: string) => `"${text.replaceAll('"', '""')}"`;
-  const short = chars.length <= 2;
-  const table = short ? "project_search_short" : "project_search";
-  // CROSS JOIN keeps the FTS hits outermost, avoiding a catalogue scan for rare terms.
+  if (chars.length > 2) {
+    // CROSS JOIN keeps the FTS hits outermost, avoiding a catalogue scan for rare terms.
+    return {
+      from: "(SELECT rowid FROM project_search WHERE project_search MATCH ?) hits CROSS JOIN projects p ON p.rowid = hits.rowid",
+      bindings: [quote(trimmed)],
+    };
+  }
+  const wordChars = chars.filter((char) => WORD_CHAR.test(char));
+  if (wordChars.length === 0) {
+    return {
+      from: "(SELECT rowid FROM project_search_short WHERE 0) hits CROSS JOIN projects p ON p.rowid = hits.rowid",
+      bindings: [],
+    };
+  }
+  const match = quote(wordChars.join(" "));
+  if (wordChars.length === chars.length) {
+    return {
+      from: "(SELECT rowid FROM project_search_short WHERE project_search_short MATCH ?) hits CROSS JOIN projects p ON p.rowid = hits.rowid",
+      bindings: [match],
+    };
+  }
+  const needle = trimmed.toLowerCase();
   return {
-    from: `(SELECT rowid FROM ${table} WHERE ${table} MATCH ?) hits CROSS JOIN projects p ON p.rowid = hits.rowid`,
-    match: short ? chars.map(quote).join(" ") : quote(trimmed),
+    from: "(SELECT rowid FROM project_search_short WHERE project_search_short MATCH ?) hits CROSS JOIN projects p ON p.rowid = hits.rowid",
+    bindings: [match],
+    extraWhere: {
+      sql: `(
+        instr(lower(r.title), ?) > 0
+        OR instr(lower(r.project_type), ?) > 0
+        OR EXISTS (SELECT 1 FROM json_each(r.included_types) WHERE instr(lower(value), ?) > 0)
+        OR EXISTS (
+          SELECT 1 FROM users u2
+          WHERE u2.id = p.author_id
+            AND (instr(lower(COALESCE(u2.global_name, '')), ?) > 0 OR instr(lower(u2.username), ?) > 0)
+        )
+        OR EXISTS (
+          SELECT 1 FROM project_search_tags pst
+          WHERE pst.project_id = p.id AND instr(lower(pst.tag), ?) > 0
+        )
+      )`,
+      bindings: [needle, needle, needle, needle, needle, needle],
+    },
   };
 }
 
@@ -277,8 +323,12 @@ export async function listPublishedProjects(
   const periodic = period !== "all" && (query.sort === "likes" || query.sort === "downloads");
   const where = [PUBLIC_PROJECT];
   const search = query.search ? searchSource(query.search) : null;
-  const from = `FROM ${search?.from ?? PROJECT_SOURCE} ${PROJECT_JOINS}`;
-  const bindings: unknown[] = search ? [search.match] : [];
+  const filterFrom = `FROM ${search?.from ?? PROJECT_SOURCE} JOIN project_versions r ON r.id = p.published_version_id`;
+  const bindings: unknown[] = search ? [...search.bindings] : [];
+  if (search?.extraWhere) {
+    where.push(search.extraWhere.sql);
+    bindings.push(...search.extraWhere.bindings);
+  }
 
   if (query.projectType.length > 0) {
     if (query.includeContained) {
@@ -323,7 +373,7 @@ export async function listPublishedProjects(
 
   const count = cursor
     ? null
-    : db.prepare(`SELECT COUNT(*) AS total ${from} WHERE ${where.join(" AND ")}`).bind(...bindings);
+    : db.prepare(`SELECT COUNT(*) AS total ${filterFrom} WHERE ${where.join(" AND ")}`).bind(...bindings);
   let metricJoin = "";
   if (periodic) {
     const days = Number.parseInt(period, 10);
@@ -332,17 +382,29 @@ export async function listPublishedProjects(
     const metric = query.sort === "likes" ? "likes_delta" : "downloads";
     metricJoin = `LEFT JOIN (SELECT project_id, SUM(${metric}) AS score FROM project_metrics_daily
       WHERE day_key >= ? AND day_key <= ? GROUP BY project_id) metric ON metric.project_id = p.id`;
-    bindings.splice(search ? 1 : 0, 0, start, end);
+    bindings.splice(search ? search.bindings.length : 0, 0, start, end);
   }
   const column = periodic ? "COALESCE(metric.score, 0)" : SORT_COLUMN[query.sort];
   if (cursor) {
     where.push(`(${column} < ? OR (${column} = ? AND p.id < ?))`);
     bindings.push(cursor.value, cursor.value, cursor.id);
   }
-  const select = periodic ? SELECT_PERIOD_PROJECT : SELECT_PROJECT;
+  const outerSelect = periodic
+    ? SELECT_PROJECT.replace("p.id,", "paged.sort_val AS catalog_score, p.id,")
+    : SELECT_PROJECT;
   const page = db
-    .prepare(`${select} ${from} ${metricJoin} WHERE ${where.join(" AND ")}
-      ORDER BY ${column} DESC, p.id DESC LIMIT ?`)
+    .prepare(`${outerSelect}
+      FROM (
+        SELECT p.id, ${column} AS sort_val
+        ${filterFrom} ${metricJoin}
+        WHERE ${where.join(" AND ")}
+        ORDER BY ${column} DESC, p.id DESC
+        LIMIT ?
+      ) paged
+      CROSS JOIN projects p ON p.id = paged.id
+      CROSS JOIN project_versions r ON r.id = p.published_version_id
+      CROSS JOIN users u ON u.id = p.author_id
+      ORDER BY paged.sort_val DESC, paged.id DESC`)
     .bind(...bindings, query.limit + 1);
   // Keep the first page and its exact count in the same D1 batch.
   const results = count ? await db.batch([page, count]) : [await page.all()];

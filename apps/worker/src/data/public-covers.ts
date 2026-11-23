@@ -19,35 +19,52 @@ export async function replicatePublicCover(env: ReplicaEnv, projectId: string): 
     ON CONFLICT(project_id) DO NOTHING RETURNING project_id`)
     .bind(key, projectId)
     .first();
-  if (!candidate) return;
 
-  const reservation = await reserveCoverReplica(bucket, key);
-  if (!reservation) throw new Error("Public cover reservation collision");
-  await env.DB.prepare(`UPDATE public_cover_replicas SET phase = 'copying', reservation_etag = ?
-    WHERE project_id = ? AND object_key = ? AND phase = 'reserving'`)
-    .bind(reservation.etag, projectId, key)
-    .run();
-  const asset = await env.DB.prepare(`SELECT a.r2_key FROM projects p JOIN assets a ON a.project_id = p.id
+  if (candidate) {
+    const reservation = await reserveCoverReplica(bucket, key);
+    if (!reservation) throw new Error("Public cover reservation collision");
+    await env.DB.prepare(`UPDATE public_cover_replicas SET phase = 'copying', reservation_etag = ?
+      WHERE project_id = ? AND object_key = ? AND phase = 'reserving'`)
+      .bind(reservation.etag, projectId, key)
+      .run();
+  }
+
+  const asset = await env.DB.prepare(`SELECT c.object_key, c.reservation_etag, a.r2_key, a.mime
+    FROM projects p JOIN assets a ON a.project_id = p.id
     JOIN public_cover_replicas c ON c.project_id = p.id
-    WHERE p.id = ? AND c.object_key = ? AND c.phase = 'copying'
+    WHERE p.id = ? AND c.phase = 'copying'
       AND p.visibility = 'public' AND p.deleted_at IS NULL AND p.published_version_id IS NOT NULL AND a.kind = 'cover'
       AND ((a.id = p.published_cover_asset_id AND a.version_id IS NULL)
         OR (p.published_cover_asset_id IS NULL AND a.version_id = p.published_version_id))
     LIMIT 1`)
-    .bind(projectId, key)
-    .first<{ r2_key: string }>();
-  if (!asset) return;
+    .bind(projectId)
+    .first<{ object_key: string; reservation_etag: string | null; r2_key: string; mime: string }>();
+  if (!asset || !asset.reservation_etag) return;
   const source = await env.R2.get(asset.r2_key);
   if (!source) return;
-  const type = source.httpMetadata?.contentType;
-  if (!type || !["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"].includes(type)) {
-    await source.body.cancel();
-    return;
+  try {
+    const type = source.httpMetadata?.contentType ?? asset.mime;
+    if (!type || !["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"].includes(type)) {
+      return;
+    }
+    const copied = await copyCoverReplica(bucket, asset.object_key, asset.reservation_etag, source.body, type);
+    if (!copied) {
+      const existing = await bucket.head(asset.object_key);
+      if (
+        !existing ||
+        existing.etag === asset.reservation_etag ||
+        existing.size !== source.size ||
+        existing.httpMetadata?.contentType !== type
+      ) {
+        return;
+      }
+    }
+  } finally {
+    if (!source.bodyUsed && !source.body.locked) await source.body.cancel().catch(() => {});
   }
-  if (!(await copyCoverReplica(bucket, key, reservation.etag, source.body, type))) return;
   await env.DB.prepare(`UPDATE public_cover_replicas SET phase = 'ready'
     WHERE project_id = ? AND object_key = ? AND phase = 'copying'`)
-    .bind(projectId, key)
+    .bind(projectId, asset.object_key)
     .run();
 }
 

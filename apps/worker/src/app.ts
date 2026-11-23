@@ -9,7 +9,7 @@ import { authRoutes, sessionRoutes } from "./http/routes/auth";
 import { authoringRoutes } from "./http/routes/authoring";
 import { clientRoutes } from "./http/routes/client";
 import { clientApiRoutes } from "./http/routes/client-api";
-import { authorsRoutes, collectionsRoutes } from "./http/routes/collections";
+import { collectionsRoutes } from "./http/routes/collections";
 import { companionRoutes } from "./http/routes/companion";
 import { downloadRoutes } from "./http/routes/downloads";
 import { meRoutes } from "./http/routes/me";
@@ -17,7 +17,12 @@ import { projectsRoutes } from "./http/routes/projects";
 import { recommendationRoutes } from "./http/routes/recommendations";
 import { siteRoutes } from "./http/routes/site";
 import { isStorageQuotaError, quotaErrorDetail, quotaExceededMessage } from "./quota-error";
-import { hasMaintenanceBearer } from "./write-barrier";
+import {
+  hasMaintenanceBearer,
+  hasUncertainWrite,
+  isMaintenanceUnavailableError,
+  maintenanceUnavailable,
+} from "./write-barrier";
 
 export const app = new Hono<{ Bindings: Env }>();
 
@@ -46,7 +51,9 @@ app.use("*", async (c, next) => {
     console.log(JSON.stringify(entry));
   }
   c.res.headers.set("x-content-type-options", "nosniff");
-  c.res.headers.set("referrer-policy", "same-origin");
+  if (!c.res.headers.has("referrer-policy")) {
+    c.res.headers.set("referrer-policy", "same-origin");
+  }
   if (!c.res.headers.has("cache-control")) {
     c.res.headers.set("cache-control", "private, no-store");
   }
@@ -102,10 +109,18 @@ app.route("/api/v1/admin", adminRoutes);
 app.route("/api/v1/projects", authoringRoutes);
 app.route("/api/v1/projects", projectsRoutes);
 app.route("/api/v1/collections", collectionsRoutes);
-app.route("/api/v1/authors", authorsRoutes);
 app.route("/api/v1/downloads", downloadRoutes);
 // Only path aliases matched by Hono but not the public gateway reach these GETs.
-for (const path of ["/api/v1/home", "/api/v1/recommendations", "/api/v1/site"]) {
+for (const path of [
+  "/api/v1/home",
+  "/api/v1/recommendations",
+  "/api/v1/site",
+  "/api/v1/projects",
+  "/api/v1/projects/:id",
+  "/api/v1/projects/:id/entries",
+  "/api/v1/collections/:id",
+  "/api/v1/authors/:id",
+]) {
   app.get(path, (c) => jsonError(c, "bad_request", "Invalid public query"));
 }
 app.route("/api/v1/recommendations", recommendationRoutes);
@@ -148,15 +163,19 @@ app.get("/api/v1/health", async (c) => {
 // text 404 that non-API routes use.
 app.all("/api/*", (c) => jsonError(c, "not_found", "Not found"));
 
-app.get("/", (c) => c.text("workshop", 200, { "content-type": "text/plain; charset=utf-8" }));
-
 app.notFound((c) => c.text("Not found", 404));
 
 app.onError((error, c) => {
-  // Hono may replace the error response (e.g. HEAD); track the request instead.
-  uncertainRequests.add(c.req.raw);
+  if (isMaintenanceUnavailableError(error)) {
+    return maintenanceUnavailable();
+  }
+  const quota = isStorageQuotaError(error);
+  if (!quota || hasUncertainWrite(error)) {
+    // Hono may replace the error response (e.g. HEAD); track the request instead.
+    uncertainRequests.add(c.req.raw);
+  }
   console.error("Unhandled worker error", error);
-  if (isStorageQuotaError(error)) {
+  if (quota) {
     return jsonError(c, "quota_exceeded", quotaExceededMessage(), quotaErrorDetail(error));
   }
   return jsonError(c, "internal", "Internal server error");

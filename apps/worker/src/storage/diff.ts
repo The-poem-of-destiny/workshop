@@ -1,7 +1,7 @@
 import { extractProjectEntries, type ProjectEntryKind } from "@workshop/domain";
 import { readFrozenReviewReport } from "./review-reports";
 
-export interface EntryChange {
+interface EntryChange {
   entryKey: string;
   name: string;
   before: Record<string, unknown> | null;
@@ -9,7 +9,7 @@ export interface EntryChange {
   changedFields?: string[];
 }
 
-export interface KindDiff {
+interface KindDiff {
   added: EntryChange[];
   modified: EntryChange[];
   deleted: EntryChange[];
@@ -17,7 +17,7 @@ export interface KindDiff {
   entries: Array<{ entryKey: string; name: string; value: Record<string, unknown> }>;
 }
 
-export interface FindingRef {
+interface FindingRef {
   ruleId: string;
   severity: string;
   message: string;
@@ -25,14 +25,14 @@ export interface FindingRef {
   line: number | null;
 }
 
-export interface FindingDiff {
+interface FindingDiff {
   accepted: FindingRef[];
   changed: FindingRef[];
   added: FindingRef[];
   removed: FindingRef[];
 }
 
-export interface SubmissionDiff {
+interface SubmissionDiff {
   versionId: string;
   previousVersionId: string | null;
   versionNo: number;

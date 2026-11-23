@@ -94,14 +94,6 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
     return distribution.distributionCommunityInviteUrl(this.guardedEnv);
   }
 
-  collectionPublicGet(...args: OperationArgs<Parameters<typeof collections.collectionPublicGet>>) {
-    return collections.collectionPublicGet(this.guardedEnv, ...args);
-  }
-
-  authorPublicProfile(...args: OperationArgs<Parameters<typeof collections.authorPublicProfile>>) {
-    return collections.authorPublicProfile(this.guardedEnv, ...args);
-  }
-
   authorListCollections(...args: OperationArgs<Parameters<typeof collections.authorListCollections>>) {
     return collections.authorListCollections(this.guardedEnv, ...args);
   }
@@ -157,6 +149,10 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
 
   identityFlowByState(...args: OperationArgs<Parameters<typeof identity.identityFlowByState>>) {
     return identity.identityFlowByState(this.guardedEnv, ...args);
+  }
+
+  identityFlowForLaunch(...args: OperationArgs<Parameters<typeof identity.identityFlowForLaunch>>) {
+    return identity.identityFlowForLaunch(this.guardedEnv, ...args);
   }
 
   identityFlowError(...args: OperationArgs<Parameters<typeof identity.identityFlowError>>) {
@@ -237,18 +233,6 @@ export class DataService extends WorkerEntrypoint<DataEnv> {
   async authorAdminDeleteGallery(...args: OperationArgs<Parameters<typeof authoring.authorDeleteGallery>>) {
     const result = await authoring.authorDeleteGallery(this.guardedEnv, ...args);
     return result;
-  }
-
-  projectList(...args: OperationArgs<Parameters<typeof projects.projectList>>) {
-    return projects.projectList(this.guardedEnv, ...args);
-  }
-
-  projectDetail(...args: OperationArgs<Parameters<typeof projects.projectDetail>>) {
-    return projects.projectDetail(this.guardedEnv, ...args);
-  }
-
-  projectEntries(...args: OperationArgs<Parameters<typeof projects.projectEntries>>) {
-    return projects.projectEntries(this.guardedEnv, ...args);
   }
 
   projectPreviewTarget(...args: OperationArgs<Parameters<typeof projects.projectPreviewTarget>>) {

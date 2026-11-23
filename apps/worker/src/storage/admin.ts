@@ -340,6 +340,7 @@ export async function reviewAdminSubmission(
   submissionId: string,
   reviewerId: string,
   request: AdminReviewRequest,
+  beforeApprove?: (projectId: string) => Promise<boolean>,
 ) {
   const target = await db
     .prepare(`
@@ -372,6 +373,9 @@ export async function reviewAdminSubmission(
     return { kind: "invalid_reason" as const };
   }
   if (request.decision === "approve" && !target.manifest_hash) return { kind: "conflict" as const };
+  if (request.decision === "approve" && beforeApprove && !(await beforeApprove(target.project_id))) {
+    return { kind: "conflict" as const };
+  }
 
   const now = new Date().toISOString();
   const nextStatus = request.decision === "approve" ? "approved" : "rejected";
@@ -440,12 +444,12 @@ export async function reviewAdminSubmission(
     if ((results[statusIndex]?.meta.changes ?? 0) === 0) return { kind: "conflict" as const };
   } catch (error) {
     // UNIQUE(reviews.submission_id) and the conditional transition make races a 409.
-    if (error instanceof Error && /unique|constraint/i.test(error.message)) {
+    if (error instanceof Error && /unique|constraint|public_cover_withdrawal_pending/i.test(error.message)) {
       return { kind: "conflict" as const };
     }
     throw error;
   }
-  return { kind: "ok" as const, id: reviewId, status: nextStatus };
+  return { kind: "ok" as const, id: reviewId, status: nextStatus, projectId: target.project_id };
 }
 
 export async function requeueAdminSubmission(db: D1Database, submissionId: string) {

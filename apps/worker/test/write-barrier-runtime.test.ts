@@ -385,4 +385,133 @@ describe("maintenance runtime boundaries", () => {
     await bindings.R2.delete(key);
     await bindings.DB.exec(`DROP TABLE ${table}`);
   });
+
+  it("serves API CORS preflights without consulting WriteBarrier even while closed or broken", async () => {
+    const bindings = isolatedEnv();
+    const brokenBarrierEnv = {
+      ...bindings,
+      ALLOWED_ORIGINS: "https://example.test",
+      WRITE_BARRIER: {
+        idFromName() {
+          throw new Error("CORS preflight must not hit WriteBarrier");
+        },
+      } as unknown as Env["WRITE_BARRIER"],
+    };
+    const { ctx, pending } = context();
+    const response = await fetchWorker("/api/v1/projects", brokenBarrierEnv, ctx, {
+      method: "OPTIONS",
+      headers: { origin: "https://example.test" },
+    });
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe("https://example.test");
+    await Promise.all(pending);
+  });
+
+  it("releases outer tickets cleanly on mid-flight barrier close, read-only quota errors, and cleaned staging failures", async () => {
+    const bindings = isolatedEnv();
+    const table = `barrier_mid_${crypto.randomUUID().replaceAll("-", "")}`;
+    await bindings.DB.exec(`CREATE TABLE ${table} (value TEXT)`);
+    const guarded = guardedStorageEnv(bindings);
+
+    // 1. Read-only D1 quota error on GET /api/v1/me must not poison WriteBarrier drain
+    const readQuotaCtx = context({
+      DataService: {
+        async identityMe() {
+          throw new Error("D1_ERROR: Your account has exceeded D1's free tier daily row read limit.");
+        },
+      },
+    });
+    const quotaRes = await fetchWorker("/api/v1/me", bindings, readQuotaCtx.ctx, {
+      headers: { authorization: "Bearer test-token" },
+    });
+    expect(quotaRes.status).toBe(503);
+    await Promise.all(readQuotaCtx.pending);
+    expect(await (await control(bindings, "close")).json()).toMatchObject({
+      closed: true,
+      drained: true,
+      outstanding: [],
+    });
+    await control(bindings, "open");
+
+    // 2. Mid-flight barrier close before inner guarded write returns 503 maintenance and drains cleanly
+    const midCloseCtx = context({
+      DataService: {
+        async identityRevoke() {
+          await control(bindings, "close");
+          await guarded.DB.prepare(`DELETE FROM ${table}`).run();
+          return false;
+        },
+      },
+    });
+    const midCloseRes = await fetchWorker("/api/v1/sessions/current", bindings, midCloseCtx.ctx, {
+      method: "DELETE",
+      headers: { authorization: "Bearer test-token" },
+    });
+    expect(midCloseRes.status).toBe(503);
+    await expect(midCloseRes.json()).resolves.toMatchObject({ error: { code: "maintenance" } });
+    await Promise.all(midCloseCtx.pending);
+    expect(await (await control(bindings)).json()).toMatchObject({ closed: true, drained: true, outstanding: [] });
+    await control(bindings, "open");
+
+    // 3. Mid-flight barrier close inside ContentService and scheduled releases outer tickets cleanly
+    const contentState = {
+      exports: {
+        DataService: {
+          async contentGetTarget() {
+            await control(bindings, "close");
+            await guarded.DB.prepare(`DELETE FROM ${table}`).run();
+            return null;
+          },
+        },
+      },
+    } as unknown as DurableObjectState;
+    const contentService = new ContentService(contentState, bindings);
+    const contentRes = await contentService.fetch(
+      new Request("https://content-service/run", {
+        method: "POST",
+        body: JSON.stringify({ submissionId: "s-mid-close" }),
+      }),
+    );
+    expect(contentRes.status).toBe(503);
+    expect(await (await control(bindings)).json()).toMatchObject({ closed: true, drained: true, outstanding: [] });
+    await control(bindings, "open");
+
+    const schedCtx = context({
+      DataService: {
+        async findDueSubmissions() {
+          await control(bindings, "close");
+          await guarded.DB.prepare(`DELETE FROM ${table}`).run();
+          return [];
+        },
+      },
+    });
+    const schedEvent = {
+      scheduledTime: Date.UTC(2026, 0, 1, 1, 0),
+      cron: "0 * * * *",
+      noRetry() {},
+    } as ScheduledController;
+    worker.scheduled(schedEvent, bindings, schedCtx.ctx);
+    await Promise.all(schedCtx.pending);
+    expect(await (await control(bindings)).json()).toMatchObject({ closed: true, drained: true, outstanding: [] });
+    await control(bindings, "open");
+
+    // 4. Aborted/oversized stageStream cleans up R2 key and leaves zero leaked WriteBarrier tickets
+    const { stageStream } = await import("../src/data/streaming-staging");
+    const brokenStream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(128));
+        throw new Error("client disconnected mid-upload");
+      },
+    });
+    await expect(stageStream(guarded.R2, brokenStream, 1024, 1024)).rejects.toThrow("client disconnected mid-upload");
+    const leftover = await bindings.R2.list({ prefix: "tmp/uploads/" });
+    expect(leftover.objects).toHaveLength(0);
+    expect(await (await control(bindings, "close")).json()).toMatchObject({
+      closed: true,
+      drained: true,
+      outstanding: [],
+    });
+    await control(bindings, "open");
+    await bindings.DB.exec(`DROP TABLE ${table}`);
+  });
 });

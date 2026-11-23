@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { dataClient } from "../../data-client.js";
 import type { Env } from "../../env.js";
 import { jsonError, versionConflict } from "../errors.js";
 import { ifMatchVersion } from "../if-match.js";
@@ -8,7 +9,7 @@ export function registerAuthoringGalleryRoutes(authoringRoutes: Hono<{ Bindings:
   authoringRoutes.get("/:id/gallery", async (c) => {
     const auth = await sessionOrError(c);
     if (!auth.session) return auth.response;
-    const response = await c.executionCtx.exports.DataService.authorAdminGetGallery(
+    const response = await dataClient(c.executionCtx).authorAdminGetGallery(
       c.req.header("authorization"),
       c.req.param("id"),
     );
@@ -19,13 +20,13 @@ export function registerAuthoringGalleryRoutes(authoringRoutes: Hono<{ Bindings:
     return c.json(gallery);
   });
 
-  authoringRoutes.put("/:id/gallery/:slot", (c) => c.executionCtx.exports.DataService.fetch(c.req.raw));
+  authoringRoutes.put("/:id/gallery/:slot", (c) => dataClient(c.executionCtx).fetch(c.req.raw));
 
   authoringRoutes.delete("/:id/gallery/:slot", async (c) => {
     const auth = await sessionOrError(c);
     if (!auth.session) return auth.response;
     const expectedVersion = ifMatchVersion(c.req.header("if-match"));
-    const response = await c.executionCtx.exports.DataService.authorAdminDeleteGallery(
+    const response = await dataClient(c.executionCtx).authorAdminDeleteGallery(
       c.req.header("authorization"),
       c.req.param("id"),
       Number(c.req.param("slot")),

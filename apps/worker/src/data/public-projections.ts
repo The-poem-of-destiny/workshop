@@ -1,6 +1,6 @@
 import { homeResponseSchema } from "@workshop/contracts";
 import type { PublicRead } from "../cache/public-cache";
-import { isStorageQuotaError, quotaErrorDetail, quotaExceededMessage } from "../quota-error";
+import { isStorageQuotaError, quotaExceededMessage } from "../quota-error";
 import { getPublicAuthorProfile, getPublicCollection } from "../storage/collections";
 import { getHome } from "../storage/home";
 import { getPublishedProjectsByIds } from "../storage/projects";
@@ -38,16 +38,14 @@ export async function publicProjection(operation: PublicRead["operation"], env: 
       case "home": {
         const home = homeResponseSchema.parse(
           await getHome(env.DB, env, (reason) =>
-            isStorageQuotaError(reason)
-              ? { code: "quota_exceeded", message: quotaExceededMessage(), details: quotaErrorDetail(reason) }
-              : null,
+            isStorageQuotaError(reason) ? { code: "quota_exceeded", message: quotaExceededMessage() } : null,
           ),
         );
         const segments = [home.site, home.discovery, home.projects];
         if (segments.every((segment) => !segment.ok)) {
           const quotaSeg = segments.find((segment) => !segment.ok && segment.error.code === "quota_exceeded");
           if (quotaSeg && !quotaSeg.ok) {
-            return error(503, "quota_exceeded", quotaExceededMessage(), quotaSeg.error.details);
+            return error(503, "quota_exceeded", quotaExceededMessage());
           }
           return error(500, "internal", "Home unavailable");
         }
@@ -90,7 +88,7 @@ export async function publicProjection(operation: PublicRead["operation"], env: 
     }
   } catch (cause) {
     if (isStorageQuotaError(cause)) {
-      return error(503, "quota_exceeded", quotaExceededMessage(), quotaErrorDetail(cause));
+      return error(503, "quota_exceeded", quotaExceededMessage());
     }
     throw cause;
   }

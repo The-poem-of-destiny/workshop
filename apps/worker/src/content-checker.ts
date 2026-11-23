@@ -12,6 +12,17 @@ export type RouteGate = "pass" | "warn" | "block";
  */
 export function routeGate(report: CheckerReport): RouteGate {
   if (report.gate === "reject") return "block";
+  if (
+    report.findings.some(
+      (f) =>
+        /^M[1-4]$/.test(f.ruleId) ||
+        f.ruleId === "FILE" ||
+        f.ruleId === "CHECKER-LIMIT" ||
+        f.ruleId === "CHECKER-INTERNAL",
+    )
+  ) {
+    return "block";
+  }
   if (report.certification === "fail" || report.certification === "review") return "warn";
   if (report.audit === "yellow") return "warn";
   return "pass";

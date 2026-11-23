@@ -16,19 +16,37 @@ export async function recordProjectChange(
 ) {
   const current = await db
     .prepare(`SELECT v.entry_index,v.created_at FROM project_versions v JOIN projects p ON p.id=v.project_id
-    WHERE p.id=? AND p.author_id=? AND p.working_version_id=v.id AND v.id=? AND v.manifest_hash=?
-    AND EXISTS(SELECT 1 FROM project_versions old WHERE old.project_id=p.id AND old.id=? AND old.manifest_hash=?)
-    AND NOT EXISTS(SELECT 1 FROM project_change_signals s WHERE s.project_id=p.id AND julianday(s.reported_at)>julianday('now','-1 day'))`)
+    WHERE p.id=? AND p.author_id=? AND p.deleted_at IS NULL
+      AND (p.working_version_id=v.id OR p.published_version_id=v.id)
+      AND v.id=? AND v.manifest_hash=?
+      AND EXISTS(
+        SELECT 1 FROM submissions sub
+        WHERE sub.id=(
+          SELECT s2.id FROM submissions s2
+          WHERE s2.project_id=p.id AND s2.version_id=v.id
+          ORDER BY s2.submitted_at DESC, s2.id DESC LIMIT 1
+        )
+        AND sub.status IN ('pending','checking','approved')
+        AND sub.base_published_version_id=?
+      )
+      AND EXISTS(SELECT 1 FROM project_versions old WHERE old.project_id=p.id AND old.id=? AND old.manifest_hash=?)
+      AND NOT EXISTS(SELECT 1 FROM project_change_signals s WHERE s.project_id=p.id AND julianday(s.reported_at)>julianday('now','-1 day'))`)
     .bind(
       input.projectId,
       userId,
       input.projectVersionId,
       input.currentManifestHash,
       input.previousVersionId,
+      input.previousVersionId,
       input.previousManifestHash,
     )
     .first<{ entry_index: string | null; created_at: string }>();
-  if (!current || input.previousManifestHash === input.currentManifestHash) return { kind: "not_found" as const };
+  if (
+    !current ||
+    input.previousVersionId === input.projectVersionId ||
+    input.previousManifestHash === input.currentManifestHash
+  )
+    return { kind: "not_found" as const };
   // The server only checks bounded index evidence; client magnitudes are never authoritative.
   const rows = await db
     .prepare("SELECT id,entry_index FROM project_versions WHERE project_id=? AND id IN (?,?)")
@@ -45,8 +63,22 @@ export async function recordProjectChange(
     return { kind: "not_found" as const };
   const result = await db
     .prepare(`INSERT INTO project_change_signals(project_id,project_version_id,previous_version_id,previous_manifest_hash,current_manifest_hash,changed_entries,total_entries,reported_at)
-    SELECT ?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM projects p JOIN project_versions v ON v.id=p.working_version_id
-      WHERE p.id=? AND p.author_id=? AND v.id=? AND v.manifest_hash=? AND p.deleted_at IS NULL)
+    SELECT ?,?,?,?,?,?,?,? WHERE EXISTS(
+      SELECT 1 FROM projects p JOIN project_versions v ON v.project_id=p.id
+      WHERE p.id=? AND p.author_id=? AND p.deleted_at IS NULL
+        AND (p.working_version_id=v.id OR p.published_version_id=v.id)
+        AND v.id=? AND v.manifest_hash=?
+        AND EXISTS(
+          SELECT 1 FROM submissions sub
+          WHERE sub.id=(
+            SELECT s2.id FROM submissions s2
+            WHERE s2.project_id=p.id AND s2.version_id=v.id
+            ORDER BY s2.submitted_at DESC, s2.id DESC LIMIT 1
+          )
+          AND sub.status IN ('pending','checking','approved')
+          AND sub.base_published_version_id=?
+        )
+    )
     AND NOT EXISTS(SELECT 1 FROM project_change_signals s WHERE s.project_id=? AND julianday(s.reported_at)>julianday('now','-1 day'))
     ON CONFLICT(project_version_id) DO NOTHING`)
     .bind(
@@ -62,6 +94,7 @@ export async function recordProjectChange(
       userId,
       input.projectVersionId,
       input.currentManifestHash,
+      input.previousVersionId,
       input.projectId,
     )
     .run();

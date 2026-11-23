@@ -43,9 +43,10 @@ function removeSerializedEntry(
     if (Array.isArray(container.data.entries)) {
       const next = container.data.entries.filter((value, index) => getProjectEntryKey(kind, value, index) !== entryKey);
       if (next.length === container.data.entries.length) return null;
+      const updated = { ...container.data, entries: next };
       return {
-        text: JSON.stringify({ ...container.data, entries: next }),
-        entryCount: extractProjectEntries(next, kind).length,
+        text: JSON.stringify(updated),
+        entryCount: extractProjectEntries(updated, kind).length,
       };
     }
     const next = { ...container.data.entries };
@@ -56,9 +57,10 @@ function removeSerializedEntry(
       removed = true;
     }
     if (!removed) return null;
+    const updated = { ...container.data, entries: next };
     return {
-      text: JSON.stringify({ ...container.data, entries: next }),
-      entryCount: extractProjectEntries(next, kind).length,
+      text: JSON.stringify(updated),
+      entryCount: extractProjectEntries(updated, kind).length,
     };
   }
 

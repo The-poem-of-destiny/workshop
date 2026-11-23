@@ -1,5 +1,55 @@
-import { withWriteBarrier } from "../write-barrier";
+import { MaintenanceUnavailableError, markWriteUncertain, withWriteBarrier } from "../write-barrier";
 import type { DataEnv } from "./env";
+
+const guardedBuckets = new WeakMap<R2Bucket, { env: DataEnv; raw: R2Bucket }>();
+
+export async function runGuardedStagedUpload<T>(
+  bucket: R2Bucket,
+  key: string,
+  uploadAndPipe: (raw: R2Bucket) => {
+    pipe: Promise<void>;
+    upload: Promise<R2Object | null>;
+    abort: (reason?: unknown) => void;
+    result: () => T;
+  },
+): Promise<T> {
+  const entry = guardedBuckets.get(bucket);
+  if (!entry) {
+    const task = uploadAndPipe(bucket);
+    try {
+      const [, stored] = await Promise.all([task.pipe, task.upload]);
+      if (!stored) throw new Error("Staging upload was not stored");
+      return task.result();
+    } catch (error) {
+      task.abort(error);
+      await Promise.allSettled([task.pipe, task.upload]);
+      await bucket.delete(key);
+      throw error;
+    }
+  }
+  const { env, raw } = entry;
+  const barrierResult = await withWriteBarrier(env, "r2.stage", async () => {
+    const task = uploadAndPipe(raw);
+    try {
+      const [, stored] = await Promise.all([task.pipe, task.upload]);
+      if (!stored) throw new Error("Staging upload was not stored");
+      return { ok: true as const, value: task.result() };
+    } catch (error) {
+      task.abort(error);
+      await Promise.allSettled([task.pipe, task.upload]);
+      try {
+        await raw.delete(key);
+      } catch (cleanupError) {
+        markWriteUncertain(cleanupError);
+        throw cleanupError;
+      }
+      return { ok: false as const, error };
+    }
+  });
+  if (!barrierResult.admitted) throw new MaintenanceUnavailableError();
+  if (!barrierResult.value.ok) throw barrierResult.value.error;
+  return barrierResult.value.value;
+}
 
 export function guardedStorageEnv(env: DataEnv): DataEnv {
   const statements = new WeakMap<object, { target: object; readOnly: boolean }>();
@@ -9,8 +59,15 @@ export function guardedStorageEnv(env: DataEnv): DataEnv {
   }
 
   async function guarded<T>(kind: string, operation: () => Promise<T>): Promise<T> {
-    const result = await withWriteBarrier(env, kind, operation);
-    if (!result.admitted) throw new Error("Maintenance barrier closed or unavailable");
+    const result = await withWriteBarrier(env, kind, async () => {
+      try {
+        return await operation();
+      } catch (error) {
+        markWriteUncertain(error);
+        throw error;
+      }
+    });
+    if (!result.admitted) throw new MaintenanceUnavailableError();
     return result.value;
   }
 
@@ -89,8 +146,8 @@ export function guardedStorageEnv(env: DataEnv): DataEnv {
     });
   }
 
-  const bucket = (target: R2Bucket) =>
-    new Proxy(target, {
+  const bucket = (target: R2Bucket) => {
+    const proxy = new Proxy(target, {
       get(object, property) {
         if (property === "put" || property === "delete") {
           return (...args: unknown[]) =>
@@ -113,6 +170,9 @@ export function guardedStorageEnv(env: DataEnv): DataEnv {
         return value;
       },
     });
+    guardedBuckets.set(proxy, { env, raw: target });
+    return proxy;
+  };
 
   return Object.defineProperties(Object.create(env), {
     DB: { value: database(env.DB), enumerable: true },

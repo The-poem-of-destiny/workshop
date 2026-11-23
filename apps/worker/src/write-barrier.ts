@@ -3,6 +3,38 @@ import type { Env } from "./env";
 
 const NAME = "application-writes";
 const PREFIX = "ticket:";
+const MAINTENANCE_UNAVAILABLE_MESSAGE = "Maintenance barrier closed or unavailable";
+
+const uncertainWriteErrors = new WeakSet<object>();
+
+export class MaintenanceUnavailableError extends Error {
+  constructor(message = MAINTENANCE_UNAVAILABLE_MESSAGE) {
+    super(message);
+    this.name = "MaintenanceUnavailableError";
+  }
+}
+
+export function isMaintenanceUnavailableError(error: unknown): boolean {
+  return (
+    error instanceof MaintenanceUnavailableError ||
+    (error instanceof Error &&
+      (error.name === "MaintenanceUnavailableError" || error.message.includes(MAINTENANCE_UNAVAILABLE_MESSAGE)))
+  );
+}
+
+export function markWriteUncertain(error: unknown): void {
+  if (typeof error === "object" && error !== null) {
+    uncertainWriteErrors.add(error);
+  }
+}
+
+export function hasUncertainWrite(error: unknown): boolean {
+  if (typeof error === "object" && error !== null && uncertainWriteErrors.has(error)) {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /daily\s+row\s+write\s+limit/i.test(message);
+}
 
 type Ticket = { kind: string; startedAt: string };
 

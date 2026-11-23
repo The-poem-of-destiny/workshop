@@ -3,6 +3,7 @@ import { buildRecommendationBatch } from "./recommendation-batches";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
+const STALE_BUILD_MS = 10 * 60_000;
 const MAX_ATTEMPTS = 3;
 
 export async function runRecommendationSchedule(
@@ -32,7 +33,7 @@ export async function runRecommendationSchedule(
     await db
       .prepare(`UPDATE recommendation_batches SET status='failed',error='Interrupted batch build'
       WHERE kind='discovery' AND scheduled_at=? AND status='building' AND started_at IS NOT NULL AND started_at<=?`)
-      .bind(scheduledAt, new Date(Date.now() - HOUR).toISOString())
+      .bind(scheduledAt, new Date(Date.now() - STALE_BUILD_MS).toISOString())
       .run();
     const attempts = await db
       .prepare(`SELECT COUNT(*) AS count, MAX(CASE WHEN status='complete' THEN 1 ELSE 0 END) AS complete

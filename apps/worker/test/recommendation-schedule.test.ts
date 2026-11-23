@@ -58,19 +58,20 @@ describe("recommendation scheduling", () => {
     expect(rows.results.every((row) => row.count === 1)).toBe(true);
   });
 
-  it("expires only an attempt whose own lease has aged an hour", async () => {
+  it("expires only an attempt whose own lease has aged at least 10 minutes", async () => {
     await db
       .prepare(`INSERT INTO recommendation_batches(id,kind,status,scheduled_at,display_start_at,display_end_at,source_start_at,source_end_at,started_at)
       VALUES('active','discovery','building',?,?,?,?,?,?)`)
       .bind(start, start, end, start, end, new Date(timestamp).toISOString())
       .run();
-    await runRecommendationSchedule(db, timestamp, FIXED_TRAFFIC_PROFILE);
+    vi.setSystemTime(timestamp + 9 * 60_000);
+    await runRecommendationSchedule(db, timestamp + 9 * 60_000, FIXED_TRAFFIC_PROFILE);
     expect(
       (await db.prepare("SELECT status FROM recommendation_batches WHERE id='active'").first<{ status: string }>())
         ?.status,
     ).toBe("building");
-    vi.setSystemTime(timestamp + hour);
-    await runRecommendationSchedule(db, timestamp + hour, FIXED_TRAFFIC_PROFILE);
+    vi.setSystemTime(timestamp + 10 * 60_000);
+    await runRecommendationSchedule(db, timestamp + 10 * 60_000, FIXED_TRAFFIC_PROFILE);
     const rows = await db
       .prepare("SELECT status FROM recommendation_batches WHERE scheduled_at=? ORDER BY rowid")
       .bind(start)

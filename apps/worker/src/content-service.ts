@@ -10,7 +10,7 @@ import { analyzeFiles, REVIEW_CHECKER_VERSION, routeGate } from "./content-check
 import type { RunTarget } from "./data/contracts";
 import type { Env } from "./env";
 import { validateContentStream } from "./streaming-content";
-import { maintenanceUnavailable, withWriteBarrier } from "./write-barrier";
+import { isMaintenanceUnavailableError, maintenanceUnavailable, withWriteBarrier } from "./write-barrier";
 
 const MAX_ATTEMPTS = 3;
 
@@ -94,7 +94,14 @@ export class ContentService implements DurableObject {
     }
     if (!submissionId) return Response.json({ error: "bad_request" }, { status: 400 });
     try {
-      const result = await withWriteBarrier(this.env, "content", () => this.runSubmission(submissionId));
+      const result = await withWriteBarrier(this.env, "content", async () => {
+        try {
+          return await this.runSubmission(submissionId);
+        } catch (error) {
+          if (isMaintenanceUnavailableError(error)) return maintenanceUnavailable();
+          throw error;
+        }
+      });
       return result.admitted ? result.value : maintenanceUnavailable();
     } catch (error) {
       console.error("Maintenance barrier content work failed", error);
@@ -112,12 +119,12 @@ export class ContentService implements DurableObject {
     if (target.check_status === "running" && target.lease_until && Date.parse(target.lease_until) > Date.now()) {
       return Response.json({ skipped: "leased" });
     }
+    if (target.check_status === "done" || target.check_status === "needs_human") {
+      return Response.json({ skipped: target.check_status });
+    }
     if (target.check_attempts >= MAX_ATTEMPTS) {
       await data.contentNeedsHuman(submissionId, "检查超时次数已达上限，转人工审核。", target.lease_token);
       return Response.json({ skipped: "attempts" });
-    }
-    if (target.check_status === "done" || target.check_status === "needs_human") {
-      return Response.json({ skipped: target.check_status });
     }
     if (target.checker_version && target.checker_version !== REVIEW_CHECKER_VERSION) {
       await data.contentNeedsHuman(submissionId, "固定检查器版本不可用，转人工审核。", target.lease_token);
@@ -130,6 +137,7 @@ export class ContentService implements DurableObject {
     try {
       return await this.checkSubmission(target, submissionId, leaseToken);
     } catch (error) {
+      if (isMaintenanceUnavailableError(error)) throw error;
       const message = error instanceof Error ? error.message : String(error);
       const attempts = target.check_attempts + 1;
       if (attempts >= MAX_ATTEMPTS) {
@@ -207,7 +215,7 @@ export class ContentService implements DurableObject {
     }
 
     if (!(await data.contentAutoPublish(target, leaseToken))) {
-      throw new Error("自动发布前置条件已变化");
+      return Response.json({ skipped: "superseded" });
     }
     return Response.json({ ok: true, routeGate: route, revision: REVIEW_CHECKER_VERSION, published: true });
   }

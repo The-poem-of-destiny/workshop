@@ -338,4 +338,97 @@ describe("OAuth flows", () => {
     });
     expect(denied.status).toBe(403);
   });
+
+  it("supports cross-site popup launch/bind handshake, multi-cookie hardening, and no-opener callback safety", async () => {
+    const verifier = "v".repeat(64);
+    const created = await request("/api/v1/auth/flows", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: ORIGIN },
+      body: JSON.stringify({ mode: "embed", codeChallenge: await s256(verifier) }),
+    });
+    expect(created.status).toBe(201);
+    expect(created.headers.get("cache-control")).toBe("no-store");
+    expect(created.headers.get("access-control-expose-headers") ?? "").not.toContain("x-oauth-binding");
+    const binding = created.headers.get("x-oauth-binding");
+    expect(binding).toBeTruthy();
+    const setCookies = created.headers.get("set-cookie") ?? "";
+    expect(setCookies).toContain("__Host-cw_oauth_binding=");
+    expect(setCookies).toContain("cw_oauth_binding_p=");
+    const flow = (await created.json()) as { id: string; state: string; url: string };
+
+    // Launch page serves strict CSP + no-store + no-referrer + opener handshake script
+    const launch = await request(`/api/v1/auth/flows/${encodeURIComponent(flow.id)}/launch`);
+    expect(launch.status).toBe(200);
+    expect(launch.headers.get("cache-control")).toBe("no-store");
+    expect(launch.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(launch.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+    expect(launch.headers.get("content-security-policy")).toContain("connect-src 'self'");
+    const launchHtml = await launch.text();
+    expect(launchHtml).toContain("cw:oauth-launch-ready");
+    expect(launchHtml).toContain("cw:oauth-launch-bind");
+    expect(launchHtml).toContain("未检测到原创意工坊页面，请返回创意工坊重新发起登录。");
+
+    // Bind rejects disallowed origin and wrong binding secret
+    const badOriginBind = await request(`/api/v1/auth/flows/${flow.id}/bind`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "https://evil.example" },
+      body: JSON.stringify({ binding }),
+    });
+    expect(badOriginBind.status).toBe(403);
+
+    const wrongSecretBind = await request(`/api/v1/auth/flows/${flow.id}/bind`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: ORIGIN },
+      body: JSON.stringify({ binding: "wrong-binding-token" }),
+    });
+    expect(wrongSecretBind.status).toBe(403);
+
+    // Valid bind sets first-party cookies on popup and reconstructs the exact authorize URL & state
+    const bound = await request(`/api/v1/auth/flows/${flow.id}/bind`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: ORIGIN },
+      body: JSON.stringify({ binding }),
+    });
+    expect(bound.status).toBe(200);
+    expect(bound.headers.get("set-cookie") ?? "").toContain(`__Host-cw_oauth_binding=${binding}`);
+    const boundBody = (await bound.json()) as { url: string };
+    expect(boundBody.url).toBe(flow.url);
+
+    // Multi-cookie lookup resists path-ordered tossed stale cookies ahead of __Host- cookie
+    const tossedCookies = `cw_oauth_binding=stale-tossed-1; cw_oauth_binding=stale-tossed-2; __Host-cw_oauth_binding=${binding}`;
+    const done = await request(`/api/v1/auth/callback?state=${encodeURIComponent(flow.state)}&code=code`, {
+      headers: { cookie: tossedCookies },
+    });
+    expect(done.status).toBe(200);
+    const cbHtml = await done.text();
+    expect(cbHtml).toContain(`"targetOrigin":"${ORIGIN}"`);
+    expect(cbHtml).not.toContain('|| "*"');
+    const redeemCode = /"code":"([^"]+)"/.exec(cbHtml)?.[1];
+    expect(redeemCode).toBeTruthy();
+
+    const status = await request(`/api/v1/auth/flows/${flow.id}`, { headers: { cookie: tossedCookies } });
+    expect(status.status).toBe(200);
+    const redeemed = await request(`/api/v1/auth/flows/${flow.id}/redeem`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: tossedCookies },
+      body: JSON.stringify({ code: redeemCode, verifier }),
+    });
+    expect(redeemed.status).toBe(200);
+
+    // Redeemed flow can no longer be bound
+    const rebind = await request(`/api/v1/auth/flows/${flow.id}/bind`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: ORIGIN },
+      body: JSON.stringify({ binding }),
+    });
+    expect(rebind.status).toBe(409);
+
+    // Browser mode callback checks window.opener before claiming login result was sent
+    const browserCreated = await createFlow({ mode: "browser" });
+    const browserFlow = (await browserCreated.json()) as { state: string };
+    const browserDone = await callback(browserFlow.state);
+    const browserHtml = await browserDone.text();
+    expect(browserHtml).toContain("const requiresOpener = true;");
+    expect(browserHtml).toContain("未检测到原创意工坊页面，请返回创意工坊重新发起登录。");
+  });
 });

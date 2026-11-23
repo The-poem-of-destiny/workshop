@@ -187,15 +187,31 @@ export async function patchAuthorCollection(
       .bind(title, description, now, existing.id),
   ];
   if (input.projectIds !== undefined) {
-    statements.push(db.prepare("DELETE FROM collection_projects WHERE collection_id = ?").bind(existing.id));
+    statements.push(
+      db
+        .prepare(
+          "DELETE FROM collection_projects WHERE collection_id = ? AND EXISTS (SELECT 1 FROM collections WHERE id = ? AND deleted_at IS NULL)",
+        )
+        .bind(existing.id, existing.id),
+    );
     for (let index = 0; index < input.projectIds.length; index++) {
       statements.push(
         db
           .prepare(`
             INSERT INTO collection_projects (collection_id, project_id, position, added_at)
-            VALUES (?, ?, ?, ?)
+            SELECT ?, ?, ?, ?
+            WHERE EXISTS (SELECT 1 FROM collections WHERE id = ? AND deleted_at IS NULL)
+              AND EXISTS (SELECT 1 FROM projects WHERE id = ? AND author_id = ? AND deleted_at IS NULL)
           `)
-          .bind(existing.id, input.projectIds[index]!, index, now),
+          .bind(
+            existing.id,
+            input.projectIds[index]!,
+            index,
+            now,
+            existing.id,
+            input.projectIds[index]!,
+            existing.author_id,
+          ),
       );
     }
   }
@@ -203,7 +219,8 @@ export async function patchAuthorCollection(
     db
       .prepare(`
         INSERT INTO audit_events (id, action, target_type, target_id, actor_id, detail, created_at)
-        VALUES (?, 'collection.update', 'collection', ?, ?, ?, ?)
+        SELECT ?, 'collection.update', 'collection', ?, ?, ?, ?
+        WHERE EXISTS (SELECT 1 FROM collections WHERE id = ? AND deleted_at IS NULL)
       `)
       .bind(
         crypto.randomUUID(),
@@ -211,9 +228,13 @@ export async function patchAuthorCollection(
         session.userId,
         serializeAuditDetail("collection.update", { fields: fields.length > 0 ? fields : ["touch"] }),
         now,
+        existing.id,
       ),
   );
-  await db.batch(statements);
+  const results = await db.batch(statements);
+  if ((results[0]?.meta.changes ?? 0) === 0) {
+    return { kind: "not_found" as const };
+  }
 
   const [updated] = await hydrateAuthorCollections(db, [{ ...existing, title, description, updated_at: now }]);
   return { kind: "ok" as const, data: updated! };
@@ -272,7 +293,9 @@ export async function setProjectCollections(
         WHEN (SELECT COUNT(*) FROM targets) <> (SELECT COUNT(*) FROM requested) THEN 'forbidden_collection'
         WHEN EXISTS (
           SELECT 1 FROM targets t WHERE (
-            SELECT COUNT(*) FROM collection_projects cp WHERE cp.collection_id = t.id AND cp.project_id <> ?1
+            SELECT COUNT(*) FROM collection_projects cp
+            JOIN projects p2 ON p2.id = cp.project_id
+            WHERE cp.collection_id = t.id AND cp.project_id <> ?1 AND p2.deleted_at IS NULL
           ) >= ?5
         ) THEN 'invalid'
         ELSE 'ok'

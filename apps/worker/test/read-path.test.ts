@@ -265,14 +265,14 @@ describe("public read path", () => {
       expect(homeBody.error.message).toContain("08:00");
       expect(homeBody.error.message).not.toContain("免费");
       expect(homeBody.error.message).not.toContain("D1_ERROR");
-      expect(homeBody.error.details).toContain("D1_ERROR");
+      expect(homeBody.error.details).toBeUndefined();
 
       const projects = await SELF.fetch("https://workshop.test/api/v1/projects?search=quota-miss");
       expect(projects.status).toBe(503);
       expect(projects.headers.get("cache-control")).toContain("no-store");
-      await expect(projects.json()).resolves.toMatchObject({
-        error: { code: "quota_exceeded" },
-      });
+      const projectsBody = (await projects.json()) as { error: { code: string; details?: string } };
+      expect(projectsBody.error.code).toBe("quota_exceeded");
+      expect(projectsBody.error.details).toBeUndefined();
 
       const me = await SELF.fetch("https://workshop.test/api/v1/me", {
         headers: { authorization: "Bearer probe-token" },
@@ -284,6 +284,12 @@ describe("public read path", () => {
     } finally {
       bindings.DB.prepare = originalPrepare;
     }
+
+    // Generic SQLITE_TOOBIG or SQL LIMIT syntax errors must not misclassify as quota_exceeded
+    const { isStorageQuotaError } = await import("../src/quota-error");
+    expect(isStorageQuotaError(new Error("D1_ERROR: string or blob too big: SQLITE_TOOBIG"))).toBe(false);
+    expect(isStorageQuotaError(new Error('D1_ERROR: near "LIMIT": syntax error'))).toBe(false);
+    expect(isStorageQuotaError(new Error("D1_ERROR: row size limit exceeded"))).toBe(false);
   });
 
   it("serves only published public preview text to authenticated readers", async () => {
@@ -595,6 +601,28 @@ describe("public read path", () => {
       );
       expect(response.status).toBe(200);
     }
+
+    // 2-char search uses adjacent phrase ("命定" must not match non-adjacent "命中注定") and "C#" must not wildcard "C"
+    await bindings.DB.batch([
+      bindings.DB.prepare(
+        "INSERT INTO projects (id, author_id, visibility, published_at, updated_at) VALUES ('p-nonadj', 'u1', 'public', ?, ?), ('p-clang', 'u1', 'public', ?, ?), ('p-csharp', 'u1', 'public', ?, ?)",
+      ).bind(now, now, now, now, now, now),
+      bindings.DB.prepare(
+        "INSERT INTO project_versions (id, project_id, version_no, title, project_type, created_by, created_at) VALUES ('r-nonadj', 'p-nonadj', 1, '命中注定', '角色', 'u1', ?), ('r-clang', 'p-clang', 1, 'C语言指南', '角色', 'u1', ?), ('r-csharp', 'p-csharp', 1, 'C#扩展包', '角色', 'u1', ?)",
+      ).bind(now, now, now),
+      bindings.DB.prepare("UPDATE projects SET published_version_id = 'r-nonadj' WHERE id = 'p-nonadj'"),
+      bindings.DB.prepare("UPDATE projects SET published_version_id = 'r-clang' WHERE id = 'p-clang'"),
+      bindings.DB.prepare("UPDATE projects SET published_version_id = 'r-csharp' WHERE id = 'p-csharp'"),
+    ]);
+    const adjRes = await SELF.fetch(
+      new URL(`/api/v1/projects?search=${encodeURIComponent("命定")}`, "https://workshop.test").toString(),
+    );
+    expect(((await adjRes.json()) as { items: Array<{ id: string }> }).items.map((i) => i.id)).toEqual(["p1"]);
+
+    const csharpRes = await SELF.fetch(
+      new URL(`/api/v1/projects?search=${encodeURIComponent("C#")}`, "https://workshop.test").toString(),
+    );
+    expect(((await csharpRes.json()) as { items: Array<{ id: string }> }).items.map((i) => i.id)).toEqual(["p-csharp"]);
     const plan = await bindings.DB.prepare(`
       EXPLAIN QUERY PLAN
       SELECT p.id FROM projects p
