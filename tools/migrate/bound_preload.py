@@ -33,7 +33,7 @@ def resolve_credentials():
     return account, token
 
 
-def realistic_batch_for_charge(batch, inventory_tables):
+def realistic_batch_for_charge(batch, inventory_tables, cost_history=None):
     phase = batch["phase"]
     rows = batch.get("data_rows", 0)
     if phase.startswith("data:"):
@@ -45,7 +45,9 @@ def realistic_batch_for_charge(batch, inventory_tables):
         est = max(1, rows * 2)
         return dict(batch, estimated_rows_written=est, realistic_rows_written=est)
     if phase == "search":
-        est = max(128, rows * 4)
+        if (cost_history or {}).get("search"):
+            return batch
+        est = max(256, rows * 8)
         return dict(batch, estimated_rows_written=est, realistic_rows_written=est)
     return batch
 
@@ -301,8 +303,11 @@ def run(args):
                 print(json.dumps(staging.public_status(journal.state), ensure_ascii=True))
                 return 0 if ready else 75
             batch = plan["batches"][index]
-            charge_batch = realistic_batch_for_charge(batch, inventory["tables"])
-            charge = staging.budget.charge_for(charge_batch, journal.state.get("cost_history", {}))
+            history = journal.state.get("cost_history", {})
+            charge_batch = realistic_batch_for_charge(batch, inventory["tables"], history)
+            charge = staging.budget.charge_for(charge_batch, history)
+            if batch["phase"] == "search":
+                charge = max(256, batch.get("data_rows", 0) * 4, charge)
             if not staging.allowance(journal, account, token, charge):
                 print(json.dumps(staging.public_status(journal.state), ensure_ascii=True))
                 return 75

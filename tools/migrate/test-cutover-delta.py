@@ -671,6 +671,99 @@ class BoundPreloadRecoveryTest(unittest.TestCase):
             finally:
                 reopened.close()
 
+    def test_advance_search_batches_preserve_sealed_estimate_after_calibration(self):
+        plan_dir = self.root / "search-plan"
+        (plan_dir / "batches").mkdir(parents=True, mode=0o700)
+        files = []
+        for idx in range(1, 4):
+            f = plan_dir / "batches" / f"00000{idx}.sql"
+            f.write_text(f"PRAGMA foreign_keys = ON;\nSELECT {idx};\n", encoding="utf-8")
+            f.chmod(0o600)
+            files.append(f)
+        (plan_dir / "inventory.json").write_text(json.dumps({"tables": {}}), encoding="utf-8")
+        base_plan = {
+            "plan_id": "e" * 64,
+            "candidate_name": "workshop-staging-migrate-eeeeeeeeeeee",
+            "schema": [],
+            "batches": [
+                {
+                    "id": "000001",
+                    "phase": "initialize:0001_initial.sql",
+                    "file": "batches/000001.sql",
+                    "sha256": staging.digest(files[0]),
+                    "data_rows": 0,
+                    "estimated_rows_written": 1,
+                },
+                {
+                    "id": "000002",
+                    "phase": "search",
+                    "file": "batches/000002.sql",
+                    "sha256": staging.digest(files[1]),
+                    "data_rows": 50,
+                    "estimated_rows_written": 18032,
+                },
+                {
+                    "id": "000003",
+                    "phase": "search",
+                    "file": "batches/000003.sql",
+                    "sha256": staging.digest(files[2]),
+                    "data_rows": 57,
+                    "estimated_rows_written": 19312,
+                },
+            ],
+        }
+        plan_path = plan_dir / "plan.json"
+        plan_path.write_text(json.dumps(base_plan), encoding="utf-8")
+        plan_path.chmod(0o600)
+        state_dir = self.root / "search-state"
+        bound_plan = dict(base_plan, candidate_name=self.db_name)
+        j = staging.open_journal(state_dir, plan_path, bound_plan, self.account, self.token)
+        j.record("bound-schema-verified", candidate_database_id=self.db_id, next_batch=1, phase="loading")
+        j.close()
+
+        env = {"CLOUDFLARE_ACCOUNT_ID": self.account, "PRODUCTION_IMPORT_TOKEN": self.token}
+        day = staging.budget.day_key()
+        exec_results = [
+            {"ok": True, "outcome": "complete", "statistics": {"rows_written": 118}},
+            {"ok": True, "outcome": "complete", "statistics": {"rows_written": 135}},
+        ]
+        with patch.dict(os.environ, env, clear=False), patch.object(bound_preload, "load_module", return_value=staging), patch.object(
+            staging, "checked_plan", return_value=base_plan
+        ), patch.object(
+            staging.budget, "analytics", return_value={"day": day, "rows_written": 0, "rows_read": 0}
+        ), patch.object(
+            staging.imp, "execute", side_effect=exec_results
+        ), patch.object(staging, "verify", side_effect=lambda jrn, *_a: (jrn.record("verified", phase="verified"), True)[1]):
+            stdout, stderr = io.StringIO(), io.StringIO()
+            argv = [
+                "offline.py",
+                "preload",
+                "advance",
+                "--plan",
+                str(plan_path),
+                "--state-dir",
+                str(state_dir),
+                "--database-id",
+                self.db_id,
+                "--database-name",
+                self.db_name,
+                "--max-batches",
+                "10",
+                "--confirm-target",
+            ]
+            with patch.object(sys, "argv", argv), redirect_stdout(stdout), redirect_stderr(stderr):
+                code = offline.main()
+            self.assertEqual(code, 0, stderr.getvalue())
+            status = json.loads(stdout.getvalue())
+            self.assertEqual(status["phase"], "verified")
+            self.assertEqual(status["next_batch"], 3)
+            reopened = staging.imp.Journal(state_dir, self.token)
+            try:
+                self.assertEqual(reopened.state["ledger"][day]["charged"], 118 + 135)
+                self.assertIsNone(reopened.state.get("failure"))
+            finally:
+                reopened.close()
+
 
 if __name__ == "__main__":
     unittest.main()
