@@ -16,6 +16,7 @@ import { meRoutes } from "./http/routes/me";
 import { projectsRoutes } from "./http/routes/projects";
 import { recommendationRoutes } from "./http/routes/recommendations";
 import { siteRoutes } from "./http/routes/site";
+import { turnstilePublicConfig } from "./http/turnstile";
 import { isStorageQuotaError, quotaErrorDetail, quotaExceededMessage } from "./quota-error";
 import {
   hasMaintenanceBearer,
@@ -72,7 +73,7 @@ app.use("/api/*", async (c, next) => {
       "access-control-allow-origin": allowedOrigin,
       "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
       "access-control-allow-headers":
-        "authorization,content-type,if-match,idempotency-key,x-client-version,x-client-channel",
+        "authorization,content-type,if-match,idempotency-key,x-client-version,x-client-channel,x-turnstile-token",
       "access-control-max-age": "600",
       vary: "Origin",
     });
@@ -145,6 +146,11 @@ app.get("/test-dist/CreativeWorkshop/index.js", (c) => {
 
 app.get("/api/v1/public-assets/*", (c) => dataClient(c.executionCtx).fetch(c.req.raw));
 app.get("/api/v1/assets/*", (c) => dataClient(c.executionCtx).fetch(c.req.raw));
+
+app.get("/api/v1/turnstile/config", (c) => {
+  c.header("cache-control", "public, max-age=300");
+  return c.json(turnstilePublicConfig(c.env));
+});
 
 app.get("/api/v1/health", async (c) => {
   const body = healthResponseSchema.parse({

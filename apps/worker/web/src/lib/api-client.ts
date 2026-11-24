@@ -145,6 +145,7 @@ function fallbackByStatusOrCode(status: number, code: string | null): string {
   if (code === "payload_too_large" || status === 413) return "上传文件超过大小限制。";
   if (code === "unsupported_media_type" || status === 415) return "文件格式不支持。";
   if (code === "unauthorized" || status === 401) return "登录已失效，请重新登录。";
+  if (code === "turnstile_required") return "请先完成人机验证后再继续。";
   if (code === "forbidden" || status === 403) return "当前账号无权执行此操作。";
   if (code === "not_found" || status === 404) return "请求的内容不存在或已下架。";
   if (code === "conflict" || status === 409) return "当前内容状态已变化，请刷新页面后重试。";

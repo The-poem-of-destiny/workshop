@@ -58,6 +58,7 @@ import {
   subscribeSessionChange,
 } from "./lib/api-client";
 import { newId } from "./lib/newId";
+import { acquireTurnstileToken } from "./lib/turnstile";
 
 export type {
   AdminAuditEvent,
@@ -110,6 +111,21 @@ export type AdminSubmissionListItem = AdminSubmissionListResponse["items"][numbe
 
 const encode = encodeURIComponent;
 
+async function withTurnstileHeader<T>(run: (turnstileHeaders: Record<string, string>) => Promise<T>): Promise<T> {
+  const token = await acquireTurnstileToken(false);
+  try {
+    return await run(token ? { "x-turnstile-token": token } : {});
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "turnstile_required") {
+      const retryToken = await acquireTurnstileToken(true);
+      if (retryToken) {
+        return await run({ "x-turnstile-token": retryToken });
+      }
+    }
+    throw error;
+  }
+}
+
 export const api = {
   hasSession: hasSessionToken,
   me: () => requestJson<MeResponse>("/api/v1/me"),
@@ -153,7 +169,11 @@ export const api = {
   },
   project: (id: string) => requestJson<ProjectDetail>(`/api/v1/projects/${encode(id)}`, {}, true),
   projectPreview: (id: string, kind: ProjectPreviewKind) =>
-    requestJson<ProjectPreview>(`/api/v1/projects/${encode(id)}/preview/${encode(kind)}`),
+    withTurnstileHeader((turnstileHeaders) =>
+      requestJson<ProjectPreview>(`/api/v1/projects/${encode(id)}/preview/${encode(kind)}`, {
+        headers: turnstileHeaders,
+      }),
+    ),
   projectGallery: (id: string) => requestJson<ProjectGalleryResponse>(`/api/v1/projects/${encode(id)}/gallery`),
   galleryImage: requestBlob,
   uploadGalleryImage: (id: string, slot: number, rowVersion: number, file: File) =>
@@ -352,10 +372,12 @@ export const api = {
     const headers: Record<string, string> = { "Idempotency-Key": newId() };
     if (version) headers["x-client-version"] = version;
     if (channel === "stable" || channel === "staging") headers["x-client-channel"] = channel;
-    return requestJson<AcquisitionPayload>(`/api/v1/projects/${encode(projectId)}/acquisitions`, {
-      method: "POST",
-      headers,
-    });
+    return withTurnstileHeader((turnstileHeaders) =>
+      requestJson<AcquisitionPayload>(`/api/v1/projects/${encode(projectId)}/acquisitions`, {
+        method: "POST",
+        headers: { ...headers, ...turnstileHeaders },
+      }),
+    );
   },
   downloadText: requestText,
   adminProjects: (search?: string) =>

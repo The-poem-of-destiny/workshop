@@ -12,6 +12,7 @@ export const errorCodeSchema = z.enum([
   "rate_limited",
   "quota_exceeded",
   "upgrade_required",
+  "turnstile_required",
   "internal",
 ]);
 
@@ -37,5 +38,6 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   rate_limited: 429,
   quota_exceeded: 503,
   upgrade_required: 426,
+  turnstile_required: 403,
   internal: 500,
 };

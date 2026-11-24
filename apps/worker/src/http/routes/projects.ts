@@ -4,12 +4,17 @@ import { dataClient, fetchProjectPreview } from "../../data-client.js";
 import type { Env } from "../../env";
 import { jsonError } from "../errors.js";
 import { sessionToken } from "../session.js";
+import { TURNSTILE_REQUIRED_MESSAGE, verifyTurnstileRequest } from "../turnstile.js";
 
 export const projectsRoutes = new Hono<{ Bindings: Env }>();
 
 projectsRoutes.post("/:id/downloads", async (c) => {
+  const token = sessionToken(c);
+  if (!token) return jsonError(c, "unauthorized", "Login required");
+  const verified = await verifyTurnstileRequest(c);
+  if (!verified.ok) return jsonError(c, "turnstile_required", TURNSTILE_REQUIRED_MESSAGE);
   const result = await dataClient(c.executionCtx).projectDownloads(
-    sessionToken(c),
+    token,
     c.req.param("id"),
     c.req.header("Idempotency-Key") ?? "",
   );
@@ -27,10 +32,14 @@ projectsRoutes.post("/:id/downloads", async (c) => {
 
 projectsRoutes.get("/:id/preview/:kind", async (c) => {
   c.header("Cache-Control", "private, no-store");
+  const token = sessionToken(c);
+  if (!token) return jsonError(c, "unauthorized", "Login required");
+  const verified = await verifyTurnstileRequest(c);
+  if (!verified.ok) return jsonError(c, "turnstile_required", TURNSTILE_REQUIRED_MESSAGE);
   const kind = projectPreviewKindSchema.safeParse(c.req.param("kind"));
   // Authentication takes precedence over kind validation, as in the original route.
   const result = await dataClient(c.executionCtx).projectPreviewTarget(
-    sessionToken(c),
+    token,
     c.req.param("id"),
     kind.success ? kind.data : null,
   );
@@ -50,8 +59,12 @@ projectsRoutes.get("/:id/preview/:kind", async (c) => {
 });
 
 projectsRoutes.post("/:id/acquisitions", async (c) => {
+  const token = sessionToken(c);
+  if (!token) return jsonError(c, "unauthorized", "Login required");
+  const verified = await verifyTurnstileRequest(c);
+  if (!verified.ok) return jsonError(c, "turnstile_required", TURNSTILE_REQUIRED_MESSAGE);
   const result = await dataClient(c.executionCtx).projectAcquisition(
-    sessionToken(c),
+    token,
     c.req.param("id"),
     c.req.header("x-client-version")?.trim(),
     c.req.header("x-client-channel")?.trim(),

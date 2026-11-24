@@ -16,6 +16,7 @@ import { type RefObject, useEffect, useRef, useState } from "react";
 import { api, formatUserError, type ProjectDetail as ProjectDetailResponse, type ProjectSummary } from "../../api";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { Markdown } from "../../lib/markdown";
+import { prefetchTurnstileToken } from "../../lib/turnstile";
 import type { DiscordPromptTarget } from "../policy/DiscordLinkPrompt";
 import { ProjectCommunity } from "./ProjectCommunity";
 import { ProjectExperienceNotes } from "./ProjectExperienceNotes";
@@ -106,6 +107,12 @@ export function ProjectDetail({
       active = false;
     };
   }, [detailReload, project.id]);
+
+  useEffect(() => {
+    if (loggedIn) {
+      void prefetchTurnstileToken();
+    }
+  }, [loggedIn]);
 
   const versionLabel = detail?.versionLabel ?? project.versionLabel ?? null;
   const projectType = detail?.projectType ?? project.projectType;

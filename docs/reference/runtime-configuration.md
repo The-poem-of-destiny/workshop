@@ -30,6 +30,7 @@ Tavern 客户端构建默认打开 `https://workshop.poem-of-destiny.3378469.xyz
 - `DISCORD_CLIENT_ID` 是 OAuth 应用 ID；`DISCORD_CLIENT_SECRET` 是服务端 secret，不写入 `vars` 或仓库。缺少 ID 时 flow 创建会返回本地 pending 地址而不是 Discord 授权地址；兑换授权码要求 ID 和 secret，缺失会失败。
 - `DISCORD_ALLOWED_GUILD_IDS` 是逗号分隔的公会 ID；登录时必须至少属于其中一个，空列表会拒绝。`DISCORD_GUILD_ROLE_IDS` 格式为 `公会ID:角色ID,角色ID;公会ID:角色ID`，公会及角色 ID 必须为 17 至 20 位数字；同公会条目合并，满足任一指定角色即可。未列角色要求的允许公会只检查成员资格。空角色配置表示不要求角色；非空配置格式无效会在创建 flow 和兑换时失败。顶层、staging 与 production 中 `1417861565679669272` 只检查公会，`1134557553011998840` 要求角色 `1335363403870502912`。OAuth 固定请求 `identify`、`guilds`，配置角色要求时另请求 `guilds.members.read`。
 - `SESSION_HASH_SECRET` 是会话令牌存储哈希的服务端 secret；存在时使用 HMAC-SHA-256，缺失时代码退回普通 SHA-256。配置或轮换 secret 会改变令牌哈希，已有会话可能失效，应事先安排重新登录。不要把缺省行为当作生产安全配置。
+- `TURNSTILE_SITE_KEY`（公开变量，见 `wrangler.jsonc`）与 `TURNSTILE_SECRET_KEY`（服务端 secret，通过 `wrangler secret put` 按环境录入）：两者同时非空时启用 Cloudflare Turnstile 人机校验，保护世界书/正则预览与下载获取接口；任一缺失时自动关闭，不影响本地开发与 E2E。
 - `MAINTENANCE_TOKEN` 是独立的运维 secret，按环境配置；不是用户会话或 Cloudflare API token。缺失时维护接口拒绝访问。维护关闭或协调器不可用时，静态资源、规范公开缓存读取以及经核实的纯读路径（`/api/v1/health`、客户端版本与兼容性查询、客户端脚本分发、伴随脚本版本读取、公开横幅图片）保持可用；所有可能写入的请求（含可能续期会话的鉴权读、可能使 OAuth flow 过期的状态查询、公开图片回填接口与未知路径）、定时任务及内容检查任务均阻断并返回 503 `maintenance`；绕过 Worker 的外部工具不受此绑定保护。排空与重新开放流程见[部署安全手册](../operations/deployment-safety.md#maintenance-barrier)。
 - `APP_VERSION` 缺省为 `dev`，用于 health 响应。`LOG_SAMPLE_RATE` 缺省 `0.1`，非有限数或不大于 0 时不采样非 5xx，大于 1 按 1 处理；5xx 始终记录。
 
