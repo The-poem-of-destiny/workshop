@@ -13,7 +13,11 @@ const SUBTITLE = "命定之诗与黄昏之歌";
 const TITLE_SCALE = 1.6;
 const SUBTITLE_SCALE = 1.7;
 
-// 定稿四色颜料：纯黑 #000000、薄荷青 #6FCEC7、电光玫红 #EC3362、明黄 #FFD43B
+const HEADLINE_FONT_FAMILY =
+  '"WorkshopLongZhu", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif';
+const SUBTITLE_FONT_FAMILY = '"WorkshopSerif", "Songti SC", "STSong", "Noto Serif SC", "SimSun", serif';
+
+// 定稿四色颜料：纯黑 #000000、薄荷青 #6FCEC8、朱砂暖橙 #FF3B1D、明黄 #FFD43B
 const INTRO_PALETTE: readonly [
   readonly [number, number, number],
   readonly [number, number, number],
@@ -21,8 +25,8 @@ const INTRO_PALETTE: readonly [
   readonly [number, number, number],
 ] = [
   [0.0, 0.0, 0.0],
-  [0.435, 0.808, 0.78],
-  [0.925, 0.2, 0.384],
+  [0.435, 0.808, 0.784],
+  [1.0, 0.231, 0.114],
   [1.0, 0.831, 0.231],
 ];
 
@@ -435,10 +439,10 @@ function mountIntroSplash(
   const textCtx = textCanvas.getContext("2d");
   const textTex = gl.createTexture();
   let textBoxHalfUV: [number, number] = [0.22, 0.09];
-  const fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
+  let disposed = false;
 
   const updateTopTextTexture = () => {
-    if (!textCtx || !textTex) return;
+    if (!textCtx || !textTex || disposed) return;
     const dpr = Math.min(window.devicePixelRatio || 1, MAX_MOBILE_SAFE_DPR);
     const w = Math.max(Math.floor(window.innerWidth * dpr), 2);
     const h = Math.max(Math.floor(window.innerHeight * dpr), 2);
@@ -459,24 +463,24 @@ function mountIntroSplash(
     textCtx.textBaseline = "middle";
     textCtx.fillStyle = "#FFFFFF";
 
-    textCtx.font = `900 ${titlePx}px ${fontFamily}`;
+    textCtx.font = `400 ${titlePx}px ${HEADLINE_FONT_FAMILY}`;
     const titleMeasured = textCtx.measureText(HEADLINE);
     if (titleMeasured.width > maxTextWidth && titleMeasured.width > 0) {
       titlePx = Math.max(Math.floor(titlePx * (maxTextWidth / titleMeasured.width)), Math.round(24 * dpr));
     }
 
-    textCtx.font = `700 ${subPx}px ${fontFamily}`;
+    textCtx.font = `700 ${subPx}px ${SUBTITLE_FONT_FAMILY}`;
     if ("letterSpacing" in textCtx) {
       (textCtx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${Math.round(subPx * 0.24)}px`;
     }
     const subMeasured = textCtx.measureText(SUBTITLE);
     if (subMeasured.width > maxTextWidth && subMeasured.width > 0) {
       subPx = Math.max(Math.floor(subPx * (maxTextWidth / subMeasured.width)), Math.round(10 * dpr));
-      textCtx.font = `700 ${subPx}px ${fontFamily}`;
+      textCtx.font = `700 ${subPx}px ${SUBTITLE_FONT_FAMILY}`;
     }
     textCtx.fillText(SUBTITLE, cx, cy - (titlePx * 0.62 + subPx * 0.75));
 
-    textCtx.font = `900 ${titlePx}px ${fontFamily}`;
+    textCtx.font = `400 ${titlePx}px ${HEADLINE_FONT_FAMILY}`;
     if ("letterSpacing" in textCtx) {
       (textCtx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing =
         `${Math.round(titlePx * 0.08)}px`;
@@ -509,6 +513,14 @@ function mountIntroSplash(
 
   window.addEventListener("resize", resizeViewport);
   resizeViewport();
+  if (document.fonts) {
+    void Promise.all([
+      document.fonts.load('400 48px "WorkshopLongZhu"'),
+      document.fonts.load('700 24px "WorkshopSerif"'),
+    ]).then(() => {
+      if (!disposed) updateTopTextTexture();
+    });
+  }
   markIntroSplashSeen();
 
   let elapsed = 0;
@@ -517,7 +529,6 @@ function mountIntroSplash(
   let morphTime = 0;
   let lastTick = 0;
   let rafId = 0;
-  let disposed = false;
   let reachedClimax = false;
 
   const cleanup = () => {
