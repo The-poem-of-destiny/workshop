@@ -45,14 +45,20 @@ export function loadTurnstileConfig(): Promise<TurnstileConfig> {
   if (!configPromise) {
     configPromise = fetch("/api/v1/turnstile/config", { credentials: "omit", headers: { accept: "application/json" } })
       .then(async (res) => {
-        if (!res.ok) return { enabled: false, siteKey: null };
+        if (!res.ok) {
+          configPromise = null;
+          return { enabled: false, siteKey: null };
+        }
         const data = (await res.json()) as { enabled?: unknown; siteKey?: unknown };
         return {
           enabled: data.enabled === true && typeof data.siteKey === "string" && data.siteKey.length > 0,
           siteKey: typeof data.siteKey === "string" && data.siteKey.length > 0 ? data.siteKey : null,
         };
       })
-      .catch(() => ({ enabled: false, siteKey: null }));
+      .catch(() => {
+        configPromise = null;
+        return { enabled: false, siteKey: null };
+      });
   }
   return configPromise;
 }

@@ -284,8 +284,9 @@ export async function requestBlob(url: string): Promise<Blob> {
   return response.blob();
 }
 
-export async function requestText(url: string): Promise<string> {
-  const response = await fetch(url, { headers: isSameOriginUrl(url) ? authHeaders() : {} });
+export async function requestText(url: string, extraHeaders?: Record<string, string>): Promise<string> {
+  const headers = isSameOriginUrl(url) ? { ...authHeaders(), ...(extraHeaders ?? {}) } : {};
+  const response = await fetch(url, { headers });
   if (!response.ok) await throwApiError(response);
   return response.text();
 }

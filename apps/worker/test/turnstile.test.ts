@@ -40,6 +40,7 @@ describe("Turnstile verification", () => {
         method: "POST",
         headers: authHeaders,
       }),
+      new Request("https://workshop.test/api/v1/downloads/proj-1/ver-1/worldbook", { headers: authHeaders }),
     ]) {
       const res = await app.fetch(req, env);
       expect(res.status).toBe(403);

@@ -83,7 +83,7 @@
 | POST `/projects/:id/downloads` | Bearer、`Idempotency-Key` UUID v4；返回当前可访问发布版的 201 `{versionId, files:[{kind,url}]}`。启用 Turnstile 且缺少或校验失败 `X-Turnstile-Token` 时返回 403 `turnstile_required`；缺少或非法幂等键 400；日获取上限 429；不可访问 404。 |
 | POST `/projects/:id/acquisitions` | Bearer、`Idempotency-Key` UUID v4，头 `X-Client-Version` 和 `X-Client-Channel: stable\|staging` 必须匹配当前频道；201 返回 project、release、downloads。启用 Turnstile 且缺少或校验失败 `X-Turnstile-Token` 时返回 403 `turnstile_required`；版本缺失或不匹配 426，发布版不可访问 404。 |
 | GET `/turnstile/config` | 公开；返回 `{enabled, siteKey}`，仅在服务端同时配置 `TURNSTILE_SITE_KEY` 与 `TURNSTILE_SECRET_KEY` 时 `enabled` 为 `true`。 |
-| GET `/downloads/:projectId/:versionId/:kind` | Bearer；直接实时验证登录、可见性、当前发布版和文件关联，返回文件流；无登录 401，不可访问／文件缺失 404。读取可重复，不签发或消费授权票据。 |
+| GET `/downloads/:projectId/:versionId/:kind` | Bearer；直接实时验证登录、可见性、当前发布版和文件关联，返回文件流；无登录 401，启用 Turnstile 且缺少或校验失败 `X-Turnstile-Token` 时返回 403 `turnstile_required`，不可访问／文件缺失 404。读取可重复，不签发或消费授权票据。 |
 | GET `/recommendations` | `{items}` 推荐列表；按更新时间倒序取最多 20 项，不适用下述 discovery 专有的 90 天、非作者、非空评语条件。 |
 | GET `/site` | 站点 banner 和内容。 |
 

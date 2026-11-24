@@ -379,7 +379,7 @@ export const api = {
       }),
     );
   },
-  downloadText: requestText,
+  downloadText: (url: string) => withTurnstileHeader((turnstileHeaders) => requestText(url, turnstileHeaders)),
   adminProjects: (search?: string) =>
     requestJson<AdminProjectList>(`/api/v1/admin/projects?limit=50${search ? `&search=${encode(search)}` : ""}`),
   adminMembers: (cursor?: string) =>
