@@ -28,7 +28,7 @@ Create task checkouts from refreshed `origin/main`, under the primary checkout's
 - Do not commit directly to `main`; integrate through a PR from the task branch.
 - Batch related code, tests, config and docs into one PR.
 - Do not open a PR for docs, comments or small config alone; fold them into the next change.
-- Run `pnpm check` and the relevant E2E tests before opening; report what actually ran.
+- Run `pnpm check` before opening a PR; run local `pnpm e2e:local` when changing core routes, state flows, or UI interactions (for small config/script/doc changes, targeted checks suffice and CI `e2e` covers the full suite). Report what actually ran.
 - Merge only when `check`, `e2e`, and `secrets` pass; delete task branches afterwards.
 
 ## Repository boundaries
