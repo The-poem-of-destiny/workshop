@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.8",
-    "knip": "6.45.1",
+    "knip": "6.48.0",
     "playwright": "1.65.1"
   },
   "engines": {
