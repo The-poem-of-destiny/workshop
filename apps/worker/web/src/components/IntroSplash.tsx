@@ -541,6 +541,11 @@ function mountIntroSplash(
     gl.deleteProgram(prog);
     gl.deleteShader(vs);
     gl.deleteShader(fs);
+    gl.getExtension("WEBGL_lose_context")?.loseContext();
+    textCanvas.width = 0;
+    textCanvas.height = 0;
+    canvas.width = 0;
+    canvas.height = 0;
   };
 
   const renderLoop = (now: number) => {
@@ -712,7 +717,7 @@ export function IntroSplash({ blocked }: { blocked: boolean }) {
               letterSpacing: "0.08em",
               backdropFilter: "blur(10px)",
               boxShadow: readyToEnter ? "0 10px 30px rgba(0, 0, 0, 0.45)" : "0 4px 16px rgba(0, 0, 0, 0.35)",
-              transition: "all 240ms ease",
+              transition: "border-color 240ms ease, background-color 240ms ease",
             }}
           >
             进入工坊

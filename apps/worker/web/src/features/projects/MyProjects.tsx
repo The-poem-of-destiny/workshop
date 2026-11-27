@@ -1,6 +1,13 @@
-import { ArrowLeft, Bookmark, BookOpen, Download, Plus, RefreshCcw, ThumbsUp } from "lucide-react";
+import { ArrowLeft, Bookmark, BookOpen, Download, Eye, Plus, RefreshCcw, ThumbsUp } from "lucide-react";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
-import { type AuthorCollection, type AuthorProject, api, formatUserError, getSessionGeneration } from "../../api";
+import {
+  type AuthorCollection,
+  type AuthorProject,
+  api,
+  formatUserError,
+  getSessionGeneration,
+  type ProjectSummary,
+} from "../../api";
 import { ConfirmDialog } from "../../components/ui/confirm-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../../components/ui/dialog";
 import "../../styles/workspaces.css";
@@ -29,6 +36,7 @@ const STATUS_LABELS: Record<ProjectStatus, string> = {
 
 export function MyProjects({
   onCreate,
+  onPreview,
   onError,
   onNotice,
   initialSelectedId,
@@ -36,6 +44,7 @@ export function MyProjects({
   onInitialSelectionConsumed,
 }: {
   onCreate: () => void;
+  onPreview?: (project: ProjectSummary, opener: HTMLElement) => void;
   onError: (message: string) => void;
   onNotice: (message: string) => void;
   initialSelectedId?: string | null;
@@ -278,6 +287,7 @@ export function MyProjects({
                         src={p.coverUrl!}
                         alt=""
                         loading="lazy"
+                        decoding="async"
                         onError={() => setFailedCovers((prev) => ({ ...prev, [p.id]: true }))}
                         style={{
                           objectPosition: `${p.coverPositionX ?? 50}% ${p.coverPositionY ?? 50}%`,
@@ -359,10 +369,23 @@ export function MyProjects({
                   草稿修改在审核通过前不会影响线上公开版本
                 </DialogDescription>
               </div>
-              <button type="button" className="task-return-btn" onClick={closeEditor}>
-                <ArrowLeft aria-hidden="true" />
-                <span>返回我的项目</span>
-              </button>
+              <div className="task-workspace-header-actions">
+                {onPreview && selected.project.visibility === "public" && selected.project.publishedVersionId ? (
+                  <button
+                    type="button"
+                    className="task-preview-btn"
+                    title="以读者视角预览线上公开页"
+                    onClick={(event) => onPreview(selected.project, event.currentTarget)}
+                  >
+                    <Eye aria-hidden="true" />
+                    <span>预览公开页</span>
+                  </button>
+                ) : null}
+                <button type="button" className="task-return-btn" onClick={closeEditor}>
+                  <ArrowLeft aria-hidden="true" />
+                  <span>返回我的项目</span>
+                </button>
+              </div>
             </header>
             <ProjectEditor
               entry={selected}

@@ -1,28 +1,29 @@
-import { ChevronLeft, ChevronRight, LayoutGrid, List, PanelLeftOpen, SlidersHorizontal, X } from "lucide-react";
-import type { RefObject } from "react";
+import { ChevronLeft, ChevronRight, LayoutGrid, List, SlidersHorizontal, X } from "lucide-react";
+import { type RefObject, useCallback } from "react";
 import type { ProjectSummary } from "../../api";
 import { Button } from "../../components/ui/button";
 import type { DiscordPromptTarget } from "../policy/DiscordLinkPrompt";
 import { CollectionAuthorBanner } from "../projects/CollectionAuthorBanner";
 import { ProjectCard } from "../projects/ProjectCard";
+import type { InstallState } from "../projects/ProjectDetail";
 import type { CatalogueState } from "./useCatalogue";
 import { SORTS } from "./useCatalogueFilters";
 
 export function WorkshopCatalogue({
   catalogue,
   isMobile,
-  sidebarCollapsed,
-  onExpandSidebar,
   onOpenMobileFilters,
+  subscribedIds,
+  installationState,
   detailOpener,
   setSelected,
   onDiscordPrompt,
 }: {
   catalogue: CatalogueState;
   isMobile: boolean;
-  sidebarCollapsed: boolean;
-  onExpandSidebar: () => void;
   onOpenMobileFilters: () => void;
+  subscribedIds: ReadonlySet<string>;
+  installationState: (project: ProjectSummary) => InstallState;
   detailOpener: RefObject<HTMLElement | null>;
   setSelected: (project: ProjectSummary | null) => void;
   onDiscordPrompt?: (target: DiscordPromptTarget) => void;
@@ -61,6 +62,13 @@ export function WorkshopCatalogue({
     changePage,
     nextCursor,
   } = catalogue;
+  const handleOpenProject = useCallback(
+    (item: ProjectSummary, opener: HTMLElement) => {
+      detailOpener.current = opener;
+      setSelected(item);
+    },
+    [detailOpener, setSelected],
+  );
   return (
     <section className="catalogue-section" aria-label="作品目录">
       <CollectionAuthorBanner
@@ -145,12 +153,6 @@ export function WorkshopCatalogue({
 
       <div className="catalogue-toolbar">
         <div className="catalogue-toolbar-lead">
-          {!isMobile && sidebarCollapsed ? (
-            <button type="button" className="sidebar-expand-btn" aria-label="展开筛选栏" onClick={onExpandSidebar}>
-              <PanelLeftOpen aria-hidden="true" />
-              <span>筛选栏</span>
-            </button>
-          ) : null}
           <h2 className="catalogue-heading">
             {collection ? "合集内作品" : author ? "该作者的作品" : hasFilters ? "筛选结果" : "全部作品"}
           </h2>
@@ -240,10 +242,9 @@ export function WorkshopCatalogue({
             key={project.id}
             project={project}
             layout={layout}
-            onOpen={(item, opener) => {
-              detailOpener.current = opener;
-              setSelected(item);
-            }}
+            subscribed={subscribedIds.has(project.id)}
+            installState={installationState(project)}
+            onOpen={handleOpenProject}
             onAuthor={setAuthor}
             onDiscordPrompt={onDiscordPrompt}
           />

@@ -1,11 +1,13 @@
-import { ArrowLeft, ChevronLeft, ChevronRight, RefreshCcw } from "lucide-react";
+import { ArrowLeft, RefreshCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, formatUserError, type ProjectPreview, type ProjectPreviewKind, type ProjectSummary } from "../../api";
 import { BehaviorConfiguration } from "./BehaviorConfiguration";
+import { EjsHighlightedContent } from "./EjsHighlightedContent";
 import "../../styles/task-workspaces.css";
 
 type PreviewKind = ProjectPreviewKind;
 type PreviewData = ProjectPreview;
+type PreviewEntrySort = "default" | "name" | "length" | "order";
 
 export function ProjectSourcePreview({
   project,
@@ -24,8 +26,10 @@ export function ProjectSourcePreview({
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewReload, setPreviewReload] = useState(0);
   const [previewSearch, setPreviewSearch] = useState("");
+  const [previewSort, setPreviewSort] = useState<PreviewEntrySort>("default");
   const [previewEntryKey, setPreviewEntryKey] = useState<string | null>(null);
   const [mobileReading, setMobileReading] = useState(false);
+  const [behaviorOpen, setBehaviorOpen] = useState(false);
   const [previewRequested, setPreviewRequested] = useState(false);
   const previews = useRef<Record<string, Promise<PreviewData>>>({});
   const previewRequest = useRef<{ generation: number } | null>(null);
@@ -77,16 +81,30 @@ export function ProjectSourcePreview({
     };
   }, [previewKind, previewReload, project.id, project.publishedVersionId, loggedIn, previewRequested]);
 
-  const previewEntries = (previewData?.entries ?? []).filter((entry) => {
+  const filteredEntries = (previewData?.entries ?? []).filter((entry) => {
     const query = previewSearch.trim().toLocaleLowerCase();
     return !query || `${entry.name} ${entry.key}`.toLocaleLowerCase().includes(query);
   });
+  const previewEntries =
+    previewSort === "default"
+      ? filteredEntries
+      : [...filteredEntries].sort((a, b) => {
+          if (previewSort === "name") {
+            return (a.name || a.key).localeCompare(b.name || b.key, "zh-CN", { numeric: true });
+          }
+          if (previewSort === "length") {
+            return b.content.length - a.content.length;
+          }
+          const orderA =
+            a.behavior?.kind === "worldbook" ? (a.behavior.order ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER;
+          const orderB =
+            b.behavior?.kind === "worldbook" ? (b.behavior.order ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER;
+          return orderA - orderB;
+        });
   const selectedPreview = previewEntries.find((entry) => entry.key === previewEntryKey) ?? previewEntries[0] ?? null;
   const selectedPreviewIndex = selectedPreview
     ? previewEntries.findIndex((entry) => entry.key === selectedPreview.key)
     : -1;
-  const previousPreview = selectedPreviewIndex > 0 ? previewEntries[selectedPreviewIndex - 1] : undefined;
-  const nextPreview = selectedPreviewIndex >= 0 ? previewEntries[selectedPreviewIndex + 1] : undefined;
 
   return (
     <section className="detail-section preview-section">
@@ -131,15 +149,28 @@ export function ProjectSourcePreview({
       {loggedIn && previewRequested && !previewLoading && !previewError && previewData ? (
         <div className={`preview-browser${mobileReading ? " is-mobile-reading" : ""}`}>
           <div className="preview-sidebar-pane">
-            <label className="preview-search">
-              <span className="sr-only">搜索条目</span>
-              <input
-                type="search"
-                value={previewSearch}
-                placeholder="筛选条目名称…"
-                onChange={(event) => setPreviewSearch(event.target.value)}
-              />
-            </label>
+            <div className="preview-sidebar-controls">
+              <label className="preview-search">
+                <span className="sr-only">搜索条目</span>
+                <input
+                  type="search"
+                  value={previewSearch}
+                  placeholder="筛选条目名称…"
+                  onChange={(event) => setPreviewSearch(event.target.value)}
+                />
+              </label>
+              <select
+                className="preview-sort-select"
+                aria-label="条目排序"
+                value={previewSort}
+                onChange={(event) => setPreviewSort(event.target.value as PreviewEntrySort)}
+              >
+                <option value="default">默认顺序</option>
+                <option value="name">按名称</option>
+                <option value="length">按字数</option>
+                {previewKind === "worldbook" ? <option value="order">按插入顺序</option> : null}
+              </select>
+            </div>
             <div className="preview-entry-list" role="listbox" aria-label="条目列表">
               {previewEntries.length ? (
                 previewEntries.map((entry) => (
@@ -182,29 +213,17 @@ export function ProjectSourcePreview({
                       {selectedPreviewIndex + 1} / {previewEntries.length} · {selectedPreview.content.length} 字
                     </p>
                   </div>
-                  <div className="preview-entry-nav">
-                    <button
-                      type="button"
-                      aria-label="上一条目"
-                      title="上一条目"
-                      disabled={!previousPreview}
-                      onClick={() => previousPreview && setPreviewEntryKey(previousPreview.key)}
-                    >
-                      <ChevronLeft aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="下一条目"
-                      title="下一条目"
-                      disabled={!nextPreview}
-                      onClick={() => nextPreview && setPreviewEntryKey(nextPreview.key)}
-                    >
-                      <ChevronRight aria-hidden="true" />
-                    </button>
-                  </div>
                 </div>
-                <BehaviorConfiguration entry={selectedPreview} />
-                <pre>{selectedPreview.content}</pre>
+                <BehaviorConfiguration
+                  entry={selectedPreview}
+                  open={behaviorOpen}
+                  onToggle={() => setBehaviorOpen((prev) => !prev)}
+                />
+                {previewKind === "worldbook" ? (
+                  <EjsHighlightedContent content={selectedPreview.content} />
+                ) : (
+                  <pre>{selectedPreview.content}</pre>
+                )}
               </>
             ) : (
               <p className="preview-empty">从左侧选择一条查看内容。</p>

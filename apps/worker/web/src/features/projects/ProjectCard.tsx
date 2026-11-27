@@ -1,10 +1,16 @@
 import { MAX_DISPLAY_TAGS } from "@workshop/domain";
-import { Bookmark, BookOpen, Download, History, MoreHorizontal, ThumbsUp } from "lucide-react";
-import { type MouseEvent, type PointerEvent, useEffect, useRef, useState } from "react";
+import { Bookmark, BookOpen, Check, Code2, Download, History, MoreHorizontal, ThumbsUp } from "lucide-react";
+import { type MouseEvent, memo, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectSummary } from "../../api";
 import { plainMarkdownExcerpt } from "../../lib/markdown";
 
 import type { DiscordPromptTarget } from "../policy/DiscordLinkPrompt";
+import type { InstallState } from "./ProjectDetail";
+import { ProjectTypeIcon } from "./projectTypeIcons";
+
+const FULL_NUM_FMT = new Intl.NumberFormat("zh-CN");
+const COMPACT_NUM_FMT = new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 });
+const TILT_MEDIA_QUERY = "(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)";
 
 function UploadDateIcon() {
   return (
@@ -27,15 +33,19 @@ function UploadDateIcon() {
 
 const cleanExcerpt = (text: string | null | undefined) => plainMarkdownExcerpt(text, "暂无简介");
 
-export function ProjectCard({
+export const ProjectCard = memo(function ProjectCard({
   project,
   onOpen,
   onAuthor,
   onDiscordPrompt,
   layout = "cards",
+  subscribed = false,
+  installState = "notInstalled",
 }: {
   project: ProjectSummary;
   layout?: "cards" | "list";
+  subscribed?: boolean;
+  installState?: InstallState;
   onOpen: (p: ProjectSummary, opener: HTMLElement) => void;
   onAuthor?: (author: { id: string; name: string }) => void;
   onDiscordPrompt?: (target: DiscordPromptTarget) => void;
@@ -45,6 +55,14 @@ export function ProjectCard({
   const hasCover = Boolean(project.coverUrl && project.coverUrl !== failedCoverUrl);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDetailsElement>(null);
+  const tiltBoundsRef = useRef<DOMRect | null>(null);
+  const tiltRafRef = useRef<number>(0);
+  const tiltEnabledRef = useRef<boolean>(false);
+  useEffect(() => {
+    return () => {
+      if (tiltRafRef.current) cancelAnimationFrame(tiltRafRef.current);
+    };
+  }, []);
   useEffect(() => {
     if (!menuOpen) return;
     function dismiss(event: globalThis.PointerEvent | KeyboardEvent): void {
@@ -63,26 +81,42 @@ export function ProjectCard({
       document.removeEventListener("keydown", dismiss);
     };
   }, [menuOpen]);
-  function tilt(event: PointerEvent<HTMLElement>): void {
-    if (
-      layout === "list" ||
-      menuOpen ||
-      event.pointerType !== "mouse" ||
-      !window.matchMedia("(hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)").matches
-    )
+  function enterTilt(event: PointerEvent<HTMLElement>): void {
+    if (layout === "list" || menuOpen || event.pointerType !== "mouse") {
+      tiltEnabledRef.current = false;
       return;
+    }
+    tiltEnabledRef.current = window.matchMedia(TILT_MEDIA_QUERY).matches;
+    if (!tiltEnabledRef.current) return;
+    tiltBoundsRef.current = event.currentTarget.getBoundingClientRect();
+  }
+  function tilt(event: PointerEvent<HTMLElement>): void {
+    if (!tiltEnabledRef.current || layout === "list" || menuOpen || event.pointerType !== "mouse") return;
     const card = event.currentTarget;
-    const bounds = card.getBoundingClientRect();
-    const x = Math.max(-0.5, Math.min(0.5, (event.clientX - bounds.left - bounds.width / 2) / card.offsetWidth));
-    const y = Math.max(-0.5, Math.min(0.5, (event.clientY - bounds.top - bounds.height / 2) / card.offsetHeight));
-    card.style.setProperty("--tilt-x", `${-y * 6}deg`);
-    card.style.setProperty("--tilt-y", `${x * 6}deg`);
+    const bounds = tiltBoundsRef.current ?? card.getBoundingClientRect();
+    tiltBoundsRef.current = bounds;
+    const x = Math.max(-0.5, Math.min(0.5, (event.clientX - bounds.left - bounds.width / 2) / bounds.width));
+    const y = Math.max(-0.5, Math.min(0.5, (event.clientY - bounds.top - bounds.height / 2) / bounds.height));
+    if (tiltRafRef.current) cancelAnimationFrame(tiltRafRef.current);
+    tiltRafRef.current = requestAnimationFrame(() => {
+      tiltRafRef.current = 0;
+      card.classList.add("is-tilting");
+      card.style.setProperty("--tilt-x", `${(-y * 6).toFixed(2)}deg`);
+      card.style.setProperty("--tilt-y", `${(x * 6).toFixed(2)}deg`);
+    });
   }
   function resetTilt(event: PointerEvent<HTMLElement>): void {
+    tiltEnabledRef.current = false;
+    tiltBoundsRef.current = null;
+    if (tiltRafRef.current) {
+      cancelAnimationFrame(tiltRafRef.current);
+      tiltRafRef.current = 0;
+    }
+    event.currentTarget.classList.remove("is-tilting");
     event.currentTarget.removeAttribute("style");
   }
   const open = (event: MouseEvent<HTMLElement>): void => onOpen(project, event.currentTarget);
-  const preview = cleanExcerpt(project.description);
+  const preview = useMemo(() => cleanExcerpt(project.description), [project.description]);
   const cardTags = project.tags.filter((tag) => tag !== project.projectType).slice(0, MAX_DISPLAY_TAGS);
   const updatedDate = project.updatedAt.slice(0, 10);
   const updatedShort = project.updatedAt.slice(5, 10);
@@ -135,7 +169,13 @@ export function ProjectCard({
       onClick={() => onAuthor(project.author)}
     >
       {project.author.avatarUrl && !avatarFailed ? (
-        <img src={project.author.avatarUrl} alt="" loading="lazy" onError={() => setAvatarFailed(true)} />
+        <img
+          src={project.author.avatarUrl}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          onError={() => setAvatarFailed(true)}
+        />
       ) : (
         <span className="avatar-fallback">{project.author.name.slice(0, 1)}</span>
       )}
@@ -144,7 +184,13 @@ export function ProjectCard({
   ) : (
     <p className="byline">
       {project.author.avatarUrl && !avatarFailed ? (
-        <img src={project.author.avatarUrl} alt="" loading="lazy" onError={() => setAvatarFailed(true)} />
+        <img
+          src={project.author.avatarUrl}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          onError={() => setAvatarFailed(true)}
+        />
       ) : (
         <span className="avatar-fallback">{project.author.name.slice(0, 1)}</span>
       )}
@@ -154,7 +200,9 @@ export function ProjectCard({
 
   return (
     <article
-      className={`card project-card--${layout}`}
+      className={`card project-card--${layout}${subscribed ? " is-subscribed" : ""}`}
+      data-type={project.projectType ?? undefined}
+      onPointerEnter={enterTilt}
       onPointerMove={tilt}
       onPointerLeave={resetTilt}
       onPointerCancel={resetTilt}
@@ -167,6 +215,7 @@ export function ProjectCard({
                 src={project.coverUrl!}
                 alt=""
                 loading="lazy"
+                decoding="async"
                 onError={() => setFailedCoverUrl(project.coverUrl)}
                 style={{
                   objectPosition: `${project.coverPositionX}% ${project.coverPositionY}%`,
@@ -174,15 +223,63 @@ export function ProjectCard({
                 }}
               />
             ) : (
-              <BookOpen aria-hidden="true" />
+              <span className="cover-placeholder-emblem" aria-hidden="true">
+                <ProjectTypeIcon type={project.projectType} />
+              </span>
             )}
           </span>
         </button>
+        {installState === "upToDate" || installState === "updateAvailable" || installState === "localChanged" ? (
+          <span
+            className={`card-install-badge card-install-badge--${installState}`}
+            title={
+              installState === "updateAvailable"
+                ? "有可安装的新版本"
+                : installState === "localChanged"
+                  ? "已安装（本地有修改）"
+                  : "已安装到酒馆"
+            }
+          >
+            {installState === "updateAvailable" ? (
+              <>
+                <span className="card-install-dot" aria-hidden="true" />
+                <span>可更新</span>
+              </>
+            ) : installState === "localChanged" ? (
+              <>
+                <Check aria-hidden="true" />
+                <span>已安装 · 已改</span>
+              </>
+            ) : (
+              <>
+                <Check aria-hidden="true" />
+                <span>已安装</span>
+              </>
+            )}
+          </span>
+        ) : null}
+        {subscribed ? (
+          <span className="card-subscribed-ribbon" title="已订阅">
+            <svg viewBox="0 0 16 28" fill="none" aria-hidden="true">
+              <path d="M0.5 0H15.5V26L8 20.5L0.5 26V0Z" fill="#d4ae6a" />
+              <path d="M0.5 26L8 20.5L15.5 26" stroke="#755522" strokeWidth="2.6" strokeLinejoin="miter" />
+            </svg>
+            <span className="sr-only">已订阅</span>
+          </span>
+        ) : null}
         {layout === "cards" ? moreMenu : null}
         {layout === "cards" ? (
           <div className="card-content-counts">
-            <span>世界书 {project.entries.worldbook}</span>
-            {project.entries.regex > 0 ? <span>正则 {project.entries.regex}</span> : null}
+            <span className="card-count-item">
+              <BookOpen className="card-count-icon" aria-hidden="true" />
+              世界书 {project.entries.worldbook}
+            </span>
+            {project.entries.regex > 0 ? (
+              <span className="card-count-item">
+                <Code2 className="card-count-icon" aria-hidden="true" />
+                正则 {project.entries.regex}
+              </span>
+            ) : null}
             <span className="card-version">
               {project.schemaVersion ? `适配 ${project.schemaVersion}` : ""}
               {project.schemaVersion && project.versionLabel ? " · " : ""}
@@ -193,13 +290,14 @@ export function ProjectCard({
       </div>
       {layout === "cards" && hasCover ? (
         <div className="card-tint" aria-hidden="true">
-          <img src={project.coverUrl ?? undefined} alt="" loading="lazy" />
+          <img src={project.coverUrl ?? undefined} alt="" loading="lazy" decoding="async" />
         </div>
       ) : null}
       <div className="card-body">
         <div className="card-title-row">
           {layout === "list" && project.projectType ? (
             <span className="project-type-tag list-inline-type" data-type={project.projectType}>
+              <ProjectTypeIcon type={project.projectType} className="project-type-icon" />
               {project.projectType}
             </span>
           ) : null}
@@ -237,6 +335,7 @@ export function ProjectCard({
           <div className="tags" title={[project.projectType, ...project.tags].join("、")}>
             {project.projectType ? (
               <span className="project-type-tag" data-type={project.projectType}>
+                <ProjectTypeIcon type={project.projectType} className="project-type-icon" />
                 {project.projectType}
               </span>
             ) : null}
@@ -254,29 +353,20 @@ export function ProjectCard({
             </span>
           ) : null}
           <div className="card-stat-group">
-            <span title={`下载 ${project.counts.downloads.toLocaleString("zh-CN")}`}>
+            <span title={`下载 ${FULL_NUM_FMT.format(project.counts.downloads)}`}>
               <Download className="card-stat-icon" aria-hidden="true" />
               <span className="sr-only">下载</span>
-              <strong>
-                {project.counts.downloads.toLocaleString("zh-CN", { notation: "compact", maximumFractionDigits: 1 })}
-              </strong>
+              <strong>{COMPACT_NUM_FMT.format(project.counts.downloads)}</strong>
             </span>
-            <span title={`点赞 ${project.counts.likes.toLocaleString("zh-CN")}`}>
+            <span title={`点赞 ${FULL_NUM_FMT.format(project.counts.likes)}`}>
               <ThumbsUp className="card-stat-icon" aria-hidden="true" />
               <span className="sr-only">点赞</span>
-              <strong>
-                {project.counts.likes.toLocaleString("zh-CN", { notation: "compact", maximumFractionDigits: 1 })}
-              </strong>
+              <strong>{COMPACT_NUM_FMT.format(project.counts.likes)}</strong>
             </span>
-            <span title={`订阅 ${project.counts.subscriptions.toLocaleString("zh-CN")}`}>
+            <span title={`订阅 ${FULL_NUM_FMT.format(project.counts.subscriptions)}`}>
               <Bookmark className="card-stat-icon" aria-hidden="true" />
               <span className="sr-only">订阅</span>
-              <strong>
-                {project.counts.subscriptions.toLocaleString("zh-CN", {
-                  notation: "compact",
-                  maximumFractionDigits: 1,
-                })}
-              </strong>
+              <strong>{COMPACT_NUM_FMT.format(project.counts.subscriptions)}</strong>
             </span>
           </div>
           {layout === "cards" ? (
@@ -317,4 +407,4 @@ export function ProjectCard({
       </div>
     </article>
   );
-}
+});

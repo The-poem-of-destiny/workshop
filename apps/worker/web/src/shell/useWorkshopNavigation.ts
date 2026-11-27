@@ -55,8 +55,13 @@ export function useWorkshopNavigation() {
   useEffect(() => {
     const header = headerRef.current;
     if (!header) return;
-    const observer = new ResizeObserver(() => {
-      header.parentElement?.style.setProperty("--header-height", `${header.getBoundingClientRect().height}px`);
+    let lastHeight = -1;
+    const observer = new ResizeObserver((entries) => {
+      const entryHeight = entries[0]?.borderBoxSize?.[0]?.blockSize;
+      const nextHeight = Math.round(entryHeight ?? header.getBoundingClientRect().height);
+      if (nextHeight === lastHeight) return;
+      lastHeight = nextHeight;
+      header.parentElement?.style.setProperty("--header-height", `${nextHeight}px`);
     });
     observer.observe(header);
     return () => observer.disconnect();

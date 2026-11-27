@@ -3,6 +3,9 @@ import {
   ArrowLeft,
   Bookmark,
   BookOpen,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
   Code2,
   Download,
   FolderOpen,
@@ -81,6 +84,7 @@ export function ProjectDetail({
   const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
   const [selectedMedia, setSelectedMedia] = useState(0);
   const [railCollapsed, setRailCollapsed] = useState(false);
+  const [collectionsOpen, setCollectionsOpen] = useState(true);
 
   const detailRequest = useRef<{ generation: number } | null>(null);
   useEffect(() => {
@@ -178,23 +182,6 @@ export function ProjectDetail({
                     <span key={type} className="detail-badge">
                       {type}
                     </span>
-                  ))}
-                </section>
-              ) : null}
-              {detail?.collections && detail.collections.length > 0 ? (
-                <section className="detail-meta-line detail-collections" aria-label="所属合集">
-                  {detail.collections.map((col) => (
-                    <button
-                      key={col.id}
-                      type="button"
-                      className="detail-collection-badge"
-                      title={col.description || `查看合集「${col.title}」内的全部作品`}
-                      onClick={() => onCollection?.({ id: col.id, title: col.title })}
-                    >
-                      <FolderOpen aria-hidden="true" />
-                      <span>{col.title}</span>
-                      <small>{col.projectCount}</small>
-                    </button>
                   ))}
                 </section>
               ) : null}
@@ -335,6 +322,46 @@ export function ProjectDetail({
                     : ""}
                 </p>
               </section>
+
+              {detail?.collections && detail.collections.length > 0 ? (
+                <section className="rail-section rail-collections" aria-label="所属合集">
+                  <button
+                    type="button"
+                    className="rail-collections-toggle"
+                    aria-expanded={collectionsOpen}
+                    onClick={() => setCollectionsOpen((prev) => !prev)}
+                  >
+                    <FolderOpen aria-hidden="true" />
+                    <span className="rail-collections-title">所属合集</span>
+                    <span className="rail-collections-count">{detail.collections.length}</span>
+                    <span className="rail-collections-chevron" aria-hidden="true">
+                      {collectionsOpen ? <ChevronUp /> : <ChevronDown />}
+                    </span>
+                  </button>
+                  {collectionsOpen ? (
+                    <div className="rail-collections-list">
+                      {detail.collections.map((col) => (
+                        <button
+                          key={col.id}
+                          type="button"
+                          className="rail-collection-item"
+                          title={col.description || `查看合集「${col.title}」内的全部作品`}
+                          onClick={() => onCollection?.({ id: col.id, title: col.title })}
+                        >
+                          <div className="rail-collection-row">
+                            <strong>{col.title}</strong>
+                            <span className="rail-collection-meta">
+                              {col.projectCount} 个作品
+                              <ChevronRight aria-hidden="true" />
+                            </span>
+                          </div>
+                          {col.description ? <p className="rail-collection-desc">{col.description}</p> : null}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
 
               <ProjectCommunity
                 project={project}

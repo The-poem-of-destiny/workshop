@@ -13,6 +13,7 @@ import {
 import { type Dispatch, type RefObject, type SetStateAction, useState } from "react";
 
 import type { CatalogueState } from "../features/catalogue/useCatalogue";
+import { ProjectTypeIcon } from "../features/projects/projectTypeIcons";
 import type { WorkshopView } from "./useWorkshopNavigation";
 import type { useWorkshopSession } from "./useWorkshopSession";
 
@@ -158,9 +159,9 @@ export function WorkshopSidebar({
         {isMobile && me
           ? (
               [
+                ["subs", CircleUserRound, "我的订阅", true],
                 ["projects", FolderKanban, "我的项目", true],
                 ["create", Plus, "创建项目", true],
-                ["subs", CircleUserRound, "我的订阅", true],
                 ["admin", ShieldCheck, "审核台", reviewer],
                 ["tools", SlidersHorizontal, "管理", me.role === "owner"],
               ] as const
@@ -216,6 +217,7 @@ export function WorkshopSidebar({
               <button
                 key={value}
                 type="button"
+                data-type={value}
                 className={`filter-chip${projectTypes.includes(value) ? " active" : ""}`}
                 aria-pressed={projectTypes.includes(value)}
                 onClick={() => {
@@ -231,6 +233,7 @@ export function WorkshopSidebar({
                   }
                 }}
               >
+                <ProjectTypeIcon type={value} className="project-type-icon" />
                 {value}
               </button>
             ))}
@@ -295,11 +298,12 @@ export function WorkshopSidebar({
             </section>
           ) : null}
           <div className="sidebar-tag-groups">
-            {groups.map((group) => {
+            {groups.map((group, groupIndex) => {
               const selectedCount = group.tags.filter((value) => tags.includes(value)).length;
               return (
                 <details
                   key={group.name}
+                  data-tone={groupIndex % 6}
                   className={`sidebar-tag-group${selectedCount > 0 ? " has-active" : ""}`}
                   open={selectedCount > 0}
                 >

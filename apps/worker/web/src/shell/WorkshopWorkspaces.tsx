@@ -135,6 +135,10 @@ export function WorkshopWorkspaces({
         initialSelectedId={newlyCreatedProjectId}
         onInitialSelectionConsumed={() => setNewlyCreatedProjectId(null)}
         onCreate={() => setView("create")}
+        onPreview={(project, opener) => {
+          detailOpener.current = opener;
+          setSelected(project);
+        }}
         onError={(message) => {
           setError(message);
           setNotice(null);
