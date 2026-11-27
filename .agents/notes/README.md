@@ -46,3 +46,7 @@ Archived notes are frozen historical evidence and are never edited. Repair inbou
 ### `in-progress/` (accepted, implementation deferred)
 
 - [`dual-frontend-migration.md`](in-progress/dual-frontend-migration.md) — long-term shared-backend dual-UI target; classic UI migration and switcher remain intentionally deferred while the new UI ships.
+
+### `proposed/` (pending asset & implementation)
+
+- [`post-intro-ambient-backdrop.md`](proposed/post-intro-ambient-backdrop.md) — post-intro page atmosphere proposal (tentatively Plan 1: pre-blurred tinted backdrop image layer, pending user-supplied image asset).
