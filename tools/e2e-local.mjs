@@ -998,13 +998,13 @@ async function main() {
             });
           const sortButton = (label) => page.locator(".sorts").getByRole("button", { name: label, exact: true });
           for (const [sort, label, metric] of [
-            ["updated", "最近更新", (item) => Date.parse(item.updatedAt)],
             ["published", "发布时间", (item) => Date.parse(item.publishedAt)],
+            ["updated", "最近更新", (item) => Date.parse(item.updatedAt)],
             ["downloads", "下载", (item) => item.counts.downloads],
             ["likes", "点赞", (item) => item.counts.likes],
           ]) {
             const apply = () =>
-              sort === "updated"
+              sort === "published"
                 ? page.getByRole("searchbox", { name: "搜索" }).fill("E2E")
                 : sortButton(label).click();
             const [response] = await Promise.all([sortRequest(sort), apply()]);

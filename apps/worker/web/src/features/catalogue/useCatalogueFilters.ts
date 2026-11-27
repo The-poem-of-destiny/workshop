@@ -2,8 +2,8 @@ import { MAX_SELECTED_TAGS, PROJECT_TYPES, type ProjectType } from "@workshop/do
 import { type Dispatch, type SetStateAction, useEffect, useReducer, useState } from "react";
 
 export const SORTS = [
-  ["updated", "最近更新"],
   ["published", "发布时间"],
+  ["updated", "最近更新"],
   ["downloads", "下载"],
   ["likes", "点赞"],
 ] as const;
@@ -97,7 +97,7 @@ export function useCatalogueFilters(): CatalogueFilters {
   const [author, setAuthorState] = useState<{ id: string; name: string } | null>(null);
   const [collection, setCollectionState] = useState<{ id: string; title: string } | null>(null);
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<CatalogueSort>("updated");
+  const [sort, setSort] = useState<CatalogueSort>("published");
 
   function setAuthor(value: { id: string; name: string } | null): void {
     setAuthorState(value);

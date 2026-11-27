@@ -193,7 +193,7 @@ export async function getHome(
       db,
       {
         limit: 25,
-        sort: "updated",
+        sort: "published",
         period: "all",
         projectType: [],
         tag: [],
