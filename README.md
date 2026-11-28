@@ -75,6 +75,10 @@ pnpm e2e:local             # 真实 workerd + 本地 D1/R2 + Chromium E2E
 
 本地角色预览使用 `pnpm preview:debug`；预览脚本必须显式读取机器本地地址 `PREVIEW_HOST`（可在未跟踪的根目录 `.env` 或环境变量中设置，参见 `.env.example`），缺失时启动会报错并退出，不会静默绑定默认地址。预览账号缺失、请求失败或响应格式无效时，页面会显示账号未就绪提示，仍可匿名浏览；依赖不可用账号的角色选项保持禁用。
 
+### 本体前端联调
+
+本体开发版接 Workshop staging，无需发布 production 或冻结旧站。按[联调配置](docs/reference/runtime-configuration.md#本体前端联调)同时配置 API 和客户端脚本，不改正式版默认值。
+
 ### 程序性质量门禁
 
 门禁脚本串联与精确参数以 [`package.json`](package.json) 为准：

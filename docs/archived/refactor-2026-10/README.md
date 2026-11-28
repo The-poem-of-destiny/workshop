@@ -10,9 +10,9 @@
 
 ## 本目录归档索引
 
-- **早期架构方案与阻塞记录**：[`brief.md`](brief.md)、[`design-comparison.md`](design-comparison.md)、[`main.md`](main.md)、[`api-design.md`](api-design.md)、[`blocked-decisions.md`](blocked-decisions.md)、[`next-work-plan.md`](next-work-plan.md)
-- **功能盘点与时点审计报告**：[`features.md`](features.md)、[`patch-audit.md`](patch-audit.md)、[`features-audit-a.md`](features-audit-a.md)、[`features-audit-b.md`](features-audit-b.md)、[`features-audit-merged.md`](features-audit-merged.md)、[`api-audit.md`](api-audit.md)、[`cicd-issues.md`](cicd-issues.md)、[`completion-audit.md`](completion-audit.md)
-- **早期前端对照与截图样本**：[`frontend-gap-2026-10-23.md`](frontend-gap-2026-10-23.md)、[`frontend-fidelity.md`](frontend-fidelity.md) 及配套历史截图目录 [`screenshots/`](screenshots/)
-- **早期迁移与切换阶段草稿**：[`p0-baseline.md`](p0-baseline.md)、[`p4-migration.md`](p4-migration.md)、[`p5-cutover.md`](p5-cutover.md)、[`p6-cleanup.md`](p6-cleanup.md)、[`migration-gates.md`](migration-gates.md)、[`r2-copy.md`](r2-copy.md)
+- **早期架构方案与阻塞记录**：[`brief.md`](brief.md)、[`design-comparison.md`](design-comparison.md)、[`main.md`](main.md)、[`api-design.md`](api-design.md)、[`blocked-decisions.md`](blocked-decisions.md)
+- **功能盘点与时点证据**：[`features.md`](features.md)、[`patch-audit.md`](patch-audit.md)、[`api-audit.md`](api-audit.md)、[`cicd-issues.md`](cicd-issues.md)、[`completion-audit.md`](completion-audit.md)、[`frontend-fidelity.md`](frontend-fidelity.md)
+- **迁移证据**：[`migration-gates.md`](migration-gates.md)、[`r2-copy.md`](r2-copy.md)。现行操作见[迁移手册](../../operations/legacy-data-migration.md)和[部署手册](../../operations/deployment-safety.md)。
+- **仅在 Git 历史保留**：[清理前的归档快照](https://github.com/The-poem-of-destiny/workshop/tree/99cf682d3a46b291bbcf80d74920ea6887ad1971/docs/archived/refactor-2026-10)包含旧前端报告与截图、三份功能审计、后续工作计划及 P0／P4／P5／P6 阶段材料。
 
 保留原因：早期架构与 API 演进背景、旧补丁盘点、已退役工具记录与历史阶段证据可追溯。原始 `model-deepseek.md` / `model-gpt.md` 已删除；其早期裁决结论保留在本目录 [`main.md`](main.md)，现行有效决策统一归口至 [`../../plans/refactor-2026-10/decisions.md`](../../plans/refactor-2026-10/decisions.md)。
