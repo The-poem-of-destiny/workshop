@@ -26,6 +26,37 @@
   .shell-body.sidebar-collapsed .sidebar {
     display: none;
   }
+  .desktop-sidebar-toggle {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: var(--header-control-height);
+    height: var(--header-control-height);
+    flex: none;
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--muted);
+  }
+  .desktop-sidebar-toggle:hover,
+  .desktop-sidebar-toggle.is-open {
+    border-color: rgba(207, 169, 110, 0.45);
+    background: rgba(207, 169, 110, 0.1);
+    color: var(--accent-strong);
+  }
+  .desktop-sidebar-toggle svg {
+    width: 17px;
+    height: 17px;
+  }
+  .desktop-sidebar-toggle .drawer-toggle-dot {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
   .sidebar-drawer-head,
   .sidebar-close,
   .sidebar-scrim,
@@ -36,7 +67,7 @@
     display: flex;
   }
   .workshop-main {
-    padding: 18px 28px 40px;
+    padding: 20px 28px 44px;
   }
 }
 
@@ -142,7 +173,7 @@
     display: none;
   }
   .site-header h1 {
-    font-size: 16.5px;
+    font-size: 20px;
   }
 }
 

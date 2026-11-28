@@ -1,4 +1,4 @@
-import { BookOpen, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, History } from "lucide-react";
+import { BookOpen, ChevronLeft, ChevronRight, History } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { DiscoveryResponse, ProjectSummary } from "../../api";
 import type { HomeLoadState } from "../../shell/useWorkshopHome";
@@ -7,41 +7,21 @@ import "../../styles/discovery.css";
 type DiscoveryProject = DiscoveryResponse["items"][number];
 
 function DiscoveryBackdrop({ coverUrl }: { coverUrl: string | null }) {
-  const [layers, setLayers] = useState<{ current: string | null; previous: string | null }>({
-    current: null,
-    previous: null,
-  });
-  useEffect(() => {
-    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const clearPrevious = () => {
-      if (preference.matches) {
-        setLayers((current) => (current.previous ? { ...current, previous: null } : current));
-      }
-    };
-    preference.addEventListener("change", clearPrevious);
-    return () => preference.removeEventListener("change", clearPrevious);
-  }, []);
+  const [currentUrl, setCurrentUrl] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
-    function show(url: string | null) {
-      if (!active) return;
-      setLayers((current) =>
-        current.current === url
-          ? current
-          : {
-              current: url,
-              previous: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? null : current.current,
-            },
-      );
-    }
     if (!coverUrl) {
-      show(null);
+      setCurrentUrl(null);
       return;
     }
     const image = new Image();
     image.decoding = "async";
-    image.onload = () => show(coverUrl);
-    image.onerror = () => show(null);
+    image.onload = () => {
+      if (active) setCurrentUrl(coverUrl);
+    };
+    image.onerror = () => {
+      if (active) setCurrentUrl(null);
+    };
     image.src = coverUrl;
     return () => {
       active = false;
@@ -51,16 +31,7 @@ function DiscoveryBackdrop({ coverUrl }: { coverUrl: string | null }) {
   }, [coverUrl]);
   return (
     <div className="discovery-tint" aria-hidden="true">
-      {layers.previous ? (
-        <img
-          key={`previous-${layers.previous}`}
-          className="discovery-tint-previous"
-          src={layers.previous}
-          alt=""
-          onAnimationEnd={() => setLayers((current) => ({ ...current, previous: null }))}
-        />
-      ) : null}
-      {layers.current ? <img key={layers.current} src={layers.current} alt="" /> : null}
+      {currentUrl ? <img key={currentUrl} src={currentUrl} alt="" decoding="async" /> : null}
     </div>
   );
 }
@@ -74,6 +45,7 @@ function Cover({ project }: { project: ProjectSummary }) {
           src={project.coverUrl}
           alt=""
           loading="lazy"
+          decoding="async"
           onError={() => setFailedUrl(project.coverUrl)}
           style={{
             objectPosition: `${project.coverPositionX ?? 50}% ${project.coverPositionY ?? 50}%`,
@@ -149,7 +121,6 @@ function DiscoveryBrowser({
   onOpen: (project: ProjectSummary, opener: HTMLElement) => void;
 }) {
   const [selectedId, setSelectedId] = useState(items[0]!.id);
-  const [collapsed, setCollapsed] = useState(false);
   const [failedAuthorAvatar, setFailedAuthorAvatar] = useState<string | null>(null);
   const buttons = useRef(new Map<string, HTMLButtonElement>());
   const panelId = useId();
@@ -193,49 +164,37 @@ function DiscoveryBrowser({
     }
   }
   return (
-    <section className={`discovery${collapsed ? " discovery-collapsed" : ""}`} aria-labelledby={`${panelId}-heading`}>
-      {!collapsed ? <DiscoveryBackdrop coverUrl={project.coverUrl} /> : null}
-      <header className="discovery-heading">
-        <h2 id={`${panelId}-heading`}>发现</h2>
-        <span className="discovery-caption">精选与新鲜推荐 · 试试看~</span>
-        <div className="discovery-navigation">
-          {!collapsed ? (
-            <>
-              <span aria-live="polite" aria-atomic="true">
-                {selectedIndex + 1} / {items.length}
-              </span>
-              <button
-                type="button"
-                aria-label="上一个发现项目"
-                disabled={items.length < 2}
-                onClick={() => select(selectedIndex - 1)}
-              >
-                <ChevronLeft aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                aria-label="下一个发现项目"
-                disabled={items.length < 2}
-                onClick={() => select(selectedIndex + 1)}
-              >
-                <ChevronRight aria-hidden="true" />
-              </button>
-            </>
-          ) : null}
-          <button
-            type="button"
-            className="discovery-fold-toggle"
-            aria-expanded={!collapsed}
-            aria-label={collapsed ? "展开发现栏" : "收起发现栏"}
-            title={collapsed ? "展开发现栏" : "收起发现栏"}
-            onClick={() => setCollapsed((prev) => !prev)}
-          >
-            {collapsed ? <ChevronDown aria-hidden="true" /> : <ChevronUp aria-hidden="true" />}
-          </button>
-        </div>
-      </header>
-      {!collapsed ? (
-        <div className="discovery-layout">
+    <section className="discovery" aria-labelledby={`${panelId}-heading`}>
+      <DiscoveryBackdrop coverUrl={project.coverUrl} />
+      <div className="discovery-split">
+        <div className="discovery-sidebar">
+          <header className="discovery-heading">
+            <div className="discovery-heading-top">
+              <h2 id={`${panelId}-heading`}>发现</h2>
+              <div className="discovery-navigation">
+                <span aria-live="polite" aria-atomic="true">
+                  {selectedIndex + 1} / {items.length}
+                </span>
+                <button
+                  type="button"
+                  aria-label="上一个发现项目"
+                  disabled={items.length < 2}
+                  onClick={() => select(selectedIndex - 1)}
+                >
+                  <ChevronLeft aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="下一个发现项目"
+                  disabled={items.length < 2}
+                  onClick={() => select(selectedIndex + 1)}
+                >
+                  <ChevronRight aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+            <span className="discovery-caption">精选与新鲜推荐 · 试试看~</span>
+          </header>
           <div
             className="discovery-directory"
             role="tablist"
@@ -278,61 +237,62 @@ function DiscoveryBrowser({
               </button>
             ))}
           </div>
-          <div
-            key={project.id}
-            className="discovery-detail"
-            id={`${panelId}-detail`}
-            role="tabpanel"
-            aria-labelledby={`${panelId}-tab-${selectedIndex}`}
-          >
-            <div className="discovery-visual">
-              <button
-                type="button"
-                className="discovery-main-image"
-                onClick={(event) => onOpen(project, event.currentTarget)}
-                aria-label={`查看 ${project.title} 详情`}
-              >
-                <Cover project={project} />
-                <span className="discovery-image-link">查看详情 ↗</span>
-              </button>
-            </div>
-            <div className="discovery-copy" key={project.id}>
-              <div className="discovery-copy-content">
-                <div className="discovery-meta-head">
-                  <span className="discovery-type" data-type={project.projectType}>
-                    {project.projectType}
-                  </span>
-                  <span className="discovery-dates" title={`最近更新：${project.updatedAt.slice(0, 10)}`}>
-                    <History aria-hidden="true" />
-                    <time dateTime={project.updatedAt}>{project.updatedAt.slice(0, 10)}</time>
-                  </span>
-                </div>
-                <h3>
-                  <button type="button" onClick={(event) => onOpen(project, event.currentTarget)}>
-                    {project.title}
-                  </button>
-                </h3>
-                <p className="discovery-author">
-                  <span className="discovery-author-avatar" aria-hidden="true">
-                    {project.author.avatarUrl && project.author.avatarUrl !== failedAuthorAvatar ? (
-                      <img
-                        src={project.author.avatarUrl}
-                        alt=""
-                        onError={() => setFailedAuthorAvatar(project.author.avatarUrl)}
-                      />
-                    ) : (
-                      project.author.name.slice(0, 1)
-                    )}
-                  </span>
-                  <span>{project.author.name}</span>
-                </p>
-                <p className="discovery-description">{excerpt(project.description, 170)}</p>
-                <DiscoveryRecommendations key={project.id} recommendations={project.recommendations} />
+        </div>
+        <div
+          key={project.id}
+          className="discovery-detail"
+          id={`${panelId}-detail`}
+          role="tabpanel"
+          aria-labelledby={`${panelId}-tab-${selectedIndex}`}
+        >
+          <div className="discovery-visual">
+            <button
+              type="button"
+              className="discovery-main-image"
+              onClick={(event) => onOpen(project, event.currentTarget)}
+              aria-label={`查看 ${project.title} 详情`}
+            >
+              <Cover project={project} />
+              <span className="discovery-image-link">查看详情 ↗</span>
+            </button>
+          </div>
+          <div className="discovery-copy" key={project.id}>
+            <div className="discovery-copy-content">
+              <div className="discovery-meta-head">
+                <span className="discovery-type" data-type={project.projectType}>
+                  {project.projectType}
+                </span>
+                <span className="discovery-dates" title={`最近更新：${project.updatedAt.slice(0, 10)}`}>
+                  <History aria-hidden="true" />
+                  <time dateTime={project.updatedAt}>{project.updatedAt.slice(0, 10)}</time>
+                </span>
               </div>
+              <h3>
+                <button type="button" onClick={(event) => onOpen(project, event.currentTarget)}>
+                  {project.title}
+                </button>
+              </h3>
+              <p className="discovery-author">
+                <span className="discovery-author-avatar" aria-hidden="true">
+                  {project.author.avatarUrl && project.author.avatarUrl !== failedAuthorAvatar ? (
+                    <img
+                      src={project.author.avatarUrl}
+                      alt=""
+                      decoding="async"
+                      onError={() => setFailedAuthorAvatar(project.author.avatarUrl)}
+                    />
+                  ) : (
+                    project.author.name.slice(0, 1)
+                  )}
+                </span>
+                <span>{project.author.name}</span>
+              </p>
+              <p className="discovery-description">{excerpt(project.description, 170)}</p>
+              <DiscoveryRecommendations key={project.id} recommendations={project.recommendations} />
             </div>
           </div>
         </div>
-      ) : null}
+      </div>
     </section>
   );
 }

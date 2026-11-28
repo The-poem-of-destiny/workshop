@@ -1,12 +1,12 @@
 .discovery {
-  --discovery-height: clamp(304px, 31svh, 328px);
+  --discovery-height: clamp(332px, 34svh, 372px);
   position: relative;
   isolation: isolate;
   height: var(--discovery-height);
   display: flex;
   flex-direction: column;
   margin: 0;
-  padding: 13px 18px 15px;
+  padding: 15px 20px;
   border: 1px solid rgba(207, 169, 110, 0.22);
   border-radius: 12px;
   background: #171a22;
@@ -15,52 +15,70 @@
     0 12px 30px rgba(0, 0, 0, 0.26);
   min-width: 0;
 }
-.discovery.discovery-collapsed {
-  height: auto;
-  padding: 9px 14px;
-}
 .discovery-tint {
   position: absolute;
   z-index: -1;
   inset: 0;
   overflow: hidden;
   border-radius: inherit;
+  contain: strict;
   pointer-events: none;
 }
 .discovery-tint img {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  top: 0;
+  left: 0;
+  width: 25%;
+  height: 25%;
   object-fit: cover;
-  transform: scale(1.15);
-  filter: blur(28px) saturate(0.85);
-  opacity: 0.45;
+  transform-origin: top left;
+  transform: scale(4.4);
+  filter: blur(10px) saturate(1.28) brightness(1.06);
+  opacity: 0.72;
 }
 .discovery-tint::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(95deg, rgba(20, 23, 30, 0.86), rgba(20, 23, 30, 0.72) 48%, rgba(20, 23, 30, 0.88));
+  background: linear-gradient(
+    95deg,
+    rgba(16, 19, 26, 0.58) 0%,
+    rgba(16, 19, 26, 0.34) 46%,
+    rgba(16, 19, 26, 0.56) 100%
+  );
 }
 .discovery-heading {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 4px;
   padding: 0 0 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   flex: none;
   min-width: 0;
 }
-.discovery.discovery-collapsed .discovery-heading {
-  padding-bottom: 0;
+.discovery-heading-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 .discovery h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   flex: none;
   margin: 0;
-  font-size: 15px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--accent-strong);
   white-space: nowrap;
+}
+.discovery h2::before {
+  content: "";
+  width: 3.5px;
+  height: 17px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--accent-strong), var(--accent));
 }
 .discovery-caption {
   min-width: 0;
@@ -73,21 +91,21 @@
 .discovery-navigation {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   margin-left: auto;
   flex: none;
 }
 .discovery-navigation > span {
-  margin-right: 4px;
+  margin-right: 3px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11.5px;
   font-variant-numeric: tabular-nums;
 }
 .discovery-navigation button {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: 1px solid var(--border-strong);
   border-radius: 5px;
@@ -99,17 +117,24 @@
   color: var(--text);
 }
 .discovery-navigation svg {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
 }
 .discovery-navigation button:disabled {
   opacity: 0.35;
 }
-.discovery-layout {
+.discovery-split {
   display: grid;
-  grid-template-columns: clamp(190px, 21%, 248px) minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: clamp(248px, 22%, 300px) minmax(0, 1fr);
+  gap: 20px;
   flex: 1;
+  min-height: 0;
+}
+.discovery-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
   min-height: 0;
 }
 .discovery-directory {
@@ -222,12 +247,13 @@
   display: block;
   height: 100%;
   aspect-ratio: 16 / 9;
-  max-width: min(448px, 40vw);
+  max-width: min(600px, 46vw);
   padding: 0;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
   background: var(--surface-muted);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.34);
   cursor: pointer;
 }
 .discovery-image-link {
@@ -274,6 +300,26 @@
   font-size: 11px;
   font-weight: 560;
 }
+.discovery-type[data-type="角色"] {
+  background: #312409;
+  color: #e1bb75;
+}
+.discovery-type[data-type="内容扩展"] {
+  background: #371d29;
+  color: #f2a7ca;
+}
+.discovery-type[data-type="系统核心"] {
+  background: #28223a;
+  color: #c6b4fa;
+}
+.discovery-type[data-type="规则扩展"] {
+  background: #10293a;
+  color: #87c9fb;
+}
+.discovery-type[data-type="体验优化"] {
+  background: #072d25;
+  color: #77d6bd;
+}
 .discovery-dates {
   display: inline-flex;
   align-items: center;
@@ -288,8 +334,9 @@
 }
 .discovery-copy h3 {
   margin: 0;
-  font-size: clamp(15px, 1.2vw, 17.5px);
-  line-height: 1.35;
+  font-size: clamp(17px, 1.35vw, 20px);
+  line-height: 1.32;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.45);
 }
 .discovery-copy h3 button {
   display: -webkit-box;
@@ -330,15 +377,29 @@
   overflow-wrap: anywhere;
 }
 .discovery-recommendation {
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   min-height: 0;
   flex: 1 1 auto;
   margin-top: 4px;
-  padding: 7px 12px 8px;
+  padding: 8px 13px 9px;
   border-left: 2px solid var(--accent);
-  background: rgba(15, 17, 22, 0.68);
+  background: rgba(13, 16, 22, 0.74);
   border-radius: 0 7px 7px 0;
+}
+.discovery-recommendation::after {
+  content: "“";
+  position: absolute;
+  bottom: -22px;
+  right: 12px;
+  font-family: "WorkshopSerif", Georgia, serif;
+  font-size: 64px;
+  line-height: 1;
+  color: rgba(207, 169, 110, 0.1);
+  pointer-events: none;
+  user-select: none;
 }
 .discovery-recommendation-heading {
   display: flex;
@@ -440,13 +501,13 @@
   padding: 10px 16px;
 }
 
-@media (max-width: 1100px) {
-  .discovery-layout {
-    grid-template-columns: 180px minmax(0, 1fr);
-    gap: 12px;
+@media (max-width: 1180px) {
+  .discovery-split {
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 14px;
   }
   .discovery-main-image {
-    max-width: 240px;
+    max-width: min(360px, 38vw);
   }
 }
 
@@ -455,9 +516,24 @@
     height: auto;
     padding: 11px 12px 12px;
   }
+  .discovery-split {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .discovery-sidebar {
+    display: contents;
+  }
   .discovery-heading {
-    gap: 8px;
-    padding-bottom: 8px;
+    order: 1;
+    gap: 4px;
+    padding-bottom: 6px;
+  }
+  .discovery-detail {
+    order: 2;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    gap: 9px;
   }
   .discovery-caption {
     display: none;
@@ -466,12 +542,8 @@
     width: 30px;
     height: 30px;
   }
-  .discovery-layout {
-    display: flex;
-    flex-direction: column-reverse;
-    gap: 9px;
-  }
   .discovery-directory {
+    order: 3;
     flex-direction: row;
     flex: none;
     overflow-x: auto;
@@ -498,11 +570,6 @@
   }
   .discovery-directory-text small {
     display: none;
-  }
-  .discovery-detail {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto;
-    gap: 9px;
   }
   .discovery-visual {
     height: auto;

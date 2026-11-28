@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 
-import { ApiError, formatApiErrorMessage, formatUserError, type ProjectSummary } from "./api";
+import { ApiError, api, formatApiErrorMessage, formatUserError, type ProjectSummary } from "./api";
 import { IntroSplash } from "./components/IntroSplash";
 import { TurnstileDialog } from "./components/TurnstileDialog";
 import { useCatalogue } from "./features/catalogue/useCatalogue";
@@ -151,6 +151,25 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [notice]);
   const [subscriptionOverrides, setSubscriptionOverrides] = useState<Record<string, boolean>>({});
+  const [subscribedIds, setSubscribedIds] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    if (!me) {
+      setSubscribedIds(new Set());
+      return;
+    }
+    let active = true;
+    api
+      .subscriptions()
+      .then((result) => {
+        if (active) setSubscribedIds(new Set(result.items.map((item) => item.id)));
+      })
+      .catch(() => {
+        // Non-blocking: card bookmark ribbons are decorative enhancements.
+      });
+    return () => {
+      active = false;
+    };
+  }, [me]);
   const previousView = useRef(view);
   useEffect(() => {
     if (previousView.current !== view) {
@@ -158,6 +177,15 @@ export function App() {
       setSubscriptionOverrides({});
     }
   }, [view]);
+  const onSubscriptionChange = (projectId: string, subscribed: boolean): void => {
+    setSubscribedIds((previous) => {
+      const next = new Set(previous);
+      if (subscribed) next.add(projectId);
+      else next.delete(projectId);
+      return next;
+    });
+    if (view === "subs") setSubscriptionOverrides((previous) => ({ ...previous, [projectId]: subscribed }));
+  };
   const refreshSession = useEffectEvent(() => void refreshMe());
   useEffect(() => {
     if (home.status === "error") {
@@ -218,6 +246,11 @@ export function App() {
         }}
         login={login}
         reviewer={reviewer}
+        installedAvailable={installedAvailable}
+        installedUpdateCount={installedUpdateCount}
+        showDesktopSidebar={showDesktopSidebar}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleDesktopSidebar={() => setSidebarCollapsed((prev) => !prev)}
       />
 
       {isMobile && sidebarOpen ? (
@@ -286,6 +319,7 @@ export function App() {
             setNotice={setNotice}
             newlyCreatedProjectId={newlyCreatedProjectId}
             subscriptionOverrides={subscriptionOverrides}
+            onSubscriptionChange={onSubscriptionChange}
             detailOpener={detailOpener}
             setSelected={setSelected}
             reviewer={reviewer}
@@ -308,9 +342,9 @@ export function App() {
             <WorkshopCatalogue
               catalogue={catalogue}
               isMobile={isMobile}
-              sidebarCollapsed={sidebarCollapsed}
-              onExpandSidebar={() => setSidebarCollapsed(false)}
               onOpenMobileFilters={() => setSidebarOpen(true)}
+              subscribedIds={subscribedIds}
+              installationState={installationState}
               detailOpener={detailOpener}
               setSelected={setSelected}
               onDiscordPrompt={setDiscordPrompt}
@@ -340,9 +374,7 @@ export function App() {
                   .join("、") || null
               }
               onError={setError}
-              onSubscriptionChange={(projectId, subscribed) => {
-                if (view === "subs") setSubscriptionOverrides((previous) => ({ ...previous, [projectId]: subscribed }));
-              }}
+              onSubscriptionChange={onSubscriptionChange}
               installState={selectedInstallState}
               loggedIn={Boolean(me)}
               installing={installing || installTarget !== null}
