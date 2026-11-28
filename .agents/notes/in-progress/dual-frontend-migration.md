@@ -10,7 +10,7 @@
 
 当前新站采用了不同于旧站的信息架构。继续在新版中逐项模仿旧版，会把新设计与经典体验混为同一验收目标。用户明确确认：staging 未拉取最新数据，数据差异正常；首页差异属于设计变化，不作为本轮界面缺陷或数据修复任务。
 
-此前已归档的[前端差距审计](../../../docs/archived/refactor-2026-10/frontend-gap-2026-10-23.md)保留观察证据，但其中以差异直接推定修复优先级的建议已被本决策部分取代。移动溢出等独立可用性问题不因设计变化而自动关闭。
+此前已归档的[前端差距审计](https://github.com/The-poem-of-destiny/workshop/blob/99cf682d3a46b291bbcf80d74920ea6887ad1971/docs/archived/refactor-2026-10/frontend-gap-2026-10-23.md)保留观察证据，但其中以差异直接推定修复优先级的建议已被本决策部分取代。移动溢出等独立可用性问题不因设计变化而自动关闭。
 
 ## 决策
 
@@ -68,5 +68,4 @@
 
 - 前端：`apps/worker/web/src/`；客户端桥接按现有协议使用，现行交互见[使用指南](../../../docs/guides/using-workshop.md)。
 - 历史界面映射归档：[frontend-fidelity.md](../../../docs/archived/refactor-2026-10/frontend-fidelity.md)。
-- 历史审计归档：[frontend-gap-2026-10-23.md](../../../docs/archived/refactor-2026-10/frontend-gap-2026-10-23.md)。
 - 后端、数据库、部署和 Git 远端操作不因本决策获得新增授权。
