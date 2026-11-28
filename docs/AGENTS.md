@@ -25,6 +25,10 @@ Do not create empty category directories in advance. Create a document or subtre
 
 `docs/archived/` contains human-facing documents that no longer describe the current project but remain useful as historical record. Archived documents are not current authority and must not be updated to reflect current behavior; write the current version at its active path. This is separate from `.agents/notes/archived/`, which stores frozen historical notes.
 
+- Default to Git history for completed phase plans, superseded drafts and point-in-time screenshots. Keep an archive in the current public tree only for a named ongoing use, such as decision rationale, migration evidence or an acceptance baseline. Identify the date, applicable revision and purpose.
+- Keep current instructions at their authoritative path. Before removing an archive, repair incoming links and use a fixed Git revision where readers still need the historical evidence.
+- Check screenshots, logs and exports for credentials, account identifiers and private user data before publishing. Deleting a file from the current tree does not remove it from Git history; handle exposure separately.
+
 ## Content boundaries
 
 - Put detailed current behavior, contracts, architecture and lookup information in `docs/`; source-directory README navigation is the colocated exception defined above.

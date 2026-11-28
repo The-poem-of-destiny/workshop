@@ -21,6 +21,17 @@
 
 Tavern 客户端构建默认打开 `https://workshop.poem-of-destiny.3378469.xyz`。构建时可用 `CW_DEFAULT_ORIGIN` 覆盖默认值；用户已保存的 `cw_worker_origin` 设置继续优先，不会随新构建改写。
 
+### 本体前端联调
+
+只在本体开发配置使用这一对入口：
+
+| 配置 | 值 |
+| --- | --- |
+| Workshop API origin | `https://workshop-staging.poem-of-destiny.3378469.xyz` |
+| 客户端脚本 | `https://assets-staging.poem-of-destiny.3378469.xyz/client/staging/index.js` |
+
+脚本使用 `staging` 频道，不用 `stable`。在独立的 SillyTavern 测试配置中确认已保存的 `cw_worker_origin` 也指向 staging。先检查目录 `GET /api/v1/projects?limit=1` 与脚本均返回 `200`；登录、订阅和安装使用测试账号及测试项目，不修改导入的真实作品。
+
 顶层配置声明 `ASSETS` 静态资源绑定，目录为 `./web/dist`，`run_worker_first` 仅包含 `["/", "/index.html"]`（用于在配置有效 HTTPS `PUBLIC_ASSETS_BASE_URL` 时将对应公开资源源追加进 HTML 的 `Content-Security-Policy` `img-src`；`/assets/*` 带一年 `immutable` 与 `nosniff` 响应头，`/api/*` 与 `/client/*` 无静态文件命中故直接进入 Worker）；`CONTENT_SERVICE` 是 `ContentService` Durable Object，使用 SQLite 类迁移 `v1`；`WRITE_BARRIER` 是 `WriteBarrier` Durable Object，使用 SQLite 类迁移 `v2`，各环境均声明绑定。`PUBLIC_COVERS` 与 `PUBLIC_ASSETS_BASE_URL` 同时配置时启用公开封面、画廊与横幅的独立 R2 副本分发，未配置时回退至 Worker 受控资源路径。D1 迁移目录为 `./migrations`，定时触发为每分钟。具体环境的资源、部署配置和最终绑定应在授权部署时核实，不能仅凭表中仓库值推断线上状态。
 
 ## 变量、secret 与认证
