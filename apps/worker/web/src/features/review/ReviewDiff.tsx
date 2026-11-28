@@ -108,7 +108,7 @@ export function ReviewDiff({ diff }: { diff: ReturnType<typeof useReviewQueue>["
                           <span className={`review-change review-change-${entry.change}`}>
                             {entry.change === "added" ? "+" : entry.change === "modified" ? "~" : "-"}
                           </span>
-                          <span>
+                          <span className="review-diff-entry-name">
                             {entry.name}{" "}
                             <small>
                               （{entry.entryKey}）

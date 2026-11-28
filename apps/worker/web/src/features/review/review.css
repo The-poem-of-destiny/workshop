@@ -59,13 +59,11 @@
 .review-button:hover:not(:disabled),
 .review-button:focus-visible {
   border-color: var(--accent);
-  outline: none;
 }
 
 .review-button:focus-visible,
 .review-queue-item:focus-visible,
 .review-load-more:focus-visible,
-.review-report summary:focus-visible,
 .review-findings summary:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -419,34 +417,12 @@
   border-bottom: 1px solid var(--review-line);
 }
 
-.review-report {
-  margin-top: 15px;
-  border: 1px solid var(--review-line);
-  border-radius: 5px;
-  background: var(--surface-muted);
-}
-
-.review-report summary,
 .review-findings summary {
   cursor: pointer;
   padding: 10px 12px;
   color: var(--muted);
   font-size: 13px;
   font-weight: 600;
-}
-
-.review-report pre {
-  max-height: 340px;
-  margin: 0;
-  padding: 13px;
-  overflow: auto;
-  border-top: 1px solid var(--review-line);
-  color: #d5d1c9;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
 .review-error-note {
@@ -514,7 +490,7 @@
   line-height: 1.45;
 }
 
-.review-diff-group li > span:last-child {
+.review-diff-entry-name {
   overflow-wrap: anywhere;
 }
 
@@ -1536,23 +1512,4 @@
   .review-comparison-values pre:last-child::before {
     content: "之后（本次提交）";
   }
-}
-.review-findings li strong {
-  color: var(--warning);
-  font-size: 11px;
-  text-transform: uppercase;
-}
-
-.review-findings li span {
-  overflow-wrap: anywhere;
-}
-
-.review-findings li small {
-  grid-column: 2;
-  color: var(--muted);
-  font-size: 11px;
-}
-.review-external-links h4 span {
-  color: var(--muted);
-  font-weight: 400;
 }

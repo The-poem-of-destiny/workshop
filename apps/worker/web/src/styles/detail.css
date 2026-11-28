@@ -1182,31 +1182,6 @@ button.detail-badge:hover {
   margin: 0;
 }
 
-.preview-entry-nav {
-  display: flex;
-  flex: none;
-  gap: 2px;
-}
-
-.preview-entry-nav button {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--text);
-}
-
-.preview-entry-nav button:disabled {
-  opacity: 0.4;
-}
-
-.preview-entry-nav svg {
-  width: 15px;
-  height: 15px;
-}
-
 .preview-back {
   display: none;
   align-items: center;

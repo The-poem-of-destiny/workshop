@@ -83,7 +83,7 @@
   color: #c4c2bd;
   font-size: 12px;
 }
-:where(.panel) input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+:where(.panel) input:where(:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"])),
 :where(.panel) textarea,
 :where(.panel) select {
   width: 100%;
@@ -93,7 +93,7 @@
   color: #e5e4e1;
   font-size: 12px;
 }
-:where(.panel) input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+:where(.panel) input:where(:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"])),
 :where(.panel) select {
   min-height: 34px;
   padding: 6px 8px;

@@ -150,7 +150,7 @@ button.workspace-primary,
   color: var(--muted);
   font-size: 13px;
 }
-.workspace-section input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+.workspace-section input:where(:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"])),
 .workspace-section select,
 .workspace-section textarea {
   width: 100%;
@@ -160,7 +160,7 @@ button.workspace-primary,
   color: var(--text);
   font-size: 13.5px;
 }
-.workspace-section input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+.workspace-section input:where(:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"])),
 .workspace-section select {
   min-height: var(--workspace-control-height);
   padding: 7px 10px;
