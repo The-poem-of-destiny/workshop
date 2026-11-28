@@ -7,10 +7,12 @@ export function Subscriptions({
   onOpen,
   onError,
   subscriptionOverrides,
+  onSubscriptionChange,
 }: {
   onOpen: (project: ProjectSummary, opener: HTMLElement) => void;
   onError: (message: string) => void;
   subscriptionOverrides: Record<string, boolean>;
+  onSubscriptionChange: (projectId: string, subscribed: boolean) => void;
 }) {
   const [items, setItems] = useState<ProjectSummary[]>([]);
   const [search, setSearch] = useState("");
@@ -66,6 +68,7 @@ export function Subscriptions({
     setRemoved((previous) => new Set(previous).add(project.id));
     try {
       await api.setSubscription(project.id, false);
+      onSubscriptionChange(project.id, false);
     } catch (reason) {
       setRemoved((previous) => {
         const next = new Set(previous);

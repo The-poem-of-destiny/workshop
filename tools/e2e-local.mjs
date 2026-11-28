@@ -1059,6 +1059,35 @@ async function main() {
           await page.locator(".detail").getByRole("button", { name: "已点赞", exact: true, pressed: true }).waitFor();
           await page.locator(".detail").getByRole("button", { name: "已点赞", exact: true, pressed: true }).click();
           await like.waitFor();
+          const preview = page.locator(".preview-section");
+          await preview.getByRole("button", { name: "展开世界书条目预览" }).click();
+          const sort = preview.getByRole("combobox", { name: "条目排序" });
+          await sort.selectOption("order");
+          await preview.getByRole("tab", { name: /^正则/ }).click();
+          await preview.getByRole("listbox").getByText("暂无条目。", { exact: true }).waitFor();
+          assert((await sort.inputValue()) === "default", "regex falls back from worldbook-only insertion order");
+          await preview.getByRole("tab", { name: /^世界书/ }).click();
+          await preview.getByRole("listbox").getByRole("option").first().waitFor();
+          assert((await sort.inputValue()) === "default", "worldbook displays the active sort when revisited");
+          await page.keyboard.press("Escape");
+          const card = page.locator(".card", { hasText: "E2E Project" }).first();
+          const bookmark = card.getByTitle("已订阅", { exact: true });
+          await bookmark.waitFor({ state: "visible" });
+          const nav = page.getByRole("navigation", { name: "个人导航" });
+          await nav.getByRole("button", { name: "我的订阅", exact: true }).click();
+          const row = page.locator(".subscription-row", { hasText: "E2E Project" });
+          const [unsubscribe] = await Promise.all([
+            page.waitForResponse(
+              (response) =>
+                response.url().endsWith(`/api/v1/me/subscriptions/${project.project.id}`) &&
+                response.request().method() === "DELETE",
+            ),
+            row.getByRole("button", { name: "取消订阅", exact: true }).click(),
+          ]);
+          assert(unsubscribe.status() === 204, "unsubscribe from My Subscriptions succeeds");
+          await nav.getByRole("button", { name: "浏览工坊", exact: true }).click();
+          await card.waitFor({ state: "visible" });
+          assert((await bookmark.count()) === 0, "catalogue card drops the bookmark without reloading");
           await context.close();
         });
 

@@ -177,6 +177,15 @@ export function App() {
       setSubscriptionOverrides({});
     }
   }, [view]);
+  const onSubscriptionChange = (projectId: string, subscribed: boolean): void => {
+    setSubscribedIds((previous) => {
+      const next = new Set(previous);
+      if (subscribed) next.add(projectId);
+      else next.delete(projectId);
+      return next;
+    });
+    if (view === "subs") setSubscriptionOverrides((previous) => ({ ...previous, [projectId]: subscribed }));
+  };
   const refreshSession = useEffectEvent(() => void refreshMe());
   useEffect(() => {
     if (home.status === "error") {
@@ -310,6 +319,7 @@ export function App() {
             setNotice={setNotice}
             newlyCreatedProjectId={newlyCreatedProjectId}
             subscriptionOverrides={subscriptionOverrides}
+            onSubscriptionChange={onSubscriptionChange}
             detailOpener={detailOpener}
             setSelected={setSelected}
             reviewer={reviewer}
@@ -364,15 +374,7 @@ export function App() {
                   .join("、") || null
               }
               onError={setError}
-              onSubscriptionChange={(projectId, subscribed) => {
-                setSubscribedIds((previous) => {
-                  const next = new Set(previous);
-                  if (subscribed) next.add(projectId);
-                  else next.delete(projectId);
-                  return next;
-                });
-                if (view === "subs") setSubscriptionOverrides((previous) => ({ ...previous, [projectId]: subscribed }));
-              }}
+              onSubscriptionChange={onSubscriptionChange}
               installState={selectedInstallState}
               loggedIn={Boolean(me)}
               installing={installing || installTarget !== null}

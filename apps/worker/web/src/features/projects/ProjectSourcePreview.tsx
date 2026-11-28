@@ -122,6 +122,7 @@ export function ProjectSourcePreview({
             className={previewKind === kind ? "is-active" : ""}
             onClick={() => {
               setPreviewKind(kind);
+              if (kind === "regex" && previewSort === "order") setPreviewSort("default");
               const cacheKey = JSON.stringify([project.id, project.publishedVersionId, kind]);
               setPreviewRequested(Boolean(previews.current[cacheKey]) || previewRequested);
             }}
