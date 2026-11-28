@@ -1088,6 +1088,9 @@ async function main() {
           await nav.getByRole("button", { name: "浏览工坊", exact: true }).click();
           await card.waitFor({ state: "visible" });
           assert((await bookmark.count()) === 0, "catalogue card drops the bookmark without reloading");
+          // Later author-workspace coverage starts with this same reading-list fixture.
+          const restored = await api(`/api/v1/me/subscriptions/${project.project.id}`, { method: "PUT" }, authorToken);
+          assert(restored.response.status === 204, "restore the author's subscription fixture");
           await context.close();
         });
 
