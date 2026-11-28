@@ -998,13 +998,13 @@ async function main() {
             });
           const sortButton = (label) => page.locator(".sorts").getByRole("button", { name: label, exact: true });
           for (const [sort, label, metric] of [
-            ["updated", "最近更新", (item) => Date.parse(item.updatedAt)],
             ["published", "发布时间", (item) => Date.parse(item.publishedAt)],
+            ["updated", "最近更新", (item) => Date.parse(item.updatedAt)],
             ["downloads", "下载", (item) => item.counts.downloads],
             ["likes", "点赞", (item) => item.counts.likes],
           ]) {
             const apply = () =>
-              sort === "updated"
+              sort === "published"
                 ? page.getByRole("searchbox", { name: "搜索" }).fill("E2E")
                 : sortButton(label).click();
             const [response] = await Promise.all([sortRequest(sort), apply()]);
@@ -1059,6 +1059,38 @@ async function main() {
           await page.locator(".detail").getByRole("button", { name: "已点赞", exact: true, pressed: true }).waitFor();
           await page.locator(".detail").getByRole("button", { name: "已点赞", exact: true, pressed: true }).click();
           await like.waitFor();
+          const preview = page.locator(".preview-section");
+          await preview.getByRole("button", { name: "展开世界书条目预览" }).click();
+          const sort = preview.getByRole("combobox", { name: "条目排序" });
+          await sort.selectOption("order");
+          await preview.getByRole("tab", { name: /^正则/ }).click();
+          await preview.getByRole("listbox").getByText("暂无条目。", { exact: true }).waitFor();
+          assert((await sort.inputValue()) === "default", "regex falls back from worldbook-only insertion order");
+          await preview.getByRole("tab", { name: /^世界书/ }).click();
+          await preview.getByRole("listbox").getByRole("option").first().waitFor();
+          assert((await sort.inputValue()) === "default", "worldbook displays the active sort when revisited");
+          await page.keyboard.press("Escape");
+          const card = page.locator(".card", { hasText: "E2E Project" }).first();
+          const bookmark = card.getByTitle("已订阅", { exact: true });
+          await bookmark.waitFor({ state: "visible" });
+          const nav = page.getByRole("navigation", { name: "个人导航" });
+          await nav.getByRole("button", { name: "我的订阅", exact: true }).click();
+          const row = page.locator(".subscription-row", { hasText: "E2E Project" });
+          const [unsubscribe] = await Promise.all([
+            page.waitForResponse(
+              (response) =>
+                response.url().endsWith(`/api/v1/me/subscriptions/${project.project.id}`) &&
+                response.request().method() === "DELETE",
+            ),
+            row.getByRole("button", { name: "取消订阅", exact: true }).click(),
+          ]);
+          assert(unsubscribe.status() === 204, "unsubscribe from My Subscriptions succeeds");
+          await nav.getByRole("button", { name: "浏览工坊", exact: true }).click();
+          await card.waitFor({ state: "visible" });
+          assert((await bookmark.count()) === 0, "catalogue card drops the bookmark without reloading");
+          // Later author-workspace coverage starts with this same reading-list fixture.
+          const restored = await api(`/api/v1/me/subscriptions/${project.project.id}`, { method: "PUT" }, authorToken);
+          assert(restored.response.status === 204, "restore the author's subscription fixture");
           await context.close();
         });
 

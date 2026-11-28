@@ -1,4 +1,5 @@
 import {
+  BookOpen,
   CircleHelp,
   CircleUserRound,
   Compass,
@@ -6,6 +7,8 @@ import {
   Link2,
   Link2Off,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
   ShieldAlert,
@@ -46,6 +49,11 @@ export function WorkshopHeader({
   hasFilters,
   view,
   reviewer,
+  installedAvailable,
+  installedUpdateCount,
+  showDesktopSidebar,
+  sidebarCollapsed,
+  onToggleDesktopSidebar,
 }: {
   headerRef: ReturnType<typeof useWorkshopNavigation>["headerRef"];
   isMobile: ReturnType<typeof useWorkshopNavigation>["isMobile"];
@@ -72,6 +80,11 @@ export function WorkshopHeader({
   hasFilters: boolean;
   view: ReturnType<typeof useWorkshopNavigation>["view"];
   reviewer: boolean;
+  installedAvailable: boolean;
+  installedUpdateCount: number | null;
+  showDesktopSidebar: boolean;
+  sidebarCollapsed: boolean;
+  onToggleDesktopSidebar: () => void;
 }) {
   return (
     <header ref={headerRef} className="site-header" inert={isMobile && sidebarOpen}>
@@ -88,6 +101,20 @@ export function WorkshopHeader({
           <Menu aria-hidden="true" />
           {hasFilters ? <span className="drawer-toggle-dot" aria-hidden="true" /> : null}
         </button>
+        {showDesktopSidebar ? (
+          <button
+            type="button"
+            className={`desktop-sidebar-toggle${!sidebarCollapsed ? " is-open" : ""}`}
+            aria-expanded={!sidebarCollapsed}
+            aria-controls="workshop-sidebar"
+            aria-label={sidebarCollapsed ? "展开筛选栏" : "收起筛选栏"}
+            title={sidebarCollapsed ? "展开筛选栏" : "收起筛选栏"}
+            onClick={onToggleDesktopSidebar}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
+            {sidebarCollapsed && hasFilters ? <span className="drawer-toggle-dot" aria-hidden="true" /> : null}
+          </button>
+        ) : null}
         <button
           type="button"
           className="brand-lockup brand-home-button"
@@ -115,16 +142,17 @@ export function WorkshopHeader({
             />
           </div>
         ) : null}
-        {me ? (
+        {me || installedAvailable ? (
           <nav className="personal-nav" aria-label="个人导航">
             {(
               [
                 ["browse", Compass, "浏览工坊", true],
-                ["projects", FolderKanban, "我的项目", true],
-                ["create", Plus, "创建项目", true],
-                ["subs", CircleUserRound, "我的订阅", true],
-                ["admin", ShieldCheck, "审核台", reviewer],
-                ["tools", SlidersHorizontal, "管理", me.role === "owner"],
+                ["subs", CircleUserRound, "我的订阅", Boolean(me)],
+                ["installed", BookOpen, "已安装", installedAvailable],
+                ["projects", FolderKanban, "我的项目", Boolean(me)],
+                ["create", Plus, "创建项目", Boolean(me)],
+                ["admin", ShieldCheck, "审核台", Boolean(me) && reviewer],
+                ["tools", SlidersHorizontal, "管理", me?.role === "owner"],
               ] as const
             ).map(([target, Icon, label, show]) =>
               show ? (
@@ -136,6 +164,14 @@ export function WorkshopHeader({
                 >
                   <Icon aria-hidden="true" />
                   {label}
+                  {target === "installed" && installedUpdateCount !== null && installedUpdateCount > 0 ? (
+                    <>
+                      <span className="nav-badge" aria-hidden="true">
+                        {installedUpdateCount}
+                      </span>
+                      <span className="sr-only">{installedUpdateCount} 个可更新</span>
+                    </>
+                  ) : null}
                 </button>
               ) : null,
             )}

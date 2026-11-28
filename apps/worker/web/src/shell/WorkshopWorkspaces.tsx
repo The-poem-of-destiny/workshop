@@ -65,6 +65,7 @@ export function WorkshopWorkspaces({
   setNotice,
   newlyCreatedProjectId,
   subscriptionOverrides,
+  onSubscriptionChange,
   detailOpener,
   setSelected,
   reviewer,
@@ -94,6 +95,7 @@ export function WorkshopWorkspaces({
   setNotice: (message: string | null) => void;
   newlyCreatedProjectId: string | null;
   subscriptionOverrides: Record<string, boolean>;
+  onSubscriptionChange: (projectId: string, subscribed: boolean) => void;
   detailOpener: RefObject<HTMLElement | null>;
   setSelected: (project: ProjectSummary | null) => void;
   reviewer: boolean;
@@ -135,6 +137,10 @@ export function WorkshopWorkspaces({
         initialSelectedId={newlyCreatedProjectId}
         onInitialSelectionConsumed={() => setNewlyCreatedProjectId(null)}
         onCreate={() => setView("create")}
+        onPreview={(project, opener) => {
+          detailOpener.current = opener;
+          setSelected(project);
+        }}
         onError={(message) => {
           setError(message);
           setNotice(null);
@@ -148,6 +154,7 @@ export function WorkshopWorkspaces({
   ) : view === "subs" && me ? (
     <Subscriptions
       subscriptionOverrides={subscriptionOverrides}
+      onSubscriptionChange={onSubscriptionChange}
       onOpen={(project, opener) => {
         detailOpener.current = opener;
         setSelected(project);

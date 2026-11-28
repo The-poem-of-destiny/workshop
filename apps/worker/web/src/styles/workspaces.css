@@ -200,6 +200,38 @@ button.workspace-primary,
   display: grid;
   gap: 8px;
 }
+.task-workspace-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.task-preview-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 540;
+  white-space: nowrap;
+  flex: none;
+}
+.task-preview-btn:hover {
+  border-color: rgba(207, 169, 110, 0.5);
+  background: rgba(207, 169, 110, 0.12);
+  color: var(--accent-strong);
+}
+.task-preview-btn svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
 .project-row.workspace-project-row {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr) auto;
